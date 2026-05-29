@@ -1,0 +1,41 @@
+<resources>
+    <string name="app_name">Bousygram</string>
+    <string name="auth_phone_hint">Phone number</string>
+    <string name="auth_code_hint">Login code</string>
+    <string name="auth_password_hint">2FA password</string>
+    <string name="auth_submit">Continue</string>
+    <string name="auth_api_title">Connect Telegram</string>
+    <string name="auth_submit_api">Save API keys</string>
+    <string name="auth_submit_phone">Submit phone</string>
+    
+    <string name="auth_qr_title">Scan QR to Sign In</string>
+    <string name="auth_qr_fallback_button">Log in with Phone Number instead</string>
+    <string name="auth_phone_to_qr_button">Log in with QR Code instead</string>
+    <string name="auth_qr_refresh_hint">Tip: Click QR Code or press D-pad Center to refresh it</string>
+    <string name="auth_qr_status_generating">Generating secure QR code…</string>
+    <string name="auth_qr_status_ready">Scan the QR code to log in instantly</string>
+    <string name="auth_qr_status_refreshing">Refreshing secure QR session…</string>
+    <string name="auth_qr_status_connecting">Connecting to Telegram secure server…</string>
+    <string name="auth_qr_scan_instructions">Scan the QR code with Telegram on a logged-in phone. Use the panel for refresh and phone sign-in.</string>
+    <string name="auth_api_id_label">API ID</string>
+    <string name="auth_api_hash_label">API Hash</string>
+    <string name="auth_api_id_placeholder">Example: 123456</string>
+    <string name="auth_api_hash_placeholder">Paste your Telegram API hash</string>
+    <string name="auth_phone_placeholder">Example: +15551234567</string>
+    <string name="auth_code_placeholder">Enter the code from Telegram</string>
+    <string name="auth_password_placeholder">Enter your Telegram cloud password</string>
+    <string name="auth_working">Working…</string>
+    <string name="auth_preparing_session">Preparing secure session…</string>
+    <string name="auth_signed_in">Signed in.</string>
+    <string name="auth_qr_preparing">Preparing QR</string>
+    <string name="auth_qr_content_description">Telegram QR code</string>
+    <string name="auth_refresh_short">Refresh</string>
+    <string name="auth_screen_starting">Starting</string>
+    <string name="auth_screen_ready">Ready</string>
+    <string name="auth_screen_scan">Scan to sign in</string>
+    <string name="auth_screen_phone">Enter phone number</string>
+    <string name="auth_screen_code">Enter login code</string>
+    <string name="auth_screen_password">Enter 2FA password</string>
+    <string name="auth_connection_default">Direct Telegram sign-in</string>
+
+</resources>

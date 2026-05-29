@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- === PREMIUM TELEGRAM-NETFLIX PALETTE === -->
+
+    <!-- Deep Space Backgrounds -->
+    <color name="bg_primary">#050814</color>
+
+    <!-- Telegram Electric Blue Accent System -->
+    <color name="tg_blue">#229ED9</color>
+
+    <!-- Typography -->
+
+    <!-- Card / Glass System -->
+
+    <!-- Header / Sidebar -->
+
+    <!-- Action Chips -->
+
+    <!-- Status Colors -->
+
+    <!-- Legacy aliases (kept for backward compatibility) -->
+</resources>
