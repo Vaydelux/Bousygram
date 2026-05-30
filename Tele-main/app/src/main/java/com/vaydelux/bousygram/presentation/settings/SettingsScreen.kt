@@ -26,12 +26,15 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.BuildConfig
+import com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner
+import com.vaydelux.bousygram.core.tdlib.cache.TelegramCacheStorageStats
 import com.vaydelux.bousygram.data.store.BufferMode
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
@@ -44,6 +47,7 @@ import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.components.FeatureRow
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -52,22 +56,37 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val adaptive = rememberAdaptiveMetrics()
     val clipboard = remember {
         context.getSystemService(ClipboardManager::class.java)
     }
+    val tdLibCacheDir = remember(context) { File(context.filesDir, "tdlib_files") }
     var safeMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
     var hideWatched by remember { mutableStateOf(EnterprisePreferences.hideWatched()) }
     var autoPlayNext by remember { mutableStateOf(EnterprisePreferences.autoPlayNext()) }
     var subtitlesDefault by remember { mutableStateOf(EnterprisePreferences.subtitlesDefault()) }
     var speed by remember { mutableFloatStateOf(EnterprisePreferences.preferredSpeed()) }
     var bufferMode by remember { mutableStateOf(EnterprisePreferences.bufferMode()) }
+    var storageRefresh by remember { mutableStateOf(0) }
+    var lastPruneResult by remember { mutableStateOf("Not run this session") }
     val playbackDiagnostics = remember { PlaybackDiagnostics.snapshot() }
-    val cacheSize by produceState(initialValue = 0L, context) {
+    val playbackReport = remember { PlaybackDiagnostics.sessionReport() }
+    val storageStats by produceState(
+        initialValue = TelegramCacheStorageStats(
+            appCacheBytes = 0L,
+            appFilesBytes = 0L,
+            tdLibCacheBytes = 0L,
+            cacheLimitBytes = TelegramCachePruner.CACHE_CEILING_BYTES
+        ),
+        context,
+        storageRefresh
+    ) {
         value = withContext(Dispatchers.IO) {
-            directorySize(context.cacheDir) + directorySize(context.filesDir)
+            TelegramCachePruner.storageStats(context, tdLibCacheDir)
         }
     }
+    val cacheSize = storageStats.totalBytes
     val diagnostics = remember(
         safeMode,
         hideWatched,
@@ -92,6 +111,7 @@ fun SettingsScreen(
                 item {
                     SettingsActions(
                         diagnostics = diagnostics,
+                        playbackReport = playbackReport,
                         clipboard = clipboard,
                         onBack = onBack
                     )
@@ -104,8 +124,21 @@ fun SettingsScreen(
                     speed = speed,
                     bufferMode = bufferMode,
                     cacheSize = cacheSize,
+                    storageStats = storageStats,
+                    lastPruneResult = lastPruneResult,
                     playbackDiagnostics = playbackDiagnostics,
                     diagnostics = diagnostics,
+                    playbackReport = playbackReport,
+                    onPruneCache = {
+                        scope.launch {
+                            lastPruneResult = "Pruning..."
+                            val result = withContext(Dispatchers.IO) {
+                                TelegramCachePruner.pruneCacheNow(context, tdLibCacheDir)
+                            }
+                            lastPruneResult = "Deleted ${result.deletedFiles}, freed ${formatBytes(result.freedBytes)}"
+                            storageRefresh++
+                        }
+                    },
                     onSafeMode = {
                         safeMode = it
                         EnterprisePreferences.setSafeMode(it)
@@ -141,6 +174,7 @@ fun SettingsScreen(
             ) {
                 SettingsActions(
                     diagnostics = diagnostics,
+                    playbackReport = playbackReport,
                     clipboard = clipboard,
                     onBack = onBack,
                     modifier = Modifier.width(280.dp)
@@ -160,8 +194,21 @@ fun SettingsScreen(
                         speed = speed,
                         bufferMode = bufferMode,
                         cacheSize = cacheSize,
+                        storageStats = storageStats,
+                        lastPruneResult = lastPruneResult,
                         playbackDiagnostics = playbackDiagnostics,
                         diagnostics = diagnostics,
+                        playbackReport = playbackReport,
+                        onPruneCache = {
+                            scope.launch {
+                                lastPruneResult = "Pruning..."
+                                val result = withContext(Dispatchers.IO) {
+                                    TelegramCachePruner.pruneCacheNow(context, tdLibCacheDir)
+                                }
+                                lastPruneResult = "Deleted ${result.deletedFiles}, freed ${formatBytes(result.freedBytes)}"
+                                storageRefresh++
+                            }
+                        },
                         onSafeMode = {
                             safeMode = it
                             EnterprisePreferences.setSafeMode(it)
@@ -201,8 +248,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
     speed: Float,
     bufferMode: BufferMode,
     cacheSize: Long,
+    storageStats: TelegramCacheStorageStats,
+    lastPruneResult: String,
     playbackDiagnostics: PlaybackDiagnosticsSnapshot,
     diagnostics: String,
+    playbackReport: String,
+    onPruneCache: () -> Unit,
     onSafeMode: (Boolean) -> Unit,
     onHideWatched: (Boolean) -> Unit,
     onAutoPlayNext: (Boolean) -> Unit,
@@ -267,19 +318,29 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
                 }
                 item {
                     Section("Storage Manager") {
-                        FeatureRow("Local app/cache footprint", formatBytes(cacheSize), {})
+                        FeatureRow("Total local footprint", formatBytes(cacheSize), {})
+                        FeatureRow("App cache", formatBytes(storageStats.appCacheBytes), {})
+                        FeatureRow("App files", formatBytes(storageStats.appFilesBytes), {})
+                        FeatureRow("TDLib media cache", formatBytes(storageStats.tdLibCacheBytes), {})
+                        FeatureRow("Cache limit", formatBytes(storageStats.cacheLimitBytes), {})
+                        FeatureRow("Prune cache now", lastPruneResult, onPruneCache)
                         FeatureRow("Background full-video cache", "Disabled", {})
-                        FeatureRow("Offline pins", "Managed per video", {})
+                        FeatureRow("Partial playback cache", "Kept for resume", {})
                     }
                 }
                 item {
                     Section("Playback Diagnostics") {
                         FeatureRow("First frame", "${playbackDiagnostics.firstFrameMs} ms", {})
+                        FeatureRow("Session", playbackDiagnostics.sessionId, {})
+                        FeatureRow("Active file", playbackDiagnostics.activeFileId.toString(), {})
                         FeatureRow("Retries / rebuffers", "${playbackDiagnostics.retryCount} / ${playbackDiagnostics.rebufferCount}", {})
                         FeatureRow("Decoder", playbackDiagnostics.decoderName, {})
                         FeatureRow("Dropped frames", playbackDiagnostics.droppedFrames.toString(), {})
+                        FeatureRow("Current byte", playbackDiagnostics.currentOffset.toString(), {})
                         FeatureRow("Active chunks", playbackDiagnostics.activeChunkCount.toString(), {})
                         FeatureRow("Last stalled byte", playbackDiagnostics.lastStalledOffset.toString(), {})
+                        FeatureRow("Stall reason", playbackDiagnostics.stallReason, {})
+                        FeatureRow("Cache stop", playbackDiagnostics.cacheStopReason, {})
                         FeatureRow("Proxy status", playbackDiagnostics.proxyStatus, {})
                         FeatureRow("Read source", playbackDiagnostics.readSource, {})
                     }
@@ -287,7 +348,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
                 item {
                     Section("Diagnostics") {
                         Text(
-                            diagnostics,
+                            diagnostics + "\n\n" + playbackReport,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(14.dp)
@@ -299,6 +360,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
 @Composable
 private fun SettingsActions(
     diagnostics: String,
+    playbackReport: String,
     clipboard: ClipboardManager?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -323,10 +385,11 @@ private fun SettingsActions(
             onClick = {
                 runCatching {
                     val file = File(context.cacheDir, "bousygram-diagnostics.txt")
-                    file.writeText(diagnostics)
+                    val report = diagnostics + "\n\n" + playbackReport
+                    file.writeText(report)
                     val send = Intent(Intent.ACTION_SEND)
                         .setType("text/plain")
-                        .putExtra(Intent.EXTRA_TEXT, diagnostics)
+                        .putExtra(Intent.EXTRA_TEXT, report)
                     val chooser = Intent.createChooser(send, "Export diagnostics")
                     val canHandle = chooser.resolveActivity(context.packageManager) != null
                     if (canHandle) {
@@ -336,6 +399,24 @@ private fun SettingsActions(
                     }
                 }.onFailure { error ->
                     EnterprisePreferences.setLastError(error.message ?: "Diagnostics export failed")
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        BousygramButton(
+            "Copy playback report",
+            onClick = {
+                runCatching {
+                    val manager = clipboard
+                    if (manager == null) {
+                        EnterprisePreferences.setLastError("Clipboard service unavailable")
+                        return@runCatching
+                    }
+                    manager.setPrimaryClip(
+                        ClipData.newPlainText("Bousygram playback report", playbackReport)
+                    )
+                }.onFailure { error ->
+                    EnterprisePreferences.setLastError(error.message ?: "Playback report export failed")
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -386,12 +467,6 @@ private fun Section(
             content()
         }
     }
-}
-
-private fun directorySize(file: File?): Long {
-    if (file == null || !file.exists()) return 0L
-    if (file.isFile) return file.length()
-    return file.listFiles()?.sumOf { directorySize(it) } ?: 0L
 }
 
 private fun formatBytes(bytes: Long): String {

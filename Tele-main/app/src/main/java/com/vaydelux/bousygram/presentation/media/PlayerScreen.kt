@@ -77,6 +77,10 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.PlayerView
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
+import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
+import com.vaydelux.bousygram.core.media.PlaybackRetryDecision
+import com.vaydelux.bousygram.core.media.PlaybackSession
+import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.StreamingSessionManager
 import com.vaydelux.bousygram.core.media.TelegramProxyPlayerFactory
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
@@ -98,8 +102,6 @@ import kotlinx.coroutines.withContext
 private const val SEEK_INCREMENT_MS = 10_000L
 private const val BUFFERING_STALL_MS = 22_000L
 private const val MAX_AUTO_RETRIES = 5
-private const val CACHE_AHEAD_LEAD_MS = 30_000L
-private const val STARTUP_CACHE_AHEAD_LEAD_MS = 12_000L
 private const val CACHE_AHEAD_REFRESH_MS = 10_000L
 
 @OptIn(UnstableApi::class)
@@ -166,6 +168,7 @@ fun PlayerScreen(
     var decoderName by remember { mutableStateOf("Unknown") }
     var droppedFrames by remember { mutableIntStateOf(0) }
     var cacheState by remember { mutableStateOf(PlaybackCacheState.Preparing) }
+    var playbackSession by remember { mutableStateOf<PlaybackSession?>(null) }
 
     fun recordMetrics() {
         PlaybackDiagnostics.recordPlayerMetrics(
@@ -206,14 +209,17 @@ fun PlayerScreen(
     val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
 
-    fun stopCurrentCache() {
-        queue.getOrNull(queueIndex)?.fileId?.let { fileId ->
-            TelegramPreCacheEngine.stopCaching(fileId)
+    fun stopCurrentCache(reason: PlaybackCacheStopReason) {
+        val session = playbackSession
+        if (session != null) {
+            PlaybackSessionController.stop(session, reason)
+            return
         }
+        queue.getOrNull(queueIndex)?.fileId?.let { fileId -> TelegramPreCacheEngine.stopCaching(fileId) }
     }
 
     fun exitPlayback() {
-        stopCurrentCache()
+        stopCurrentCache(PlaybackCacheStopReason.Back)
         onExit()
     }
 
@@ -223,7 +229,8 @@ fun PlayerScreen(
         if (oldItem.fileId > 0 && player.currentPosition > 0) {
             PlaybackProgressTracker.savePosition(oldItem.fileId, player.currentPosition.toInt(), duration)
         }
-        TelegramPreCacheEngine.stopCaching(oldItem.fileId)
+        stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
+        playbackSession = null
         reloadNonce = 0
         retryCount = 0
         isReconnecting = false
@@ -284,6 +291,9 @@ fun PlayerScreen(
                     if (current != null && fileSizeBytes > 0L) {
                         TelegramPreCacheEngine.cacheFullVideoOnWifi(context, current.fileId, fileSizeBytes)
                     }
+                    playbackSession?.let { session ->
+                        PlaybackSessionController.recordFirstFrame(session, firstFrameMs)
+                    }
                 }
             }
 
@@ -296,6 +306,12 @@ fun PlayerScreen(
                 val retryPosition = maxOf(player.currentPosition, lastGoodPosition).coerceAtLeast(0L)
                 lastGoodPosition = retryPosition
                 hudVisible = true
+                val session = playbackSession
+                val retryDecision = if (session != null) {
+                    PlaybackSessionController.recordError(session, error, retryCount)
+                } else {
+                    PlaybackRetryDecision.RetrySameQuality
+                }
                 if (item != null) {
                     StructuredPlaybackLogger.error(
                         event = "player_error",
@@ -315,9 +331,19 @@ fun PlayerScreen(
                     isReconnecting = true
                     isBuffering = true
                     playbackError = null
-                    LocalStreamingServer.prefetchAtPosition(item.fileId, fileSizeBytes, retryPosition, duration)
+                    if (retryDecision == PlaybackRetryDecision.CacheFirstRetry && session != null) {
+                        PlaybackSessionController.cacheAhead(
+                            session = session,
+                            totalSize = fileSizeBytes,
+                            positionMs = retryPosition,
+                            durationMs = duration,
+                            startup = true
+                        )
+                    } else {
+                        LocalStreamingServer.prefetchAtPosition(item.fileId, fileSizeBytes, retryPosition, duration)
+                    }
                     scope.launch {
-                        delay(autoRetryDelayMs(retryCount))
+                        delay(if (retryDecision == PlaybackRetryDecision.CacheFirstRetry) 2_500L else autoRetryDelayMs(retryCount))
                         if (queue.getOrNull(queueIndex)?.fileId == item.fileId && playbackError == null) {
                             reloadNonce++
                         }
@@ -361,7 +387,7 @@ fun PlayerScreen(
             }
             player.removeListener(listener)
             player.removeAnalyticsListener(analyticsListener)
-            TelegramPreCacheEngine.stopCaching(current.fileId)
+            stopCurrentCache(PlaybackCacheStopReason.Dispose)
             audioFocusController.abandon()
             mediaSession.release()
             player.release()
@@ -381,7 +407,7 @@ fun PlayerScreen(
                 }
                 Lifecycle.Event.ON_RESUME -> if (player.playWhenReady) player.play()
                 Lifecycle.Event.ON_STOP -> {
-                    stopCurrentCache()
+                    stopCurrentCache(PlaybackCacheStopReason.LifecycleStop)
                     streamingSessionManager.releaseLocks()
                 }
                 else -> Unit
@@ -390,7 +416,7 @@ fun PlayerScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            stopCurrentCache()
+            stopCurrentCache(PlaybackCacheStopReason.Dispose)
             streamingSessionManager.releaseLocks()
         }
     }
@@ -403,6 +429,7 @@ fun PlayerScreen(
         decoderName = "Unknown"
         lastGoodPosition = 0L
         lastAheadPrefetchPosition = 0L
+        playbackSession = null
         cacheState = PlaybackCacheState.Preparing
         isReconnecting = false
         playbackError = null
@@ -462,11 +489,14 @@ fun PlayerScreen(
         val resumePosition = lastGoodPosition
             .takeIf { it > 0L }
             ?: PlaybackProgressTracker.getPosition(item.fileId, duration).toLong()
-        TelegramPreCacheEngine.cacheAhead(
-            item.fileId,
-            fileSizeBytes,
-            resumePosition + STARTUP_CACHE_AHEAD_LEAD_MS,
-            duration
+        val session = PlaybackSessionController.start(item.fileId, resumePosition)
+        playbackSession = session
+        PlaybackSessionController.cacheAhead(
+            session = session,
+            totalSize = fileSizeBytes,
+            positionMs = resumePosition,
+            durationMs = duration,
+            startup = true
         )
         player.stop()
         player.clearMediaItems()
@@ -531,17 +561,17 @@ fun PlayerScreen(
             if (position > lastGoodPosition && player.playbackState == Player.STATE_READY) {
                 lastGoodPosition = position
             }
+            playbackSession?.let { session ->
+                PlaybackSessionController.recordProgress(session, position, fileSizeBytes, duration)
+            }
             if (position > 0L &&
                 duration > 0L &&
                 fileSizeBytes > 0L &&
                 position - lastAheadPrefetchPosition >= CACHE_AHEAD_REFRESH_MS
             ) {
-                TelegramPreCacheEngine.cacheAhead(
-                    current.fileId,
-                    fileSizeBytes,
-                    position + CACHE_AHEAD_LEAD_MS,
-                    duration
-                )
+                playbackSession?.let { session ->
+                    PlaybackSessionController.cacheAhead(session, fileSizeBytes, position, duration)
+                }
                 lastAheadPrefetchPosition = position
             }
             if (current.fileId > 0 && position > 0 && position - lastSavedPosition >= 5_000L) {

@@ -8,9 +8,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
+import com.vaydelux.bousygram.core.media.PlaybackRetryDecision
+import com.vaydelux.bousygram.core.media.PlaybackSession
+import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.TelegramProxyPlayerFactory
 import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.StructuredPlaybackLogger
+import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
 import com.vaydelux.bousygram.core.tdlib.server.VideoResolutionOption
@@ -41,6 +46,8 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var activeOptionIndex = 0
     private var lastGoodPositionMs = 0L
     private var bufferingJob: Job? = null
+    private var activeSession: PlaybackSession? = null
+    private var currentErrorRetryCount = 0
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -67,7 +74,14 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             val message = "${resolution.title}: ${resolution.message}"
             Log.e(TAG, "Playback error: $message", error)
             StructuredPlaybackLogger.error("video_player_vm_error", error)
-            if (fallbackToLowerQuality()) return
+            val session = activeSession
+            val decision = if (session != null) {
+                PlaybackSessionController.recordError(session, error, currentErrorRetryCount)
+            } else {
+                PlaybackRetryDecision.RetrySameQuality
+            }
+            if (resolution.recoverable && retryCurrentQuality(decision)) return
+            if (resolution.recoverable && fallbackToLowerQuality()) return
             _uiState.value = VideoPlayerUiState.Error(message)
         }
     }
@@ -94,11 +108,12 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
         val playbackKey = playbackOptions.joinToString("|") { "${it.quality}:${it.fileId}" }
         if (currentPlaybackKey == playbackKey && player.mediaItemCount > 0) return
-        stopActiveCaching()
+        stopActiveCaching(PlaybackCacheStopReason.TrackSwitch)
         currentPlaybackKey = playbackKey
         activeOptions = playbackOptions
         activeOptionIndex = 0
         lastGoodPositionMs = 0L
+        currentErrorRetryCount = 0
 
         setState(VideoPlayerUiState.Loading)
         TelegramProxyManager.startProxy()
@@ -125,12 +140,12 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun stopPlayback() {
         bufferingJob?.cancel()
         player.pause()
-        stopActiveCaching()
+        stopActiveCaching(PlaybackCacheStopReason.ViewModelStop)
     }
 
     override fun onCleared() {
         bufferingJob?.cancel()
-        stopActiveCaching()
+        stopActiveCaching(PlaybackCacheStopReason.ViewModelCleared)
         player.removeListener(playerListener)
         player.release()
         super.onCleared()
@@ -156,7 +171,10 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val resumePosition = maxOf(player.currentPosition, lastGoodPositionMs).coerceAtLeast(0L)
         activeOptionIndex++
         val nextOption = activeOptions[activeOptionIndex]
-        TelegramPreCacheEngine.stopCaching(activeOptions[activeOptionIndex - 1].fileId)
+        activeSession?.let {
+            PlaybackSessionController.stop(it, PlaybackCacheStopReason.ErrorRecovery)
+        }
+        currentErrorRetryCount = 0
         Log.w(
             TAG,
             "Restarting adaptive playback at ${nextOption.quality}p fileId=${nextOption.fileId} " +
@@ -168,9 +186,33 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         return true
     }
 
+    private fun retryCurrentQuality(decision: PlaybackRetryDecision): Boolean {
+        if (currentErrorRetryCount >= 1 && decision != PlaybackRetryDecision.CacheFirstRetry) return false
+        val option = activeOptions.getOrNull(activeOptionIndex) ?: return false
+        val resumePosition = maxOf(player.currentPosition, lastGoodPositionMs).coerceAtLeast(0L)
+        currentErrorRetryCount++
+        setState(VideoPlayerUiState.Buffering)
+        activeSession?.let { session ->
+            if (decision == PlaybackRetryDecision.CacheFirstRetry) {
+                val size = LocalStreamingServer.resolveFileSize(option.fileId)
+                PlaybackSessionController.cacheAhead(
+                    session = session,
+                    totalSize = size,
+                    positionMs = resumePosition,
+                    durationMs = 0L,
+                    startup = true
+                )
+            }
+        }
+        tdLibClient?.let { TelegramPreCacheEngine.primeVideoCache(it, option.fileId) }
+        playOption(option, resumePosition)
+        return true
+    }
+
     private fun playOption(option: VideoResolutionOption, resumePositionMs: Long) {
         player.stop()
         player.clearMediaItems()
+        activeSession = PlaybackSessionController.start(option.fileId, resumePositionMs)
         player.setMediaItem(MediaItem.fromUri(TelegramProxyManager.baseStreamUrl(option.fileId)))
         player.prepare()
         if (resumePositionMs > 0L) {
@@ -185,10 +227,12 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         TelegramPreCacheEngine.primeVideoCache(client, option.fileId)
     }
 
-    private fun stopActiveCaching() {
+    private fun stopActiveCaching(reason: PlaybackCacheStopReason) {
+        activeSession?.let { PlaybackSessionController.stop(it, reason) }
         activeOptions.forEach { option ->
             TelegramPreCacheEngine.stopCaching(option.fileId)
         }
+        activeSession = null
     }
 
     private companion object {

@@ -14,6 +14,8 @@ internal data class StreamMetrics(
 )
 
 internal data class PlaybackDiagnosticsSnapshot(
+    val sessionId: String,
+    val activeFileId: Int,
     val firstFrameMs: Long,
     val retryCount: Int,
     val rebufferCount: Int,
@@ -26,7 +28,10 @@ internal data class PlaybackDiagnosticsSnapshot(
     val cacheAheadBytes: Long,
     val activeChunkCount: Int,
     val proxyStatus: String,
-    val readSource: String
+    val readSource: String,
+    val stallReason: String,
+    val cacheStopReason: String,
+    val currentOffset: Long
 )
 
 internal object PlaybackDiagnostics {
@@ -44,6 +49,11 @@ internal object PlaybackDiagnostics {
     private const val KEY_ACTIVE_CHUNK_COUNT = "active_chunk_count"
     private const val KEY_PROXY_STATUS = "proxy_status"
     private const val KEY_READ_SOURCE = "read_source"
+    private const val KEY_SESSION_ID = "session_id"
+    private const val KEY_ACTIVE_FILE_ID = "active_file_id"
+    private const val KEY_STALL_REASON = "stall_reason"
+    private const val KEY_CACHE_STOP_REASON = "cache_stop_reason"
+    private const val KEY_CURRENT_OFFSET = "current_offset"
 
     private val prefs by lazy {
         BousygramApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -62,6 +72,24 @@ internal object PlaybackDiagnostics {
 
     fun recordStreamError(message: String) {
         prefs.edit { putString(KEY_LAST_STREAM_ERROR, message.take(400)) }
+    }
+
+    fun recordSession(
+        sessionId: String,
+        activeFileId: Int,
+        currentOffset: Long,
+        retryCount: Int,
+        stallReason: String,
+        cacheStopReason: String
+    ) {
+        prefs.edit {
+            putString(KEY_SESSION_ID, sessionId.take(80))
+            putInt(KEY_ACTIVE_FILE_ID, activeFileId)
+            putLong(KEY_CURRENT_OFFSET, currentOffset)
+            putInt(KEY_RETRY_COUNT, retryCount)
+            putString(KEY_STALL_REASON, stallReason.take(80))
+            putString(KEY_CACHE_STOP_REASON, cacheStopReason.take(80))
+        }
     }
 
     fun recordProxyState(
@@ -85,6 +113,7 @@ internal object PlaybackDiagnostics {
     fun summary(): String {
         val snapshot = snapshot()
         return "firstFrame=${snapshot.firstFrameMs}ms, " +
+            "session=${snapshot.sessionId}, fileId=${snapshot.activeFileId}, " +
             "retries=${snapshot.retryCount}, " +
             "rebuffer=${snapshot.rebufferCount}, " +
             "decoder=${snapshot.decoderName}, droppedFrames=${snapshot.droppedFrames}, " +
@@ -92,13 +121,41 @@ internal object PlaybackDiagnostics {
             "activeChunks=${snapshot.activeChunkCount}, " +
             "chunkRetries=${snapshot.chunkRetryCount}, " +
             "cacheAhead=${snapshot.cacheAheadBytes} bytes, " +
-            "lastOffset=${snapshot.lastStalledOffset}, " +
+            "currentOffset=${snapshot.currentOffset}, lastOffset=${snapshot.lastStalledOffset}, " +
+            "stallReason=${snapshot.stallReason}, cacheStop=${snapshot.cacheStopReason}, " +
             "readSource=${snapshot.readSource}, " +
             "lastStreamError=${snapshot.lastStreamError}"
     }
 
+    fun sessionReport(): String {
+        val snapshot = snapshot()
+        return """
+            Bousygram playback session report
+            sessionId=${snapshot.sessionId}
+            activeFileId=${snapshot.activeFileId}
+            currentOffset=${snapshot.currentOffset}
+            firstFrameMs=${snapshot.firstFrameMs}
+            retryCount=${snapshot.retryCount}
+            rebufferCount=${snapshot.rebufferCount}
+            droppedFrames=${snapshot.droppedFrames}
+            decoder=${snapshot.decoderName}
+            bufferMode=${snapshot.bufferMode}
+            proxyStatus=${snapshot.proxyStatus}
+            activeChunks=${snapshot.activeChunkCount}
+            chunkRetryCount=${snapshot.chunkRetryCount}
+            cacheAheadBytes=${snapshot.cacheAheadBytes}
+            lastStalledOffset=${snapshot.lastStalledOffset}
+            stallReason=${snapshot.stallReason}
+            cacheStopReason=${snapshot.cacheStopReason}
+            readSource=${snapshot.readSource}
+            lastStreamError=${snapshot.lastStreamError}
+        """.trimIndent()
+    }
+
     fun snapshot(): PlaybackDiagnosticsSnapshot =
         PlaybackDiagnosticsSnapshot(
+            sessionId = prefs.getString(KEY_SESSION_ID, null).orEmpty().ifBlank { "none" },
+            activeFileId = prefs.getInt(KEY_ACTIVE_FILE_ID, 0),
             firstFrameMs = prefs.getLong(KEY_FIRST_FRAME_MS, 0L),
             retryCount = prefs.getInt(KEY_RETRY_COUNT, 0),
             rebufferCount = prefs.getInt(KEY_REBUFFER_COUNT, 0),
@@ -113,6 +170,9 @@ internal object PlaybackDiagnostics {
             cacheAheadBytes = prefs.getLong(KEY_CACHE_AHEAD_BYTES, 0L),
             activeChunkCount = prefs.getInt(KEY_ACTIVE_CHUNK_COUNT, 0),
             proxyStatus = prefs.getString(KEY_PROXY_STATUS, "none").orEmpty(),
-            readSource = prefs.getString(KEY_READ_SOURCE, "unknown").orEmpty()
+            readSource = prefs.getString(KEY_READ_SOURCE, "unknown").orEmpty(),
+            stallReason = prefs.getString(KEY_STALL_REASON, "none").orEmpty(),
+            cacheStopReason = prefs.getString(KEY_CACHE_STOP_REASON, "none").orEmpty(),
+            currentOffset = prefs.getLong(KEY_CURRENT_OFFSET, 0L)
         )
 }

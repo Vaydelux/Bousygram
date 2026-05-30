@@ -79,10 +79,16 @@ object TelegramPreCacheEngine {
         trackedJobs += outerJob
     }
 
-    fun cacheAhead(fileId: Int, totalSize: Long, positionMs: Long, durationMs: Long) {
+    fun cacheAhead(
+        fileId: Int,
+        totalSize: Long,
+        positionMs: Long,
+        durationMs: Long,
+        maxBytes: Long = CACHE_AHEAD_BYTES
+    ) {
         if (fileId <= 0 || totalSize <= 0L) return
         val offset = positionToOffset(totalSize, positionMs, durationMs)
-        val length = min(CACHE_AHEAD_BYTES, totalSize - offset)
+        val length = min(maxBytes.coerceIn(1L, CACHE_AHEAD_BYTES * 2), totalSize - offset)
         if (length <= 0L) return
 
         val endExclusive = offset + length
