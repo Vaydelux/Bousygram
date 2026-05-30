@@ -52,6 +52,8 @@ fun TvHybridHomeDashboard(
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLastPlayed: () -> Unit,
+    lastPlayedFileId: Int?,
+    lastPlayedTitle: String?,
     onToggleFavorite: (MediaItem) -> Unit,
     onToggleOffline: (MediaItem) -> Unit,
     favoriteKeys: Set<String>,
@@ -112,7 +114,8 @@ fun TvHybridHomeDashboard(
             RowHeader(
                 onOpenSearch = onOpenSearch,
                 onOpenSettings = onOpenSettings,
-                onOpenLastPlayed = onOpenLastPlayed
+                onOpenLastPlayed = onOpenLastPlayed,
+                lastPlayedTitle = lastPlayedTitle
             )
             Spacer(Modifier.height(12.dp))
 
@@ -187,7 +190,12 @@ fun TvHybridHomeDashboard(
                     repeat(4) { ShimmerCard(Modifier.width(260.dp).height(200.dp)) }
                 }
             } else {
-                val continueItems = featuredVideos.filter { resumeFileIds.contains(it.fileId ?: -1) }
+                val continueItems = featuredVideos
+                    .filter { item ->
+                        val fileId = item.fileId ?: return@filter false
+                        resumeFileIds.contains(fileId) || fileId == lastPlayedFileId
+                    }
+                    .distinctBy { "${it.chatId}:${it.messageId}" }
                 val favoriteItems = featuredVideos.filter { favoriteKeys.contains(mediaKey(it)) }
                 val offlineItems = featuredVideos.filter { offlineFileIds.contains(it.fileId ?: -1) }
                 if (continueItems.isNotEmpty()) {
@@ -258,7 +266,8 @@ private fun MediaRail(
 private fun RowHeader(
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenLastPlayed: () -> Unit
+    onOpenLastPlayed: () -> Unit,
+    lastPlayedTitle: String?
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -271,7 +280,10 @@ private fun RowHeader(
             modifier = Modifier.weight(1f)
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BousygramButton("Last played", onOpenLastPlayed)
+            BousygramButton(
+                if (lastPlayedTitle.isNullOrBlank()) "Resume" else "Resume last",
+                onOpenLastPlayed
+            )
             BousygramButton("Search", onOpenSearch)
             BousygramButton("Settings", onOpenSettings)
         }

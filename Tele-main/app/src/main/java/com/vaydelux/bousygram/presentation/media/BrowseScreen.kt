@@ -82,6 +82,7 @@ fun BrowseScreen(
     var safeMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
     var hideWatched by remember { mutableStateOf(EnterprisePreferences.hideWatched()) }
     var pinnedChats by remember { mutableStateOf(EnterprisePreferences.pinnedChatIds()) }
+    val lastPlayed = EnterprisePreferences.lastPlayed()
     val videos = remember(state.filteredAndSortedItems, hideWatched) {
         val playable = playableVideos(state.filteredAndSortedItems)
         if (hideWatched) {
@@ -176,6 +177,7 @@ fun BrowseScreen(
                 val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
                 onOpenSearch(chatId, state.selectedChatTitle)
             },
+            onOpenLastPlayed = ::openLastPlayed,
             onOpenVideo = ::openVideo,
             onFocusedVideo = viewModel::onItemFocused,
             onLoadMore = viewModel::loadMoreIfNeeded
@@ -252,6 +254,8 @@ fun BrowseScreen(
                         },
                         onOpenSettings = onOpenSettings,
                         onOpenLastPlayed = ::openLastPlayed,
+                        lastPlayedFileId = lastPlayed?.fileId,
+                        lastPlayedTitle = lastPlayed?.title,
                         onToggleFavorite = {
                             EnterprisePreferences.toggleFavorite(it.chatId, it.messageId)
                             favoriteKeys = EnterprisePreferences.favoriteKeys()
@@ -305,6 +309,7 @@ private fun CompactBrowseLayout(
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenLastPlayed: () -> Unit,
     onOpenVideo: (MediaItem) -> Unit,
     onFocusedVideo: (MediaItem) -> Unit,
     onLoadMore: () -> Unit
@@ -337,6 +342,7 @@ private fun CompactBrowseLayout(
             item { SortChip("Continue only", hideWatched, onToggleHideWatched) }
             item { SortChip("Safe mode", safeMode, onToggleSafeMode) }
             item { RefreshChip("Search", onOpenSearch) }
+            item { RefreshChip("Resume", onOpenLastPlayed) }
             item { RefreshChip("Refresh", onRefresh) }
             item { RefreshChip("Settings", onOpenSettings) }
         }

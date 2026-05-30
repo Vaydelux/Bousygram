@@ -60,8 +60,8 @@ android {
         applicationId = "com.vaydelux.bousygram"
         minSdk = 23
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.1"
+        versionCode = 10
+        versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -154,6 +154,15 @@ android {
         }
     }
 
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val versionName = output.versionName.orNull ?: "1.0"
+            output.outputFileName.set("Bousygram-v$versionName-${variant.name}.apk")
+        }
+    }
 }
 
 tasks.register("verifyTdlibAbiCoverage") {

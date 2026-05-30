@@ -12,6 +12,13 @@ enum class BufferMode(val label: String) {
     StableNetwork("Stable Network")
 }
 
+enum class CacheLimitOption(val label: String, val bytes: Long) {
+    OneGb("1 GB", 1L * 1024L * 1024L * 1024L),
+    TwoGb("2 GB", 2L * 1024L * 1024L * 1024L),
+    FiveGb("5 GB", 5L * 1024L * 1024L * 1024L),
+    TenGb("10 GB", 10L * 1024L * 1024L * 1024L)
+}
+
 object EnterprisePreferences {
     private const val PREFS_NAME = "enterprise_ui_prefs"
     private const val KEY_FAVORITES = "favorites"
@@ -24,6 +31,7 @@ object EnterprisePreferences {
     private const val KEY_SUBTITLES_DEFAULT = "subtitles_default"
     private const val KEY_SPEED = "preferred_speed"
     private const val KEY_BUFFER_MODE = "buffer_mode"
+    private const val KEY_CACHE_LIMIT = "cache_limit"
     private const val KEY_LAST_ERROR = "last_error"
 
     private val prefs by lazy {
@@ -124,6 +132,17 @@ object EnterprisePreferences {
 
     fun setBufferMode(value: BufferMode) = prefs.edit { putString(KEY_BUFFER_MODE, value.name) }
 
+    fun cacheLimitOption(): CacheLimitOption = runCatching {
+        CacheLimitOption.valueOf(
+            prefs.getString(KEY_CACHE_LIMIT, CacheLimitOption.TwoGb.name)
+                ?: CacheLimitOption.TwoGb.name
+        )
+    }.getOrDefault(CacheLimitOption.TwoGb)
+
+    fun setCacheLimitOption(value: CacheLimitOption) = prefs.edit { putString(KEY_CACHE_LIMIT, value.name) }
+
+    fun cacheLimitBytes(): Long = cacheLimitOption().bytes
+
     fun setLastError(message: String) = prefs.edit { putString(KEY_LAST_ERROR, message.take(400)) }
     fun lastError(): String = prefs.getString(KEY_LAST_ERROR, "None").orEmpty()
 
@@ -139,6 +158,7 @@ object EnterprisePreferences {
         appendLine("Favorites: ${favoriteKeys().size}")
         appendLine("Pinned chats: ${pinnedChatIds().size}")
         appendLine("Cache size: ${cacheSizeBytes / (1024 * 1024)} MB")
+        appendLine("Cache limit: ${cacheLimitOption().label}")
         appendLine("Full-video background cache: Disabled")
         appendLine("Last error: ${lastError()}")
         appendLine("Playback: ${PlaybackDiagnostics.summary()}")
@@ -155,6 +175,7 @@ object EnterprisePreferences {
         .put("subtitlesDefault", subtitlesDefault())
         .put("preferredSpeed", preferredSpeed().toDouble())
         .put("bufferMode", bufferMode().name)
+        .put("cacheLimit", cacheLimitOption().name)
         .toString(2)
 
     fun importSettingsJson(json: String): Result<Unit> = runCatching {
@@ -166,6 +187,9 @@ object EnterprisePreferences {
         val mode = runCatching {
             BufferMode.valueOf(obj.optString("bufferMode", BufferMode.FastStart.name))
         }.getOrDefault(BufferMode.FastStart)
+        val cacheLimit = runCatching {
+            CacheLimitOption.valueOf(obj.optString("cacheLimit", CacheLimitOption.TwoGb.name))
+        }.getOrDefault(CacheLimitOption.TwoGb)
         prefs.edit {
             putStringSet(KEY_FAVORITES, obj.optStringArray("favorites").toSet())
             putStringSet(KEY_PINNED_CHATS, obj.optStringArray("pinnedChats").toSet())
@@ -179,6 +203,7 @@ object EnterprisePreferences {
             putBoolean(KEY_SUBTITLES_DEFAULT, obj.optBoolean("subtitlesDefault", subtitlesDefault()))
             putFloat(KEY_SPEED, obj.optDouble("preferredSpeed", preferredSpeed().toDouble()).toFloat())
             putString(KEY_BUFFER_MODE, mode.name)
+            putString(KEY_CACHE_LIMIT, cacheLimit.name)
         }
     }.onFailure { error ->
         setLastError(error.message ?: "Settings import failed")

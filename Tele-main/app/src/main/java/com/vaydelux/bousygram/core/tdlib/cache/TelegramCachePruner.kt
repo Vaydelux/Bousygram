@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.core.tdlib.cache
 
 import android.content.Context
 import android.util.Log
+import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -10,7 +11,7 @@ import java.io.File
 
 object TelegramCachePruner {
     private const val TAG = "TelegramCachePruner"
-    const val CACHE_CEILING_BYTES = 2L * 1024L * 1024L * 1024L
+    const val DEFAULT_CACHE_CEILING_BYTES = 2L * 1024L * 1024L * 1024L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun pruneCacheIfNecessary(context: Context, tdLibCacheDir: File) {
@@ -35,11 +36,12 @@ object TelegramCachePruner {
             appCacheBytes = appCacheBytes,
             appFilesBytes = appFilesBytes,
             tdLibCacheBytes = tdLibBytes,
-            cacheLimitBytes = CACHE_CEILING_BYTES
+            cacheLimitBytes = EnterprisePreferences.cacheLimitBytes()
         )
     }
 
     fun pruneCacheNow(context: Context, tdLibCacheDir: File): TelegramCachePruneResult {
+        val cacheLimitBytes = EnterprisePreferences.cacheLimitBytes()
         val root = runCatching { tdLibCacheDir.canonicalFile }.getOrElse { tdLibCacheDir }
         if (!root.exists() || !root.isDirectory) {
             val stats = storageStats(context, tdLibCacheDir)
@@ -47,7 +49,7 @@ object TelegramCachePruner {
                 deletedFiles = 0,
                 freedBytes = 0L,
                 remainingBytes = stats.tdLibCacheBytes,
-                limitBytes = CACHE_CEILING_BYTES
+                limitBytes = cacheLimitBytes
             )
         }
 
@@ -60,11 +62,11 @@ object TelegramCachePruner {
         var deletedFiles = 0
         var freedBytes = 0L
 
-        if (totalSize > CACHE_CEILING_BYTES) {
+        if (totalSize > cacheLimitBytes) {
             files
                 .sortedWith(compareBy<File> { it.lastModified() }.thenBy { it.absolutePath })
                 .forEach { file ->
-                    if (totalSize <= CACHE_CEILING_BYTES) return@forEach
+                    if (totalSize <= cacheLimitBytes) return@forEach
                     val length = file.length()
                     if (file.delete()) {
                         deletedFiles++
@@ -85,7 +87,7 @@ object TelegramCachePruner {
             deletedFiles = deletedFiles,
             freedBytes = freedBytes,
             remainingBytes = totalSize,
-            limitBytes = CACHE_CEILING_BYTES
+            limitBytes = cacheLimitBytes
         )
     }
 

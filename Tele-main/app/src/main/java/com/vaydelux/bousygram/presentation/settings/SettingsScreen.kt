@@ -36,6 +36,7 @@ import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCacheStorageStats
 import com.vaydelux.bousygram.data.store.BufferMode
+import com.vaydelux.bousygram.data.store.CacheLimitOption
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import com.vaydelux.bousygram.data.store.PlaybackDiagnosticsSnapshot
@@ -68,6 +69,7 @@ fun SettingsScreen(
     var subtitlesDefault by remember { mutableStateOf(EnterprisePreferences.subtitlesDefault()) }
     var speed by remember { mutableFloatStateOf(EnterprisePreferences.preferredSpeed()) }
     var bufferMode by remember { mutableStateOf(EnterprisePreferences.bufferMode()) }
+    var cacheLimitOption by remember { mutableStateOf(EnterprisePreferences.cacheLimitOption()) }
     var storageRefresh by remember { mutableStateOf(0) }
     var lastPruneResult by remember { mutableStateOf("Not run this session") }
     val playbackDiagnostics = remember { PlaybackDiagnostics.snapshot() }
@@ -77,9 +79,10 @@ fun SettingsScreen(
             appCacheBytes = 0L,
             appFilesBytes = 0L,
             tdLibCacheBytes = 0L,
-            cacheLimitBytes = TelegramCachePruner.CACHE_CEILING_BYTES
+            cacheLimitBytes = TelegramCachePruner.DEFAULT_CACHE_CEILING_BYTES
         ),
         context,
+        cacheLimitOption,
         storageRefresh
     ) {
         value = withContext(Dispatchers.IO) {
@@ -94,6 +97,7 @@ fun SettingsScreen(
         subtitlesDefault,
         speed,
         bufferMode,
+        cacheLimitOption,
         cacheSize
     ) {
         EnterprisePreferences.diagnosticsText(cacheSize, BuildConfig.VERSION_NAME)
@@ -123,6 +127,7 @@ fun SettingsScreen(
                     subtitlesDefault = subtitlesDefault,
                     speed = speed,
                     bufferMode = bufferMode,
+                    cacheLimitOption = cacheLimitOption,
                     cacheSize = cacheSize,
                     storageStats = storageStats,
                     lastPruneResult = lastPruneResult,
@@ -162,6 +167,11 @@ fun SettingsScreen(
                     onBufferMode = {
                         bufferMode = it
                         EnterprisePreferences.setBufferMode(it)
+                    },
+                    onCacheLimit = {
+                        cacheLimitOption = it
+                        EnterprisePreferences.setCacheLimitOption(it)
+                        storageRefresh++
                     }
                 )
             }
@@ -193,6 +203,7 @@ fun SettingsScreen(
                         subtitlesDefault = subtitlesDefault,
                         speed = speed,
                         bufferMode = bufferMode,
+                        cacheLimitOption = cacheLimitOption,
                         cacheSize = cacheSize,
                         storageStats = storageStats,
                         lastPruneResult = lastPruneResult,
@@ -232,6 +243,11 @@ fun SettingsScreen(
                         onBufferMode = {
                             bufferMode = it
                             EnterprisePreferences.setBufferMode(it)
+                        },
+                        onCacheLimit = {
+                            cacheLimitOption = it
+                            EnterprisePreferences.setCacheLimitOption(it)
+                            storageRefresh++
                         }
                     )
                 }
@@ -247,6 +263,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
     subtitlesDefault: Boolean,
     speed: Float,
     bufferMode: BufferMode,
+    cacheLimitOption: CacheLimitOption,
     cacheSize: Long,
     storageStats: TelegramCacheStorageStats,
     lastPruneResult: String,
@@ -259,7 +276,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
     onAutoPlayNext: (Boolean) -> Unit,
     onSubtitlesDefault: (Boolean) -> Unit,
     onSpeed: (Float) -> Unit,
-    onBufferMode: (BufferMode) -> Unit
+    onBufferMode: (BufferMode) -> Unit,
+    onCacheLimit: (CacheLimitOption) -> Unit
 ) {
                 item {
                     Section("Playback Defaults") {
@@ -323,6 +341,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
                         FeatureRow("App files", formatBytes(storageStats.appFilesBytes), {})
                         FeatureRow("TDLib media cache", formatBytes(storageStats.tdLibCacheBytes), {})
                         FeatureRow("Cache limit", formatBytes(storageStats.cacheLimitBytes), {})
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            CacheLimitOption.entries.forEach { option ->
+                                BousygramChip(
+                                    text = option.label,
+                                    selected = cacheLimitOption == option,
+                                    onClick = { onCacheLimit(option) }
+                                )
+                            }
+                        }
                         FeatureRow("Prune cache now", lastPruneResult, onPruneCache)
                         FeatureRow("Background full-video cache", "Disabled", {})
                         FeatureRow("Partial playback cache", "Kept for resume", {})

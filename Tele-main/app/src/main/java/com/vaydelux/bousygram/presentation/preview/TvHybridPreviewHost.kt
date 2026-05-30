@@ -16,6 +16,8 @@ fun TvHybridPreviewHost() {
         onOpenSearch = {},
         onOpenSettings = {},
         onOpenLastPlayed = {},
+        lastPlayedFileId = null,
+        lastPlayedTitle = null,
         onToggleFavorite = {},
         onToggleOffline = {},
         favoriteKeys = emptySet(),

@@ -103,6 +103,8 @@ Release variants:
 .\gradlew.bat :app:assembleHardenedRelease
 ```
 
+APK files are named with the app version, for example `Bousygram-v1.0-debug.apk`.
+
 ---
 
 ## Release Checklist
@@ -113,7 +115,8 @@ Before sharing an APK:
 2. Run `.\gradlew.bat :app:compileDebugKotlin`.
 3. Run `.\gradlew.bat :app:testDebugUnitTest`.
 4. Run `.\gradlew.bat :app:assembleDebug`.
-5. Install on an Android TV device and verify:
+5. Confirm `CHANGELOG.md` has notes for the version being shared.
+6. Install on an Android TV device and verify:
    - cold play of a large Telegram video
    - repeated seek forward/back
    - Back button stops playback cache work
@@ -121,7 +124,7 @@ Before sharing an APK:
    - reopening the same video resumes from partial cache
    - Settings diagnostics copy/export works
    - Settings storage manager reports cache size and prunes safely
-6. Record known issues and APK path before release.
+7. Record known issues and APK path before release.
 
 ---
 
