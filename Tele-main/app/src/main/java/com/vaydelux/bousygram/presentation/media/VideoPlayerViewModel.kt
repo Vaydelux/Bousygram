@@ -9,6 +9,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.vaydelux.bousygram.core.media.TelegramProxyPlayerFactory
+import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
+import com.vaydelux.bousygram.core.observability.StructuredPlaybackLogger
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
 import com.vaydelux.bousygram.core.tdlib.server.VideoResolutionOption
@@ -35,13 +37,21 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private var tdLibClient: Client? = null
     private var currentPlaybackKey: String? = null
+    private var activeOptions: List<VideoResolutionOption> = emptyList()
+    private var activeOptionIndex = 0
+    private var lastGoodPositionMs = 0L
     private var bufferingJob: Job? = null
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_BUFFERING -> showBufferingDebounced()
-                Player.STATE_READY -> setState(VideoPlayerUiState.Playing)
+                Player.STATE_READY -> {
+                    if (player.currentPosition > 0L) {
+                        lastGoodPositionMs = player.currentPosition
+                    }
+                    setState(VideoPlayerUiState.Playing)
+                }
                 Player.STATE_ENDED -> setState(VideoPlayerUiState.Ended)
                 Player.STATE_IDLE -> {
                     if (player.mediaItemCount == 0) {
@@ -53,8 +63,11 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
         override fun onPlayerError(error: PlaybackException) {
             bufferingJob?.cancel()
-            val message = error.message ?: "Playback failed"
+            val resolution = PlaybackErrorMapper.fromPlaybackException(error, retryCount = 0)
+            val message = "${resolution.title}: ${resolution.message}"
             Log.e(TAG, "Playback error: $message", error)
+            StructuredPlaybackLogger.error("video_player_vm_error", error)
+            if (fallbackToLowerQuality()) return
             _uiState.value = VideoPlayerUiState.Error(message)
         }
     }
@@ -72,6 +85,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val playbackOptions = options
             .filter { it.fileId > 0 }
             .distinctBy { it.fileId }
+            .sortedByDescending { it.quality }
 
         if (playbackOptions.isEmpty()) {
             _uiState.value = VideoPlayerUiState.Error("No playable Telegram video file was provided.")
@@ -81,6 +95,9 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val playbackKey = playbackOptions.joinToString("|") { "${it.quality}:${it.fileId}" }
         if (currentPlaybackKey == playbackKey && player.mediaItemCount > 0) return
         currentPlaybackKey = playbackKey
+        activeOptions = playbackOptions
+        activeOptionIndex = 0
+        lastGoodPositionMs = 0L
 
         setState(VideoPlayerUiState.Loading)
         TelegramProxyManager.startProxy()
@@ -90,15 +107,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        val streamUrl = if (playbackOptions.size > 1) {
-            TelegramProxyManager.adaptiveStreamUrl(playbackOptions)
-        } else {
-            TelegramProxyManager.baseStreamUrl(playbackOptions.first().fileId)
-        }
-
-        player.setMediaItem(MediaItem.fromUri(streamUrl))
-        player.prepare()
-        player.play()
+        playOption(playbackOptions.first(), resumePositionMs = 0L)
     }
 
     fun pausePlayback() {
@@ -136,6 +145,33 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private fun setState(state: VideoPlayerUiState) {
         bufferingJob?.cancel()
         _uiState.value = state
+    }
+
+    private fun fallbackToLowerQuality(): Boolean {
+        if (activeOptionIndex >= activeOptions.lastIndex) return false
+        val resumePosition = maxOf(player.currentPosition, lastGoodPositionMs).coerceAtLeast(0L)
+        activeOptionIndex++
+        val nextOption = activeOptions[activeOptionIndex]
+        Log.w(
+            TAG,
+            "Restarting adaptive playback at ${nextOption.quality}p fileId=${nextOption.fileId} " +
+                "position=$resumePosition"
+        )
+        setState(VideoPlayerUiState.Buffering)
+        tdLibClient?.let { TelegramPreCacheEngine.primeVideoCache(it, nextOption.fileId) }
+        playOption(nextOption, resumePosition)
+        return true
+    }
+
+    private fun playOption(option: VideoResolutionOption, resumePositionMs: Long) {
+        player.stop()
+        player.clearMediaItems()
+        player.setMediaItem(MediaItem.fromUri(TelegramProxyManager.baseStreamUrl(option.fileId)))
+        player.prepare()
+        if (resumePositionMs > 0L) {
+            player.seekTo(resumePositionMs)
+        }
+        player.play()
     }
 
     private companion object {

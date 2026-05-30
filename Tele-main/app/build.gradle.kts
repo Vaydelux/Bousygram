@@ -74,12 +74,14 @@ android {
         val apiHash = properties.getProperty("TELEGRAM_API_HASH") ?: ""
         buildConfigField("String", "TELEGRAM_API_ID", "\"$apiId\"")
         buildConfigField("String", "TELEGRAM_API_HASH", "\"$apiHash\"")
+        buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "true")
 
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             } else {
@@ -100,6 +102,7 @@ android {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
+            buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
             matchingFallbacks += listOf("release")
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
@@ -136,6 +139,10 @@ android {
             "IconLauncherShape",
             "ChromeOsAbiSupport"
         )
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     packaging {
@@ -198,6 +205,9 @@ dependencies {
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.exoplayer.hls)
 
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
+    androidTestImplementation(libs.androidx.test.uiautomator)
 }

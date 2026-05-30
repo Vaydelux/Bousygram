@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.data.store.BufferMode
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
+import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
+import com.vaydelux.bousygram.data.store.PlaybackDiagnosticsSnapshot
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramChip
@@ -60,12 +62,21 @@ fun SettingsScreen(
     var subtitlesDefault by remember { mutableStateOf(EnterprisePreferences.subtitlesDefault()) }
     var speed by remember { mutableFloatStateOf(EnterprisePreferences.preferredSpeed()) }
     var bufferMode by remember { mutableStateOf(EnterprisePreferences.bufferMode()) }
+    val playbackDiagnostics = remember { PlaybackDiagnostics.snapshot() }
     val cacheSize by produceState(initialValue = 0L, context) {
         value = withContext(Dispatchers.IO) {
             directorySize(context.cacheDir) + directorySize(context.filesDir)
         }
     }
-    val diagnostics = remember(safeMode, hideWatched, autoPlayNext, subtitlesDefault, speed, bufferMode, cacheSize) {
+    val diagnostics = remember(
+        safeMode,
+        hideWatched,
+        autoPlayNext,
+        subtitlesDefault,
+        speed,
+        bufferMode,
+        cacheSize
+    ) {
         EnterprisePreferences.diagnosticsText(cacheSize, BuildConfig.VERSION_NAME)
     }
 
@@ -93,6 +104,7 @@ fun SettingsScreen(
                     speed = speed,
                     bufferMode = bufferMode,
                     cacheSize = cacheSize,
+                    playbackDiagnostics = playbackDiagnostics,
                     diagnostics = diagnostics,
                     onSafeMode = {
                         safeMode = it
@@ -148,6 +160,7 @@ fun SettingsScreen(
                         speed = speed,
                         bufferMode = bufferMode,
                         cacheSize = cacheSize,
+                        playbackDiagnostics = playbackDiagnostics,
                         diagnostics = diagnostics,
                         onSafeMode = {
                             safeMode = it
@@ -188,6 +201,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
     speed: Float,
     bufferMode: BufferMode,
     cacheSize: Long,
+    playbackDiagnostics: PlaybackDiagnosticsSnapshot,
     diagnostics: String,
     onSafeMode: (Boolean) -> Unit,
     onHideWatched: (Boolean) -> Unit,
@@ -254,7 +268,20 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
                 item {
                     Section("Storage Manager") {
                         FeatureRow("Local app/cache footprint", formatBytes(cacheSize), {})
+                        FeatureRow("Background full-video cache", "Disabled", {})
                         FeatureRow("Offline pins", "Managed per video", {})
+                    }
+                }
+                item {
+                    Section("Playback Diagnostics") {
+                        FeatureRow("First frame", "${playbackDiagnostics.firstFrameMs} ms", {})
+                        FeatureRow("Retries / rebuffers", "${playbackDiagnostics.retryCount} / ${playbackDiagnostics.rebufferCount}", {})
+                        FeatureRow("Decoder", playbackDiagnostics.decoderName, {})
+                        FeatureRow("Dropped frames", playbackDiagnostics.droppedFrames.toString(), {})
+                        FeatureRow("Active chunks", playbackDiagnostics.activeChunkCount.toString(), {})
+                        FeatureRow("Last stalled byte", playbackDiagnostics.lastStalledOffset.toString(), {})
+                        FeatureRow("Proxy status", playbackDiagnostics.proxyStatus, {})
+                        FeatureRow("Read source", playbackDiagnostics.readSource, {})
                     }
                 }
                 item {

@@ -139,6 +139,7 @@ object EnterprisePreferences {
         appendLine("Favorites: ${favoriteKeys().size}")
         appendLine("Pinned chats: ${pinnedChatIds().size}")
         appendLine("Cache size: ${cacheSizeBytes / (1024 * 1024)} MB")
+        appendLine("Full-video background cache: Disabled")
         appendLine("Last error: ${lastError()}")
         appendLine("Playback: ${PlaybackDiagnostics.summary()}")
     }

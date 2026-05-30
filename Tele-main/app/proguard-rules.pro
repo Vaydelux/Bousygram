@@ -29,3 +29,13 @@
 # Preserve app entry points and components.
 -keep class com.vaydelux.bousygram.app.BousygramApp { *; }
 -keep class com.vaydelux.bousygram.app.MainActivity { *; }
+
+# Ktor/Netty references optional desktop/server logging and native SSL integrations.
+# Bousygram's proxy binds only to 127.0.0.1 on Android and does not package those modules.
+-dontwarn io.netty.internal.tcnative.**
+-dontwarn java.lang.management.**
+-dontwarn org.apache.log4j.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn org.eclipse.jetty.npn.**
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+-dontwarn reactor.blockhound.integration.BlockHoundIntegration

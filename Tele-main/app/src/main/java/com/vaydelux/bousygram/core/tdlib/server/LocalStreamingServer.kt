@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.core.tdlib.server
 
 import android.media.MediaMetadataRetriever
 import android.util.Log
+import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
@@ -113,7 +114,10 @@ object LocalStreamingServer {
             EnterprisePreferences.setLastError("Streaming server has no bound port")
         }
         val resolvedSize = if (size > 0L) size else resolveFileSize(fileId)
-        if (TelegramProxyManager.isRunning) {
+        if (TelegramProxyManager.isRunning || !BuildConfig.LEGACY_STREAMING_FALLBACK_ENABLED) {
+            if (!TelegramProxyManager.isRunning) {
+                TelegramProxyManager.startProxy()
+            }
             return TelegramProxyManager.getStreamUrl(fileId, resolvedSize, title, mimeType, fileName)
         }
         val label = VideoFormatSupport.streamLabel(fileName, title)

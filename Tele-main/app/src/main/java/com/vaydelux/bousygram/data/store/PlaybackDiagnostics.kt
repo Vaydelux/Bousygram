@@ -13,6 +13,22 @@ internal data class StreamMetrics(
     val bufferMode: BufferMode
 )
 
+internal data class PlaybackDiagnosticsSnapshot(
+    val firstFrameMs: Long,
+    val retryCount: Int,
+    val rebufferCount: Int,
+    val decoderName: String,
+    val droppedFrames: Int,
+    val bufferMode: String,
+    val lastStreamError: String,
+    val lastStalledOffset: Long,
+    val chunkRetryCount: Int,
+    val cacheAheadBytes: Long,
+    val activeChunkCount: Int,
+    val proxyStatus: String,
+    val readSource: String
+)
+
 internal object PlaybackDiagnostics {
     private const val PREFS_NAME = "playback_diagnostics"
     private const val KEY_FIRST_FRAME_MS = "first_frame_ms"
@@ -67,19 +83,36 @@ internal object PlaybackDiagnostics {
     }
 
     fun summary(): String {
-        val decoder = prefs.getString(KEY_DECODER_NAME, null).orEmpty().ifBlank { "Unknown" }
-        val mode = prefs.getString(KEY_BUFFER_MODE, null).orEmpty().ifBlank { EnterprisePreferences.bufferMode().name }
-        val error = prefs.getString(KEY_LAST_STREAM_ERROR, null).orEmpty().ifBlank { "None" }
-        return "firstFrame=${prefs.getLong(KEY_FIRST_FRAME_MS, 0L)}ms, " +
-            "retries=${prefs.getInt(KEY_RETRY_COUNT, 0)}, " +
-            "rebuffer=${prefs.getInt(KEY_REBUFFER_COUNT, 0)}, " +
-            "decoder=$decoder, droppedFrames=${prefs.getInt(KEY_DROPPED_FRAMES, 0)}, " +
-            "bufferMode=$mode, proxy=${prefs.getString(KEY_PROXY_STATUS, "none")}, " +
-            "activeChunks=${prefs.getInt(KEY_ACTIVE_CHUNK_COUNT, 0)}, " +
-            "chunkRetries=${prefs.getInt(KEY_CHUNK_RETRY_COUNT, 0)}, " +
-            "cacheAhead=${prefs.getLong(KEY_CACHE_AHEAD_BYTES, 0L)} bytes, " +
-            "lastOffset=${prefs.getLong(KEY_LAST_STALLED_OFFSET, 0L)}, " +
-            "readSource=${prefs.getString(KEY_READ_SOURCE, "unknown")}, " +
-            "lastStreamError=$error"
+        val snapshot = snapshot()
+        return "firstFrame=${snapshot.firstFrameMs}ms, " +
+            "retries=${snapshot.retryCount}, " +
+            "rebuffer=${snapshot.rebufferCount}, " +
+            "decoder=${snapshot.decoderName}, droppedFrames=${snapshot.droppedFrames}, " +
+            "bufferMode=${snapshot.bufferMode}, proxy=${snapshot.proxyStatus}, " +
+            "activeChunks=${snapshot.activeChunkCount}, " +
+            "chunkRetries=${snapshot.chunkRetryCount}, " +
+            "cacheAhead=${snapshot.cacheAheadBytes} bytes, " +
+            "lastOffset=${snapshot.lastStalledOffset}, " +
+            "readSource=${snapshot.readSource}, " +
+            "lastStreamError=${snapshot.lastStreamError}"
     }
+
+    fun snapshot(): PlaybackDiagnosticsSnapshot =
+        PlaybackDiagnosticsSnapshot(
+            firstFrameMs = prefs.getLong(KEY_FIRST_FRAME_MS, 0L),
+            retryCount = prefs.getInt(KEY_RETRY_COUNT, 0),
+            rebufferCount = prefs.getInt(KEY_REBUFFER_COUNT, 0),
+            decoderName = prefs.getString(KEY_DECODER_NAME, null).orEmpty().ifBlank { "Unknown" },
+            droppedFrames = prefs.getInt(KEY_DROPPED_FRAMES, 0),
+            bufferMode = prefs.getString(KEY_BUFFER_MODE, null).orEmpty().ifBlank {
+                EnterprisePreferences.bufferMode().name
+            },
+            lastStreamError = prefs.getString(KEY_LAST_STREAM_ERROR, null).orEmpty().ifBlank { "None" },
+            lastStalledOffset = prefs.getLong(KEY_LAST_STALLED_OFFSET, 0L),
+            chunkRetryCount = prefs.getInt(KEY_CHUNK_RETRY_COUNT, 0),
+            cacheAheadBytes = prefs.getLong(KEY_CACHE_AHEAD_BYTES, 0L),
+            activeChunkCount = prefs.getInt(KEY_ACTIVE_CHUNK_COUNT, 0),
+            proxyStatus = prefs.getString(KEY_PROXY_STATUS, "none").orEmpty(),
+            readSource = prefs.getString(KEY_READ_SOURCE, "unknown").orEmpty()
+        )
 }

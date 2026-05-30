@@ -56,7 +56,7 @@ object TelegramProxyManager {
     private const val CHUNK_SIZE_BYTES = TelegramChunkScheduler.CHUNK_SIZE_BYTES
     private const val STREAM_PRIORITY = 32
     private const val PRE_FLIGHT_RETRY_AFTER_SECONDS = "1"
-    private const val STREAMING_CHUNK_ATTEMPTS = 4
+    private const val PRE_FLIGHT_CHUNK_ATTEMPTS = 1
 
     @Volatile
     private var server: NettyApplicationEngine? = null
@@ -299,7 +299,8 @@ object TelegramProxyManager {
         purpose: TelegramChunkPurpose
     ): ByteArray? {
         var lastMessage = ""
-        repeat(STREAMING_CHUNK_ATTEMPTS) { attempt ->
+        var attempt = 0
+        while (coroutineContext.isActive) {
             val result = TelegramChunkScheduler.fetchChunk(
                 TelegramChunkRequest(
                     fileId = fileId,
@@ -329,7 +330,9 @@ object TelegramProxyManager {
                 TelegramChunkResult.Pending -> lastMessage = "Telegram range pending fileId=$fileId offset=$offset"
             }
             TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Reconnecting)
-            delay(350L * (attempt + 1))
+            if (purpose == TelegramChunkPurpose.Preflight && attempt + 1 >= PRE_FLIGHT_CHUNK_ATTEMPTS) break
+            attempt++
+            delay((350L * attempt).coerceAtMost(2_000L))
         }
         val message = lastMessage.ifBlank { "Telegram is still caching range fileId=$fileId offset=$offset" }
         Log.w(TAG, message)

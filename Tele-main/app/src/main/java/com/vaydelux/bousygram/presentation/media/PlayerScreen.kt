@@ -80,6 +80,9 @@ import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.StreamingSessionManager
 import com.vaydelux.bousygram.core.media.TelegramProxyPlayerFactory
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
+import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
+import com.vaydelux.bousygram.core.observability.PlaybackLogContext
+import com.vaydelux.bousygram.core.observability.StructuredPlaybackLogger
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import com.vaydelux.bousygram.data.store.StreamMetrics
@@ -270,14 +273,28 @@ fun PlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                val message = playbackErrorMessage(error)
+                val resolution = PlaybackErrorMapper.fromPlaybackException(error, retryCount)
+                val message = "${resolution.title}: ${resolution.message}"
                 EnterprisePreferences.setLastError(message)
                 PlaybackDiagnostics.recordStreamError(message)
                 val item = queue.getOrNull(queueIndex)
                 val retryPosition = maxOf(player.currentPosition, lastGoodPosition).coerceAtLeast(0L)
                 lastGoodPosition = retryPosition
                 hudVisible = true
-                if (item != null && isRecoverablePlaybackError(error) && retryCount < MAX_AUTO_RETRIES) {
+                if (item != null) {
+                    StructuredPlaybackLogger.error(
+                        event = "player_error",
+                        error = error,
+                        context = PlaybackLogContext(
+                            fileId = item.fileId,
+                            offset = retryPosition,
+                            decoderName = decoderName,
+                            cacheState = cacheState.name,
+                            activeChunks = com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.activeChunkCount(item.fileId)
+                        )
+                    )
+                }
+                if (item != null && resolution.recoverable && isRecoverablePlaybackError(error) && retryCount < MAX_AUTO_RETRIES) {
                     retryCount++
                     recordMetrics()
                     isReconnecting = true

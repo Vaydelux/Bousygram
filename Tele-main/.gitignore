@@ -1,5 +1,6 @@
 *.iml
 .gradle
+.kotlin/
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -12,6 +13,8 @@
 /build
 /app/build
 /buildSrc/build
+/build-tools/tdlib-arm64/build/
+/.codex-checkpoints/
 /out
 /captures
 .externalNativeBuild

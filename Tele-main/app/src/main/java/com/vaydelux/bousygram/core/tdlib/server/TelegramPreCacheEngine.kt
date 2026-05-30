@@ -1,10 +1,7 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.util.Log
-import com.vaydelux.bousygram.app.BousygramApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,11 +19,9 @@ object TelegramPreCacheEngine {
     private const val CACHE_AHEAD_BYTES = 24L * 1024L * 1024L
     private const val PRIME_PRIORITY = 16
     private const val CACHE_AHEAD_PRIORITY = 8
-    private const val FULL_CACHE_PRIORITY = 1
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activePrimeFileIds = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
-    private val activeFullCacheFileIds = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
 
     @Suppress("UNUSED_PARAMETER")
     fun primeVideoCache(tdLibClient: Client, fileId: Int, totalSize: Long = 0L) {
@@ -80,28 +75,20 @@ object TelegramPreCacheEngine {
         )
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun cacheFullVideoOnWifi(context: Context, fileId: Int, totalSize: Long) {
-        if (fileId <= 0 || totalSize <= 0L || !activeFullCacheFileIds.add(fileId)) return
-        scope.launch {
-            try {
-                if (!isUnmeteredHomeNetwork(context)) {
-                    Log.d(TAG, "Skipping full-video cache on metered/non-home network fileId=$fileId")
-                    return@launch
-                }
-                TelegramChunkScheduler.prefetchRange(
-                    fileId = fileId,
-                    offset = 0L,
-                    length = totalSize,
-                    purpose = TelegramChunkPurpose.BackgroundFull,
-                    priority = FULL_CACHE_PRIORITY
-                ).join()
-            } finally {
-                activeFullCacheFileIds.remove(fileId)
-            }
-        }
+        Log.d(TAG, "Full-video background caching disabled; using active stream cache-ahead only fileId=$fileId")
     }
 
-    fun cacheState(fileId: Int): PlaybackCacheState =
+    fun pauseBackgroundCaching() {
+        TelegramChunkScheduler.pauseBackgroundWork()
+    }
+
+    fun resumeBackgroundCaching() {
+        TelegramChunkScheduler.resumeBackgroundWork()
+    }
+
+    internal fun cacheState(fileId: Int): PlaybackCacheState =
         TelegramChunkScheduler.cacheState(fileId)
 
     private fun positionToOffset(totalSize: Long, positionMs: Long, durationMs: Long): Long =
@@ -111,15 +98,4 @@ object TelegramPreCacheEngine {
             min((positionMs.coerceAtLeast(0L) / 1000L) * 512_000L, totalSize - 1)
         }
 
-    private fun isUnmeteredHomeNetwork(context: Context): Boolean {
-        val appContext = context.applicationContext ?: BousygramApp.instance
-        val connectivityManager = appContext.getSystemService(ConnectivityManager::class.java)
-            ?: return false
-        val network = connectivityManager.activeNetwork ?: return false
-        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-        val isHomeTransport = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-        return isHomeTransport &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-    }
 }

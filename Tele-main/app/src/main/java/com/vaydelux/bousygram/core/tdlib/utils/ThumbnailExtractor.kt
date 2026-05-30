@@ -18,6 +18,16 @@ object ThumbnailExtractor {
     data class PreviewKey(val fileId: Int, val timeBucketMs: Long)
     private val previewCache = android.util.LruCache<PreviewKey, Bitmap>(100)
 
+    fun trimMemory(critical: Boolean) {
+        if (critical) {
+            memoryCache.evictAll()
+            previewCache.evictAll()
+        } else {
+            memoryCache.trimToSize(memoryCache.maxSize() / 2)
+            previewCache.trimToSize(previewCache.maxSize() / 2)
+        }
+    }
+
     suspend fun getOrExtractThumbnail(
         context: Context,
         fileId: Int,
