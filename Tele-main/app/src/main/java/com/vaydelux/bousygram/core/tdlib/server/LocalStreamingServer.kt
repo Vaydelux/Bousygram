@@ -301,26 +301,12 @@ object LocalStreamingServer {
         if (lastWarmup != null && now - lastWarmup < 15_000L) return
         if (recentWarmups.size > 512) recentWarmups.clear()
         recentWarmups[fileId] = now
-        TelegramChunkScheduler.prefetchRange(
+        triggerDownload(
             fileId = fileId,
             offset = 0L,
-            length = min(INITIAL_WARMUP_BYTES, totalSize),
-            purpose = TelegramChunkPurpose.Priming,
+            limit = min(INITIAL_WARMUP_BYTES, totalSize),
             priority = STREAM_FAST_PRIORITY
         )
-        // Many large Telegram movie documents keep MP4 metadata at the tail. Priming both
-        // ends lets ExoPlayer validate the container without waiting for a full download.
-        val tailSize = min(PREFETCH_CHUNK_BYTES, totalSize)
-        val tailOffset = (totalSize - tailSize).coerceAtLeast(0L)
-        if (tailOffset > 0L) {
-            TelegramChunkScheduler.prefetchRange(
-                fileId = fileId,
-                offset = tailOffset,
-                length = tailSize,
-                purpose = TelegramChunkPurpose.CacheAhead,
-                priority = STREAM_SAFE_PRIORITY
-            )
-        }
     }
 
     @Volatile

@@ -492,13 +492,6 @@ fun PlayerScreen(
             ?: PlaybackProgressTracker.getPosition(item.fileId, duration).toLong()
         val session = PlaybackSessionController.start(item.fileId, resumePosition)
         playbackSession = session
-        PlaybackSessionController.cacheAhead(
-            session = session,
-            totalSize = fileSizeBytes,
-            positionMs = resumePosition,
-            durationMs = duration,
-            startup = true
-        )
         player.stop()
         player.clearMediaItems()
 
