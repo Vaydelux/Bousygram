@@ -118,9 +118,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         setState(VideoPlayerUiState.Loading)
         TelegramProxyManager.startProxy()
         tdLibClient?.let { client ->
-            playbackOptions.forEach { option ->
-                TelegramPreCacheEngine.primeVideoCache(client, option.fileId)
-            }
+            TelegramPreCacheEngine.primeVideoCache(client, playbackOptions.first().fileId)
         }
 
         playOption(playbackOptions.first(), resumePositionMs = 0L)

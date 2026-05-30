@@ -11,7 +11,8 @@ data class PlaybackRequest(
     val subtitleUrl: String? = null,
     val fileName: String? = null,
     val mimeType: String? = null,
-    val durationSeconds: Int = 0
+    val durationSeconds: Int = 0,
+    val fileSizeBytes: Long = 0L
 )
 
 data class PlaybackQueueItem(
@@ -20,7 +21,8 @@ data class PlaybackQueueItem(
     val fileId: Int,
     val fileName: String? = null,
     val mimeType: String? = null,
-    val durationSeconds: Int = 0
+    val durationSeconds: Int = 0,
+    val fileSizeBytes: Long = 0L
 )
 
 data class PlayerHudState(

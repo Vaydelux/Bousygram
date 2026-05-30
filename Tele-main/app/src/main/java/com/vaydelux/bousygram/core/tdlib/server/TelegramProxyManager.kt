@@ -131,8 +131,6 @@ object TelegramProxyManager {
             return
         }
 
-        LocalStreamingServer.warmUp(fileId, size)
-
         val title = call.request.queryParameters["title"].orEmpty()
         val contentTypeValue = call.request.queryParameters["mime"]
             ?.takeIf { it.isNotBlank() }
@@ -142,6 +140,9 @@ object TelegramProxyManager {
 
         val rangeHeader = call.request.header(HttpHeaders.Range)
         val range = parseByteRange(rangeHeader, size)
+        if (range.start == 0L) {
+            LocalStreamingServer.warmUp(fileId, size)
+        }
         val contentLength = range.end - range.start + 1
         val isPartial = rangeHeader != null
         val preflightLimit = min(FIRST_CHUNK_BYTES.toLong(), contentLength).toInt()

@@ -22,7 +22,8 @@ fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
             fileId = fileId,
             fileName = item.fileName,
             mimeType = item.mimeType,
-            durationSeconds = item.durationSeconds
+            durationSeconds = item.durationSeconds,
+            fileSizeBytes = item.fileSizeBytes
         )
     }
 
@@ -42,7 +43,8 @@ fun buildPlaybackRequest(
         subtitleUrl = subtitleUrl,
         fileName = item.fileName,
         mimeType = item.mimeType,
-        durationSeconds = item.durationSeconds
+        durationSeconds = item.durationSeconds,
+        fileSizeBytes = item.fileSizeBytes
     )
 }
 

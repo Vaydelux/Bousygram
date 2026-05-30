@@ -35,7 +35,7 @@ object LocalStreamingServer {
     private const val VERBOSE_STREAM_LOGS = false
     private const val QUICK_SIZE_WAIT_MS = 1_500L
     private const val QUICK_SIZE_POLL_MS = 150L
-    private const val INITIAL_WARMUP_BYTES = 6L * 1024L * 1024L
+    private const val INITIAL_WARMUP_BYTES = 2L * 1024L * 1024L
     private const val STREAM_CHUNK_BYTES = 8L * 1024L * 1024L
     private const val PREFETCH_CHUNK_BYTES = 4L * 1024L * 1024L
     private const val STREAM_READ_BUFFER_BYTES = 256 * 1024
@@ -51,6 +51,7 @@ object LocalStreamingServer {
     private val executor = Executors.newFixedThreadPool(max(6, Runtime.getRuntime().availableProcessors() * 2))
     private val fileStatusCache = ConcurrentHashMap<Int, CachedFileStatus>()
     private val recentDownloadHints = ConcurrentHashMap<String, Long>()
+    private val recentWarmups = ConcurrentHashMap<Int, Long>()
     @Volatile
     private var isRunning = false
 
@@ -295,6 +296,11 @@ object LocalStreamingServer {
 
     fun warmUp(fileId: Int, totalSize: Long) {
         if (totalSize <= 0L) return
+        val now = System.currentTimeMillis()
+        val lastWarmup = recentWarmups[fileId]
+        if (lastWarmup != null && now - lastWarmup < 15_000L) return
+        if (recentWarmups.size > 512) recentWarmups.clear()
+        recentWarmups[fileId] = now
         TelegramChunkScheduler.prefetchRange(
             fileId = fileId,
             offset = 0L,
@@ -311,8 +317,8 @@ object LocalStreamingServer {
                 fileId = fileId,
                 offset = tailOffset,
                 length = tailSize,
-                purpose = TelegramChunkPurpose.Priming,
-                priority = STREAM_FAST_PRIORITY
+                purpose = TelegramChunkPurpose.CacheAhead,
+                priority = STREAM_SAFE_PRIORITY
             )
         }
     }

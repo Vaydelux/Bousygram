@@ -8,7 +8,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
@@ -18,11 +17,11 @@ import kotlin.math.min
 
 object TelegramPreCacheEngine {
     private const val TAG = "TelegramPreCacheEngine"
-    private const val HEAD_PRIME_BYTES = 6L * 1024L * 1024L
-    private const val TAIL_PRIME_BYTES = 4L * 1024L * 1024L
+    private const val HEAD_PRIME_BYTES = 2L * 1024L * 1024L
+    private const val TAIL_PRIME_BYTES = 2L * 1024L * 1024L
     private const val CACHE_AHEAD_BYTES = 32L * 1024L * 1024L
     private const val MIN_CACHE_AHEAD_SHIFT_BYTES = 8L * 1024L * 1024L
-    private const val PRIME_PRIORITY = 16
+    private const val PRIME_PRIORITY = 32
     private const val CACHE_AHEAD_PRIORITY = 8
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -45,16 +44,15 @@ object TelegramPreCacheEngine {
                 val size = totalSize.takeIf { it > 0L } ?: LocalStreamingServer.resolveFileSize(fileId)
                 TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Priming)
                 val headLength = if (size > 0L) min(HEAD_PRIME_BYTES, size) else HEAD_PRIME_BYTES
-                val jobs = mutableListOf(
-                    TelegramChunkScheduler.prefetchRange(
-                        fileId = fileId,
-                        offset = 0L,
-                        length = headLength,
-                        purpose = TelegramChunkPurpose.Priming,
-                        priority = PRIME_PRIORITY
-                    )
+                val headJob = TelegramChunkScheduler.prefetchRange(
+                    fileId = fileId,
+                    offset = 0L,
+                    length = headLength,
+                    purpose = TelegramChunkPurpose.Priming,
+                    priority = PRIME_PRIORITY
                 )
-                trackedJobs.addAll(jobs)
+                trackedJobs += headJob
+                headJob.join()
                 if (size > 0L) {
                     val tailLength = min(TAIL_PRIME_BYTES, size)
                     val tailOffset = (size - tailLength).coerceAtLeast(0L)
@@ -63,14 +61,12 @@ object TelegramPreCacheEngine {
                             fileId = fileId,
                             offset = tailOffset,
                             length = tailLength,
-                            purpose = TelegramChunkPurpose.Priming,
-                            priority = PRIME_PRIORITY
+                            purpose = TelegramChunkPurpose.CacheAhead,
+                            priority = CACHE_AHEAD_PRIORITY
                         )
-                        jobs += tailJob
                         trackedJobs += tailJob
                     }
                 }
-                jobs.joinAll()
                 Log.d(TAG, "Primed Telegram video cache fileId=$fileId size=$size")
             } finally {
                 activePrimeJobs.remove(fileId, trackedJobs)

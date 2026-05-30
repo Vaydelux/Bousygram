@@ -126,7 +126,8 @@ fun PlayerScreen(
                     request.fileId,
                     request.fileName,
                     request.mimeType,
-                    request.durationSeconds
+                    request.durationSeconds,
+                    request.fileSizeBytes
                 )
             )
         }
@@ -453,7 +454,7 @@ fun PlayerScreen(
         val preparation = withContext(Dispatchers.IO) {
             LocalStreamingServer.prepareStream(
                 fileId = item.fileId,
-                declaredSize = 0L,
+                declaredSize = item.fileSizeBytes,
                 title = item.title,
                 mimeType = item.mimeType,
                 fileName = item.fileName
