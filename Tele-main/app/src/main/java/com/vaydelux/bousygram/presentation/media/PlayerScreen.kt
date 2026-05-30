@@ -98,6 +98,9 @@ import kotlinx.coroutines.withContext
 private const val SEEK_INCREMENT_MS = 10_000L
 private const val BUFFERING_STALL_MS = 22_000L
 private const val MAX_AUTO_RETRIES = 5
+private const val CACHE_AHEAD_LEAD_MS = 30_000L
+private const val STARTUP_CACHE_AHEAD_LEAD_MS = 12_000L
+private const val CACHE_AHEAD_REFRESH_MS = 10_000L
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -203,12 +206,24 @@ fun PlayerScreen(
     val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
 
+    fun stopCurrentCache() {
+        queue.getOrNull(queueIndex)?.fileId?.let { fileId ->
+            TelegramPreCacheEngine.stopCaching(fileId)
+        }
+    }
+
+    fun exitPlayback() {
+        stopCurrentCache()
+        onExit()
+    }
+
     fun goToTrack(newIndex: Int) {
         if (newIndex !in queue.indices || newIndex == queueIndex) return
         val oldItem = queue[queueIndex]
         if (oldItem.fileId > 0 && player.currentPosition > 0) {
             PlaybackProgressTracker.savePosition(oldItem.fileId, player.currentPosition.toInt(), duration)
         }
+        TelegramPreCacheEngine.stopCaching(oldItem.fileId)
         reloadNonce = 0
         retryCount = 0
         isReconnecting = false
@@ -251,7 +266,7 @@ fun PlayerScreen(
                         if (EnterprisePreferences.autoPlayNext() && queueIndex < queue.lastIndex) {
                             goToTrack(queueIndex + 1)
                         } else {
-                            onExit()
+                            exitPlayback()
                         }
                     }
                 }
@@ -346,6 +361,7 @@ fun PlayerScreen(
             }
             player.removeListener(listener)
             player.removeAnalyticsListener(analyticsListener)
+            TelegramPreCacheEngine.stopCaching(current.fileId)
             audioFocusController.abandon()
             mediaSession.release()
             player.release()
@@ -364,13 +380,17 @@ fun PlayerScreen(
                     }
                 }
                 Lifecycle.Event.ON_RESUME -> if (player.playWhenReady) player.play()
-                Lifecycle.Event.ON_STOP -> streamingSessionManager.releaseLocks()
+                Lifecycle.Event.ON_STOP -> {
+                    stopCurrentCache()
+                    streamingSessionManager.releaseLocks()
+                }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            stopCurrentCache()
             streamingSessionManager.releaseLocks()
         }
     }
@@ -442,6 +462,12 @@ fun PlayerScreen(
         val resumePosition = lastGoodPosition
             .takeIf { it > 0L }
             ?: PlaybackProgressTracker.getPosition(item.fileId, duration).toLong()
+        TelegramPreCacheEngine.cacheAhead(
+            item.fileId,
+            fileSizeBytes,
+            resumePosition + STARTUP_CACHE_AHEAD_LEAD_MS,
+            duration
+        )
         player.stop()
         player.clearMediaItems()
 
@@ -508,18 +534,12 @@ fun PlayerScreen(
             if (position > 0L &&
                 duration > 0L &&
                 fileSizeBytes > 0L &&
-                position - lastAheadPrefetchPosition >= 15_000L
+                position - lastAheadPrefetchPosition >= CACHE_AHEAD_REFRESH_MS
             ) {
-                LocalStreamingServer.prefetchAtPosition(
-                    current.fileId,
-                    fileSizeBytes,
-                    position + 30_000L,
-                    duration
-                )
                 TelegramPreCacheEngine.cacheAhead(
                     current.fileId,
                     fileSizeBytes,
-                    position + 30_000L,
+                    position + CACHE_AHEAD_LEAD_MS,
                     duration
                 )
                 lastAheadPrefetchPosition = position
@@ -583,7 +603,7 @@ fun PlayerScreen(
                         true
                     }
                     Key.Back -> {
-                        onExit()
+                        exitPlayback()
                         true
                     }
                     else -> when (event.nativeKeyEvent.keyCode) {
@@ -671,7 +691,7 @@ fun PlayerScreen(
                     if (queueIndex > 0) goToTrack(queueIndex - 1)
                 },
                 onSkipNext = {
-                    if (queueIndex < queue.lastIndex) goToTrack(queueIndex + 1) else onExit()
+                    if (queueIndex < queue.lastIndex) goToTrack(queueIndex + 1) else exitPlayback()
                 },
                 onTracks = {
                     tracksPanelVisible = true

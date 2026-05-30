@@ -94,6 +94,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
         val playbackKey = playbackOptions.joinToString("|") { "${it.quality}:${it.fileId}" }
         if (currentPlaybackKey == playbackKey && player.mediaItemCount > 0) return
+        stopActiveCaching()
         currentPlaybackKey = playbackKey
         activeOptions = playbackOptions
         activeOptionIndex = 0
@@ -116,6 +117,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun resumePlayback() {
         if (player.mediaItemCount > 0 && (player.playWhenReady || player.playbackState == Player.STATE_READY)) {
+            primeActiveOption()
             player.play()
         }
     }
@@ -123,10 +125,12 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun stopPlayback() {
         bufferingJob?.cancel()
         player.pause()
+        stopActiveCaching()
     }
 
     override fun onCleared() {
         bufferingJob?.cancel()
+        stopActiveCaching()
         player.removeListener(playerListener)
         player.release()
         super.onCleared()
@@ -152,6 +156,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val resumePosition = maxOf(player.currentPosition, lastGoodPositionMs).coerceAtLeast(0L)
         activeOptionIndex++
         val nextOption = activeOptions[activeOptionIndex]
+        TelegramPreCacheEngine.stopCaching(activeOptions[activeOptionIndex - 1].fileId)
         Log.w(
             TAG,
             "Restarting adaptive playback at ${nextOption.quality}p fileId=${nextOption.fileId} " +
@@ -172,6 +177,18 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             player.seekTo(resumePositionMs)
         }
         player.play()
+    }
+
+    private fun primeActiveOption() {
+        val client = tdLibClient ?: return
+        val option = activeOptions.getOrNull(activeOptionIndex) ?: return
+        TelegramPreCacheEngine.primeVideoCache(client, option.fileId)
+    }
+
+    private fun stopActiveCaching() {
+        activeOptions.forEach { option ->
+            TelegramPreCacheEngine.stopCaching(option.fileId)
+        }
     }
 
     private companion object {

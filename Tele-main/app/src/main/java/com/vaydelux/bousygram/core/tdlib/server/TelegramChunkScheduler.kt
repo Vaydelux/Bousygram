@@ -85,7 +85,7 @@ internal sealed class TelegramChunkResult {
 
 internal object TelegramChunkScheduler {
     const val CHUNK_SIZE_BYTES = 1024 * 1024
-    const val MAX_CONCURRENT_CHUNKS_PER_FILE = 4
+    const val MAX_CONCURRENT_CHUNKS_PER_FILE = 1
 
     private const val TAG = "TelegramChunkScheduler"
     private const val FAST_TIMEOUT_MS = 3_000L
@@ -245,7 +245,11 @@ internal object TelegramChunkScheduler {
     }
 
     private suspend fun waitForStreamingPriority(request: TelegramChunkRequest) {
-        if (request.purpose != TelegramChunkPurpose.BackgroundFull) return
+        if (request.purpose != TelegramChunkPurpose.BackgroundFull &&
+            request.purpose != TelegramChunkPurpose.CacheAhead
+        ) {
+            return
+        }
         while (coroutineContext.isActive) {
             if (backgroundPaused.get()) {
                 delay(1_000L)

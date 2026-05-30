@@ -19,18 +19,11 @@ import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.utils.io.ByteWriteChannel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
 import java.net.URLEncoder
-import java.util.TreeMap
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
 import kotlin.math.min
 
@@ -50,21 +43,15 @@ object TelegramProxyManager {
     private const val PORT = 8080
     private const val LOCAL_STREAM_BASE_URL = "http://$HOST:$PORT/stream"
     private const val LOCAL_ADAPTIVE_STREAM_BASE_URL = "http://$HOST:$PORT/adaptive-stream"
-    private const val PARALLEL_WORKER_COUNT = TelegramChunkScheduler.MAX_CONCURRENT_CHUNKS_PER_FILE
-    // Keep chunks at exactly 1MB so parallel prefetch still feeds ExoPlayer ordered,
-    // interleaved media bytes and avoids audio/video drift.
+    // Live playback stays sequential because TDLib has one active byte-window per file.
     private const val CHUNK_SIZE_BYTES = TelegramChunkScheduler.CHUNK_SIZE_BYTES
+    private const val FIRST_CHUNK_BYTES = 256 * 1024
     private const val STREAM_PRIORITY = 32
     private const val PRE_FLIGHT_RETRY_AFTER_SECONDS = "1"
-    private const val PRE_FLIGHT_CHUNK_ATTEMPTS = 1
+    private const val PRE_FLIGHT_CHUNK_ATTEMPTS = 3
 
     @Volatile
     private var server: NettyApplicationEngine? = null
-
-    private data class DownloadedChunk(
-        val offset: Long,
-        val bytes: ByteArray
-    )
 
     val isRunning: Boolean
         get() = server != null
@@ -157,7 +144,7 @@ object TelegramProxyManager {
         val range = parseByteRange(rangeHeader, size)
         val contentLength = range.end - range.start + 1
         val isPartial = rangeHeader != null
-        val preflightLimit = min(CHUNK_SIZE_BYTES.toLong(), contentLength).toInt()
+        val preflightLimit = min(FIRST_CHUNK_BYTES.toLong(), contentLength).toInt()
         val preflight = fetchReadyChunkForStream(
             fileId = fileId,
             offset = range.start,
@@ -181,7 +168,7 @@ object TelegramProxyManager {
             Log.d(TAG, "Ktor stream fileId=$fileId range=${range.start}-${range.end}/$size")
         }
         call.respondBytesWriter(contentType = contentType, status = status) {
-            streamTelegramFileInParallel(fileId, range, this, firstChunk = preflight)
+            streamTelegramFileSequentially(fileId, range, this, firstChunk = preflight)
         }
     }
 
@@ -203,7 +190,7 @@ object TelegramProxyManager {
         val range = parseByteRange(rangeHeader, size)
         val contentLength = range.end - range.start + 1
         val isPartial = rangeHeader != null
-        val preflightLimit = min(CHUNK_SIZE_BYTES.toLong(), contentLength).toInt()
+        val preflightLimit = min(FIRST_CHUNK_BYTES.toLong(), contentLength).toInt()
         val preflight = fetchReadyChunkForStream(
             fileId = startingOption.fileId,
             offset = range.start,
@@ -224,11 +211,11 @@ object TelegramProxyManager {
 
         val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
         call.respondBytesWriter(contentType = ContentType.Application.OctetStream, status = status) {
-            streamTelegramFileInParallel(startingOption.fileId, range, this, firstChunk = preflight)
+            streamTelegramFileSequentially(startingOption.fileId, range, this, firstChunk = preflight)
         }
     }
 
-    private suspend fun streamTelegramFileInParallel(
+    private suspend fun streamTelegramFileSequentially(
         fileId: Int,
         range: HttpByteRange,
         channel: ByteWriteChannel,
@@ -242,53 +229,19 @@ object TelegramProxyManager {
             if (expectedOffset > range.end) return@coroutineScope
         }
 
-        val nextOffset = AtomicLong(expectedOffset)
-        val results = Channel<DownloadedChunk>(capacity = PARALLEL_WORKER_COUNT)
-        val workers = List(PARALLEL_WORKER_COUNT) {
-            launch(Dispatchers.IO) {
-                while (isActive) {
-                    val offset = nextOffset.getAndAdd(CHUNK_SIZE_BYTES.toLong())
-                    if (offset > range.end) break
-                    val limit = min(CHUNK_SIZE_BYTES.toLong(), range.end - offset + 1L).toInt()
-                    if (limit <= 0) break
-                    val chunk = fetchReadyChunkForStream(
-                        fileId = fileId,
-                        offset = offset,
-                        limit = limit,
-                        purpose = TelegramChunkPurpose.Streaming
-                    ) ?: error("Telegram chunk unavailable fileId=$fileId offset=$offset limit=$limit")
-                    results.send(DownloadedChunk(offset, chunk))
-                }
-            }
-        }
-        val closer = launch {
-            workers.joinAll()
-            results.close()
-        }
-
-        val pending = TreeMap<Long, ByteArray>()
-        try {
-            for (chunk in results) {
-                coroutineContext.ensureActive()
-                pending[chunk.offset] = chunk.bytes
-                while (true) {
-                    val next = pending.remove(expectedOffset) ?: break
-                    channel.writeFully(next, 0, next.size)
-                    channel.flush()
-                    expectedOffset += next.size
-                    if (expectedOffset > range.end) {
-                        workers.forEach { it.cancel() }
-                        return@coroutineScope
-                    }
-                }
-            }
-            if (expectedOffset <= range.end) {
-                error("Telegram stream ended early fileId=$fileId expectedOffset=$expectedOffset end=${range.end}")
-            }
-        } finally {
-            closer.cancel()
-            workers.forEach { it.cancel() }
-            results.close()
+        while (expectedOffset <= range.end) {
+            coroutineContext.ensureActive()
+            val limit = min(CHUNK_SIZE_BYTES.toLong(), range.end - expectedOffset + 1L).toInt()
+            if (limit <= 0) break
+            val chunk = fetchReadyChunkForStream(
+                fileId = fileId,
+                offset = expectedOffset,
+                limit = limit,
+                purpose = TelegramChunkPurpose.Streaming
+            ) ?: error("Telegram chunk unavailable fileId=$fileId offset=$expectedOffset limit=$limit")
+            channel.writeFully(chunk, 0, chunk.size)
+            channel.flush()
+            expectedOffset += chunk.size
         }
     }
 

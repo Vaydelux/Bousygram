@@ -7,7 +7,6 @@ import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -86,7 +85,7 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
-    fun activeChunkDownloadsAreCappedAtFourPerFile() = runBlocking {
+    fun activeChunkDownloadsAreSerializedPerFile() = runBlocking {
         val bytes = ByteArray(TelegramChunkScheduler.CHUNK_SIZE_BYTES * 8) { 3 }
         val gateway = FakeTelegramFileGateway(bytes, downloadDelayMs = 120L)
         TelegramFileGatewayRegistry.installForTests(gateway)
@@ -106,8 +105,7 @@ class TelegramChunkSchedulerTest {
         }
         jobs.forEach { assertEquals(TelegramChunkResult.Ready::class, it.await()::class) }
 
-        assertTrue(gateway.maxActiveDownloads.get() <= TelegramChunkScheduler.MAX_CONCURRENT_CHUNKS_PER_FILE)
-        assertTrue(gateway.maxActiveDownloads.get() > 1)
+        assertEquals(TelegramChunkScheduler.MAX_CONCURRENT_CHUNKS_PER_FILE, gateway.maxActiveDownloads.get())
     }
 
     private class FakeTelegramFileGateway(
