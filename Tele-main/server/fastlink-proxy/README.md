@@ -13,7 +13,7 @@ Android revokes the active token when playback exits/backgrounds, and the bot de
 ## Required Setup
 
 1. Deploy `server.py` on a small VPS.
-2. Configure `.env` from `env.template`.
+2. Configure `.env` from `.env.template`.
 3. Put Nginx in front of it using `nginx.conf`.
 4. Install `bousygram-proxy.service` as a systemd service.
 5. Confirm `https://your-domain/health` returns `{"status":"ok"}`.
@@ -28,11 +28,36 @@ Fast-link playback forwards the selected message to your bot. Use only a bot and
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install fastapi uvicorn httpx python-telegram-bot
+pip install -r requirements.txt
 python server.py
 ```
 
 Keep `SIGNING_KEY` stable. Changing it invalidates active links.
+
+## VPS Build Steps
+
+```bash
+sudo useradd --system --home /opt/bousygram-proxy --shell /usr/sbin/nologin bousygram
+sudo mkdir -p /opt/bousygram-proxy
+sudo cp server.py requirements.txt .env.template /opt/bousygram-proxy/
+sudo cp bousygram-proxy.service /etc/systemd/system/
+sudo chown -R bousygram:bousygram /opt/bousygram-proxy
+cd /opt/bousygram-proxy
+sudo -u bousygram python3 -m venv venv
+sudo -u bousygram ./venv/bin/pip install -r requirements.txt
+sudo cp .env.template .env
+sudo chmod 600 .env
+sudo nano .env
+sudo systemctl daemon-reload
+sudo systemctl enable --now bousygram-proxy
+curl http://127.0.0.1:8080/health
+```
+
+After Nginx and SSL are configured, test:
+
+```bash
+curl https://your-domain.example/health
+```
 
 ## Disposal Behavior
 
@@ -41,3 +66,5 @@ Keep `SIGNING_KEY` stable. Changing it invalidates active links.
 - `/revoke/{token}` removes the in-memory token when Android leaves playback.
 - Bot chat messages are deleted shortly after link creation.
 - If the user plays the same media again, Android forwards it again and gets a new token.
+
+For many users, keep `ALLOWED_USER_IDS` as a comma-separated list of trusted Telegram user IDs. Leaving it blank allows any Telegram user who can message the bot to request a stream link.

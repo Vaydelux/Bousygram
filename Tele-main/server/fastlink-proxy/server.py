@@ -36,6 +36,7 @@ ALLOWED_USER_IDS: set[int] = {
 
 _token_store: dict[str, dict] = {}
 _range_pattern = re.compile(r"bytes=(\d+)-(\d*)$")
+_cleanup_task: Optional[asyncio.Task] = None
 
 
 def _sign_token(token: str, expires_at: int) -> str:
@@ -74,6 +75,12 @@ def cleanup_expired_tokens() -> None:
     for token, entry in list(_token_store.items()):
         if now > entry["expires_at"]:
             del _token_store[token]
+
+
+async def cleanup_expired_tokens_forever() -> None:
+    while True:
+        cleanup_expired_tokens()
+        await asyncio.sleep(60)
 
 
 def parse_range(range_header: str, size: int) -> Optional[tuple[int, int]]:
@@ -147,15 +154,21 @@ async def delete_bot_chat_messages_later(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _cleanup_task
     bot_app = Application.builder().token(BOT_TOKEN).build()
     bot_app.add_handler(MessageHandler(filters.ALL, handle_message))
 
     async with bot_app:
+        _cleanup_task = asyncio.create_task(cleanup_expired_tokens_forever())
         await bot_app.start()
         await bot_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        yield
-        await bot_app.updater.stop()
-        await bot_app.stop()
+        try:
+            yield
+        finally:
+            if _cleanup_task:
+                _cleanup_task.cancel()
+            await bot_app.updater.stop()
+            await bot_app.stop()
 
 
 fastapi_app = FastAPI(lifespan=lifespan)
