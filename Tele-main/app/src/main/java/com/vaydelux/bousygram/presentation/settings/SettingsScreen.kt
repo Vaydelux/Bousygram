@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +39,7 @@ import com.vaydelux.bousygram.core.tdlib.cache.TelegramCacheStorageStats
 import com.vaydelux.bousygram.data.store.BufferMode
 import com.vaydelux.bousygram.data.store.CacheLimitOption
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
+import com.vaydelux.bousygram.data.store.PlaybackMode
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import com.vaydelux.bousygram.data.store.PlaybackDiagnosticsSnapshot
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
@@ -69,6 +71,8 @@ fun SettingsScreen(
     var subtitlesDefault by remember { mutableStateOf(EnterprisePreferences.subtitlesDefault()) }
     var speed by remember { mutableFloatStateOf(EnterprisePreferences.preferredSpeed()) }
     var bufferMode by remember { mutableStateOf(EnterprisePreferences.bufferMode()) }
+    var playbackMode by remember { mutableStateOf(EnterprisePreferences.playbackMode()) }
+    var fastLinkBotUsername by remember { mutableStateOf(EnterprisePreferences.fastLinkBotUsername()) }
     var cacheLimitOption by remember { mutableStateOf(EnterprisePreferences.cacheLimitOption()) }
     var storageRefresh by remember { mutableStateOf(0) }
     var lastPruneResult by remember { mutableStateOf("Not run this session") }
@@ -97,6 +101,8 @@ fun SettingsScreen(
         subtitlesDefault,
         speed,
         bufferMode,
+        playbackMode,
+        fastLinkBotUsername,
         cacheLimitOption,
         cacheSize
     ) {
@@ -127,6 +133,8 @@ fun SettingsScreen(
                     subtitlesDefault = subtitlesDefault,
                     speed = speed,
                     bufferMode = bufferMode,
+                    playbackMode = playbackMode,
+                    fastLinkBotUsername = fastLinkBotUsername,
                     cacheLimitOption = cacheLimitOption,
                     cacheSize = cacheSize,
                     storageStats = storageStats,
@@ -168,6 +176,14 @@ fun SettingsScreen(
                         bufferMode = it
                         EnterprisePreferences.setBufferMode(it)
                     },
+                    onPlaybackMode = {
+                        playbackMode = it
+                        EnterprisePreferences.setPlaybackMode(it)
+                    },
+                    onFastLinkBotUsername = {
+                        fastLinkBotUsername = it
+                        EnterprisePreferences.setFastLinkBotUsername(it)
+                    },
                     onCacheLimit = {
                         cacheLimitOption = it
                         EnterprisePreferences.setCacheLimitOption(it)
@@ -203,6 +219,8 @@ fun SettingsScreen(
                         subtitlesDefault = subtitlesDefault,
                         speed = speed,
                         bufferMode = bufferMode,
+                        playbackMode = playbackMode,
+                        fastLinkBotUsername = fastLinkBotUsername,
                         cacheLimitOption = cacheLimitOption,
                         cacheSize = cacheSize,
                         storageStats = storageStats,
@@ -244,6 +262,14 @@ fun SettingsScreen(
                             bufferMode = it
                             EnterprisePreferences.setBufferMode(it)
                         },
+                        onPlaybackMode = {
+                            playbackMode = it
+                            EnterprisePreferences.setPlaybackMode(it)
+                        },
+                        onFastLinkBotUsername = {
+                            fastLinkBotUsername = it
+                            EnterprisePreferences.setFastLinkBotUsername(it)
+                        },
                         onCacheLimit = {
                             cacheLimitOption = it
                             EnterprisePreferences.setCacheLimitOption(it)
@@ -263,6 +289,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
     subtitlesDefault: Boolean,
     speed: Float,
     bufferMode: BufferMode,
+    playbackMode: PlaybackMode,
+    fastLinkBotUsername: String,
     cacheLimitOption: CacheLimitOption,
     cacheSize: Long,
     storageStats: TelegramCacheStorageStats,
@@ -277,6 +305,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
     onSubtitlesDefault: (Boolean) -> Unit,
     onSpeed: (Float) -> Unit,
     onBufferMode: (BufferMode) -> Unit,
+    onPlaybackMode: (PlaybackMode) -> Unit,
+    onFastLinkBotUsername: (String) -> Unit,
     onCacheLimit: (CacheLimitOption) -> Unit
 ) {
                 item {
@@ -320,6 +350,40 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
                                 )
                             }
                         }
+                    }
+                }
+                item {
+                    Section("Hybrid Playback") {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            PlaybackMode.entries.forEach { mode ->
+                                BousygramChip(
+                                    text = mode.label,
+                                    selected = playbackMode == mode,
+                                    onClick = { onPlaybackMode(mode) }
+                                )
+                            }
+                        }
+                        Text(
+                            playbackMode.description,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedTextField(
+                            value = fastLinkBotUsername,
+                            onValueChange = onFastLinkBotUsername,
+                            label = { Text("Fast-link bot username") },
+                            placeholder = { Text("YourStreamBot") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "Auto and Fast link forward the selected Telegram message to your own bot/proxy server.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
                 item {

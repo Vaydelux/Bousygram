@@ -1,0 +1,16 @@
+[Unit]
+Description=Bousygram fast-link bot and media proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=bousygram
+Group=bousygram
+WorkingDirectory=/opt/bousygram-proxy
+EnvironmentFile=/opt/bousygram-proxy/.env
+ExecStart=/opt/bousygram-proxy/venv/bin/python /opt/bousygram-proxy/server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

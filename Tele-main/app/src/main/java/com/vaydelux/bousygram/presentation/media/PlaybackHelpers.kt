@@ -18,6 +18,8 @@ fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
                 item.mimeType,
                 item.fileName
             ),
+            chatId = item.chatId,
+            messageId = item.messageId,
             title = mediaDisplayLabels(item, "").title,
             fileId = fileId,
             fileName = item.fileName,
@@ -37,6 +39,8 @@ fun buildPlaybackRequest(
     val fileId = item.fileId ?: 0
     return PlaybackRequest(
         url = streamUrl,
+        chatId = item.chatId,
+        messageId = item.messageId,
         fileId = fileId,
         title = mediaDisplayLabels(item, "").title,
         queue = queue,
@@ -44,7 +48,8 @@ fun buildPlaybackRequest(
         fileName = item.fileName,
         mimeType = item.mimeType,
         durationSeconds = item.durationSeconds,
-        fileSizeBytes = item.fileSizeBytes
+        fileSizeBytes = item.fileSizeBytes,
+        startsWithFastLink = !streamUrl.startsWith("http://127.0.0.1")
     )
 }
 

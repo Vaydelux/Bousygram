@@ -5,6 +5,8 @@ import com.vaydelux.bousygram.core.tdlib.server.VideoResolutionOption
 
 data class PlaybackRequest(
     val url: String,
+    val chatId: Long,
+    val messageId: Long,
     val fileId: Int,
     val title: String,
     val queue: List<PlaybackQueueItem> = emptyList(),
@@ -12,11 +14,14 @@ data class PlaybackRequest(
     val fileName: String? = null,
     val mimeType: String? = null,
     val durationSeconds: Int = 0,
-    val fileSizeBytes: Long = 0L
+    val fileSizeBytes: Long = 0L,
+    val startsWithFastLink: Boolean = false
 )
 
 data class PlaybackQueueItem(
     val url: String,
+    val chatId: Long,
+    val messageId: Long,
     val title: String,
     val fileId: Int,
     val fileName: String? = null,

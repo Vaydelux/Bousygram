@@ -19,6 +19,12 @@ enum class CacheLimitOption(val label: String, val bytes: Long) {
     TenGb("10 GB", 10L * 1024L * 1024L * 1024L)
 }
 
+enum class PlaybackMode(val label: String, val description: String) {
+    InApp("In-app", "Private TDLib streaming inside Bousygram."),
+    Auto("Auto", "Try in-app first, then fall back to your fast-link bot if playback fails."),
+    FastLink("Fast link", "Always use your own bot/proxy server.")
+}
+
 object EnterprisePreferences {
     private const val PREFS_NAME = "enterprise_ui_prefs"
     private const val KEY_FAVORITES = "favorites"
@@ -32,6 +38,8 @@ object EnterprisePreferences {
     private const val KEY_SPEED = "preferred_speed"
     private const val KEY_BUFFER_MODE = "buffer_mode"
     private const val KEY_CACHE_LIMIT = "cache_limit"
+    private const val KEY_PLAYBACK_MODE = "playback_mode"
+    private const val KEY_FAST_LINK_BOT_USERNAME = "fast_link_bot_username"
     private const val KEY_LAST_ERROR = "last_error"
 
     private val prefs by lazy {
@@ -143,6 +151,18 @@ object EnterprisePreferences {
 
     fun cacheLimitBytes(): Long = cacheLimitOption().bytes
 
+    fun playbackMode(): PlaybackMode = runCatching {
+        PlaybackMode.valueOf(prefs.getString(KEY_PLAYBACK_MODE, PlaybackMode.Auto.name) ?: PlaybackMode.Auto.name)
+    }.getOrDefault(PlaybackMode.Auto)
+
+    fun setPlaybackMode(value: PlaybackMode) = prefs.edit { putString(KEY_PLAYBACK_MODE, value.name) }
+
+    fun fastLinkBotUsername(): String =
+        prefs.getString(KEY_FAST_LINK_BOT_USERNAME, "").orEmpty()
+
+    fun setFastLinkBotUsername(value: String) =
+        prefs.edit { putString(KEY_FAST_LINK_BOT_USERNAME, value.trim().trimStart('@').take(80)) }
+
     fun setLastError(message: String) = prefs.edit { putString(KEY_LAST_ERROR, message.take(400)) }
     fun lastError(): String = prefs.getString(KEY_LAST_ERROR, "None").orEmpty()
 
@@ -150,6 +170,8 @@ object EnterprisePreferences {
         appendLine("Bousygram diagnostics")
         appendLine("Version: $appVersion")
         appendLine("Buffer mode: ${bufferMode().label}")
+        appendLine("Playback mode: ${playbackMode().label}")
+        appendLine("Fast-link bot: ${fastLinkBotUsername().ifBlank { "Not configured" }}")
         appendLine("Preferred speed: ${preferredSpeed()}x")
         appendLine("Auto-play next: ${autoPlayNext()}")
         appendLine("Subtitles default: ${subtitlesDefault()}")
@@ -176,6 +198,8 @@ object EnterprisePreferences {
         .put("preferredSpeed", preferredSpeed().toDouble())
         .put("bufferMode", bufferMode().name)
         .put("cacheLimit", cacheLimitOption().name)
+        .put("playbackMode", playbackMode().name)
+        .put("fastLinkBotUsername", fastLinkBotUsername())
         .toString(2)
 
     fun importSettingsJson(json: String): Result<Unit> = runCatching {
@@ -190,6 +214,9 @@ object EnterprisePreferences {
         val cacheLimit = runCatching {
             CacheLimitOption.valueOf(obj.optString("cacheLimit", CacheLimitOption.TwoGb.name))
         }.getOrDefault(CacheLimitOption.TwoGb)
+        val playbackMode = runCatching {
+            PlaybackMode.valueOf(obj.optString("playbackMode", PlaybackMode.Auto.name))
+        }.getOrDefault(PlaybackMode.Auto)
         prefs.edit {
             putStringSet(KEY_FAVORITES, obj.optStringArray("favorites").toSet())
             putStringSet(KEY_PINNED_CHATS, obj.optStringArray("pinnedChats").toSet())
@@ -204,6 +231,8 @@ object EnterprisePreferences {
             putFloat(KEY_SPEED, obj.optDouble("preferredSpeed", preferredSpeed().toDouble()).toFloat())
             putString(KEY_BUFFER_MODE, mode.name)
             putString(KEY_CACHE_LIMIT, cacheLimit.name)
+            putString(KEY_PLAYBACK_MODE, playbackMode.name)
+            putString(KEY_FAST_LINK_BOT_USERNAME, obj.optString("fastLinkBotUsername", fastLinkBotUsername()).trimStart('@'))
         }
     }.onFailure { error ->
         setLastError(error.message ?: "Settings import failed")

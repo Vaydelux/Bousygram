@@ -89,7 +89,9 @@ import com.vaydelux.bousygram.core.observability.PlaybackLogContext
 import com.vaydelux.bousygram.core.observability.StructuredPlaybackLogger
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
+import com.vaydelux.bousygram.data.store.PlaybackMode
 import com.vaydelux.bousygram.data.store.StreamMetrics
+import com.vaydelux.bousygram.core.tdlib.fastlink.FastLinkManager
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.core.tdlib.server.PlaybackCacheState
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
@@ -122,6 +124,8 @@ fun PlayerScreen(
             listOf(
                 PlaybackQueueItem(
                     request.url,
+                    request.chatId,
+                    request.messageId,
                     request.title,
                     request.fileId,
                     request.fileName,
@@ -170,6 +174,10 @@ fun PlayerScreen(
     var droppedFrames by remember { mutableIntStateOf(0) }
     var cacheState by remember { mutableStateOf(PlaybackCacheState.Preparing) }
     var playbackSession by remember { mutableStateOf<PlaybackSession?>(null) }
+    var activeFastLinkUrl by remember(request, queueIndex) {
+        mutableStateOf(request.url.takeIf { request.startsWithFastLink && queueIndex == initialIndex })
+    }
+    var fastLinkFallbackAttempted by remember(request, queueIndex) { mutableStateOf(false) }
 
     fun recordMetrics() {
         PlaybackDiagnostics.recordPlayerMetrics(
@@ -234,6 +242,8 @@ fun PlayerScreen(
         playbackSession = null
         reloadNonce = 0
         retryCount = 0
+        fastLinkFallbackAttempted = false
+        activeFastLinkUrl = null
         isReconnecting = false
         player.stop()
         player.clearMediaItems()
@@ -325,6 +335,38 @@ fun PlayerScreen(
                             activeChunks = com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.activeChunkCount(item.fileId)
                         )
                     )
+                }
+                if (item != null &&
+                    EnterprisePreferences.playbackMode() == PlaybackMode.Auto &&
+                    activeFastLinkUrl == null &&
+                    !fastLinkFallbackAttempted &&
+                    isRecoverablePlaybackError(error)
+                ) {
+                    fastLinkFallbackAttempted = true
+                    retryCount++
+                    recordMetrics()
+                    isReconnecting = true
+                    isBuffering = true
+                    playbackError = null
+                    hudVisible = true
+                    stopCurrentCache(PlaybackCacheStopReason.ErrorRecovery)
+                    scope.launch(Dispatchers.IO) {
+                        val result = FastLinkManager.requestFastLink(item.chatId, item.messageId)
+                        withContext(Dispatchers.Main) {
+                            result.fold(
+                                onSuccess = { url ->
+                                    EnterprisePreferences.setLastError("Using fast-link fallback")
+                                    activeFastLinkUrl = url
+                                },
+                                onFailure = { fallbackError ->
+                                    playbackError = "Fast-link fallback failed: ${fallbackError.message.orEmpty()}"
+                                    isReconnecting = false
+                                    isBuffering = false
+                                }
+                            )
+                        }
+                    }
+                    return
                 }
                 if (item != null && resolution.recoverable && isRecoverablePlaybackError(error) && retryCount < MAX_AUTO_RETRIES) {
                     retryCount++
@@ -437,7 +479,7 @@ fun PlayerScreen(
         recordMetrics()
     }
 
-    LaunchedEffect(request, queueIndex, reloadNonce) {
+    LaunchedEffect(request, queueIndex, reloadNonce, activeFastLinkUrl) {
         val item = queue[queueIndex]
         title = displayTitle(item.title)
         fileName = item.fileName
@@ -451,28 +493,35 @@ fun PlayerScreen(
             ?.let { duration = it }
             ?: item.durationSeconds.takeIf { it > 0 }?.let { duration = it * 1000L }
         lastSavedPosition = 0L
-        val preparation = withContext(Dispatchers.IO) {
-            LocalStreamingServer.prepareStream(
-                fileId = item.fileId,
-                declaredSize = item.fileSizeBytes,
-                title = item.title,
-                mimeType = item.mimeType,
-                fileName = item.fileName
-            )
+        val fastUrl = activeFastLinkUrl
+        val streamUrl = if (fastUrl != null) {
+            fileSizeBytes = item.fileSizeBytes
+            cacheState = PlaybackCacheState.Streaming
+            fastUrl
+        } else {
+            val preparation = withContext(Dispatchers.IO) {
+                LocalStreamingServer.prepareStream(
+                    fileId = item.fileId,
+                    declaredSize = item.fileSizeBytes,
+                    title = item.title,
+                    mimeType = item.mimeType,
+                    fileName = item.fileName
+                )
+            }
+            if (preparation == null) {
+                val message = "Stream not ready. The file may still be downloading in Telegram."
+                playbackError = message
+                PlaybackDiagnostics.recordStreamError(message)
+                isOpening = false
+                isReconnecting = false
+                isBuffering = false
+                hudVisible = true
+                return@LaunchedEffect
+            }
+            fileSizeBytes = preparation.resolvedSize
+            cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
+            preparation.url
         }
-        if (preparation == null) {
-            val message = "Stream not ready. The file may still be downloading in Telegram."
-            playbackError = message
-            PlaybackDiagnostics.recordStreamError(message)
-            isOpening = false
-            isReconnecting = false
-            isBuffering = false
-            hudVisible = true
-            return@LaunchedEffect
-        }
-        fileSizeBytes = preparation.resolvedSize
-        cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
-        val streamUrl = preparation.url
         val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
         launch {
             val resolvedDuration = withContext(Dispatchers.IO) {
@@ -559,6 +608,7 @@ fun PlayerScreen(
                 PlaybackSessionController.recordProgress(session, position, fileSizeBytes, duration)
             }
             if (position > 0L &&
+                activeFastLinkUrl == null &&
                 duration > 0L &&
                 fileSizeBytes > 0L &&
                 position - lastAheadPrefetchPosition >= CACHE_AHEAD_REFRESH_MS
