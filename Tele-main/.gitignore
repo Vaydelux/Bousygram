@@ -17,6 +17,7 @@
 /.codex-checkpoints/
 /out
 /captures
+/fastlink-proxy-render/
 .externalNativeBuild
 .cxx
 local.properties
