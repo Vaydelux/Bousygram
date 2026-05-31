@@ -85,6 +85,60 @@ After Nginx and SSL are configured, test:
 curl https://your-domain.example/health
 ```
 
+## Render Setup
+
+Render replaces the Nginx and systemd steps. Use this when deploying as a Render Web Service.
+
+1. Push this repo to GitHub.
+2. In Render, create a new Web Service from the GitHub repo.
+3. Set the Root Directory to `Tele-main/server/fastlink-proxy`.
+   - If your Render file browser already starts inside `Tele-main`, use `server/fastlink-proxy`.
+4. Set Build Command:
+
+```bash
+pip install -r requirements.txt
+```
+
+5. Set Start Command:
+
+```bash
+uvicorn server:fastapi_app --host 0.0.0.0 --port $PORT
+```
+
+6. Set Health Check Path:
+
+```text
+/health
+```
+
+7. Add Environment Variables:
+
+```text
+BOT_TOKEN=your_botfather_token
+SERVER_URL=https://your-render-service.onrender.com
+SIGNING_KEY=your_generated_secret
+ALLOWED_USER_IDS=your_numeric_telegram_user_id
+TOKEN_TTL=3600
+BOT_MESSAGE_CLEANUP_SECONDS=60
+PYTHON_VERSION=3.11.9
+```
+
+Generate `SIGNING_KEY` locally:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+After deploy, open:
+
+```text
+https://your-render-service.onrender.com/health
+```
+
+Render note: the free web service tier can sleep after inactivity. Because this bot uses Telegram polling, a sleeping free instance will not receive bot updates until it is woken by an HTTP request. For reliable playback, use an always-on paid instance or keep the service awake with a health check ping.
+
+You can also use `render.yaml` as a Blueprint. If Render cannot find the service files, adjust `rootDir` to match your repo layout.
+
 ## Disposal Behavior
 
 - No video bytes are saved on the VPS.

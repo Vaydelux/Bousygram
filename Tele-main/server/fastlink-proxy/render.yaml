@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: bousygram-fastlink-proxy
+    runtime: python
+    rootDir: Tele-main/server/fastlink-proxy
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:fastapi_app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: BOT_TOKEN
+        sync: false
+      - key: SERVER_URL
+        sync: false
+      - key: SIGNING_KEY
+        sync: false
+      - key: ALLOWED_USER_IDS
+        sync: false
+      - key: TOKEN_TTL
+        value: 3600
+      - key: BOT_MESSAGE_CLEANUP_SECONDS
+        value: 60
