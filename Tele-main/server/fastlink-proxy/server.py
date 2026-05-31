@@ -6,6 +6,7 @@ to Telegram Bot API file paths, then proxies bytes from Telegram's CDN to the
 player while preserving HTTP Range requests for seeking.
 """
 
+import asyncio
 import hashlib
 import hmac
 import os
@@ -25,6 +26,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 SIGNING_KEY = os.getenv("SIGNING_KEY", secrets.token_hex(32))
 SERVER_URL = os.getenv("SERVER_URL", "https://your-server.com").rstrip("/")
 TOKEN_TTL = int(os.getenv("TOKEN_TTL", "3600"))
+BOT_MESSAGE_CLEANUP_SECONDS = int(os.getenv("BOT_MESSAGE_CLEANUP_SECONDS", "60"))
 
 ALLOWED_USER_IDS: set[int] = {
     int(value)
@@ -103,19 +105,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("No video or document found in this message.")
         return
 
-    await message.reply_text("Generating stream link...")
+    status_message = await message.reply_text("Generating stream link...")
 
     try:
         telegram_file = await context.bot.get_file(media.file_id)
         mime = getattr(media, "mime_type", None) or "video/mp4"
         size = getattr(media, "file_size", 0) or 0
         token = create_token(telegram_file.file_path, mime, size)
-        await message.reply_text(
+        link_message = await message.reply_text(
             f"Download Link: {SERVER_URL}/stream/{token}\n"
             f"Valid for {TOKEN_TTL // 60} minutes."
         )
+        context.application.create_task(
+            delete_bot_chat_messages_later(
+                context,
+                message.chat_id,
+                [message.message_id, status_message.message_id, link_message.message_id],
+                BOT_MESSAGE_CLEANUP_SECONDS,
+            )
+        )
     except Exception as error:
         await message.reply_text(f"Error: {error}")
+
+
+async def delete_bot_chat_messages_later(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    message_ids: list[int],
+    delay_seconds: int,
+) -> None:
+    if delay_seconds <= 0:
+        return
+
+    await asyncio.sleep(delay_seconds)
+    for message_id in message_ids:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception:
+            pass
 
 
 @asynccontextmanager
@@ -180,6 +207,15 @@ async def stream_video(token: str, request: Request):
         headers=response_headers,
         media_type=entry["mime"],
     )
+
+
+@fastapi_app.post("/revoke/{token}")
+async def revoke_token(token: str):
+    removed = _token_store.pop(token, None) is not None
+    return {
+        "status": "revoked" if removed else "not_found",
+        "tokens_active": len(_token_store),
+    }
 
 
 @fastapi_app.get("/health")

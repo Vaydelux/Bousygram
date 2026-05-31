@@ -6,6 +6,12 @@ import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
@@ -16,6 +22,7 @@ object FastLinkManager {
     private const val DEFAULT_TIMEOUT_MS = 30_000L
     private val urlRegex = Regex("""https?://[^\s]+""")
     private val pendingRequests = ConcurrentHashMap<String, Boolean>()
+    private val disposalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     suspend fun requestFastLink(
         chatId: Long,
@@ -63,6 +70,26 @@ object FastLinkManager {
             Result.failure(error)
         } finally {
             pendingRequests.remove(requestKey)
+        }
+    }
+
+    fun revokeFastLink(url: String?) {
+        val revokeUrl = revokeUrlFor(url) ?: return
+        disposalScope.launch {
+            runCatching {
+                val connection = (URL(revokeUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 3_000
+                    readTimeout = 3_000
+                }
+                try {
+                    connection.responseCode
+                } finally {
+                    connection.disconnect()
+                }
+            }.onFailure { error ->
+                Log.d(TAG, "Fast-link revoke failed: ${error.message}")
+            }
         }
     }
 
@@ -123,6 +150,20 @@ object FastLinkManager {
             urlRegex.find(fastLine)?.value?.trimEnd('.', ',', ')', ']', '>')?.let { return it }
         }
         return urlRegex.find(text)?.value?.trimEnd('.', ',', ')', ']', '>')
+    }
+
+    private fun revokeUrlFor(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        val streamMarker = "/stream/"
+        val markerIndex = url.indexOf(streamMarker)
+        if (markerIndex < 0) return null
+        val base = url.substring(0, markerIndex)
+        val token = url.substring(markerIndex + streamMarker.length)
+            .substringBefore('?')
+            .substringBefore('#')
+            .trim()
+        if (token.isBlank()) return null
+        return "$base/revoke/$token"
     }
 
     private suspend fun sendTd(function: TdApi.Function<*>): TdApi.Object =

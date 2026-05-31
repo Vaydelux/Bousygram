@@ -219,6 +219,7 @@ fun PlayerScreen(
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
 
     fun stopCurrentCache(reason: PlaybackCacheStopReason) {
+        FastLinkManager.revokeFastLink(activeFastLinkUrl)
         val session = playbackSession
         if (session != null) {
             PlaybackSessionController.stop(session, reason)

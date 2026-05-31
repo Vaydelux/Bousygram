@@ -40,6 +40,8 @@ release.keystore.b64
 
 # Logs
 *.log
+__pycache__/
+*.pyc
 
 # Kotlin/Java artifacts
 *.class
