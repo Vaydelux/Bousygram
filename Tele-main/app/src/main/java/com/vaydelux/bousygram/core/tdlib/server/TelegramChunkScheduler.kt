@@ -88,8 +88,8 @@ internal object TelegramChunkScheduler {
     const val MAX_CONCURRENT_CHUNKS_PER_FILE = 1
 
     private const val TAG = "TelegramChunkScheduler"
-    private const val FAST_TIMEOUT_MS = 3_000L
-    private const val SAFE_TIMEOUT_MS = 5_000L
+    private const val FAST_TIMEOUT_MS = 8_000L
+    private const val SAFE_TIMEOUT_MS = 12_000L
     private const val SAFE_PRIORITY = 1
     private const val READY_POLL_MS = 50L
     private const val STATUS_TIMEOUT_MS = 500L

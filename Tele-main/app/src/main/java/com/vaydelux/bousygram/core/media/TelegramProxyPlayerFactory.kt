@@ -56,8 +56,8 @@ object TelegramProxyPlayerFactory {
     ): ExoPlayer {
         val httpDataSource = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(false)
-            .setConnectTimeoutMs(5_000)
-            .setReadTimeoutMs(30_000)
+            .setConnectTimeoutMs(10_000)
+            .setReadTimeoutMs(120_000)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSource).apply {
             if (loadErrorHandlingPolicy != null) {

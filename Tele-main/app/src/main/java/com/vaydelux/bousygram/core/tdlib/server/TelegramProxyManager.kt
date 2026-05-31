@@ -45,10 +45,11 @@ object TelegramProxyManager {
     private const val LOCAL_ADAPTIVE_STREAM_BASE_URL = "http://$HOST:$PORT/adaptive-stream"
     // Live playback stays sequential because TDLib has one active byte-window per file.
     private const val CHUNK_SIZE_BYTES = TelegramChunkScheduler.CHUNK_SIZE_BYTES
-    private const val FIRST_CHUNK_BYTES = 256 * 1024
+    private const val FIRST_CHUNK_BYTES = 64 * 1024
     private const val STREAM_PRIORITY = 32
     private const val PRE_FLIGHT_RETRY_AFTER_SECONDS = "1"
-    private const val PRE_FLIGHT_CHUNK_ATTEMPTS = 3
+    private const val PRE_FLIGHT_WAIT_MS = 90_000L
+    private const val STREAM_CHUNK_WAIT_MS = 120_000L
 
     @Volatile
     private var server: NettyApplicationEngine? = null
@@ -150,7 +151,8 @@ object TelegramProxyManager {
             fileId = fileId,
             offset = range.start,
             limit = preflightLimit,
-            purpose = TelegramChunkPurpose.Preflight
+            purpose = TelegramChunkPurpose.Preflight,
+            maxWaitMs = PRE_FLIGHT_WAIT_MS
         )
         if (preflight == null) {
             respondRangeNotReady(call, fileId, range.start)
@@ -196,7 +198,8 @@ object TelegramProxyManager {
             fileId = startingOption.fileId,
             offset = range.start,
             limit = preflightLimit,
-            purpose = TelegramChunkPurpose.Preflight
+            purpose = TelegramChunkPurpose.Preflight,
+            maxWaitMs = PRE_FLIGHT_WAIT_MS
         )
         if (preflight == null) {
             respondRangeNotReady(call, startingOption.fileId, range.start)
@@ -238,7 +241,8 @@ object TelegramProxyManager {
                 fileId = fileId,
                 offset = expectedOffset,
                 limit = limit,
-                purpose = TelegramChunkPurpose.Streaming
+                purpose = TelegramChunkPurpose.Streaming,
+                maxWaitMs = STREAM_CHUNK_WAIT_MS
             ) ?: error("Telegram chunk unavailable fileId=$fileId offset=$expectedOffset limit=$limit")
             channel.writeFully(chunk, 0, chunk.size)
             channel.flush()
@@ -250,11 +254,13 @@ object TelegramProxyManager {
         fileId: Int,
         offset: Long,
         limit: Int,
-        purpose: TelegramChunkPurpose
+        purpose: TelegramChunkPurpose,
+        maxWaitMs: Long
     ): ByteArray? {
         var lastMessage = ""
         var attempt = 0
-        while (coroutineContext.isActive) {
+        val deadlineMs = System.currentTimeMillis() + maxWaitMs
+        while (coroutineContext.isActive && System.currentTimeMillis() < deadlineMs) {
             val result = TelegramChunkScheduler.fetchChunk(
                 TelegramChunkRequest(
                     fileId = fileId,
@@ -284,7 +290,6 @@ object TelegramProxyManager {
                 TelegramChunkResult.Pending -> lastMessage = "Telegram range pending fileId=$fileId offset=$offset"
             }
             TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Reconnecting)
-            if (purpose == TelegramChunkPurpose.Preflight && attempt + 1 >= PRE_FLIGHT_CHUNK_ATTEMPTS) break
             attempt++
             delay((350L * attempt).coerceAtMost(2_000L))
         }
