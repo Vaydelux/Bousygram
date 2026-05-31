@@ -380,7 +380,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
                             modifier = Modifier.fillMaxWidth()
                         )
                         Text(
-                            "Auto and Fast link forward the selected Telegram message to your own bot/proxy server.",
+                            "TDLib local stays fully private. Auto forwards to your bot/proxy only after local playback fails.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall
                         )

@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
+import com.vaydelux.bousygram.data.store.EnterprisePreferences
+import com.vaydelux.bousygram.data.store.PlaybackMode
 import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
 import com.vaydelux.bousygram.data.repository.findSidecarSubtitle
 import com.vaydelux.bousygram.domain.model.MediaItem
@@ -319,11 +321,13 @@ class MediaViewModel(
             MediaDurationResolver.cachedDurationMs(fileId)
                 .takeIf { it > 0L && it != item.trustedDurationMs }
                 ?.let { updateTrustedDuration(fileId, it) }
-            viewModelScope.launch(Dispatchers.IO) {
-                val size = item.fileSizeBytes.takeIf { it > 0L }
-                    ?: LocalStreamingServer.resolveFileSize(fileId)
-                if (size > 0L) {
-                    LocalStreamingServer.warmUp(fileId, size)
+            if (EnterprisePreferences.playbackMode() != PlaybackMode.FastLink) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    val size = item.fileSizeBytes.takeIf { it > 0L }
+                        ?: LocalStreamingServer.resolveFileSize(fileId)
+                    if (size > 0L) {
+                        LocalStreamingServer.warmUp(fileId, size)
+                    }
                 }
             }
         }

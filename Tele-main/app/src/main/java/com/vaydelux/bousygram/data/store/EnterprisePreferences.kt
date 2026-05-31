@@ -20,9 +20,18 @@ enum class CacheLimitOption(val label: String, val bytes: Long) {
 }
 
 enum class PlaybackMode(val label: String, val description: String) {
-    InApp("In-app", "Private TDLib streaming inside Bousygram."),
-    Auto("Auto", "Try in-app first, then fall back to your fast-link bot if playback fails."),
-    FastLink("Fast link", "Always use your own bot/proxy server.")
+    InApp(
+        "TDLib local",
+        "No bot or VPS. Bousygram pre-warms Telegram bytes and streams only after local range preflight."
+    ),
+    Auto(
+        "Auto",
+        "Try TDLib local first, then fall back to your fast-link bot if playback fails."
+    ),
+    FastLink(
+        "Fast link",
+        "Use your own bot/VPS tunnel and revoke the link when playback exits."
+    )
 }
 
 object EnterprisePreferences {
