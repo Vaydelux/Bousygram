@@ -87,7 +87,6 @@ import androidx.media3.session.MediaSession
 import androidx.media3.ui.PlayerView
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
-import com.vaydelux.bousygram.core.media.PlaybackRetryDecision
 import com.vaydelux.bousygram.core.media.PlaybackSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.StreamingSessionManager
@@ -327,10 +326,8 @@ fun PlayerScreen(
                 lastGoodPosition = retryPosition
                 hudVisible = true
                 val session = playbackSession
-                val retryDecision = if (session != null) {
+                if (session != null) {
                     PlaybackSessionController.recordError(session, error, retryCount)
-                } else {
-                    PlaybackRetryDecision.RetrySameQuality
                 }
                 if (item != null) {
                     StructuredPlaybackLogger.error(
@@ -351,19 +348,10 @@ fun PlayerScreen(
                     isReconnecting = true
                     isBuffering = true
                     playbackError = null
-                    if (retryDecision == PlaybackRetryDecision.CacheFirstRetry && session != null) {
-                        PlaybackSessionController.cacheAhead(
-                            session = session,
-                            totalSize = fileSizeBytes,
-                            positionMs = retryPosition,
-                            durationMs = duration,
-                            startup = true
-                        )
-                    } else {
-                        LocalStreamingServer.prefetchAtPosition(item.fileId, fileSizeBytes, retryPosition, duration)
-                    }
+                    // Do not prefetch another offset here. TDLib has one download window, and a
+                    // second downloadFile cancels the bytes that are still arriving.
                     scope.launch {
-                        delay(if (retryDecision == PlaybackRetryDecision.CacheFirstRetry) 2_500L else autoRetryDelayMs(retryCount))
+                        delay(maxOf(autoRetryDelayMs(retryCount), 2_000L))
                         if (queue.getOrNull(queueIndex)?.fileId == item.fileId && playbackError == null) {
                             reloadNonce++
                         }

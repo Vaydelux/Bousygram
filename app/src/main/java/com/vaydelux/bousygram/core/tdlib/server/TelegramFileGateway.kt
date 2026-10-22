@@ -10,7 +10,8 @@ internal data class TelegramGatewayFile(
     val localPath: String,
     val isDownloadingCompleted: Boolean,
     val downloadOffset: Long,
-    val downloadedPrefixSize: Long
+    val downloadedPrefixSize: Long,
+    val isDownloadingActive: Boolean = false
 )
 
 internal sealed class TelegramGatewayResult<out T> {
@@ -27,7 +28,8 @@ internal interface TelegramFileGateway {
         fileId: Int,
         priority: Int,
         offset: Long,
-        limit: Int
+        limit: Int,
+        synchronous: Boolean = false
     ): TelegramGatewayResult<TelegramGatewayFile?>
 
     suspend fun downloadedPrefixSize(fileId: Int, offset: Long): Long
@@ -56,7 +58,8 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
         fileId: Int,
         priority: Int,
         offset: Long,
-        limit: Int
+        limit: Int,
+        synchronous: Boolean
     ): TelegramGatewayResult<TelegramGatewayFile?> =
         suspendCancellableCoroutine { continuation ->
             TdLibClient.client.send(
@@ -65,7 +68,7 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
                     priority,
                     offset.coerceAtLeast(0L),
                     limit.toLong(),
-                    false
+                    synchronous
                 ),
                 handler@{ response ->
                     if (!continuation.isActive) return@handler
@@ -141,6 +144,7 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
             localPath = local?.path.orEmpty(),
             isDownloadingCompleted = local?.isDownloadingCompleted == true,
             downloadOffset = local?.downloadOffset ?: 0L,
-            downloadedPrefixSize = local?.downloadedPrefixSize ?: 0L
+            downloadedPrefixSize = local?.downloadedPrefixSize ?: 0L,
+            isDownloadingActive = local?.isDownloadingActive == true
         )
 }

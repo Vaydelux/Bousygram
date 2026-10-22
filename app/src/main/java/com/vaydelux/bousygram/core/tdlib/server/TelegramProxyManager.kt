@@ -48,8 +48,6 @@ object TelegramProxyManager {
     private const val CHUNK_SIZE_BYTES = TelegramChunkScheduler.CHUNK_SIZE_BYTES
     private const val STREAM_PRIORITY = 32
     private const val PRE_FLIGHT_RETRY_AFTER_SECONDS = "1"
-    private const val STREAM_CHUNK_WAIT_MS = 120_000L
-
     @Volatile
     private var server: NettyApplicationEngine? = null
 
@@ -174,6 +172,7 @@ object TelegramProxyManager {
         if (Log.isLoggable(TAG, Log.DEBUG)) {
             Log.d(TAG, "Ktor stream fileId=$fileId range=${range.start}-${range.endInclusive}/$size")
         }
+        TelegramChunkScheduler.noteFileSize(fileId, size)
         TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
         call.respondBytesWriter(contentType = contentType, status = status) {
             streamTelegramFileSequentially(
@@ -218,6 +217,7 @@ object TelegramProxyManager {
         call.response.header(HttpHeaders.Connection, "close")
 
         val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
+        TelegramChunkScheduler.noteFileSize(startingOption.fileId, size)
         TelegramChunkScheduler.markState(startingOption.fileId, PlaybackCacheState.Streaming)
         call.respondBytesWriter(contentType = ContentType.Application.OctetStream, status = status) {
             streamTelegramFileSequentially(
@@ -251,8 +251,7 @@ object TelegramProxyManager {
                 fileId = fileId,
                 offset = expectedOffset,
                 limit = limit,
-                purpose = TelegramChunkPurpose.Streaming,
-                maxWaitMs = STREAM_CHUNK_WAIT_MS
+                purpose = TelegramChunkPurpose.Streaming
             ) ?: error("Telegram is still caching range fileId=$fileId offset=$expectedOffset limit=$limit")
             channel.writeFully(chunk, 0, chunk.size)
             channel.flush()
@@ -264,13 +263,13 @@ object TelegramProxyManager {
         fileId: Int,
         offset: Long,
         limit: Int,
-        purpose: TelegramChunkPurpose,
-        maxWaitMs: Long
+        purpose: TelegramChunkPurpose
     ): ByteArray? {
         var lastMessage = ""
         var attempt = 0
-        val deadlineMs = System.currentTimeMillis() + maxWaitMs
-        while (coroutineContext.isActive && System.currentTimeMillis() < deadlineMs) {
+        // fetchChunk already waits while the Telegram prefix is still growing. Looping here
+        // would start that wait over and report a false timeout.
+        while (coroutineContext.isActive && attempt < 2) {
             val result = TelegramChunkScheduler.fetchChunk(
                 TelegramChunkRequest(
                     fileId = fileId,
@@ -297,13 +296,16 @@ object TelegramProxyManager {
                     return null
                 }
                 is TelegramChunkResult.RetryableFailure -> lastMessage = result.message
-                TelegramChunkResult.Pending -> lastMessage = "Telegram range pending fileId=$fileId offset=$offset"
+                TelegramChunkResult.Pending -> {
+                    lastMessage = "Telegram range pending fileId=$fileId offset=$offset"
+                    break
+                }
             }
             if (attempt == 0) {
                 TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
             }
             attempt++
-            delay((250L * attempt).coerceAtMost(1_000L))
+            delay(1_000L)
         }
         val message = lastMessage.ifBlank { "Telegram is still caching range fileId=$fileId offset=$offset" }
         Log.w(TAG, message)

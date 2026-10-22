@@ -212,6 +212,7 @@ object LocalStreamingServer {
             }
         }
         if (size <= 0L) return null
+        TelegramChunkScheduler.noteFileSize(fileId, size)
         return size
     }
 
@@ -804,7 +805,7 @@ object LocalStreamingServer {
                 fileId = fileId,
                 offset = offset,
                 length = chunkSize,
-                purpose = TelegramChunkPurpose.Streaming,
+                purpose = TelegramChunkPurpose.CacheAhead,
                 priority = STREAM_FAST_PRIORITY
             )
             if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Prefetch fileId=$fileId offset=$offset limit=$chunkSize (timeMs=$timeMs)")

@@ -131,6 +131,27 @@ class TelegramChunkSchedulerTest {
         assertEquals(1, gateway.totalDownloadCalls())
     }
 
+    @Test
+    fun playbackCopiesTheTailOnceAndDoesNotOpenASecondDownload() = runBlocking {
+        val size = 8 * 1024 * 1024
+        val bytes = ByteArray(size) { index -> (index % 251).toByte() }
+        val gateway = FakeTelegramFileGateway(bytes)
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.noteFileSize(77, size.toLong())
+
+        val head = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(77, 0L, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+        val tail = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(77, size - 4096L, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+
+        assertEquals(TelegramChunkResult.Ready::class, head::class)
+        val readyTail = tail as TelegramChunkResult.Ready
+        assertArrayEquals(bytes.copyOfRange(size - 4096, size), readyTail.bytes)
+        assertEquals(1, gateway.totalDownloadCalls())
+    }
+
     private class FakeTelegramFileGateway(
         private val bytes: ByteArray,
         private val completed: Boolean = true,
@@ -150,7 +171,8 @@ class TelegramChunkSchedulerTest {
             fileId: Int,
             priority: Int,
             offset: Long,
-            limit: Int
+            limit: Int,
+            synchronous: Boolean
         ): TelegramGatewayResult<TelegramGatewayFile?> {
             val active = activeDownloads.incrementAndGet()
             maxActiveDownloads.updateAndGet { previous -> maxOf(previous, active) }

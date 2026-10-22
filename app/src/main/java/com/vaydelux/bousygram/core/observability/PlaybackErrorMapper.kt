@@ -20,7 +20,7 @@ data class PlaybackErrorResolution(
 
 object PlaybackErrorMapper {
     fun fromPlaybackException(error: PlaybackException, retryCount: Int): PlaybackErrorResolution {
-        val detail = error.message.orEmpty()
+        val detail = throwableText(error)
         val lower = detail.lowercase()
         return when {
             "flood_wait" in lower -> PlaybackErrorResolution(
@@ -30,11 +30,18 @@ object PlaybackErrorMapper {
                 secondaryAction = PlaybackRecoveryAction.CacheFirst,
                 recoverable = true
             )
-            "still caching" in lower || "source error" in lower -> PlaybackErrorResolution(
+            "still caching" in lower -> PlaybackErrorResolution(
                 title = "Telegram is still preparing this range",
                 message = "The stream is valid, but Telegram has not cached the requested bytes yet.",
                 primaryAction = if (retryCount >= 2) PlaybackRecoveryAction.CacheFirst else PlaybackRecoveryAction.Reconnect,
                 secondaryAction = PlaybackRecoveryAction.LowerQuality,
+                recoverable = true
+            )
+            "source error" in lower -> PlaybackErrorResolution(
+                title = "Video is still downloading",
+                message = "Telegram is still sending this part. Playback keeps the same download and tries again.",
+                primaryAction = PlaybackRecoveryAction.Reconnect,
+                secondaryAction = PlaybackRecoveryAction.CacheFirst,
                 recoverable = true
             )
             error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
@@ -63,5 +70,17 @@ object PlaybackErrorMapper {
                 recoverable = true
             )
         }
+    }
+
+    private fun throwableText(error: Throwable): String {
+        val parts = ArrayList<String>(4)
+        var current: Throwable? = error
+        var depth = 0
+        while (current != null && depth < 6) {
+            current.message?.takeIf { it.isNotBlank() }?.let(parts::add)
+            current = current.cause
+            depth++
+        }
+        return parts.joinToString(" | ")
     }
 }

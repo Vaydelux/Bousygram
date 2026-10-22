@@ -63,7 +63,8 @@ class TelegramPreCacheEngineTest {
             fileId: Int,
             priority: Int,
             offset: Long,
-            limit: Int
+            limit: Int,
+            synchronous: Boolean
         ): TelegramGatewayResult<TelegramGatewayFile?> {
             delay(10_000L)
             return TelegramGatewayResult.Success(file(fileId))
