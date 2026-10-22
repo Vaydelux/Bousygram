@@ -71,6 +71,7 @@ fun TvVideoSearchScreen(
     val adaptive = rememberAdaptiveMetrics()
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var preparingKey by remember { mutableStateOf<String?>(null) }
+    var privacyMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
     val searchInputFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
     val focusManager = LocalFocusManager.current
@@ -113,7 +114,7 @@ fun TvVideoSearchScreen(
                     .padding(if (adaptive.isCompact) 16.dp else 42.dp)
             ) {
                 Text(
-                    text = if (inChatId != null) "Search in $inChatTitle" else "Search Telegram videos",
+                    text = if (privacyMode) "Search media" else if (inChatId != null) "Search in $inChatTitle" else "Search Telegram videos",
                     color = MaterialTheme.colorScheme.onBackground,
                     style = if (adaptive.isCompact) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineLarge
                 )
@@ -173,7 +174,7 @@ fun TvVideoSearchScreen(
                     }
                 }
 
-                if (recentQueries.isNotEmpty()) {
+                if (!privacyMode && recentQueries.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(recentQueries.take(5)) { query ->
@@ -212,7 +213,7 @@ fun TvVideoSearchScreen(
                 }
                 is SearchUiState.Success -> {
                     if (state.results.isEmpty()) {
-                        EmptyStateView("No videos found", "No results for \"${state.query}\".", actionText = "Search all", onAction = {
+                        EmptyStateView("No videos found", if (privacyMode) "No matching videos were found." else "No results for \"${state.query}\".", actionText = "Search all", onAction = {
                             viewModel.setGlobalScope()
                             executeSearch()
                         })
@@ -253,6 +254,8 @@ fun TvVideoSearchScreen(
                                             }
                                         }
                                     },
+                                    cardWidth = if (adaptive.isCompact) 150.dp else 220.dp,
+                                    privacyMode = privacyMode,
                                     modifier = Modifier.onFocusChanged {
                                         if (it.isFocused) {
                                             lastFocusedGridIndex = index

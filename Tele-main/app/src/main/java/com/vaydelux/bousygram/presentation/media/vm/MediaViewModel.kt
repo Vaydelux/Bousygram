@@ -29,6 +29,7 @@ class MediaViewModel(
     val uiState: StateFlow<MediaUiState> = _uiState
     private val pageSize = 30
     private var isInitialized = false
+    private var mediaRequestGeneration = 0L
 
     private fun isMessageInSelectedChat(chatId: Long): Boolean {
         val state = _uiState.value
@@ -47,14 +48,19 @@ class MediaViewModel(
             content is TdApi.MessageDocument ||
             content is TdApi.MessageAnimation) {
             if (isMessageInSelectedChat(message.chatId)) {
+                val generationAtRequest = mediaRequestGeneration
                 repository.getMessage(message.chatId, message.id) { item, _ ->
-                    item?.let { newItem ->
-                        _uiState.update { current ->
-                            val exists = current.items.any { it.messageId == newItem.messageId }
-                            if (exists) current
-                            else current.copy(items = listOf(newItem) + current.items)
+                    if (generationAtRequest == mediaRequestGeneration && isMessageInSelectedChat(message.chatId)) {
+                        item?.let { newItem ->
+                            _uiState.update { current ->
+                                val exists = current.items.any {
+                                    it.chatId == newItem.chatId && it.messageId == newItem.messageId
+                                }
+                                if (exists) current
+                                else current.copy(items = listOf(newItem) + current.items)
+                            }
+                            fetchThumbnails(listOf(newItem))
                         }
-                        fetchThumbnails(listOf(newItem))
                     }
                 }
             }
@@ -70,6 +76,8 @@ class MediaViewModel(
     }
 
     private var chatUpdateJob: Job? = null
+    private var focusWarmupJob: Job? = null
+    @Volatile private var focusWarmupGeneration = 0L
 
     private val chatUpdateHandler: (TdApi.Object?) -> Unit = { update ->
         when (update) {
@@ -99,6 +107,11 @@ class MediaViewModel(
     }
 
     override fun onCleared() {
+        focusWarmupGeneration++
+        focusWarmupJob?.cancel()
+        focusWarmupJob = null
+        chatUpdateJob?.cancel()
+        chatUpdateJob = null
         TdLibClient.removeNewMessageHandler(newMessageHandler)
         TdLibClient.removeDeleteMessageHandler(deleteMessageHandler)
         TdLibClient.removeUpdateHandler(chatUpdateHandler)
@@ -107,6 +120,12 @@ class MediaViewModel(
     }
 
     fun refresh() {
+        val selected = _uiState.value
+        if (!selected.isSavedMessagesSelected && selected.selectedChatId != null) {
+            loadChat(selected.selectedChatId, selected.selectedChatTitle)
+            return
+        }
+        val requestGeneration = ++mediaRequestGeneration
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -115,11 +134,13 @@ class MediaViewModel(
                 selectedChatId = null,
                 isSavedMessagesSelected = true,
                 hasMore = true,
+                isLoadingMore = false,
                 items = emptyList(),
                 nextFromMessageId = 0L
             )
         }
         repository.loadLatestMediaPaged(pageSize, null) { items, nextFromMessageId, error ->
+            if (requestGeneration != mediaRequestGeneration) return@loadLatestMediaPaged
             _uiState.update { current ->
                 current.copy(
                     items = items,
@@ -154,6 +175,7 @@ class MediaViewModel(
     }
 
     fun loadChat(chatId: Long, title: String) {
+        val requestGeneration = ++mediaRequestGeneration
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -162,12 +184,14 @@ class MediaViewModel(
                 selectedChatId = chatId,
                 isSavedMessagesSelected = false,
                 hasMore = true,
+                isLoadingMore = false,
                 items = emptyList(),
                 nextFromMessageId = 0L
             )
         }
         loadVideoChats()
         repository.loadChatMediaPaged(chatId, pageSize, null) { items, nextFromMessageId, error ->
+            if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPaged
             _uiState.update { current ->
                 current.copy(
                     items = items,
@@ -190,17 +214,18 @@ class MediaViewModel(
             return
         }
         _uiState.update { it.copy(isLoadingMore = true) }
+        val requestGeneration = mediaRequestGeneration
         if (state.isSavedMessagesSelected) {
             repository.loadLatestMediaPaged(pageSize, nextFromMessageId) { items, nextFromId, error ->
                 val current = _uiState.value
-                if (!current.isLoadingMore) return@loadLatestMediaPaged
+                if (requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadLatestMediaPaged
                 handleLoadMore(items, nextFromId, error)
             }
         } else {
             val chatId = state.selectedChatId ?: return
             repository.loadChatMediaPaged(chatId, pageSize, nextFromMessageId) { items, nextFromId, error ->
                 val current = _uiState.value
-                if (!current.isLoadingMore) return@loadChatMediaPaged
+                if (requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadChatMediaPaged
                 handleLoadMore(items, nextFromId, error)
             }
         }
@@ -259,20 +284,32 @@ class MediaViewModel(
         }
     }
 
+    /** Resolves the saved last-played Telegram message even when it is outside the loaded page. */
+    fun loadLastPlayed(onResult: (MediaItem?, String?) -> Unit) {
+        val last = EnterprisePreferences.lastPlayed()
+        if (last == null) {
+            onResult(null, "There is no saved playback position yet")
+            return
+        }
+        repository.getMessage(last.chatId, last.messageId) { item, error ->
+            if (item == null) {
+                onResult(null, error ?: "The last-played Telegram message is no longer available")
+            } else if (item.fileId == null) {
+                onResult(null, "The last-played message no longer contains a playable media file")
+            } else {
+                onResult(item, null)
+            }
+        }
+    }
+
     fun requestFastLink(item: MediaItem, onResult: (String?, String?) -> Unit) {
         val fileId = item.fileId
         _uiState.update { it.copy(preparingFileId = fileId) }
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                var output: Pair<String?, String?> = null to "Could not prepare stream"
-                repository.requestFastLink(item) { url, error ->
-                    output = url to error
-                }
-                output
-            }
-            val url = result.first
+            val result = runCatching { repository.prepareStream(item).getOrThrow() }
+            val url = result.getOrNull()
             _uiState.update { it.copy(preparingFileId = null) }
-            onResult(url, result.second)
+            onResult(url, result.exceptionOrNull()?.message)
             if (!url.isNullOrBlank() && fileId != null) {
                 viewModelScope.launch(Dispatchers.IO) {
                     val estimate = MediaDurationResolver.resolveDurationEstimate(
@@ -317,18 +354,38 @@ class MediaViewModel(
     }
 
     fun onItemFocused(item: MediaItem) {
+        val warmupGeneration = ++focusWarmupGeneration
         item.fileId?.let { fileId ->
             MediaDurationResolver.cachedDurationMs(fileId)
                 .takeIf { it > 0L && it != item.trustedDurationMs }
                 ?.let { updateTrustedDuration(fileId, it) }
             if (EnterprisePreferences.playbackMode() != PlaybackMode.FastLink) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    val size = item.fileSizeBytes.takeIf { it > 0L }
-                        ?: LocalStreamingServer.resolveFileSize(fileId)
+                // Remote browsing often moves focus across many cards per second. Debounce
+                // warm-up so we prefetch only after the user pauses on a candidate item.
+                focusWarmupJob?.cancel()
+                focusWarmupJob = viewModelScope.launch {
+                    delay(FOCUS_PREFETCH_DEBOUNCE_MS)
+                    if (warmupGeneration != focusWarmupGeneration ||
+                        EnterprisePreferences.playbackMode() == PlaybackMode.FastLink
+                    ) return@launch
+                    val size = withContext(Dispatchers.IO) {
+                        item.fileSizeBytes.takeIf { it > 0L }
+                            ?: LocalStreamingServer.resolveFileSize(fileId)
+                    }
+                    // The size lookup may block briefly; check again so stale focus never
+                    // starts prefetch after the user has already moved elsewhere.
+                    if (warmupGeneration != focusWarmupGeneration) return@launch
                     if (size > 0L) {
-                        LocalStreamingServer.warmUp(fileId, size)
+                        withContext(Dispatchers.IO) {
+                            if (warmupGeneration == focusWarmupGeneration) {
+                                LocalStreamingServer.warmUp(fileId, size)
+                            }
+                        }
                     }
                 }
+            } else {
+                focusWarmupJob?.cancel()
+                focusWarmupJob = null
             }
         }
         val fileId = item.thumbnailFileId
@@ -360,5 +417,9 @@ class MediaViewModel(
                 }
             )
         }
+    }
+
+    private companion object {
+        const val FOCUS_PREFETCH_DEBOUNCE_MS = 450L
     }
 }

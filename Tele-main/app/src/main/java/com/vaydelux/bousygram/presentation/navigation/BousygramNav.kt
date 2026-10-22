@@ -10,10 +10,13 @@ enum class SearchFocusTarget {
 
 sealed class AppScreen {
     data object Home : AppScreen()
-    data object Settings : AppScreen()
+    data object Library : AppScreen()
+    data class Settings(val returnTo: AppScreen = Home) : AppScreen()
+    data class Favorites(val returnTo: AppScreen = Home) : AppScreen()
     data class Search(
         val inChatId: Long? = null,
-        val inChatTitle: String = ""
+        val inChatTitle: String = "",
+        val returnTo: AppScreen = Home
     ) : AppScreen()
     data class Player(
         val request: PlaybackRequest,

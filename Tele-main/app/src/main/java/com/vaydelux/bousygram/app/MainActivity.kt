@@ -15,8 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vaydelux.bousygram.BuildConfig
@@ -24,6 +22,7 @@ import com.vaydelux.bousygram.domain.model.AuthStep
 import com.vaydelux.bousygram.presentation.auth.AuthScreen
 import com.vaydelux.bousygram.presentation.auth.vm.AuthViewModel
 import com.vaydelux.bousygram.presentation.media.BrowseScreen
+import com.vaydelux.bousygram.presentation.media.FavoritesScreen
 import com.vaydelux.bousygram.presentation.media.PlaybackRequest
 import com.vaydelux.bousygram.presentation.media.PlayerScreen
 import com.vaydelux.bousygram.presentation.media.buildPlaybackRequest
@@ -45,11 +44,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             BousygramTheme {
                 if (BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)) {
-                    if (intent.getBooleanExtra(EXTRA_UI_SMOKE, false)) {
-                        SmokePreviewHost()
-                    } else {
-                        TvHybridPreviewHost()
-                    }
+                    TvHybridPreviewHost()
                 } else {
                     BousygramAppRoot(authViewModel = authViewModel)
                 }
@@ -59,17 +54,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_UI_PREVIEW = "ui_preview"
-        const val EXTRA_UI_SMOKE = "ui_smoke"
-    }
-}
-
-@Composable
-private fun SmokePreviewHost() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Bousygram preview ready")
     }
 }
 
@@ -84,8 +68,10 @@ private fun BousygramAppRoot(authViewModel: AuthViewModel) {
     BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen !is AppScreen.Home) {
         appScreen = when (val screen = appScreen) {
             is AppScreen.Player -> screen.returnTo
-            is AppScreen.Search -> AppScreen.Home
-            AppScreen.Settings -> AppScreen.Home
+            is AppScreen.Search -> screen.returnTo
+            AppScreen.Library -> AppScreen.Home
+            is AppScreen.Favorites -> screen.returnTo
+            is AppScreen.Settings -> screen.returnTo
             else -> AppScreen.Home
         }
     }
@@ -110,17 +96,37 @@ private fun BousygramAppRoot(authViewModel: AuthViewModel) {
                     Toast.makeText(BousygramApp.instance, message, Toast.LENGTH_LONG).show()
                 }
             )
-            AppScreen.Settings -> SettingsScreen(
-                onBack = { appScreen = AppScreen.Home }
+            AppScreen.Library -> BrowseScreen(
+                onPlay = { request -> openPlayer(request, AppScreen.Library) },
+                onOpenSearch = { chatId, chatTitle -> appScreen = AppScreen.Search(chatId, chatTitle, AppScreen.Library) },
+                onOpenLibrary = { appScreen = AppScreen.Library },
+                onOpenHome = { appScreen = AppScreen.Home },
+                onOpenFavorites = { appScreen = AppScreen.Favorites(AppScreen.Library) },
+                onOpenSettings = { appScreen = AppScreen.Settings(AppScreen.Library) },
+                onStreamError = { message ->
+                    Toast.makeText(BousygramApp.instance, message, Toast.LENGTH_LONG).show()
+                },
+                libraryMode = true
+            )
+            is AppScreen.Favorites -> FavoritesScreen(
+                onBack = { appScreen = screen.returnTo },
+                onOpenSearch = { appScreen = AppScreen.Search(returnTo = screen) },
+                onPlay = { request -> openPlayer(request, screen) }
+            )
+            is AppScreen.Settings -> SettingsScreen(
+                onBack = { appScreen = screen.returnTo }
             )
             AppScreen.Home -> BrowseScreen(
                 onPlay = { request -> openPlayer(request, AppScreen.Home) },
                 onOpenSearch = { chatId, chatTitle ->
-                    appScreen = AppScreen.Search(chatId, chatTitle)
+                    appScreen = AppScreen.Search(chatId, chatTitle, AppScreen.Home)
                 },
+                onOpenLibrary = { appScreen = AppScreen.Library },
+                onOpenHome = { appScreen = AppScreen.Home },
                 onOpenSettings = {
-                    appScreen = AppScreen.Settings
+                    appScreen = AppScreen.Settings(AppScreen.Home)
                 },
+                onOpenFavorites = { appScreen = AppScreen.Favorites(AppScreen.Home) },
                 onStreamError = { message ->
                     Toast.makeText(BousygramApp.instance, message, Toast.LENGTH_LONG).show()
                 }

@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -62,6 +63,7 @@ import com.vaydelux.bousygram.domain.model.SortOrder
 import com.vaydelux.bousygram.domain.model.VideoChatItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.LoadingOverlay
+import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.layout.TvHybridHomeDashboard
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 import java.io.File
@@ -70,9 +72,13 @@ import java.io.File
 fun BrowseScreen(
     onPlay: (PlaybackRequest) -> Unit,
     onOpenSearch: (chatId: Long?, chatTitle: String) -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenHome: () -> Unit,
+    onOpenFavorites: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onStreamError: (String) -> Unit = {},
+    libraryMode: Boolean = false,
     viewModel: MediaViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -103,7 +109,7 @@ fun BrowseScreen(
         viewModel.loadVideoChatsIfNeeded()
     }
 
-    LaunchedEffect(state.isSidebarLoading, state.videoChats) {
+    LaunchedEffect(libraryMode, state.isSidebarLoading, state.videoChats) {
         if (!state.isSidebarLoading) {
             runCatching { chatFocusRequester.requestFocus() }
         }
@@ -130,7 +136,12 @@ fun BrowseScreen(
                         null
                     }
                     onUiThread {
-                        onPlay(buildPlaybackRequest(item, url, videos, subUrl))
+                        val queueItems = if (videos.any { it.chatId == item.chatId && it.messageId == item.messageId }) {
+                            videos
+                        } else {
+                            listOf(item) + videos
+                        }
+                        onPlay(buildPlaybackRequest(item, url, queueItems, subUrl))
                     }
                 }
             }
@@ -139,10 +150,22 @@ fun BrowseScreen(
 
     fun openLastPlayed() {
         val last = EnterprisePreferences.lastPlayed()
-        val item = state.filteredAndSortedItems.firstOrNull {
-            it.chatId == last?.chatId && it.messageId == last.messageId
-        } ?: videos.firstOrNull { it.fileId == last?.fileId }
-        if (item != null) openVideo(item) else onStreamError("Last played item is not loaded in this view yet")
+        val loaded = last?.let { saved ->
+            state.filteredAndSortedItems.firstOrNull {
+                it.chatId == saved.chatId && it.messageId == saved.messageId
+            } ?: videos.firstOrNull { it.fileId == saved.fileId }
+        }
+        if (loaded != null) {
+            openVideo(loaded)
+            return
+        }
+        viewModel.loadLastPlayed { item, error ->
+            val activity = context as? Activity
+            val action = {
+                if (item != null) openVideo(item) else onStreamError(error ?: "Could not load the last-played item")
+            }
+            if (activity != null) activity.runOnUiThread(action) else action()
+        }
     }
 
     fun toggleOffline(item: MediaItem) {
@@ -154,134 +177,165 @@ fun BrowseScreen(
     val isCompactLayout = !adaptive.useTvChrome
     Box(modifier = modifier.fillMaxSize()) {
         if (isCompactLayout) {
-        CompactBrowseLayout(
-            modifier = Modifier.fillMaxSize(),
-            state = state,
-            videos = videos,
-            hideWatched = hideWatched,
-            safeMode = safeMode,
-            onToggleHideWatched = {
-                hideWatched = !hideWatched
-                EnterprisePreferences.setHideWatched(hideWatched)
-            },
-            onToggleSafeMode = {
-                safeMode = !safeMode
-                EnterprisePreferences.setSafeMode(safeMode)
-            },
-            onSelectSavedMessages = viewModel::load,
-            onSelectChat = { viewModel.loadChat(it.chatId, it.title) },
-            onSetSortOrder = viewModel::setSortOrder,
-            onRefresh = viewModel::refresh,
-            onOpenSettings = onOpenSettings,
-            onOpenSearch = {
-                val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                onOpenSearch(chatId, state.selectedChatTitle)
-            },
-            onOpenLastPlayed = ::openLastPlayed,
-            onOpenVideo = ::openVideo,
-            onFocusedVideo = viewModel::onItemFocused,
-            onLoadMore = viewModel::loadMoreIfNeeded
-        )
-        } else {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(listOf(Color(0xFF050814), Color(0xFF0A1424))))
-                .padding(24.dp)
-        ) {
-            ChatRail(
-                chats = state.videoChats,
-                pinnedChats = pinnedChats,
-                savedSelected = state.isSavedMessagesSelected,
-                isLoading = state.isSidebarLoading,
-                sidebarError = state.sidebarError,
-                firstItemFocusRequester = chatFocusRequester,
-                onSaved = viewModel::load,
-                onChat = { viewModel.loadChat(it.chatId, it.title) }
+            CompactBrowseLayout(
+                modifier = Modifier.fillMaxSize(),
+                state = state,
+                videos = videos,
+                hideWatched = hideWatched,
+                safeMode = safeMode,
+                onToggleHideWatched = {
+                    hideWatched = !hideWatched
+                    EnterprisePreferences.setHideWatched(hideWatched)
+                },
+                onToggleSafeMode = {
+                    safeMode = !safeMode
+                    EnterprisePreferences.setSafeMode(safeMode)
+                },
+                onSelectSavedMessages = viewModel::load,
+                onSelectChat = { viewModel.loadChat(it.chatId, it.title) },
+                onSetSortOrder = viewModel::setSortOrder,
+                onRefresh = viewModel::refresh,
+                onOpenSettings = onOpenSettings,
+                onOpenLibrary = onOpenLibrary,
+                onOpenHome = onOpenHome,
+                onOpenFavorites = onOpenFavorites,
+                onOpenSearch = {
+                    val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
+                    onOpenSearch(chatId, state.selectedChatTitle)
+                },
+                onOpenLastPlayed = ::openLastPlayed,
+                onOpenVideo = ::openVideo,
+                onFocusedVideo = viewModel::onItemFocused,
+                onLoadMore = viewModel::loadMoreIfNeeded
             )
-            Spacer(Modifier.width(20.dp))
-            Column(
+        } else if (libraryMode) {
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(Color(0xFF08090C), Color(0xFF111318))))
+                    .padding(24.dp)
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SortChip("Newest", state.sortOrder == SortOrder.DATE_DESC) {
-                        viewModel.setSortOrder(SortOrder.DATE_DESC)
-                    }
-                    SortChip("Oldest", state.sortOrder == SortOrder.DATE_ASC) {
-                        viewModel.setSortOrder(SortOrder.DATE_ASC)
-                    }
-                    SortChip("Largest", state.sortOrder == SortOrder.SIZE_DESC) {
-                        viewModel.setSortOrder(SortOrder.SIZE_DESC)
-                    }
-                    SortChip("Smallest", state.sortOrder == SortOrder.SIZE_ASC) {
-                        viewModel.setSortOrder(SortOrder.SIZE_ASC)
-                    }
-                    SortChip("Continue only", hideWatched) {
-                        hideWatched = !hideWatched
-                        EnterprisePreferences.setHideWatched(hideWatched)
-                    }
-                    SortChip("Safe mode", safeMode) {
-                        safeMode = !safeMode
-                        EnterprisePreferences.setSafeMode(safeMode)
-                    }
-                    SortChip("Pin source", EnterprisePreferences.isPinnedChat(state.selectedChatId)) {
-                        EnterprisePreferences.togglePinnedChat(state.selectedChatId)
-                        pinnedChats = EnterprisePreferences.pinnedChatIds()
-                    }
-                    RefreshChip { viewModel.refresh() }
-                    RefreshChip("Settings", onOpenSettings)
-                }
-                if (!state.error.isNullOrBlank()) {
-                    Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error)
-                }
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .padding(bottom = if (state.hasMore) 72.dp else 0.dp)
+                ChatRail(
+                    chats = state.videoChats,
+                    pinnedChats = pinnedChats,
+                    savedSelected = state.isSavedMessagesSelected,
+                    isLoading = state.isSidebarLoading,
+                    sidebarError = state.sidebarError,
+                    firstItemFocusRequester = chatFocusRequester,
+                    onSaved = viewModel::load,
+                    onChat = { viewModel.loadChat(it.chatId, it.title) }
+                )
+                Spacer(Modifier.width(22.dp))
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    TvHybridHomeDashboard(
-                        featuredVideos = videos,
-                        channelLabel = state.selectedChatTitle,
-                        isLoading = state.isLoading,
-                        errorMessage = null,
-                        onVideoSelected = { openVideo(it) },
-                        onOpenSearch = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Library", color = Color.White, style = MaterialTheme.typography.headlineLarge)
+                            Text(
+                                state.selectedChatTitle,
+                                color = Color.White.copy(alpha = 0.62f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        RefreshChip("Home", onOpenHome)
+                        RefreshChip("Favorites", onOpenFavorites)
+                        RefreshChip("Search", {
                             val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
                             onOpenSearch(chatId, state.selectedChatTitle)
-                        },
-                        onOpenSettings = onOpenSettings,
-                        onOpenLastPlayed = ::openLastPlayed,
-                        lastPlayedFileId = lastPlayed?.fileId,
-                        lastPlayedTitle = lastPlayed?.title,
-                        onToggleFavorite = {
-                            EnterprisePreferences.toggleFavorite(it.chatId, it.messageId)
-                            favoriteKeys = EnterprisePreferences.favoriteKeys()
-                        },
-                        onToggleOffline = ::toggleOffline,
-                        onVideoFocused = viewModel::onItemFocused,
-                        favoriteKeys = favoriteKeys,
-                        offlineFileIds = videos.mapNotNull { it.fileId }.filter { OfflineCacheManager.isPinned(it) }.toSet(),
-                        resumeFileIds = videos.mapNotNull { it.fileId }.filter { PlaybackProgressTracker.getPosition(it) > 0 }.toSet(),
-                        safeMode = safeMode,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                if (state.hasMore) {
-                    Button(
-                        onClick = viewModel::loadMoreIfNeeded,
-                        modifier = Modifier.focusable()
-                    ) {
-                        Text(
-                            if (state.isLoadingMore) "Loading…" else "Load more",
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
+                        })
+                        RefreshChip("Settings", onOpenSettings)
+                    }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        item { SortChip("Newest", state.sortOrder == SortOrder.DATE_DESC) { viewModel.setSortOrder(SortOrder.DATE_DESC) } }
+                        item { SortChip("Oldest", state.sortOrder == SortOrder.DATE_ASC) { viewModel.setSortOrder(SortOrder.DATE_ASC) } }
+                        item { SortChip("Largest", state.sortOrder == SortOrder.SIZE_DESC) { viewModel.setSortOrder(SortOrder.SIZE_DESC) } }
+                        item { SortChip("Smallest", state.sortOrder == SortOrder.SIZE_ASC) { viewModel.setSortOrder(SortOrder.SIZE_ASC) } }
+                        item { SortChip("Continue only", hideWatched) {
+                            hideWatched = !hideWatched
+                            EnterprisePreferences.setHideWatched(hideWatched)
+                        } }
+                        item { SortChip("Privacy mode", safeMode) {
+                            safeMode = !safeMode
+                            EnterprisePreferences.setSafeMode(safeMode)
+                        } }
+                        item { SortChip("Pin source", EnterprisePreferences.isPinnedChat(state.selectedChatId)) {
+                            EnterprisePreferences.togglePinnedChat(state.selectedChatId)
+                            pinnedChats = EnterprisePreferences.pinnedChatIds()
+                        } }
+                        item { RefreshChip("Refresh", viewModel::refresh) }
+                    }
+                    if (!state.error.isNullOrBlank()) {
+                        Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error)
+                    }
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        when {
+                            state.isLoading && videos.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                            videos.isEmpty() -> Text(
+                                text = if (safeMode) "No videos in this source. Choose another source or refresh." else "No videos in ${state.selectedChatTitle}. Choose another source or refresh.",
+                                color = Color.White.copy(alpha = 0.78f),
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                            else -> LazyVerticalGrid(
+                                columns = GridCells.Adaptive(220.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(18.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
+                            ) {
+                                items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                    MediaPosterCard(
+                                        media = item,
+                                        subtitle = state.selectedChatTitle,
+                                        onClick = { openVideo(item) },
+                                        cardWidth = 220.dp,
+                                        privacyMode = safeMode,
+                                        onFocusChanged = { focused -> if (focused) viewModel.onItemFocused(item) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (state.hasMore) {
+                        Button(onClick = viewModel::loadMoreIfNeeded, modifier = Modifier.focusable()) {
+                            Text(if (state.isLoadingMore) "Loading…" else "Load more", color = MaterialTheme.colorScheme.onPrimary)
+                        }
                     }
                 }
             }
-        }
+        } else {
+            TvHybridHomeDashboard(
+                featuredVideos = videos,
+                channelLabel = state.selectedChatTitle,
+                isLoading = state.isLoading,
+                errorMessage = state.error,
+                onVideoSelected = ::openVideo,
+                onOpenSearch = {
+                    val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
+                    onOpenSearch(chatId, state.selectedChatTitle)
+                },
+                onOpenLibrary = onOpenLibrary,
+                onOpenFavorites = onOpenFavorites,
+                onOpenSettings = onOpenSettings,
+                onOpenLastPlayed = ::openLastPlayed,
+                lastPlayedFileId = lastPlayed?.fileId,
+                lastPlayedTitle = lastPlayed?.title,
+                onToggleFavorite = {
+                    EnterprisePreferences.toggleFavorite(it.chatId, it.messageId)
+                    favoriteKeys = EnterprisePreferences.favoriteKeys()
+                },
+                onToggleOffline = ::toggleOffline,
+                onVideoFocused = viewModel::onItemFocused,
+                favoriteKeys = favoriteKeys,
+                offlineFileIds = videos.mapNotNull { it.fileId }.filter { OfflineCacheManager.isPinned(it) }.toSet(),
+                resumeFileIds = videos.mapNotNull { it.fileId }.filter { PlaybackProgressTracker.getPosition(it) > 0 }.toSet(),
+                safeMode = safeMode,
+                modifier = Modifier.fillMaxSize()
+            )
         }
         if (state.preparingFileId != null) {
             LoadingOverlay(
@@ -308,6 +362,9 @@ private fun CompactBrowseLayout(
     onSetSortOrder: (SortOrder) -> Unit,
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenHome: () -> Unit,
+    onOpenFavorites: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenLastPlayed: () -> Unit,
     onOpenVideo: (MediaItem) -> Unit,
@@ -321,11 +378,15 @@ private fun CompactBrowseLayout(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(
-            text = "Bousygram",
-            style = MaterialTheme.typography.headlineSmall,
-            color = Color.White
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Bousygram", style = MaterialTheme.typography.headlineSmall, color = Color.White, modifier = Modifier.weight(1f))
+            RefreshChip("Home", onOpenHome)
+            RefreshChip("Library", onOpenLibrary)
+        }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 SortChip("Saved Messages", state.isSavedMessagesSelected, onSelectSavedMessages)
@@ -340,7 +401,8 @@ private fun CompactBrowseLayout(
             item { SortChip("Largest", state.sortOrder == SortOrder.SIZE_DESC) { onSetSortOrder(SortOrder.SIZE_DESC) } }
             item { SortChip("Smallest", state.sortOrder == SortOrder.SIZE_ASC) { onSetSortOrder(SortOrder.SIZE_ASC) } }
             item { SortChip("Continue only", hideWatched, onToggleHideWatched) }
-            item { SortChip("Safe mode", safeMode, onToggleSafeMode) }
+            item { SortChip("Privacy mode", safeMode, onToggleSafeMode) }
+            item { RefreshChip("Favorites", onOpenFavorites) }
             item { RefreshChip("Search", onOpenSearch) }
             item { RefreshChip("Resume", onOpenLastPlayed) }
             item { RefreshChip("Refresh", onRefresh) }

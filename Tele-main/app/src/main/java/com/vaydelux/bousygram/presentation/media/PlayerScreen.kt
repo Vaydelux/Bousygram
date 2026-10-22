@@ -12,6 +12,8 @@ import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -93,6 +97,7 @@ import com.vaydelux.bousygram.data.store.PlaybackMode
 import com.vaydelux.bousygram.data.store.StreamMetrics
 import com.vaydelux.bousygram.core.tdlib.fastlink.FastLinkManager
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
+import com.vaydelux.bousygram.core.tdlib.server.StreamAccessRegistry
 import com.vaydelux.bousygram.core.tdlib.server.PlaybackCacheState
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
@@ -177,6 +182,7 @@ fun PlayerScreen(
     var activeFastLinkUrl by remember(request, queueIndex) {
         mutableStateOf(request.url.takeIf { request.startsWithFastLink && queueIndex == initialIndex })
     }
+    var activeLocalStreamUrl by remember { mutableStateOf<String?>(null) }
     var fastLinkFallbackAttempted by remember(request, queueIndex) { mutableStateOf(false) }
 
     fun recordMetrics() {
@@ -219,7 +225,16 @@ fun PlayerScreen(
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
 
     fun stopCurrentCache(reason: PlaybackCacheStopReason) {
-        FastLinkManager.revokeFastLink(activeFastLinkUrl)
+        // Keep external links alive when the app is merely backgrounded or when the player
+        // is retrying. Revoking either case makes a paused/resuming or retrying player fail.
+        if (reason == PlaybackCacheStopReason.Back ||
+            reason == PlaybackCacheStopReason.TrackSwitch ||
+            reason == PlaybackCacheStopReason.Dispose ||
+            reason == PlaybackCacheStopReason.ViewModelCleared ||
+            reason == PlaybackCacheStopReason.ViewModelStop
+        ) {
+            FastLinkManager.revokeFastLink(activeFastLinkUrl)
+        }
         val session = playbackSession
         if (session != null) {
             PlaybackSessionController.stop(session, reason)
@@ -228,13 +243,22 @@ fun PlayerScreen(
         queue.getOrNull(queueIndex)?.fileId?.let { fileId -> TelegramPreCacheEngine.stopCaching(fileId) }
     }
 
+    fun revokeLocalPlaybackCapabilities() {
+        StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
+        activeLocalStreamUrl = null
+        StreamAccessRegistry.revokeFromUrl(request.subtitleUrl)
+    }
+
     fun exitPlayback() {
+        revokeLocalPlaybackCapabilities()
         stopCurrentCache(PlaybackCacheStopReason.Back)
         onExit()
     }
 
     fun goToTrack(newIndex: Int) {
         if (newIndex !in queue.indices || newIndex == queueIndex) return
+        StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
+        activeLocalStreamUrl = null
         val oldItem = queue[queueIndex]
         if (oldItem.fileId > 0 && player.currentPosition > 0) {
             PlaybackProgressTracker.savePosition(oldItem.fileId, player.currentPosition.toInt(), duration)
@@ -431,6 +455,7 @@ fun PlayerScreen(
             }
             player.removeListener(listener)
             player.removeAnalyticsListener(analyticsListener)
+            revokeLocalPlaybackCapabilities()
             stopCurrentCache(PlaybackCacheStopReason.Dispose)
             audioFocusController.abandon()
             mediaSession.release()
@@ -481,6 +506,10 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(request, queueIndex, reloadNonce, activeFastLinkUrl) {
+        // A retry or track change replaces the old URL; revoke its capability first.
+        // Lifecycle backgrounding does not run this effect, so a paused player can resume.
+        StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
+        activeLocalStreamUrl = null
         val item = queue[queueIndex]
         title = displayTitle(item.title)
         fileName = item.fileName
@@ -500,16 +529,26 @@ fun PlayerScreen(
             cacheState = PlaybackCacheState.Streaming
             fastUrl
         } else {
-            val preparation = withContext(Dispatchers.IO) {
-                LocalStreamingServer.prepareStream(
-                    fileId = item.fileId,
-                    declaredSize = item.fileSizeBytes,
-                    title = item.title,
-                    mimeType = item.mimeType,
-                    fileName = item.fileName
-                )
+            // The initial local URL was already preflighted by the repository. Reuse it once
+            // instead of issuing a duplicate token; later queue items/retries get a fresh URL.
+            val alreadyPreparedUrl = request.url.takeIf {
+                queueIndex == initialIndex && reloadNonce == 0 &&
+                    it.startsWith("http://127.0.0.1")
             }
-            if (preparation == null) {
+            val preparation = if (alreadyPreparedUrl != null) {
+                null
+            } else {
+                withContext(Dispatchers.IO) {
+                    LocalStreamingServer.prepareStream(
+                        fileId = item.fileId,
+                        declaredSize = item.fileSizeBytes,
+                        title = item.title,
+                        mimeType = item.mimeType,
+                        fileName = item.fileName
+                    )
+                }
+            }
+            if (alreadyPreparedUrl == null && preparation == null) {
                 val message = "Stream not ready. The file may still be downloading in Telegram."
                 playbackError = message
                 PlaybackDiagnostics.recordStreamError(message)
@@ -519,10 +558,22 @@ fun PlayerScreen(
                 hudVisible = true
                 return@LaunchedEffect
             }
-            fileSizeBytes = preparation.resolvedSize
-            cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
-            preparation.url
+            if (preparation != null) {
+                fileSizeBytes = preparation.resolvedSize
+                cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
+            } else {
+                val sizeFromPreparedUrl = alreadyPreparedUrl
+                    ?.substringAfter("size=", "")
+                    ?.substringBefore('&')
+                    ?.toLongOrNull()
+                fileSizeBytes = item.fileSizeBytes.takeIf { it > 0L }
+                    ?: sizeFromPreparedUrl?.takeIf { it > 0L }
+                    ?: 0L
+                cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
+            }
+            alreadyPreparedUrl ?: preparation!!.url
         }
+        activeLocalStreamUrl = streamUrl.takeIf { it.startsWith("http://127.0.0.1") }
         val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
         launch {
             val resolvedDuration = withContext(Dispatchers.IO) {
@@ -637,14 +688,20 @@ fun PlayerScreen(
             .onKeyEvent { event ->
                 if (tracksPanelVisible) {
                     if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
-                        event.key == Key.Back
+                        (event.key == Key.Back || event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU)
                     ) {
                         tracksPanelVisible = false
                         return@onKeyEvent true
                     }
+                    // Let the focus system move between the controls in the track picker.
                     return@onKeyEvent false
                 }
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
+                // When the HUD is visible, arrows should move focus between buttons, not seek
+                // behind the user's back. Video-only seeking remains available with the HUD hidden.
+                if (hudVisible && event.key in setOf(Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown)) {
+                    return@onKeyEvent false
+                }
                 when (event.key) {
                     Key.DirectionLeft -> {
                         val newPos = (player.currentPosition - SEEK_INCREMENT_MS).coerceAtLeast(0L)
@@ -784,6 +841,7 @@ fun PlayerScreen(
         if (tracksPanelVisible) {
             TrackPickerOverlay(
                 player = player,
+                onClose = { tracksPanelVisible = false },
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
         }
@@ -794,64 +852,120 @@ fun PlayerScreen(
 @Composable
 private fun TrackPickerOverlay(
     player: ExoPlayer,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tracks = player.currentTracks
+    var selectedType by remember { mutableIntStateOf(C.TRACK_TYPE_TEXT) }
+    val firstChoiceFocus = remember { FocusRequester() }
+    val visibleGroups = tracks.groups.filter { it.type == selectedType }
+    val hasSelectedTrack = visibleGroups.any { group ->
+        (0 until group.length).any { index -> group.isTrackSelected(index) }
+    }
+
+    LaunchedEffect(selectedType) {
+        runCatching { firstChoiceFocus.requestFocus() }
+    }
+
     Surface(
         modifier = modifier
             .padding(32.dp)
-            .width(320.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-        shape = RoundedCornerShape(12.dp)
+            .width(360.dp)
+            .focusGroup(),
+        color = Color(0xF21A1B1F),
+        shape = RoundedCornerShape(20.dp),
+        shadowElevation = 20.dp
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Tracks (Menu to close)", style = MaterialTheme.typography.titleMedium)
-            tracks.groups.forEach { group ->
-                val typeLabel = when (group.type) {
-                    C.TRACK_TYPE_TEXT -> "Subtitles"
-                    C.TRACK_TYPE_AUDIO -> "Audio"
-                    else -> return@forEach
-                }
-                Text(typeLabel, style = MaterialTheme.typography.labelLarge)
-                group.mediaTrackGroup.let { trackGroup ->
-                    for (i in 0 until trackGroup.length) {
-                        val format = trackGroup.getFormat(i)
-                        val label = format.label ?: format.language ?: "Track $i"
-                        Text(
-                            text = "  $label",
-                            modifier = Modifier
-                                .focusable()
-                                .padding(vertical = 4.dp)
-                                .onKeyEvent { event ->
-                                    if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
-                                        (event.key == Key.Enter ||
-                                            event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER)
-                                    ) {
-                                        selectTrack(player, tracks, group, trackGroup, i)
-                                        true
-                                    } else false
-                                }
-                        )
+        Column(
+            Modifier
+                .heightIn(max = 620.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (selectedType == C.TRACK_TYPE_TEXT) "Subtitles" else "Audio",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White
+                )
+                Button(onClick = onClose) { Text("Close") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { selectedType = C.TRACK_TYPE_TEXT }) { Text("CC · Subtitles") }
+                Button(onClick = { selectedType = C.TRACK_TYPE_AUDIO }) { Text("♫ Audio") }
+            }
+
+            if (selectedType == C.TRACK_TYPE_TEXT) {
+                TrackChoice(
+                    label = "Off",
+                    selected = !hasSelectedTrack,
+                    modifier = Modifier.focusRequester(firstChoiceFocus),
+                    onSelect = {
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                            .build()
                     }
+                )
+            } else if (visibleGroups.isEmpty()) {
+                Text("No alternate audio tracks are available.", color = Color.White.copy(alpha = 0.66f))
+            }
+
+            visibleGroups.forEachIndexed { groupIndex, group ->
+                val trackGroup = group.mediaTrackGroup
+                for (trackIndex in 0 until trackGroup.length) {
+                    val format = trackGroup.getFormat(trackIndex)
+                    val label = format.label?.takeIf { it.isNotBlank() }
+                        ?: format.language?.takeIf { it.isNotBlank() }
+                        ?: "Track ${trackIndex + 1}"
+                    val selected = group.isTrackSelected(trackIndex)
+                    TrackChoice(
+                        label = label,
+                        selected = selected,
+                        modifier = if (selectedType == C.TRACK_TYPE_AUDIO && groupIndex == 0 && trackIndex == 0) {
+                            Modifier.focusRequester(firstChoiceFocus)
+                        } else Modifier,
+                        onSelect = { selectTrack(player, tracks, group, trackGroup, trackIndex) }
+                    )
                 }
             }
-            Text(
-                "Disable subtitles",
-                modifier = Modifier
-                    .focusable()
-                    .onKeyEvent { event ->
-                        if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
-                            (event.key == Key.Enter ||
-                                event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER)
-                        ) {
-                            player.trackSelectionParameters = player.trackSelectionParameters
-                                .buildUpon()
-                                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                                .build()
-                            true
-                        } else false
-                    }
-            )
+            if (visibleGroups.isEmpty() && selectedType == C.TRACK_TYPE_TEXT) {
+                Text("No subtitle tracks are available for this video.", color = Color.White.copy(alpha = 0.66f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackChoice(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onSelect: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onSelect)
+            .focusable(),
+        color = when {
+            selected -> Color(0xFFE7E7EB)
+            focused -> Color(0xFF333640)
+            else -> Color(0xFF24262B)
+        },
+        contentColor = if (selected) Color(0xFF15161A) else Color.White,
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (selected) Text("✓", style = MaterialTheme.typography.titleMedium)
         }
     }
 }

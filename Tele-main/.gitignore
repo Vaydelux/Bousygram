@@ -71,3 +71,9 @@ __pycache__/
 
 # But include TDLib native library (required for app to work)
 !app/src/main/jniLibs/**/*.so
+
+.git/
+**/__pycache__/
+**/*.pyc
+**/.gradle/
+**/build/

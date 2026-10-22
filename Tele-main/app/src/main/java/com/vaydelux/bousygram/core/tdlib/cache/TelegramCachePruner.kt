@@ -49,52 +49,29 @@ object TelegramCachePruner {
                 deletedFiles = 0,
                 freedBytes = 0L,
                 remainingBytes = stats.tdLibCacheBytes,
-                limitBytes = cacheLimitBytes
+                limitBytes = cacheLimitBytes,
+                note = "The TDLib cache directory is not available."
             )
         }
 
-        val files = root
-            .walkTopDown()
-            .filter { it.isFile }
-            .filterNot { shouldSkip(it) }
-            .toList()
-        var totalSize = files.sumOf { it.length() }
-        var deletedFiles = 0
-        var freedBytes = 0L
-
-        if (totalSize > cacheLimitBytes) {
-            files
-                .sortedWith(compareBy<File> { it.lastModified() }.thenBy { it.absolutePath })
-                .forEach { file ->
-                    if (totalSize <= cacheLimitBytes) return@forEach
-                    val length = file.length()
-                    if (file.delete()) {
-                        deletedFiles++
-                        freedBytes += length
-                        totalSize -= length
-                        Log.i(
-                            TAG,
-                            "Deleted TDLib cache file=${file.safeRelativeTo(root)} size=$length " +
-                                "remaining=$totalSize app=${context.applicationContext.packageName}"
-                        )
-                    } else {
-                        Log.w(TAG, "Could not delete TDLib cache file=${file.safeRelativeTo(root)}")
-                    }
-                }
-        }
-
+        // Only evict tracked TDLib file IDs through TDLib itself. Never delete raw files under
+        // TDLib's managed directory; active sessions and offline-pinned IDs are protected.
+        val beforeStats = storageStats(context, tdLibCacheDir)
+        val result = OfflineCacheManager.pruneTrackedCacheNow()
+        val stats = storageStats(context, tdLibCacheDir)
+        val remainsOverLimit = stats.tdLibCacheBytes > cacheLimitBytes
         return TelegramCachePruneResult(
-            deletedFiles = deletedFiles,
-            freedBytes = freedBytes,
-            remainingBytes = totalSize,
-            limitBytes = cacheLimitBytes
+            deletedFiles = result.deletedFiles,
+            freedBytes = result.freedBytes,
+            remainingBytes = stats.tdLibCacheBytes,
+            limitBytes = cacheLimitBytes,
+            note = when {
+                remainsOverLimit -> "Cache is still above the configured limit. Only known tracked files can be safely evicted; pinned, recent, active, and untracked data was preserved."
+                result.deletedFiles > 0 -> "Pinned and actively playing media were preserved."
+                beforeStats.tdLibCacheBytes > cacheLimitBytes -> "The cache is now within the configured limit."
+                else -> "TDLib cache is within the configured limit."
+            }
         )
-    }
-
-    private fun shouldSkip(file: File): Boolean {
-        val name = file.name
-        return name.endsWith(".xml", ignoreCase = true) ||
-            name.contains("td.bin", ignoreCase = true)
     }
 
     private fun directorySizeOrZero(file: File): Long =
@@ -106,8 +83,7 @@ object TelegramCachePruner {
         return file.listFiles()?.sumOf { directorySize(it) } ?: 0L
     }
 
-    private fun File.safeRelativeTo(root: File): String =
-        runCatching { relativeTo(root).path }.getOrElse { absolutePath }
+
 }
 
 data class TelegramCacheStorageStats(
@@ -123,5 +99,6 @@ data class TelegramCachePruneResult(
     val deletedFiles: Int,
     val freedBytes: Long,
     val remainingBytes: Long,
-    val limitBytes: Long
+    val limitBytes: Long,
+    val note: String = ""
 )

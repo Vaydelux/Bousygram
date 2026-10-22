@@ -163,16 +163,10 @@ class SearchViewModel(
         onResult: (String?, String?, String?) -> Unit
     ) {
         viewModelScope.launch {
-            val streamResult = withContext(Dispatchers.IO) {
-                var output: Pair<String?, String?> = null to "Could not prepare stream"
-                repository.requestFastLink(item) { url, error ->
-                    output = url to error
-                }
-                output
-            }
-            val url = streamResult.first
+            val streamResult = runCatching { repository.prepareStream(item).getOrThrow() }
+            val url = streamResult.getOrNull()
             if (url.isNullOrBlank()) {
-                onResult(null, null, streamResult.second)
+                onResult(null, null, streamResult.exceptionOrNull()?.message ?: "Could not prepare stream")
                 return@launch
             }
             val fileId = item.fileId

@@ -11,7 +11,7 @@ Use this when you want a lightweight VPS tunnel and normal HTTPS range streaming
 3. The server returns a signed `/stream/{token}` URL.
 4. ExoPlayer reads that HTTPS URL with normal `Range` requests for seeking.
 
-The server does not store media. It only stores short-lived signed tokens that map to Telegram file paths.
+The server does not store media. It only stores short-lived signed tokens that map to Telegram file paths. It rejects malformed/unsatisfiable byte ranges with HTTP 416, validates the upstream range response before forwarding it, applies network timeouts, and caps the number of active tokens.
 Android revokes the active token when playback exits/backgrounds, and the bot deletes the forwarded message plus its status/link replies after `BOT_MESSAGE_CLEANUP_SECONDS`.
 
 ## Option 2: TDLib Local HTTP Proxy
@@ -38,7 +38,7 @@ Recommended default:
 
 These steps are only required for Option 1. Option 2 does not need this server.
 
-1. Deploy `server.py` on a small VPS.
+1. Deploy the proxy package (`server.py` plus `config.py`, `tokens.py`, `streaming.py`, and `bot.py`) on a small VPS.
 2. Configure `.env` from `.env.template`.
 3. Put Nginx in front of it using `nginx.conf`.
 4. Install `bousygram-proxy.service` as a systemd service.
@@ -58,14 +58,14 @@ pip install -r requirements.txt
 python server.py
 ```
 
-Keep `SIGNING_KEY` stable. Changing it invalidates active links.
+Keep `SIGNING_KEY` stable and at least 32 characters long. Changing it invalidates active links. The service intentionally fails to start when required secrets, HTTPS public URL, or the user allow-list are missing or left as template values. A non-empty `ALLOWED_USER_IDS` allow-list is mandatory; unknown users are ignored instead of being offered links. Range and token helper tests can be run with `python -m unittest discover -s tests -v`.
 
 ## VPS Build Steps
 
 ```bash
 sudo useradd --system --home /opt/bousygram-proxy --shell /usr/sbin/nologin bousygram
 sudo mkdir -p /opt/bousygram-proxy
-sudo cp server.py requirements.txt .env.template /opt/bousygram-proxy/
+sudo cp server.py config.py tokens.py streaming.py bot.py requirements.txt .env.template /opt/bousygram-proxy/
 sudo cp bousygram-proxy.service /etc/systemd/system/
 sudo chown -R bousygram:bousygram /opt/bousygram-proxy
 cd /opt/bousygram-proxy
@@ -147,4 +147,4 @@ You can also use `render.yaml` as a Blueprint. If Render cannot find the service
 - Bot chat messages are deleted shortly after link creation.
 - If the user plays the same media again, Android forwards it again and gets a new token.
 
-For many users, keep `ALLOWED_USER_IDS` as a comma-separated list of trusted Telegram user IDs. Leaving it blank allows any Telegram user who can message the bot to request a stream link.
+`ALLOWED_USER_IDS` is required and must be a comma-separated list of trusted numeric Telegram user IDs. The service fails to start if the list is empty, and the bot ignores unlisted users. Do not make this bot a public media-link service.

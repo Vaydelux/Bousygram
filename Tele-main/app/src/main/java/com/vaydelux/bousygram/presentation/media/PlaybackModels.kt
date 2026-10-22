@@ -19,7 +19,8 @@ data class PlaybackRequest(
 )
 
 data class PlaybackQueueItem(
-    val url: String,
+    /** Null until this item becomes active; then the player prepares a fresh scoped stream URL. */
+    val url: String? = null,
     val chatId: Long,
     val messageId: Long,
     val title: String,

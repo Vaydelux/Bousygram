@@ -1,6 +1,5 @@
 package com.vaydelux.bousygram.presentation.media
 
-import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 
@@ -8,16 +7,13 @@ fun playableVideos(items: List<MediaItem>): List<MediaItem> =
     items.filter { it.type == MediaType.Video && it.fileId != null }
 
 fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
-    videos.mapNotNull { item ->
+    playableVideos(videos).mapNotNull { item ->
         val fileId = item.fileId ?: return@mapNotNull null
         PlaybackQueueItem(
-            url = LocalStreamingServer.getStreamUrl(
-                fileId,
-                item.fileSizeBytes,
-                item.title,
-                item.mimeType,
-                item.fileName
-            ),
+            // Queue entries only carry metadata. PlayerScreen prepares a scoped stream URL
+            // when an item actually becomes active; pre-generating URLs for every queue item
+            // created unused access tokens and could invalidate an active playback URL.
+            url = null,
             chatId = item.chatId,
             messageId = item.messageId,
             title = mediaDisplayLabels(item, "").title,

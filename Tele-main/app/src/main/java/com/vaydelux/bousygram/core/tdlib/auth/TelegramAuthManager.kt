@@ -6,6 +6,7 @@ import android.util.Log
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.data.store.ApiCredentialsStore
+import com.vaydelux.bousygram.data.store.TdlibDatabaseKeyStore
 import com.vaydelux.bousygram.domain.model.AuthStep
 import com.vaydelux.bousygram.domain.model.AuthUiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,9 +22,11 @@ class TelegramAuthManager(private val context: Context) {
     private val _uiState = MutableStateFlow(AuthUiState(isLoading = true))
     val uiState: StateFlow<AuthUiState> = _uiState
 
-    private val client = TdLibClient.client
+    private val client: org.drinkless.tdlib.Client
+        get() = TdLibClient.client
     private val credentialsStore = ApiCredentialsStore(context)
-    private var isPhoneLoginForced = false
+    private val databaseKeyStore = TdlibDatabaseKeyStore(context)
+    private var isPhoneLoginForced = true
     @Volatile
     private var qrRequestInFlight = false
 
@@ -86,10 +89,50 @@ class TelegramAuthManager(private val context: Context) {
 
     fun switchToPhoneLogin() {
         isPhoneLoginForced = true
-        _uiState.update { it.copy(step = AuthStep.EnterPhone, qrCodeLink = null, isLoading = false) }
+        _uiState.update { it.copy(step = AuthStep.EnterPhone, qrCodeLink = null, isLoading = true, message = null) }
+        client.send(TdApi.GetAuthorizationState()) { result ->
+            if (result is TdApi.AuthorizationStateWaitOtherDeviceConfirmation) {
+                resetPendingAuth()
+            } else {
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        }
     }
 
-    fun submitPhone(phone: String) = submitAction(TdApi.SetAuthenticationPhoneNumber(phone, null))
+    fun resetPendingAuth() {
+        Log.d(TAG, "Resetting pending unauthenticated auth session to return to clean phone login")
+        _uiState.update { it.copy(isLoading = true, message = "Preparing phone login…") }
+        client.send(TdApi.Destroy()) { result ->
+            if (result is TdApi.Error) {
+                Log.w(TAG, "Destroy error: ${result.message}")
+                _uiState.update { it.copy(isLoading = false, message = result.message) }
+            }
+        }
+    }
+
+    fun submitPhone(phone: String) {
+        val trimmed = phone.trim()
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(message = "Enter your phone number", isLoading = false) }
+            return
+        }
+        _uiState.update { it.copy(isLoading = true, message = null) }
+        client.send(TdApi.GetAuthorizationState()) { state ->
+            if (state is TdApi.AuthorizationStateWaitOtherDeviceConfirmation) {
+                isPhoneLoginForced = true
+                resetPendingAuth()
+                _uiState.update {
+                    it.copy(
+                        message = "Resetting QR session. Please tap submit again in a moment.",
+                        isLoading = false
+                    )
+                }
+            } else {
+                submitAction(TdApi.SetAuthenticationPhoneNumber(trimmed, null))
+            }
+        }
+    }
+
     fun submitCode(code: String) = submitAction(TdApi.CheckAuthenticationCode(code))
     fun submitPassword(password: String) = submitAction(TdApi.CheckAuthenticationPassword(password))
 
@@ -99,7 +142,15 @@ class TelegramAuthManager(private val context: Context) {
     }
 
     fun submitApiKeys(apiId: String, apiHash: String) {
-        credentialsStore.save(apiId, apiHash)
+        try {
+            credentialsStore.save(apiId, apiHash)
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to protect Telegram API credentials", e)
+            _uiState.update {
+                it.copy(message = "Secure credential storage is unavailable on this device", isLoading = false)
+            }
+            return
+        }
         _uiState.update { it.copy(apiId = apiId, apiHash = apiHash, isLoading = true, message = null) }
         client.send(TdApi.GetAuthorizationState()) { result ->
             when (result) {
@@ -135,7 +186,7 @@ class TelegramAuthManager(private val context: Context) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> setTdlibParameters()
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
                 if (isPhoneLoginForced) {
-                    _uiState.update { it.copy(step = AuthStep.EnterPhone, isLoading = false) }
+                    _uiState.update { it.copy(step = AuthStep.EnterPhone, isLoading = false, message = null) }
                 } else {
                     requestQrCodeAuthentication()
                 }
@@ -143,13 +194,17 @@ class TelegramAuthManager(private val context: Context) {
             is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> {
                 qrRequestInFlight = false
                 val link = state.link
-                _uiState.update {
-                    it.copy(
-                        step = AuthStep.ScanQrCode,
-                        qrCodeLink = link,
-                        message = null,
-                        isLoading = false
-                    )
+                if (isPhoneLoginForced) {
+                    resetPendingAuth()
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            step = AuthStep.ScanQrCode,
+                            qrCodeLink = link,
+                            message = null,
+                            isLoading = false
+                        )
+                    }
                 }
             }
             is TdApi.AuthorizationStateWaitCode -> {
@@ -168,7 +223,15 @@ class TelegramAuthManager(private val context: Context) {
                 _uiState.update { it.copy(message = "Closing session…", isLoading = true) }
             }
             is TdApi.AuthorizationStateClosed -> {
-                _uiState.update { it.copy(message = "Session closed", isLoading = false) }
+                Log.d(TAG, "AuthorizationStateClosed received; re-initializing client")
+                _uiState.update { it.copy(message = "Reconnecting…", isLoading = true) }
+                val newClient = TdLibClient.restartClient()
+                newClient.send(TdApi.GetAuthorizationState()) { res ->
+                    when (res) {
+                        is TdApi.AuthorizationState -> handleAuthState(res)
+                        else -> handleResult(res)
+                    }
+                }
             }
             else -> Unit
         }
@@ -212,14 +275,27 @@ class TelegramAuthManager(private val context: Context) {
             }
             return
         }
-        val databaseDir = File(context.filesDir, "tdlib").absolutePath
+        val databaseDirectory = File(context.filesDir, "tdlib")
+        val databaseDir = databaseDirectory.absolutePath
         val filesDir = File(context.filesDir, "tdlib_files").absolutePath
+        val databaseEncryptionKey = try {
+            databaseKeyStore.getOrCreateKey(databaseDirectory)
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to unlock the protected TDLib database key", e)
+            _uiState.update {
+                it.copy(
+                    message = "Secure Telegram database storage could not be unlocked. Your existing local data was not changed.",
+                    isLoading = false
+                )
+            }
+            return
+        }
 
         val parameters = TdApi.SetTdlibParameters(
             false,
             databaseDir,
             filesDir,
-            byteArrayOf(),
+            databaseEncryptionKey,
             true,
             true,
             true,

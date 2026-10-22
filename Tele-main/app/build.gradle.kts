@@ -9,41 +9,43 @@ plugins {
 val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 val tdLibJniDir = project.layout.projectDirectory.dir("src/main/jniLibs").asFile
 val tdLibAvailableAbis = supportedTdLibAbis.filter { abi ->
-    File(tdLibJniDir, "$abi/libtdjni.so").exists()
+    val nativeLibrary = File(tdLibJniDir, "$abi/libtdjni.so")
+    nativeLibrary.isFile && nativeLibrary.length() > 0L
 }
+
+val properties = Properties().apply {
+    val localProperties = rootProject.file("local.properties")
+    if (localProperties.exists()) {
+        localProperties.inputStream().use { stream ->
+            load(stream)
+        }
+    }
+}
+
+val releaseStoreFile = properties.getProperty("RELEASE_STORE_FILE")
+    ?: System.getenv("RELEASE_STORE_FILE")
+    ?: ""
+val releaseStorePassword = properties.getProperty("RELEASE_STORE_PASSWORD")
+    ?: System.getenv("RELEASE_STORE_PASSWORD")
+    ?: ""
+val releaseKeyAlias = properties.getProperty("RELEASE_KEY_ALIAS")
+    ?: System.getenv("RELEASE_KEY_ALIAS")
+    ?: ""
+val releaseKeyPassword = properties.getProperty("RELEASE_KEY_PASSWORD")
+    ?: System.getenv("RELEASE_KEY_PASSWORD")
+    ?: ""
+val hasReleaseSigning = releaseStoreFile.isNotBlank() &&
+    releaseStorePassword.isNotBlank() &&
+    releaseKeyAlias.isNotBlank() &&
+    releaseKeyPassword.isNotBlank() &&
+    file(releaseStoreFile).exists()
+
 
 android {
     namespace = "com.vaydelux.bousygram"
     compileSdk {
         version = release(37)
     }
-
-    val properties = Properties().apply {
-        val localProperties = rootProject.file("local.properties")
-        if (localProperties.exists()) {
-            localProperties.inputStream().use { stream ->
-                load(stream)
-            }
-        }
-    }
-
-    val releaseStoreFile = properties.getProperty("RELEASE_STORE_FILE")
-        ?: System.getenv("RELEASE_STORE_FILE")
-        ?: ""
-    val releaseStorePassword = properties.getProperty("RELEASE_STORE_PASSWORD")
-        ?: System.getenv("RELEASE_STORE_PASSWORD")
-        ?: ""
-    val releaseKeyAlias = properties.getProperty("RELEASE_KEY_ALIAS")
-        ?: System.getenv("RELEASE_KEY_ALIAS")
-        ?: ""
-    val releaseKeyPassword = properties.getProperty("RELEASE_KEY_PASSWORD")
-        ?: System.getenv("RELEASE_KEY_PASSWORD")
-        ?: ""
-    val hasReleaseSigning = releaseStoreFile.isNotBlank() &&
-        releaseStorePassword.isNotBlank() &&
-        releaseKeyAlias.isNotBlank() &&
-        releaseKeyPassword.isNotBlank() &&
-        file(releaseStoreFile).exists()
 
     signingConfigs {
         create("release") {
@@ -82,15 +84,10 @@ android {
         release {
             isMinifyEnabled = false
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
+            // Never sign a release artifact with the debug certificate. Release tasks are
+            // guarded below and fail with an actionable message when signing is not configured.
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
-            } else {
-                // Keep release installable for local validation while warning loudly.
-                signingConfig = signingConfigs.getByName("debug")
-                logger.warn(
-                    "Release keystore credentials are missing or invalid. " +
-                        "Using debug signing for local release verification."
-                )
             }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -104,10 +101,9 @@ android {
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
             matchingFallbacks += listOf("release")
+            // Do not silently fall back to debug signing for a hardened release.
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
-            } else {
-                signingConfig = signingConfigs.getByName("debug")
             }
         }
         create("staging") {
@@ -165,22 +161,42 @@ androidComponents {
     }
 }
 
+// Fail closed for production package tasks. Debug/staging builds remain available without
+// release secrets, but release artifacts must never be silently debug-signed or unsigned.
+tasks.configureEach {
+    val isProductionArtifactTask =
+        name in setOf("assembleRelease", "assembleHardenedRelease", "bundleRelease", "bundleHardenedRelease") ||
+            name.startsWith("packageRelease") || name.startsWith("packageHardenedRelease")
+    if (isProductionArtifactTask) {
+        doFirst {
+            if (!hasReleaseSigning) {
+                throw GradleException(
+                    "Refusing to build $name: production signing is not configured. " +
+                        "Set RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD " +
+                        "in local.properties or the build environment. Use :app:assembleDebug for local testing."
+                )
+            }
+        }
+    }
+}
+
 tasks.register("verifyTdlibAbiCoverage") {
     group = "verification"
     description = "Verify TDLib ABI coverage for release targets"
     doLast {
         if (tdLibAvailableAbis.isEmpty()) {
             throw GradleException(
-                "Missing TDLib native binaries. Expected at least one libtdjni.so under src/main/jniLibs/<abi>/."
+                "Missing TDLib native binaries. Expected non-empty libtdjni.so files under src/main/jniLibs/<abi>/."
             )
         }
         if (!tdLibAvailableAbis.contains("arm64-v8a")) {
-            logger.warn(
-                "TDLib arm64-v8a binary is missing. Phone/tablet/TV modern devices may fail install/startup. " +
-                    "Current available ABIs: $tdLibAvailableAbis"
+            throw GradleException(
+                "Missing required arm64-v8a/libtdjni.so. Bousygram targets modern Android phones and TVs; " +
+                    "an APK without the arm64 TDLib runtime is not eligible for release. " +
+                    "Available ABIs: $tdLibAvailableAbis"
             )
         }
-        logger.lifecycle("TDLib available ABIs: $tdLibAvailableAbis")
+        logger.lifecycle("Verified non-empty TDLib native binaries for ABIs: $tdLibAvailableAbis")
     }
 }
 

@@ -205,15 +205,17 @@ fun MediaPosterCard(
     modifier: Modifier = Modifier,
     badge: String? = null,
     privacyMode: Boolean = false,
+    cardWidth: Dp? = 260.dp,
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
-    val imageData = media.thumbnailPath?.let { path -> if (path.startsWith("http")) path else File(path) }
+    // Privacy mode must conceal artwork before an image request is created.
+    val imageData = if (privacyMode) null else media.thumbnailPath?.let { path -> if (path.startsWith("http")) path else File(path) }
     val labels = mediaDisplayLabels(media, subtitle)
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier
-            .width(260.dp)
+            .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
             .onFocusChanged {
                 focused = it.isFocused
                 onFocusChanged(it.isFocused)
@@ -233,7 +235,7 @@ fun MediaPosterCard(
                             .data(imageData)
                             .crossfade(true)
                             .build(),
-                        contentDescription = media.title,
+                        contentDescription = if (privacyMode) "Private video artwork" else media.title,
                         contentScale = ContentScale.Crop,
                         loading = { ShimmerCard(Modifier.fillMaxSize(), rounded = 0.dp) },
                         error = { PosterFallback() },
@@ -253,14 +255,16 @@ fun MediaPosterCard(
                         Text(it, color = AccentMint, style = MaterialTheme.typography.labelMedium)
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(labels.durationLabel, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                if (!privacyMode) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(labels.durationLabel, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
             Column(Modifier.padding(12.dp)) {
@@ -274,13 +278,13 @@ fun MediaPosterCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = if (privacyMode) subtitle else labels.subtitle,
+                    text = if (privacyMode) "Details hidden" else labels.subtitle,
                     color = if (focused) AccentMint else Color(0xFF8A8FA8),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                labels.fileSizeLabel?.let { fileSize ->
+                if (!privacyMode) labels.fileSizeLabel?.let { fileSize ->
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = fileSize,

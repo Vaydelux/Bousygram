@@ -5,7 +5,11 @@ import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.PlaybackRecoveryAction
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
+import com.vaydelux.bousygram.data.store.BufferMode
+import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
 
 enum class PlaybackStallReason {
@@ -57,6 +61,9 @@ class PlaybackSession internal constructor(
         internal set
     var lastStopReason: PlaybackCacheStopReason = PlaybackCacheStopReason.None
         internal set
+    private val stopped = AtomicBoolean(false)
+
+    internal fun markStoppedOnce(): Boolean = stopped.compareAndSet(false, true)
 }
 
 object PlaybackSessionController {
@@ -64,9 +71,11 @@ object PlaybackSessionController {
     private const val STABLE_CACHE_LEAD_MS = 30_000L
     private const val MIN_CACHE_AHEAD_BYTES = 8L * 1024L * 1024L
     private const val NORMAL_CACHE_AHEAD_BYTES = 32L * 1024L * 1024L
+    private const val FAST_START_CACHE_AHEAD_BYTES = 16L * 1024L * 1024L
     private const val STABLE_CACHE_AHEAD_BYTES = 48L * 1024L * 1024L
 
     private val nextSessionNumber = AtomicLong(1L)
+    private val activeSessionsByFile = ConcurrentHashMap<Int, Int>()
 
     fun start(fileId: Int, startPositionMs: Long = 0L): PlaybackSession {
         val session = PlaybackSession(
@@ -75,9 +84,17 @@ object PlaybackSessionController {
             startedAtMs = System.currentTimeMillis(),
             startPositionMs = startPositionMs.coerceAtLeast(0L)
         )
+        if (fileId > 0) {
+            // CHM.compute serializes updates per key, avoiding the empty-set/remove race where a
+            // concurrent start could otherwise be lost while another session stops.
+            activeSessionsByFile.compute(fileId) { _, count -> (count ?: 0) + 1 }
+        }
         record(session)
         return session
     }
+
+    /** True while at least one playback session is using this TDLib file. */
+    fun isFileActive(fileId: Int): Boolean = (activeSessionsByFile[fileId] ?: 0) > 0
 
     fun recordFirstFrame(session: PlaybackSession, firstFrameMs: Long) {
         if (firstFrameMs in 1L..4_000L) {
@@ -105,14 +122,24 @@ object PlaybackSessionController {
         startup: Boolean = false
     ) {
         if (session.fileId <= 0 || totalSize <= 0L) return
-        val leadMs = if (startup) STARTUP_CACHE_LEAD_MS else STABLE_CACHE_LEAD_MS
+        val mode = EnterprisePreferences.bufferMode()
+        val leadMs = when (mode) {
+            BufferMode.FastStart -> if (startup) 8_000L else STARTUP_CACHE_LEAD_MS
+            BufferMode.Balanced -> if (startup) 15_000L else STABLE_CACHE_LEAD_MS
+            BufferMode.StableNetwork -> if (startup) 30_000L else 45_000L
+        }
         val targetPosition = positionMs.coerceAtLeast(0L) + leadMs
+        val maxBytes = when (mode) {
+            BufferMode.FastStart -> if (session.consecutiveRangeStalls >= 2) MIN_CACHE_AHEAD_BYTES else FAST_START_CACHE_AHEAD_BYTES
+            BufferMode.Balanced -> adaptiveCacheAheadBytes(session)
+            BufferMode.StableNetwork -> STABLE_CACHE_AHEAD_BYTES
+        }
         TelegramPreCacheEngine.cacheAhead(
             fileId = session.fileId,
             totalSize = totalSize,
             positionMs = targetPosition,
             durationMs = durationMs,
-            maxBytes = adaptiveCacheAheadBytes(session)
+            maxBytes = maxBytes
         )
         recordProgress(session, positionMs, totalSize, durationMs)
     }
@@ -165,6 +192,12 @@ object PlaybackSessionController {
 
     fun stop(session: PlaybackSession?, reason: PlaybackCacheStopReason, cancelTdLibDownload: Boolean = true) {
         session ?: return
+        if (!session.markStoppedOnce()) return
+        if (session.fileId > 0) {
+            activeSessionsByFile.computeIfPresent(session.fileId) { _, count ->
+                if (count <= 1) null else count - 1
+            }
+        }
         session.lastStopReason = reason
         session.lastStallReason = when (reason) {
             PlaybackCacheStopReason.Back -> PlaybackStallReason.UserExit

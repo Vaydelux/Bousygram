@@ -145,20 +145,26 @@ object TelegramPreCacheEngine {
     internal fun cacheState(fileId: Int): PlaybackCacheState =
         TelegramChunkScheduler.cacheState(fileId)
 
-    internal fun isCachingForTests(fileId: Int): Boolean =
+    fun isCaching(fileId: Int): Boolean =
         activePrimeJobs[fileId]?.any { it.isActive } == true ||
             activeCacheAheadJobs[fileId]?.job?.isActive == true
 
+    internal fun isCachingForTests(fileId: Int): Boolean = isCaching(fileId)
+
     private fun cancelTelegramDownload(fileId: Int) {
-        TdLibClient.client.send(
-            TdApi.CancelDownloadFile(fileId, false)
-        ) { response ->
-            if (response is TdApi.Error) {
-                TelegramLogWrapper.logError("CancelDownloadFile", response)
-                Log.w(TAG, "CancelDownloadFile failed fileId=$fileId code=${response.code} message=${response.message}")
-            } else {
-                Log.d(TAG, "Stopped active Telegram download fileId=$fileId")
+        try {
+            TdLibClient.client.send(
+                TdApi.CancelDownloadFile(fileId, false)
+            ) { response ->
+                if (response is TdApi.Error) {
+                    TelegramLogWrapper.logError("CancelDownloadFile", response)
+                    Log.w(TAG, "CancelDownloadFile failed fileId=$fileId code=${response.code} message=${response.message}")
+                } else {
+                    Log.d(TAG, "Stopped active Telegram download fileId=$fileId")
+                }
             }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not issue CancelDownloadFile for fileId=$fileId: ${t.message}")
         }
     }
 

@@ -59,6 +59,11 @@ object FastLinkManager {
                     )
                 ) as? TdApi.Messages
                 val forwardedMessageId = forwarded?.messages?.firstOrNull()?.id ?: 0L
+                if (forwardedMessageId <= 0L) {
+                    return@withTimeoutOrNull Result.failure<String>(
+                        IllegalStateException("Telegram did not confirm forwarding the selected message to the Fast-Link bot")
+                    )
+                }
                 waitForBotReply(
                     botChatId = botChat.id,
                     baselineMessageId = baselineMessageId,
@@ -126,7 +131,9 @@ object FastLinkManager {
                 val text = (message.content as? TdApi.MessageText)?.text?.text ?: return@updateHandler
                 val isReply = (message.replyTo as? TdApi.MessageReplyToMessage)?.messageId == forwardedMessageId
                 val link = extractUrl(text)
-                if (link != null && (isReply || text.contains("http", ignoreCase = true))) {
+                // Correlate links to the exact forwarded message. Accepting any bot message
+                // containing an URL can accidentally bind another concurrent request's link.
+                if (link != null && isReply) {
                     finish(Result.success(link))
                 }
             }
@@ -146,10 +153,10 @@ object FastLinkManager {
 
     private fun extractUrl(text: String): String? {
         val fastLine = text.lineSequence().firstOrNull { it.contains("Download Link:", ignoreCase = true) }
-        if (fastLine != null) {
-            urlRegex.find(fastLine)?.value?.trimEnd('.', ',', ')', ']', '>')?.let { return it }
-        }
-        return urlRegex.find(text)?.value?.trimEnd('.', ',', ')', ']', '>')
+        val candidate = fastLine?.let { urlRegex.find(it)?.value }
+            ?: urlRegex.find(text)?.value
+        val trimmedCandidate = candidate?.trimEnd('.', ',', ')', ']', '>')
+        return FastLinkUrlValidator.validate(trimmedCandidate)
     }
 
     private fun revokeUrlFor(url: String?): String? {

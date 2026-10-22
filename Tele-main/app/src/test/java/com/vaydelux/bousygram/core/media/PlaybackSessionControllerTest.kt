@@ -2,6 +2,8 @@ package com.vaydelux.bousygram.core.media
 
 import androidx.media3.common.PlaybackException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackSessionControllerTest {
@@ -22,6 +24,23 @@ class PlaybackSessionControllerTest {
             PlaybackRetryDecision.CacheFirstRetry,
             PlaybackSessionController.recordError(session, error, retryCount = 1)
         )
+        PlaybackSessionController.stop(session, PlaybackCacheStopReason.ViewModelStop)
+    }
+
+    @Test
+    fun activeFileRegistryProtectsFilesUntilAllSessionsStop() {
+        val first = PlaybackSessionController.start(fileId = 104)
+        val second = PlaybackSessionController.start(fileId = 104)
+        assertTrue(PlaybackSessionController.isFileActive(104))
+
+        PlaybackSessionController.stop(first, PlaybackCacheStopReason.ViewModelStop)
+        assertTrue(PlaybackSessionController.isFileActive(104))
+
+        PlaybackSessionController.stop(second, PlaybackCacheStopReason.ViewModelStop)
+        assertFalse(PlaybackSessionController.isFileActive(104))
+        // Repeated stop calls must not corrupt active-session tracking.
+        PlaybackSessionController.stop(second, PlaybackCacheStopReason.Dispose)
+        assertFalse(PlaybackSessionController.isFileActive(104))
     }
 
     @Test

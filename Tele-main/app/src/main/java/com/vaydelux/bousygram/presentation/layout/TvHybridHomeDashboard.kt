@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,6 +53,8 @@ fun TvHybridHomeDashboard(
     errorMessage: String?,
     onVideoSelected: (MediaItem) -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenFavorites: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLastPlayed: () -> Unit,
     lastPlayedFileId: Int?,
@@ -74,7 +79,8 @@ fun TvHybridHomeDashboard(
     ) {
         Crossfade(targetState = focusedItem, label = "heroBackdrop") { video ->
             if (video != null) {
-                val imageData = video.thumbnailPath?.let { path ->
+                // Do not request or render sensitive media artwork while privacy mode is enabled.
+                val imageData = if (safeMode) null else video.thumbnailPath?.let { path ->
                     if (path.startsWith("http")) path else File(path)
                 }
                 Box(Modifier.fillMaxSize()) {
@@ -95,13 +101,51 @@ fun TvHybridHomeDashboard(
                             .background(
                                 Brush.verticalGradient(
                                     listOf(
-                                        Color.Black.copy(alpha = 0.3f),
-                                        Color(0xFF0D0D0F).copy(alpha = 0.7f),
+                                        Color.Black.copy(alpha = 0.18f),
+                                        Color(0xFF0D0D0F).copy(alpha = 0.44f),
                                         Color(0xFF0D0D0F)
                                     )
                                 )
                             )
                     )
+                    if (imageData != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(imageData)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .fillMaxWidth(0.78f)
+                                .fillMaxHeight(0.82f)
+                                .padding(top = 14.dp, end = 12.dp)
+                        )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color(0xFF0D0D0F),
+                                            Color(0xFF0D0D0F).copy(alpha = 0.95f),
+                                            Color(0xFF0D0D0F).copy(alpha = 0.10f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                        )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.Transparent, Color(0xFF0D0D0F).copy(alpha = 0.88f))
+                                    )
+                                )
+                        )
+                    }
                 }
             }
         }
@@ -109,17 +153,20 @@ fun TvHybridHomeDashboard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(start = 32.dp, top = 24.dp, bottom = 24.dp, end = 16.dp)
         ) {
             RowHeader(
                 onOpenSearch = onOpenSearch,
+                onOpenLibrary = onOpenLibrary,
+                onOpenFavorites = onOpenFavorites,
                 onOpenSettings = onOpenSettings,
                 onOpenLastPlayed = onOpenLastPlayed,
                 lastPlayedTitle = lastPlayedTitle
             )
             Spacer(Modifier.height(12.dp))
 
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            Box(Modifier.fillMaxWidth().height(330.dp)) {
                 focusedItem?.let { video ->
                     val labels = mediaDisplayLabels(video, channelLabel)
                     Column(
@@ -134,7 +181,7 @@ fun TvHybridHomeDashboard(
                             modifier = Modifier.padding(bottom = 12.dp)
                         ) {
                             Text(
-                                text = channelLabel.uppercase(),
+                                text = if (safeMode) "PRIVATE MODE" else channelLabel.uppercase(),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = Color.White,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
@@ -147,7 +194,7 @@ fun TvHybridHomeDashboard(
                             maxLines = 2
                         )
                         Text(
-                            text = if (safeMode) channelLabel else "${labels.subtitle} • ${labels.durationLabel}",
+                            text = if (safeMode) "Media details hidden" else "${labels.subtitle} • ${labels.durationLabel}",
                             style = MaterialTheme.typography.titleMedium,
                             color = Color.White.copy(alpha = 0.72f),
                             maxLines = 1
@@ -216,7 +263,7 @@ fun TvHybridHomeDashboard(
                         onVideoFocused(it)
                     }
                 }
-                MediaRail("Recent videos in $channelLabel", featuredVideos, channelLabel, null, safeMode, onVideoSelected) {
+                MediaRail(if (safeMode) "Recently viewed" else "Recent videos in $channelLabel", featuredVideos, channelLabel, null, safeMode, onVideoSelected) {
                     focusedItem = it
                     onVideoFocused(it)
                 }
@@ -265,6 +312,8 @@ private fun MediaRail(
 @Composable
 private fun RowHeader(
     onOpenSearch: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenFavorites: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLastPlayed: () -> Unit,
     lastPlayedTitle: String?
@@ -284,6 +333,8 @@ private fun RowHeader(
                 if (lastPlayedTitle.isNullOrBlank()) "Resume" else "Resume last",
                 onOpenLastPlayed
             )
+            BousygramButton("Library", onOpenLibrary)
+            BousygramButton("Favorites", onOpenFavorites)
             BousygramButton("Search", onOpenSearch)
             BousygramButton("Settings", onOpenSettings)
         }

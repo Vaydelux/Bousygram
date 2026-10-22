@@ -26,11 +26,11 @@ enum class PlaybackMode(val label: String, val description: String) {
     ),
     Auto(
         "Auto",
-        "Try TDLib local first, then fall back to your fast-link bot if playback fails."
+        "Try local playback first. If it fails, the selected Telegram message is forwarded to your configured bot to request an external stream link."
     ),
     FastLink(
         "Fast link",
-        "Use your own bot/VPS tunnel and revoke the link when playback exits."
+        "Forward the selected Telegram message to your configured bot/VPS to obtain an external stream URL. Link revocation is best-effort when playback exits."
     )
 }
 
@@ -184,7 +184,7 @@ object EnterprisePreferences {
         appendLine("Preferred speed: ${preferredSpeed()}x")
         appendLine("Auto-play next: ${autoPlayNext()}")
         appendLine("Subtitles default: ${subtitlesDefault()}")
-        appendLine("Safe mode: ${safeMode()}")
+        appendLine("Privacy mode: ${safeMode()}")
         appendLine("Hide watched: ${hideWatched()}")
         appendLine("Favorites: ${favoriteKeys().size}")
         appendLine("Pinned chats: ${pinnedChatIds().size}")

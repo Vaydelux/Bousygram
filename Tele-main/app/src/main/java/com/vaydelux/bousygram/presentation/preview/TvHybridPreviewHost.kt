@@ -14,6 +14,8 @@ fun TvHybridPreviewHost() {
         errorMessage = null,
         onVideoSelected = {},
         onOpenSearch = {},
+        onOpenLibrary = {},
+        onOpenFavorites = {},
         onOpenSettings = {},
         onOpenLastPlayed = {},
         lastPlayedFileId = null,

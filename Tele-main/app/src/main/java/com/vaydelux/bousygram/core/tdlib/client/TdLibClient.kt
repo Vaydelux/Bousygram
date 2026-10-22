@@ -35,7 +35,20 @@ object TdLibClient {
     private val newMessageHandlers = HandlerRegistry<TdApi.UpdateNewMessage>("newMessage")
     private val deleteMessageHandlers = HandlerRegistry<TdApi.UpdateDeleteMessages>("deleteMessage")
 
-    val client: Client by lazy {
+    @Volatile
+    private var instance: Client? = null
+
+    val client: Client
+        get() = synchronized(this) {
+            instance ?: createNewClient().also { instance = it }
+        }
+
+    fun restartClient(): Client = synchronized(this) {
+        instance = createNewClient().also { instance = it }
+        instance!!
+    }
+
+    private fun createNewClient(): Client =
         Client.create(
             { update ->
                 try {
@@ -57,7 +70,6 @@ object TdLibClient {
             },
             null
         )
-    }
 
     fun addUpdateHandler(handler: (TdApi.Object?) -> Unit) = updateHandlers.add(handler)
     fun removeUpdateHandler(handler: (TdApi.Object?) -> Unit) = updateHandlers.remove(handler)

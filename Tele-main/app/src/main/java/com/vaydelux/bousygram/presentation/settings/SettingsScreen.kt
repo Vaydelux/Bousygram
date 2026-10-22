@@ -148,7 +148,7 @@ fun SettingsScreen(
                             val result = withContext(Dispatchers.IO) {
                                 TelegramCachePruner.pruneCacheNow(context, tdLibCacheDir)
                             }
-                            lastPruneResult = "Deleted ${result.deletedFiles}, freed ${formatBytes(result.freedBytes)}"
+                            lastPruneResult = "Deleted ${result.deletedFiles}, freed ${formatBytes(result.freedBytes)}. ${result.note}"
                             storageRefresh++
                         }
                     },
@@ -234,7 +234,7 @@ fun SettingsScreen(
                                 val result = withContext(Dispatchers.IO) {
                                     TelegramCachePruner.pruneCacheNow(context, tdLibCacheDir)
                                 }
-                                lastPruneResult = "Deleted ${result.deletedFiles}, freed ${formatBytes(result.freedBytes)}"
+                                lastPruneResult = "Deleted ${result.deletedFiles}, freed ${formatBytes(result.freedBytes)}. ${result.note}"
                                 storageRefresh++
                             }
                         },
@@ -388,7 +388,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
                 }
                 item {
                     Section("Library Controls") {
-                        FeatureRow("Safe mode", if (safeMode) "Private titles" else "Show titles", {
+                        FeatureRow("Privacy mode", if (safeMode) "Artwork and details hidden" else "Show media details", {
                             onSafeMode(!safeMode)
                         })
                         FeatureRow("Continue only", if (hideWatched) "On" else "Off", {

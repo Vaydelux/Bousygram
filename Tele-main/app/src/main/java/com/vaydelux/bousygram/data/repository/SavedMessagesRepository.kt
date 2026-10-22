@@ -6,6 +6,13 @@ import com.vaydelux.bousygram.domain.model.VideoChatItem
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
+import com.vaydelux.bousygram.core.tdlib.fastlink.FastLinkManager
+import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
+import com.vaydelux.bousygram.data.store.EnterprisePreferences
+import com.vaydelux.bousygram.data.store.PlaybackMode
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 internal const val BOT_USERNAME = "StreamVaultProBot"
 internal const val HANDLER_TIMEOUT_SECONDS = 30L
@@ -64,6 +71,26 @@ class SavedMessagesRepository {
 
     fun fetchThumbnailPath(fileId: Int, onResult: (String?) -> Unit) =
         fetchThumbnailPathInternal(fileId, onResult)
+
+    /** Prepare a stream and wait for asynchronous Fast-Link responses before returning. */
+    suspend fun prepareStream(item: MediaItem): Result<String> = withTimeout(45_000L) {
+        val fileId = item.fileId ?: return@withTimeout Result.failure(IllegalArgumentException("No file is associated with this video"))
+        if (EnterprisePreferences.playbackMode() == PlaybackMode.FastLink) {
+            FastLinkManager.requestFastLink(item.chatId, item.messageId)
+        } else {
+            withContext(Dispatchers.IO) {
+                val prepared = LocalStreamingServer.prepareStream(
+                    fileId = fileId,
+                    declaredSize = item.fileSizeBytes,
+                    title = item.title,
+                    mimeType = item.mimeType,
+                    fileName = item.fileName
+                )
+                if (prepared == null) Result.failure(IllegalStateException("File is not ready to stream yet"))
+                else Result.success(prepared.url)
+            }
+        }
+    }
 
     fun requestFastLink(item: MediaItem, onResult: (String?, String?) -> Unit) =
         requestFastLinkInternal(item, onResult)

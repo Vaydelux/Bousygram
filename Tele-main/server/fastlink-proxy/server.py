@@ -4,15 +4,18 @@ Bousygram Fast-Link Proxy Server.
 The server does not store media. It keeps short-lived signed tokens that map
 to Telegram Bot API file paths, then proxies bytes from Telegram's CDN to the
 player while preserving HTTP Range requests for seeking.
+
+Layout:
+    config.py   - environment-driven settings
+    tokens.py   - signed token store (create / resolve / cleanup / revoke)
+    streaming.py- HTTP Range parsing helpers
+    bot.py      - Telegram Bot message handler producing stream links
+    server.py   - FastAPI app wiring the pieces together (this module)
 """
 
 import asyncio
-import hashlib
-import hmac
 import os
 import re
-import secrets
-import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -20,146 +23,57 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from telegram import Update
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, MessageHandler, filters
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-SIGNING_KEY = os.getenv("SIGNING_KEY", secrets.token_hex(32))
-SERVER_URL = os.getenv("SERVER_URL", "https://your-server.com").rstrip("/")
-TOKEN_TTL = int(os.getenv("TOKEN_TTL", "3600"))
-BOT_MESSAGE_CLEANUP_SECONDS = int(os.getenv("BOT_MESSAGE_CLEANUP_SECONDS", "60"))
+from bot import handle_message
+from config import (
+    BOT_TOKEN, STREAM_CHUNK_BYTES, TELEGRAM_CDN_BASE, TOKEN_CLEANUP_INTERVAL_SECONDS,
+    validate_runtime_config,
+)
+from streaming import parse_range
+from tokens import cleanup_expired_tokens, create_token, resolve_token, token_store
 
-ALLOWED_USER_IDS: set[int] = {
-    int(value)
-    for value in os.getenv("ALLOWED_USER_IDS", "").split(",")
-    if value.strip()
-}
+__all__ = [
+    "fastapi_app",
+    "create_token",
+    "resolve_token",
+    "cleanup_expired_tokens",
+    "parse_range",
+    "token_store",
+]
 
-_token_store: dict[str, dict] = {}
-_range_pattern = re.compile(r"bytes=(\d+)-(\d*)$")
 _cleanup_task: Optional[asyncio.Task] = None
 
 
-def _sign_token(token: str, expires_at: int) -> str:
-    message = f"{token}:{expires_at}".encode()
-    return hmac.new(SIGNING_KEY.encode(), message, hashlib.sha256).hexdigest()
-
-
-def create_token(file_path: str, mime: str, size: int) -> str:
-    expires_at = int(time.time()) + TOKEN_TTL
-    token = secrets.token_urlsafe(24)
-    _token_store[token] = {
-        "file_path": file_path,
-        "expires_at": expires_at,
-        "sig": _sign_token(token, expires_at),
-        "mime": mime,
-        "size": size,
-    }
-    return token
-
-
-def resolve_token(token: str) -> Optional[dict]:
-    entry = _token_store.get(token)
-    if not entry:
-        return None
-    if time.time() > entry["expires_at"]:
-        del _token_store[token]
-        return None
-    expected = _sign_token(token, int(entry["expires_at"]))
-    if not hmac.compare_digest(entry["sig"], expected):
-        return None
-    return entry
-
-
-def cleanup_expired_tokens() -> None:
-    now = time.time()
-    for token, entry in list(_token_store.items()):
-        if now > entry["expires_at"]:
-            del _token_store[token]
-
-
-async def cleanup_expired_tokens_forever() -> None:
+async def _cleanup_expired_tokens_forever() -> None:
     while True:
         cleanup_expired_tokens()
-        await asyncio.sleep(60)
+        await asyncio.sleep(TOKEN_CLEANUP_INTERVAL_SECONDS)
 
 
-def parse_range(range_header: str, size: int) -> Optional[tuple[int, int]]:
-    if size <= 0:
-        return None
-    match = _range_pattern.match(range_header.strip())
-    if not match:
-        return None
-    start = int(match.group(1))
-    end_text = match.group(2)
-    end = int(end_text) if end_text else size - 1
-    if start >= size or end < start:
-        return None
-    return start, min(end, size - 1)
+def _telegram_file_url(file_path: str) -> str:
+    return f"{TELEGRAM_CDN_BASE}{BOT_TOKEN}/{file_path}"
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.message
-    if not message:
-        return
-
-    user_id = message.from_user.id if message.from_user else None
-    if ALLOWED_USER_IDS and user_id not in ALLOWED_USER_IDS:
-        await message.reply_text("Unauthorized.")
-        return
-
-    media = message.video or message.document
-    if not media:
-        await message.reply_text("No video or document found in this message.")
-        return
-
-    status_message = await message.reply_text("Generating stream link...")
-
-    try:
-        telegram_file = await context.bot.get_file(media.file_id)
-        mime = getattr(media, "mime_type", None) or "video/mp4"
-        size = getattr(media, "file_size", 0) or 0
-        token = create_token(telegram_file.file_path, mime, size)
-        link_message = await message.reply_text(
-            f"Download Link: {SERVER_URL}/stream/{token}\n"
-            f"Valid for {TOKEN_TTL // 60} minutes."
-        )
-        context.application.create_task(
-            delete_bot_chat_messages_later(
-                context,
-                message.chat_id,
-                [message.message_id, status_message.message_id, link_message.message_id],
-                BOT_MESSAGE_CLEANUP_SECONDS,
-            )
-        )
-    except Exception as error:
-        await message.reply_text(f"Error: {error}")
-
-
-async def delete_bot_chat_messages_later(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    message_ids: list[int],
-    delay_seconds: int,
-) -> None:
-    if delay_seconds <= 0:
-        return
-
-    await asyncio.sleep(delay_seconds)
-    for message_id in message_ids:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-        except Exception:
-            pass
+def _upstream_headers(request: Request) -> dict[str, str]:
+    """Forward only the conditional/range headers that matter for seeking."""
+    headers = {}
+    if range_header := request.headers.get("Range"):
+        headers["Range"] = range_header
+    if if_range := request.headers.get("If-Range"):
+        headers["If-Range"] = if_range
+    return headers
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _cleanup_task
+    validate_runtime_config()
     bot_app = Application.builder().token(BOT_TOKEN).build()
     bot_app.add_handler(MessageHandler(filters.ALL, handle_message))
 
     async with bot_app:
-        _cleanup_task = asyncio.create_task(cleanup_expired_tokens_forever())
+        _cleanup_task = asyncio.create_task(_cleanup_expired_tokens_forever())
         await bot_app.start()
         await bot_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         try:
@@ -181,59 +95,101 @@ async def stream_video(token: str, request: Request):
         raise HTTPException(status_code=404, detail="Link expired or invalid.")
 
     cleanup_expired_tokens()
-
-    telegram_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{entry['file_path']}"
+    size = int(entry.get("size") or 0)
     range_header = request.headers.get("Range")
-    range_pair = parse_range(range_header, entry["size"]) if range_header else None
-
-    upstream_headers = {}
+    range_pair = None
     if range_header:
-        upstream_headers["Range"] = range_header
-    if request.headers.get("If-Range"):
-        upstream_headers["If-Range"] = request.headers["If-Range"]
+        range_pair = parse_range(range_header, size)
+        if range_pair is None:
+            raise HTTPException(
+                status_code=416,
+                detail="Requested byte range is not satisfiable.",
+                headers={"Accept-Ranges": "bytes", "Content-Range": f"bytes */{max(size, 0)}"},
+            )
 
-    async def stream_bytes():
-        async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
-            async with client.stream("GET", telegram_url, headers=upstream_headers) as response:
-                if response.status_code not in (200, 206):
-                    raise HTTPException(status_code=response.status_code, detail="Telegram CDN request failed.")
-                async for chunk in response.aiter_bytes(chunk_size=256 * 1024):
-                    yield chunk
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=15.0, pool=10.0)
+    client = httpx.AsyncClient(timeout=timeout, follow_redirects=True)
+    try:
+        upstream_request = client.build_request(
+            "GET", _telegram_file_url(entry["file_path"]), headers=_upstream_headers(request)
+        )
+        upstream = await client.send(upstream_request, stream=True)
+    except httpx.TimeoutException as error:
+        await client.aclose()
+        raise HTTPException(status_code=504, detail="Telegram CDN request timed out.") from error
+    except httpx.RequestError as error:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="Could not connect to Telegram CDN.") from error
+    except Exception:
+        await client.aclose()
+        raise
+
+    expected_status = 206 if range_pair else 200
+    if upstream.status_code != expected_status:
+        upstream_status = upstream.status_code
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Telegram CDN returned unexpected status {upstream_status} for this request.",
+        )
 
     response_headers = {
         "Accept-Ranges": "bytes",
-        "Content-Type": entry["mime"],
+        "Content-Type": entry.get("mime") or "application/octet-stream",
         "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
     }
-    status_code = 206 if range_header else 200
-
     if range_pair:
-        start, end = range_pair
-        response_headers["Content-Range"] = f"bytes {start}-{end}/{entry['size']}"
-        response_headers["Content-Length"] = str(end - start + 1)
-    elif entry["size"] and not range_header:
-        response_headers["Content-Length"] = str(entry["size"])
+        upstream_range = upstream.headers.get("Content-Range", "")
+        match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+|\*)", upstream_range.strip())
+        if not match:
+            await upstream.aclose()
+            await client.aclose()
+            raise HTTPException(status_code=502, detail="Telegram CDN returned an invalid Content-Range.")
+        actual_start, actual_end = int(match.group(1)), int(match.group(2))
+        requested_start, requested_end = range_pair
+        if actual_start != requested_start or actual_end < actual_start or actual_end > requested_end:
+            await upstream.aclose()
+            await client.aclose()
+            raise HTTPException(status_code=502, detail="Telegram CDN returned a mismatched byte range.")
+        response_headers["Content-Range"] = upstream_range
+        actual_length = actual_end - actual_start + 1
+        content_length = upstream.headers.get("Content-Length")
+        if content_length and content_length.isdigit() and int(content_length) != actual_length:
+            await upstream.aclose()
+            await client.aclose()
+            raise HTTPException(status_code=502, detail="Telegram CDN returned an inconsistent range length.")
+        response_headers["Content-Length"] = content_length or str(actual_length)
+    else:
+        content_length = upstream.headers.get("Content-Length")
+        if content_length:
+            response_headers["Content-Length"] = content_length
+        elif size > 0:
+            response_headers["Content-Length"] = str(size)
 
-    return StreamingResponse(
-        stream_bytes(),
-        status_code=status_code,
-        headers=response_headers,
-        media_type=entry["mime"],
-    )
+    async def stream_bytes():
+        try:
+            async for chunk in upstream.aiter_bytes(chunk_size=STREAM_CHUNK_BYTES):
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(stream_bytes(), status_code=expected_status, headers=response_headers)
 
 
 @fastapi_app.post("/revoke/{token}")
 async def revoke_token(token: str):
-    removed = _token_store.pop(token, None) is not None
     return {
-        "status": "revoked" if removed else "not_found",
-        "tokens_active": len(_token_store),
+        "status": "revoked" if token_store.revoke(token) else "not_found",
+        "tokens_active": token_store.active_count,
     }
 
 
 @fastapi_app.get("/health")
 async def health():
-    return {"status": "ok", "tokens_active": len(_token_store)}
+    return {"status": "ok", "tokens_active": token_store.active_count}
 
 
 if __name__ == "__main__":

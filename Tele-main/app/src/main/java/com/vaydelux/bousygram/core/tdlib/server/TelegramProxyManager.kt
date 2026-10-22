@@ -34,7 +34,8 @@ internal data class HttpByteRange(
 
 data class VideoResolutionOption(
     val quality: Int,
-    val fileId: Int
+    val fileId: Int,
+    val token: String? = null
 )
 
 object TelegramProxyManager {
@@ -108,12 +109,18 @@ object TelegramProxyManager {
         return "${baseStreamUrl(fileId)}&size=$size&title=$encodedTitle&mime=$encodedMime"
     }
 
-    fun baseStreamUrl(fileId: Int): String = "$LOCAL_STREAM_BASE_URL?fileId=$fileId"
+    fun baseStreamUrl(fileId: Int): String {
+        val token = StreamAccessRegistry.issueFile(fileId)
+        return "$LOCAL_STREAM_BASE_URL?fileId=$fileId&token=$token"
+    }
 
     fun adaptiveStreamUrl(options: List<VideoResolutionOption>): String {
         val encodedOptions = options
-            .filter { it.fileId > 0 }
-            .joinToString(",") { "${it.quality}:${it.fileId}" }
+            .filter { it.fileId > 0 && it.quality > 0 }
+            .joinToString(",") { option ->
+                val token = option.token ?: StreamAccessRegistry.issueFile(option.fileId)
+                "${option.quality}:${option.fileId}:$token"
+            }
         val query = URLEncoder.encode(encodedOptions, "UTF-8")
         return "$LOCAL_ADAPTIVE_STREAM_BASE_URL?options=$query"
     }
@@ -122,6 +129,10 @@ object TelegramProxyManager {
         val fileId = call.request.queryParameters["fileId"]?.toIntOrNull()
         if (fileId == null || fileId <= 0) {
             call.respond(HttpStatusCode.BadRequest, "Missing fileId")
+            return
+        }
+        if (!StreamAccessRegistry.authorizesFile(call.request.queryParameters["token"], fileId)) {
+            call.respond(HttpStatusCode.Forbidden, "Invalid or expired stream token")
             return
         }
 
@@ -140,12 +151,20 @@ object TelegramProxyManager {
             .getOrElse { ContentType.Application.OctetStream }
 
         val rangeHeader = call.request.header(HttpHeaders.Range)
-        val range = parseByteRange(rangeHeader, size)
+        val range = when (val parsed = HttpRangeParser.parse(rangeHeader, size)) {
+            is HttpRangeParser.Result.Valid -> parsed.range
+            HttpRangeParser.Result.Unsatisfiable -> {
+                call.response.header(HttpHeaders.ContentRange, "bytes */$size")
+                call.response.header(HttpHeaders.AcceptRanges, "bytes")
+                call.respond(HttpStatusCode(416, "Range Not Satisfiable"), "Unsatisfiable byte range")
+                return
+            }
+        }
         if (range.start == 0L) {
             LocalStreamingServer.warmUp(fileId, size)
         }
-        val contentLength = range.end - range.start + 1
-        val isPartial = rangeHeader != null
+        val contentLength = range.endInclusive - range.start + 1
+        val isPartial = range.isPartial
         val preflightLimit = min(FIRST_CHUNK_BYTES.toLong(), contentLength).toInt()
         val preflight = fetchReadyChunkForStream(
             fileId = fileId,
@@ -162,23 +181,28 @@ object TelegramProxyManager {
         call.response.header(HttpHeaders.AcceptRanges, "bytes")
         call.response.header(HttpHeaders.ContentLength, contentLength.toString())
         if (isPartial) {
-            call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.end}/$size")
+            call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
         }
         call.response.header(HttpHeaders.Connection, "close")
 
         val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
         if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, "Ktor stream fileId=$fileId range=${range.start}-${range.end}/$size")
+            Log.d(TAG, "Ktor stream fileId=$fileId range=${range.start}-${range.endInclusive}/$size")
         }
         call.respondBytesWriter(contentType = contentType, status = status) {
-            streamTelegramFileSequentially(fileId, range, this, firstChunk = preflight)
+            streamTelegramFileSequentially(
+                fileId,
+                HttpByteRange(range.start, range.endInclusive),
+                this,
+                firstChunk = preflight
+            )
         }
     }
 
     private suspend fun handleAdaptiveStream(call: ApplicationCall) {
         val options = parseResolutionOptions(call.request.queryParameters["options"])
         if (options.isEmpty()) {
-            call.respond(HttpStatusCode.BadRequest, "Missing adaptive stream options")
+            call.respond(HttpStatusCode.Forbidden, "Missing or invalid adaptive stream authorization")
             return
         }
 
@@ -190,9 +214,17 @@ object TelegramProxyManager {
         }
 
         val rangeHeader = call.request.header(HttpHeaders.Range)
-        val range = parseByteRange(rangeHeader, size)
-        val contentLength = range.end - range.start + 1
-        val isPartial = rangeHeader != null
+        val range = when (val parsed = HttpRangeParser.parse(rangeHeader, size)) {
+            is HttpRangeParser.Result.Valid -> parsed.range
+            HttpRangeParser.Result.Unsatisfiable -> {
+                call.response.header(HttpHeaders.ContentRange, "bytes */$size")
+                call.response.header(HttpHeaders.AcceptRanges, "bytes")
+                call.respond(HttpStatusCode(416, "Range Not Satisfiable"), "Unsatisfiable byte range")
+                return
+            }
+        }
+        val contentLength = range.endInclusive - range.start + 1
+        val isPartial = range.isPartial
         val preflightLimit = min(FIRST_CHUNK_BYTES.toLong(), contentLength).toInt()
         val preflight = fetchReadyChunkForStream(
             fileId = startingOption.fileId,
@@ -209,13 +241,18 @@ object TelegramProxyManager {
         call.response.header(HttpHeaders.AcceptRanges, "bytes")
         call.response.header(HttpHeaders.ContentLength, contentLength.toString())
         if (isPartial) {
-            call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.end}/$size")
+            call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
         }
         call.response.header(HttpHeaders.Connection, "close")
 
         val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
         call.respondBytesWriter(contentType = ContentType.Application.OctetStream, status = status) {
-            streamTelegramFileSequentially(startingOption.fileId, range, this, firstChunk = preflight)
+            streamTelegramFileSequentially(
+                startingOption.fileId,
+                HttpByteRange(range.start, range.endInclusive),
+                this,
+                firstChunk = preflight
+            )
         }
     }
 
@@ -309,49 +346,19 @@ object TelegramProxyManager {
         call.respond(HttpStatusCode.ServiceUnavailable, message)
     }
 
-    private fun parseByteRange(rangeHeader: String?, fileSize: Long): HttpByteRange {
-        if (fileSize <= 0L) return HttpByteRange(0L, 0L)
-        if (rangeHeader == null || !rangeHeader.startsWith("bytes=")) {
-            return HttpByteRange(0L, fileSize - 1L)
-        }
-
-        val spec = rangeHeader.substringAfter("bytes=").trim()
-        val dashIndex = spec.indexOf('-')
-        if (dashIndex < 0) return HttpByteRange(0L, fileSize - 1L)
-
-        val startText = spec.substring(0, dashIndex).trim()
-        val endText = spec.substring(dashIndex + 1).trim()
-        var start = 0L
-        var end = fileSize - 1L
-
-        when {
-            startText.isEmpty() && endText.isNotEmpty() -> {
-                val suffixLength = endText.toLongOrNull() ?: 0L
-                start = (fileSize - suffixLength).coerceAtLeast(0L)
-            }
-            startText.isNotEmpty() && endText.isEmpty() -> {
-                start = startText.toLongOrNull()?.coerceIn(0L, fileSize - 1L) ?: 0L
-            }
-            startText.isNotEmpty() && endText.isNotEmpty() -> {
-                start = startText.toLongOrNull()?.coerceIn(0L, fileSize - 1L) ?: 0L
-                end = endText.toLongOrNull()?.coerceIn(start, fileSize - 1L) ?: start
-            }
-        }
-
-        if (end < start) end = start
-        return HttpByteRange(start, min(end, fileSize - 1L))
-    }
-
     private fun parseResolutionOptions(rawOptions: String?): List<VideoResolutionOption> {
         if (rawOptions.isNullOrBlank()) return emptyList()
-        return rawOptions
-            .split(",")
-            .mapNotNull { entry ->
-                val quality = entry.substringBefore(":", "").toIntOrNull() ?: return@mapNotNull null
-                val fileId = entry.substringAfter(":", "").toIntOrNull() ?: return@mapNotNull null
-                if (quality <= 0 || fileId <= 0) null else VideoResolutionOption(quality, fileId)
+        return rawOptions.split(",").mapNotNull { entry ->
+            val parts = entry.split(":")
+            if (parts.size != 3) return@mapNotNull null
+            val quality = parts[0].toIntOrNull() ?: return@mapNotNull null
+            val fileId = parts[1].toIntOrNull() ?: return@mapNotNull null
+            val token = parts[2]
+            if (quality <= 0 || fileId <= 0 || !StreamAccessRegistry.authorizesFile(token, fileId)) {
+                null
+            } else {
+                VideoResolutionOption(quality, fileId, token)
             }
-            .distinctBy { it.fileId }
-            .sortedByDescending { it.quality }
+        }.distinctBy { it.fileId }.sortedByDescending { it.quality }
     }
 }
