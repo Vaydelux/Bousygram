@@ -264,11 +264,7 @@ fun BrowseScreen(
                         state.isLoading && videos.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                         videos.isEmpty() -> EmptyStateView(
                             title = "No videos in this source",
-                            message = if (safeMode) {
-                                "Choose another source or tap Refresh."
-                            } else {
-                                "No videos found in ${state.selectedChatTitle}. Choose another source or refresh."
-                            },
+                            message = if (safeMode) "No videos in this source. Choose another source or tap Refresh." else "No videos found in ${state.selectedChatTitle}. Choose another source or refresh.",
                             actionText = "Refresh",
                             onAction = { viewModel.refresh(); viewModel.refreshVideoChats() },
                             modifier = Modifier.align(Alignment.Center)

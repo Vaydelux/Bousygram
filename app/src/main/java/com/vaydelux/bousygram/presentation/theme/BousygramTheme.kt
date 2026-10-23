@@ -47,6 +47,16 @@ enum class BousygramThemePreset(
         "sunset", "Sunset", "Warm coral and amber over plum",
         Color(0xFFFF9A74), Color(0xFFFFC56E), Color(0xFFFFC0D2),
         Color(0xFF100812), Color(0xFF1E121C), Color(0xFF342032), Color(0xFF5C3C54)
+    ),
+    AMOLED(
+        "amoled", "AMOLED Black", "True pure black with crimson highlights",
+        Color(0xFFFF3366), Color(0xFFFF7597), Color(0xFFFFD166),
+        Color(0xFF000000), Color(0xFF0A0A0A), Color(0xFF141414), Color(0xFF2A2A2A)
+    ),
+    CYBERPUNK(
+        "cyberpunk", "Cyberpunk", "Neon magenta and electric cyan on obsidian",
+        Color(0xFFFF007F), Color(0xFF00F0FF), Color(0xFFFFE600),
+        Color(0xFF08060E), Color(0xFF130E1F), Color(0xFF201633), Color(0xFF4A326F)
     );
 
     companion object {

@@ -134,7 +134,8 @@ private fun BousygramAppRoot(
                     searchFocus = searchFocus,
                     onSearchFocusChange = { searchFocus = it },
                     onAppScreenChange = { appScreen = it },
-                    resumeSignal = resumeSignal
+                    resumeSignal = resumeSignal,
+                    onLogout = { authViewModel.logout() }
                 )
             }
         }
@@ -149,7 +150,8 @@ private fun AuthorizedContent(
     searchFocus: SearchFocusState,
     onSearchFocusChange: (SearchFocusState) -> Unit,
     onAppScreenChange: (AppScreen) -> Unit,
-    resumeSignal: Int
+    resumeSignal: Int,
+    onLogout: () -> Unit
 ) {
     val openPlayer: (PlaybackRequest, AppScreen) -> Unit = { request, returnTo ->
         onAppScreenChange(AppScreen.Player(request, returnTo))
@@ -185,7 +187,8 @@ private fun AuthorizedContent(
         is AppScreen.Settings -> SettingsScreen(
             onBack = { onAppScreenChange(screen.returnTo) },
             themePreset = themePreset,
-            onThemePresetChange = onThemePresetChange
+            onThemePresetChange = onThemePresetChange,
+            onLogout = onLogout
         )
         else -> BrowseScreen(
             onPlay = { request -> openPlayer(request, AppScreen.Home) },

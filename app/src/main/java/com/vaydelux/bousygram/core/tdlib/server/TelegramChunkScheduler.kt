@@ -93,7 +93,7 @@ internal object TelegramChunkScheduler {
     private const val PLAYBACK_PRIORITY = 32
     private const val PLAYBACK_WINDOW_BYTES = 8 * 1024 * 1024
     private const val MIN_PARTIAL_BYTES = 32 * 1024
-    private const val TAIL_PREFETCH_BYTES = 2L * 1024L * 1024L
+    private const val TAIL_PREFETCH_BYTES = 8L * 1024L * 1024L
     private const val MIN_FILE_FOR_TAIL_BYTES = 4L * 1024L * 1024L
     private const val STALL_MS = 20_000L
     private const val TAIL_MAX_WAIT_MS = 60_000L
@@ -469,10 +469,8 @@ internal object TelegramChunkScheduler {
     private suspend fun maybeMovePlaybackAnchor(request: TelegramChunkRequest) {
         val window = downloadWindows[request.fileId] ?: return
         if (window.endExclusive < OPEN_ENDED) return
-        val size = fileSizes[request.fileId] ?: 0L
-        if (size > MIN_FILE_FOR_TAIL_BYTES && request.offset >= size - TAIL_PREFETCH_BYTES) return
         val saved = savedTails[request.fileId]
-        if (saved != null && request.offset >= saved.offset) return
+        if (saved != null && request.offset >= saved.offset && request.offset < saved.offset + saved.bytes.size) return
         if (readyByteCount(getFileStatus(request.fileId), request.fileId, request.offset, request.limit) > 0) return
         val prefix = getDownloadedPrefixSize(request.fileId, window.offset)
         val contiguousEnd = window.offset + prefix + PLAYBACK_WINDOW_BYTES
@@ -492,7 +490,18 @@ internal object TelegramChunkScheduler {
             touchPlayback(request.fileId)
             touchDownloadWindow(request.fileId)
             readReadyChunk(file, request)?.let { return it }
-            if (file?.isDownloadingCompleted == true) return TelegramChunkResult.Pending
+            if (file?.isDownloadingCompleted == true) {
+                val total = fileSizes[request.fileId] ?: (if (file.size > 0L) file.size else if (file.expectedSize > 0L) file.expectedSize else 0L)
+                if (total > 0L && request.offset >= total) {
+                    return TelegramChunkResult.Ready(ByteArray(0), TelegramChunkReadSource.DirectDisk, retryCount = 0)
+                }
+                readExactChunkFromDisk(file, request.offset, request.limit)?.let { bytes ->
+                    return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.DirectDisk, retryCount = 0)
+                }
+                readChunkViaTdLib(request.fileId, request.offset, request.limit)?.let { bytes ->
+                    return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.ReadFilePart, retryCount = 0)
+                }
+            }
             val prefix = getDownloadedPrefixSize(request.fileId, request.offset)
             val now = System.currentTimeMillis()
             if (prefix > lastPrefix) {
@@ -518,6 +527,15 @@ internal object TelegramChunkScheduler {
             file = getFileStatus(request.fileId) ?: file
         }
         readReadyChunk(file, request)?.let { return it }
+        val finalFile = getFileStatus(request.fileId) ?: file
+        if (finalFile != null) {
+            readExactChunkFromDisk(finalFile, request.offset, request.limit)?.let { bytes ->
+                return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.DirectDisk, retryCount = 0)
+            }
+            readChunkViaTdLib(request.fileId, request.offset, request.limit)?.let { bytes ->
+                return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.ReadFilePart, retryCount = 0)
+            }
+        }
         return TelegramChunkResult.Pending
     }
 
@@ -665,7 +683,14 @@ internal object TelegramChunkScheduler {
         val prefix = if (known >= limit) known else max(known, getDownloadedPrefixSize(fileId, offset))
         if (prefix <= 0L) return 0
         val available = min(limit.toLong(), prefix).toInt()
-        val enough = available >= limit || (limit > MIN_PARTIAL_BYTES && available >= MIN_PARTIAL_BYTES)
+        val isCompleted = file?.isDownloadingCompleted == true
+        val knownTotal = fileSizes[fileId] ?: (if (file != null) (if (file.size > 0L) file.size else if (file.expectedSize > 0L) file.expectedSize else 0L) else 0L)
+        val isAtOrPastEnd = knownTotal > 0L && offset + available >= knownTotal
+        val enough = available >= limit ||
+            isCompleted ||
+            isAtOrPastEnd ||
+            (limit > MIN_PARTIAL_BYTES && available >= MIN_PARTIAL_BYTES) ||
+            available > 0
         return if (enough) available else 0
     }
 
@@ -733,25 +758,31 @@ internal object TelegramChunkScheduler {
 
         val diskLength = disk.length()
         val localOffset = when {
-            file.isDownloadingCompleted && diskLength >= remoteOffset + limit ->
+            file.isDownloadingCompleted && diskLength > remoteOffset ->
                 remoteOffset
             file.downloadOffset == 0L &&
-                file.downloadedPrefixSize >= remoteOffset + limit &&
-                diskLength >= remoteOffset + limit ->
+                file.downloadedPrefixSize > remoteOffset &&
+                diskLength > remoteOffset ->
                 remoteOffset
             remoteOffset >= file.downloadOffset &&
-                file.downloadedPrefixSize >= (remoteOffset - file.downloadOffset) + limit &&
-                diskLength >= (remoteOffset - file.downloadOffset) + limit ->
+                file.downloadedPrefixSize > (remoteOffset - file.downloadOffset) &&
+                diskLength > (remoteOffset - file.downloadOffset) ->
                 remoteOffset - file.downloadOffset
             else -> return null
         }
 
+        val availableOnDisk = (diskLength - localOffset).coerceAtLeast(0L)
+        val toRead = min(limit.toLong(), availableOnDisk).toInt()
+        if (toRead <= 0) return null
+
         return runCatching {
             RandomAccessFile(disk, "r").use { reader ->
-                val bytes = ByteArray(limit)
+                val bytes = ByteArray(toRead)
                 reader.seek(localOffset)
-                val read = reader.read(bytes, 0, limit)
-                if (read == limit) bytes else null
+                val read = reader.read(bytes, 0, toRead)
+                if (read > 0) {
+                    if (read == toRead) bytes else bytes.copyOf(read)
+                } else null
             }
         }.getOrElse { error ->
             Log.w(TAG, "Failed reading Telegram chunk path=$path offset=$localOffset limit=$limit: ${error.message}")

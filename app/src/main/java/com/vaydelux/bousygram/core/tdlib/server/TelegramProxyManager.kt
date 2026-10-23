@@ -66,7 +66,13 @@ object TelegramProxyManager {
                         handleStream(call)
                     }
                     get("/adaptive-stream") {
-                        handleAdaptiveStream(call)
+                        handleHlsMasterManifest(call)
+                    }
+                    get("/hls/master.m3u8") {
+                        handleHlsMasterManifest(call)
+                    }
+                    get("/hls/segment") {
+                        handleStream(call)
                     }
                 }
             }.start(wait = false)
@@ -111,6 +117,10 @@ object TelegramProxyManager {
     }
 
     fun adaptiveStreamUrl(options: List<VideoResolutionOption>): String {
+        return hlsMasterStreamUrl(options)
+    }
+
+    fun hlsMasterStreamUrl(options: List<VideoResolutionOption>): String {
         val encodedOptions = options
             .filter { it.fileId > 0 && it.quality > 0 }
             .joinToString(",") { option ->
@@ -118,7 +128,7 @@ object TelegramProxyManager {
                 "${option.quality}:${option.fileId}:$token"
             }
         val query = URLEncoder.encode(encodedOptions, "UTF-8")
-        return "$LOCAL_ADAPTIVE_STREAM_BASE_URL?options=$query"
+        return "http://$HOST:$PORT/hls/master.m3u8?options=$query"
     }
 
     private suspend fun handleStream(call: ApplicationCall) {
@@ -166,7 +176,7 @@ object TelegramProxyManager {
         if (isPartial) {
             call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
         }
-        call.response.header(HttpHeaders.Connection, "close")
+        call.response.header(HttpHeaders.Connection, "keep-alive")
 
         val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
         if (Log.isLoggable(TAG, Log.DEBUG)) {
@@ -183,49 +193,48 @@ object TelegramProxyManager {
         }
     }
 
-    private suspend fun handleAdaptiveStream(call: ApplicationCall) {
+    private suspend fun handleHlsMasterManifest(call: ApplicationCall) {
         val options = parseResolutionOptions(call.request.queryParameters["options"])
         if (options.isEmpty()) {
             call.respond(HttpStatusCode.Forbidden, "Missing or invalid adaptive stream authorization")
             return
         }
 
-        val startingOption = options.first()
-        val size = LocalStreamingServer.resolveFileSize(startingOption.fileId)
-        if (size <= 0L) {
-            call.respond(HttpStatusCode.ServiceUnavailable, "File size is not ready")
-            return
-        }
-
-        val rangeHeader = call.request.header(HttpHeaders.Range)
-        val range = when (val parsed = HttpRangeParser.parse(rangeHeader, size)) {
-            is HttpRangeParser.Result.Valid -> parsed.range
-            HttpRangeParser.Result.Unsatisfiable -> {
-                call.response.header(HttpHeaders.ContentRange, "bytes */$size")
-                call.response.header(HttpHeaders.AcceptRanges, "bytes")
-                call.respond(HttpStatusCode(416, "Range Not Satisfiable"), "Unsatisfiable byte range")
-                return
+        val playlist = buildString {
+            appendLine("#EXTM3U")
+            appendLine("#EXT-X-VERSION:4")
+            options.forEach { opt ->
+                val bandwidth = when (opt.quality) {
+                    2160 -> 14000000
+                    1440 -> 8000000
+                    1080 -> 4500000
+                    720 -> 2200000
+                    480 -> 1000000
+                    360 -> 600000
+                    else -> opt.quality * 3000
+                }
+                val resolution = when (opt.quality) {
+                    2160 -> "3840x2160"
+                    1440 -> "2560x1440"
+                    1080 -> "1920x1080"
+                    720 -> "1280x720"
+                    480 -> "854x480"
+                    360 -> "640x360"
+                    else -> "${(opt.quality * 16) / 9}x${opt.quality}"
+                }
+                appendLine("#EXT-X-STREAM-INF:BANDWIDTH=$bandwidth,RESOLUTION=$resolution")
+                val streamUrl = "$LOCAL_STREAM_BASE_URL?fileId=${opt.fileId}&token=${opt.token}"
+                appendLine(streamUrl)
             }
         }
-        val contentLength = range.endInclusive - range.start + 1
-        val isPartial = range.isPartial
-        call.response.header(HttpHeaders.AcceptRanges, "bytes")
-        call.response.header(HttpHeaders.ContentLength, contentLength.toString())
-        if (isPartial) {
-            call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
-        }
-        call.response.header(HttpHeaders.Connection, "close")
 
-        val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
-        TelegramChunkScheduler.noteFileSize(startingOption.fileId, size)
-        TelegramChunkScheduler.markState(startingOption.fileId, PlaybackCacheState.Streaming)
-        call.respondBytesWriter(contentType = ContentType.Application.OctetStream, status = status) {
-            streamTelegramFileSequentially(
-                startingOption.fileId,
-                HttpByteRange(range.start, range.endInclusive),
-                this
-            )
-        }
+        call.response.header(HttpHeaders.ContentType, "application/vnd.apple.mpegurl")
+        call.response.header(HttpHeaders.CacheControl, "no-cache")
+        call.respond(HttpStatusCode.OK, playlist)
+    }
+
+    private suspend fun handleAdaptiveStream(call: ApplicationCall) {
+        handleHlsMasterManifest(call)
     }
 
     private suspend fun streamTelegramFileSequentially(
@@ -252,7 +261,11 @@ object TelegramProxyManager {
                 offset = expectedOffset,
                 limit = limit,
                 purpose = TelegramChunkPurpose.Streaming
-            ) ?: error("Telegram is still caching range fileId=$fileId offset=$expectedOffset limit=$limit")
+            )
+            if (chunk == null) {
+                Log.w(TAG, "Stream chunk unavailable fileId=$fileId offset=$expectedOffset; terminating stream gracefully")
+                break
+            }
             channel.writeFully(chunk, 0, chunk.size)
             channel.flush()
             expectedOffset += chunk.size
@@ -267,9 +280,8 @@ object TelegramProxyManager {
     ): ByteArray? {
         var lastMessage = ""
         var attempt = 0
-        // fetchChunk already waits while the Telegram prefix is still growing. Looping here
-        // would start that wait over and report a false timeout.
-        while (coroutineContext.isActive && attempt < 2) {
+        val maxAttempts = 75
+        while (coroutineContext.isActive && attempt < maxAttempts) {
             val result = TelegramChunkScheduler.fetchChunk(
                 TelegramChunkRequest(
                     fileId = fileId,
@@ -295,17 +307,18 @@ object TelegramProxyManager {
                     PlaybackDiagnostics.recordStreamError(result.message)
                     return null
                 }
-                is TelegramChunkResult.RetryableFailure -> lastMessage = result.message
+                is TelegramChunkResult.RetryableFailure -> {
+                    lastMessage = result.message
+                }
                 TelegramChunkResult.Pending -> {
                     lastMessage = "Telegram range pending fileId=$fileId offset=$offset"
-                    break
                 }
             }
             if (attempt == 0) {
                 TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
             }
             attempt++
-            delay(1_000L)
+            delay(400L)
         }
         val message = lastMessage.ifBlank { "Telegram is still caching range fileId=$fileId offset=$offset" }
         Log.w(TAG, message)

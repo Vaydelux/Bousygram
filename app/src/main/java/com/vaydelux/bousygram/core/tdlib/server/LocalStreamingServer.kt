@@ -38,7 +38,7 @@ internal data class StreamPreparation(
 object LocalStreamingServer {
     private const val TAG = "LocalStreamingServer"
     private const val VERBOSE_STREAM_LOGS = false
-    private const val QUICK_SIZE_WAIT_MS = 1_500L
+    private const val QUICK_SIZE_WAIT_MS = 4_000L
     private const val QUICK_SIZE_POLL_MS = 60L
     private const val INITIAL_WARMUP_BYTES = 2L * 1024L * 1024L
     private const val STREAM_CHUNK_BYTES = 8L * 1024L * 1024L
@@ -166,6 +166,9 @@ object LocalStreamingServer {
     }
 
     fun resolveFileSize(fileId: Int): Long {
+        fileStatusCache[fileId]?.file?.let { cached ->
+            fileSizeFromStatus(cached).takeIf { it > 0L }?.let { return it }
+        }
         return fileSizeFromStatus(getFileStatus(fileId))
     }
 
@@ -179,6 +182,7 @@ object LocalStreamingServer {
     private fun fileSizeFromStatus(file: TdApi.File?): Long {
         file ?: return 0L
         if (file.size > 0L) return file.size
+        if (file.expectedSize > 0L) return file.expectedSize
         val local = file.local ?: return 0L
         if (local.isDownloadingCompleted && !local.path.isNullOrBlank()) {
             val diskLen = File(local.path).length()

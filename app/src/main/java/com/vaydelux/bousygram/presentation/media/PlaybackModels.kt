@@ -14,7 +14,8 @@ data class PlaybackRequest(
     val fileName: String? = null,
     val mimeType: String? = null,
     val durationSeconds: Int = 0,
-    val fileSizeBytes: Long = 0L
+    val fileSizeBytes: Long = 0L,
+    val alternativeVideos: List<com.vaydelux.bousygram.domain.model.MediaAlternativeVideo> = emptyList()
 )
 
 data class PlaybackQueueItem(
@@ -27,7 +28,8 @@ data class PlaybackQueueItem(
     val fileName: String? = null,
     val mimeType: String? = null,
     val durationSeconds: Int = 0,
-    val fileSizeBytes: Long = 0L
+    val fileSizeBytes: Long = 0L,
+    val alternativeVideos: List<com.vaydelux.bousygram.domain.model.MediaAlternativeVideo> = emptyList()
 )
 
 data class PlayerHudState(
@@ -45,7 +47,8 @@ data class PlayerHudState(
     val error: String?,
     val trackLabel: String,
     val cacheStateLabel: String? = null,
-    val bufferedPositionMs: Long = 0L
+    val bufferedPositionMs: Long = 0L,
+    val resizeMode: Int = 0
 )
 
 sealed class PlaybackUiState {

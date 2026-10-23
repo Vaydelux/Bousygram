@@ -15,6 +15,13 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import com.vaydelux.bousygram.data.store.BufferMode
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.mkv.MatroskaExtractor
+import androidx.media3.extractor.mp4.FragmentedMp4Extractor
+import androidx.media3.extractor.mp4.Mp4Extractor
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import androidx.media3.extractor.ts.TsExtractor
+
 object TelegramProxyPlayerFactory {
     private const val ALLOCATOR_BLOCK_SIZE_BYTES = 128 * 1024
 
@@ -49,6 +56,23 @@ object TelegramProxyPlayerFactory {
     }
 
     @OptIn(UnstableApi::class)
+    fun customExtractorsFactory(): DefaultExtractorsFactory =
+        DefaultExtractorsFactory()
+            .setMp4ExtractorFlags(
+                Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS or
+                    Mp4Extractor.FLAG_READ_SEF_DATA
+            )
+            .setFragmentedMp4ExtractorFlags(
+                FragmentedMp4Extractor.FLAG_WORKAROUND_EVERY_VIDEO_FRAME_IS_SYNC_FRAME or
+                    FragmentedMp4Extractor.FLAG_ENABLE_EMSG_TRACK
+            )
+            .setMatroskaExtractorFlags(
+                MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES
+            )
+            .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES)
+            .setTsExtractorMode(TsExtractor.MODE_SINGLE_PMT)
+
+    @OptIn(UnstableApi::class)
     fun build(
         context: Context,
         loadErrorHandlingPolicy: LoadErrorHandlingPolicy? = null,
@@ -59,7 +83,7 @@ object TelegramProxyPlayerFactory {
             .setConnectTimeoutMs(20_000)
             .setReadTimeoutMs(180_000)
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSource).apply {
+        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSource, customExtractorsFactory()).apply {
             if (loadErrorHandlingPolicy != null) {
                 setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             }

@@ -12,6 +12,11 @@ enum class AuthStep {
     Authorized
 }
 
+enum class AuthMode {
+    QR,
+    Phone
+}
+
 data class AuthUiState(
     val apiId: String = "",
     val apiHash: String = "",
@@ -19,6 +24,7 @@ data class AuthUiState(
     val code: String = "",
     val password: String = "",
     val step: AuthStep = AuthStep.Loading,
+    val preferredMode: AuthMode = AuthMode.QR,
     val message: String? = null,
     val isLoading: Boolean = false,
     val qrCodeLink: String? = null,

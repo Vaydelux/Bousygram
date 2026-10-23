@@ -42,7 +42,7 @@ class PlaybackHelpersTest {
 
         assertEquals(1, queue.size)
         assertNull("An inactive queue item must not hold a stream capability URL", queue.single().url)
-        assertEquals(71, queue.single().fileId ?: -1)
+        assertEquals(71, queue.single().fileId)
         assertEquals("Episode 1", queue.single().title)
     }
 

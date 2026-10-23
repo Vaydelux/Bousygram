@@ -52,7 +52,6 @@ object ThumbnailExtractor {
             }
         }
 
-        if (!isHlsPreview(streamUrl)) return@withContext null
         val retriever = MediaMetadataRetriever()
         try {
             Log.d(TAG, "Extracting frame for fileId=$fileId from $streamUrl")
@@ -105,7 +104,6 @@ object ThumbnailExtractor {
             }
         }
 
-        if (!isHlsPreview(streamUrl)) return@withContext null
         val retriever = MediaMetadataRetriever()
         try {
             Log.d(TAG, "Extracting seek preview for fileId=$fileId at ${timeBucketMs}ms duration=$durationMs")
@@ -126,7 +124,4 @@ object ThumbnailExtractor {
         }
         return@withContext null
     }
-
-    private fun isHlsPreview(streamUrl: String): Boolean =
-        streamUrl.contains(".m3u8", ignoreCase = true)
 }

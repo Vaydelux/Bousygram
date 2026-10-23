@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -64,7 +65,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     themePreset: BousygramThemePreset,
     onThemePresetChange: (BousygramThemePreset) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -184,7 +186,8 @@ fun SettingsScreen(
                         cacheLimitOption = it
                         EnterprisePreferences.setCacheLimitOption(it)
                         storageRefresh++
-                    }
+                    },
+                    onLogout = onLogout
                 )
             }
         } else {
@@ -262,7 +265,8 @@ fun SettingsScreen(
                             cacheLimitOption = it
                             EnterprisePreferences.setCacheLimitOption(it)
                             storageRefresh++
-                        }
+                        },
+                        onLogout = onLogout
                     )
                 }
             }
@@ -291,10 +295,86 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsItems(
     onSubtitlesDefault: (Boolean) -> Unit,
     onSpeed: (Float) -> Unit,
     onBufferMode: (BufferMode) -> Unit,
-    onCacheLimit: (CacheLimitOption) -> Unit
+    onCacheLimit: (CacheLimitOption) -> Unit,
+    onLogout: () -> Unit
 ) {
-                item {
-                    Section("Playback Defaults") {
+    item {
+        Section("Telegram TDLib Engine") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Local enterprise client connected directly to Telegram's distributed MTProto network via native C++ TDLib (libtdjni.so).",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            "TDLib Native Runtime",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Direct MTProto · Zero cloud intermediaries",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.secondary)
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            "Protected Local Storage",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Encrypted with Android Keystore AES-256",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        "🔒 Active",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                BousygramButton(
+                    text = "Sign Out / Switch Account",
+                    onClick = onLogout,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+    item {
+        Section("Playback Defaults") {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.horizontalScroll(rememberScrollState())

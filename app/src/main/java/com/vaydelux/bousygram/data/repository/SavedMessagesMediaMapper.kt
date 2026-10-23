@@ -15,6 +15,18 @@ private fun dateTitle(prefix: String, messageDate: Int): String {
     return "$prefix - ${sdf.format(Date(messageDate.toLong() * 1000L))}"
 }
 
+private fun tdFileSize(file: TdApi.File?): Long {
+    file ?: return 0L
+    if (file.size > 0L) return file.size
+    if (file.expectedSize > 0L) return file.expectedSize
+    val local = file.local
+    if (local != null && local.isDownloadingCompleted && !local.path.isNullOrBlank()) {
+        val diskLen = java.io.File(local.path).length()
+        if (diskLen > 0L) return diskLen
+    }
+    return 0L
+}
+
 internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Message): MediaItem? {
     return when (val content = message.content) {
         is TdApi.MessageVideo -> {
@@ -26,6 +38,16 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 ?: dateTitle("Video", message.date)
             val file = video?.video
             val thumb = video?.thumbnail
+            val altVideos = content.alternativeVideos?.mapNotNull { alt ->
+                com.vaydelux.bousygram.domain.model.MediaAlternativeVideo(
+                    id = alt.id,
+                    width = alt.width,
+                    height = alt.height,
+                    codec = alt.codec.orEmpty(),
+                    hlsFileId = alt.hlsFile?.id,
+                    fileId = alt.video?.id
+                )
+            }.orEmpty()
             MediaItem(
                 chatId = message.chatId,
                 messageId = message.id,
@@ -39,9 +61,10 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 thumbnailHeight = thumb?.height ?: 0,
                 durationSeconds = video?.duration ?: 0,
                 trustedDurationMs = trustedDurationMs(file?.id, video?.duration ?: 0),
-                fileSizeBytes = file?.size ?: 0,
+                fileSizeBytes = tdFileSize(file),
                 fileName = fileName,
-                mimeType = mimeType
+                mimeType = mimeType,
+                alternativeVideos = altVideos
             )
         }
         is TdApi.MessageVideoNote -> {
@@ -61,7 +84,7 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 thumbnailHeight = thumb?.height ?: 0,
                 durationSeconds = videoNote?.duration ?: 0,
                 trustedDurationMs = trustedDurationMs(file?.id, videoNote?.duration ?: 0),
-                fileSizeBytes = file?.size ?: 0
+                fileSizeBytes = tdFileSize(file)
             )
         }
         is TdApi.MessageDocument -> {
@@ -87,7 +110,7 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 thumbnailHeight = thumb?.height ?: 0,
                 durationSeconds = 0,
                 trustedDurationMs = trustedDurationMs(file?.id, 0),
-                fileSizeBytes = file?.size ?: 0,
+                fileSizeBytes = tdFileSize(file),
                 fileName = fileName,
                 mimeType = mimeType
             )
@@ -114,7 +137,7 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 thumbnailHeight = thumb?.height ?: 0,
                 durationSeconds = animation?.duration ?: 0,
                 trustedDurationMs = trustedDurationMs(file?.id, animation?.duration ?: 0),
-                fileSizeBytes = file?.size ?: 0,
+                fileSizeBytes = tdFileSize(file),
                 fileName = fileName,
                 mimeType = mimeType
             )
@@ -136,7 +159,7 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 thumbnailHeight = bestSize?.height ?: 0,
                 durationSeconds = 0,
                 trustedDurationMs = 0L,
-                fileSizeBytes = bestSize?.photo?.size?.toLong() ?: 0L
+                fileSizeBytes = tdFileSize(bestSize?.photo)
             )
         }
         else -> null

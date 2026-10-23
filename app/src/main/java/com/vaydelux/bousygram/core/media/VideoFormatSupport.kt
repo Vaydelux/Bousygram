@@ -10,7 +10,7 @@ import androidx.media3.common.util.UnstableApi
 object VideoFormatSupport {
 
     val VIDEO_EXTENSIONS: Set<String> = setOf(
-        ".3g2", ".3gp", ".asf", ".avi", ".divx", ".f4v", ".flv", ".fmp4", ".m2ts", ".m4v",
+        ".3g2", ".3gp", ".asf", ".avi", ".cmaf", ".divx", ".f4v", ".flv", ".fmp4", ".m2ts", ".m4s", ".m4v",
         ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".mts", ".mxf", ".nut", ".ogg", ".ogv",
         ".rm", ".rmvb", ".ts", ".vob", ".webm", ".wmv", ".m3u8"
     )
@@ -78,14 +78,14 @@ object VideoFormatSupport {
             "mpeg", "mpg" -> "video/mpeg"
             "wmv", "asf" -> "video/x-ms-wmv"
             "ogg", "ogv" -> "video/ogg"
-            "fmp4", "m4v", "mp4" -> "video/mp4"
+            "fmp4", "m4s", "cmaf", "m4v", "mp4" -> "video/mp4"
             "m3u8" -> "application/vnd.apple.mpegurl"
             else -> "application/octet-stream"
         }
     }
 
     /** ExoPlayer [MimeTypes] constant for progressive playback. */
-    fun exoMimeType(mimeType: String?, fileName: String?, title: String): String {
+    fun exoMimeType(mimeType: String?, fileName: String?, title: String): String? {
         val mime = mimeType?.lowercase()?.trim().orEmpty()
         if (mime.isNotBlank()) {
             when {
@@ -111,9 +111,9 @@ object VideoFormatSupport {
             "mov" -> "video/quicktime"
             "mpeg", "mpg" -> MimeTypes.VIDEO_MPEG
             "ogg", "ogv" -> "video/ogg"
-            "fmp4", "m4v", "mp4", "3gp", "3g2" -> MimeTypes.VIDEO_MP4
+            "fmp4", "m4s", "cmaf", "m4v", "mp4", "3gp", "3g2" -> MimeTypes.VIDEO_MP4
             "m3u8" -> MimeTypes.APPLICATION_M3U8
-            else -> MimeTypes.VIDEO_MP4
+            else -> null
         }
     }
 

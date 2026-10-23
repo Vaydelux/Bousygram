@@ -40,6 +40,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             ""
                         },
+                        preferredMode = state.preferredMode,
                         message = if (messageChanged) state.message else current.message,
                         isLoading = state.isLoading,
                         qrCodeLink = state.qrCodeLink,
@@ -49,6 +50,18 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    fun selectMode(mode: com.vaydelux.bousygram.domain.model.AuthMode) {
+        if (mode == com.vaydelux.bousygram.domain.model.AuthMode.QR) {
+            requestQrCodeLogin()
+        } else {
+            switchToPhoneLogin()
+        }
+    }
+
+    fun logout() {
+        authManager.logout()
     }
 
     fun switchToPhoneLogin() {

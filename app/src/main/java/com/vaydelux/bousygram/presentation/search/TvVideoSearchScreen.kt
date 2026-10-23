@@ -54,6 +54,13 @@ import com.vaydelux.bousygram.presentation.media.buildPlaybackRequest
 import com.vaydelux.bousygram.presentation.media.playableVideos
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusTarget
 
+enum class SearchFilterOption(val label: String) {
+    ALL("All Results"),
+    MOVIES("Long (> 20m)"),
+    CLIPS("Clips (< 5m)"),
+    LARGE("Large (> 300MB)")
+}
+
 @Composable
 fun TvVideoSearchScreen(
     onPlayRequest: (MediaItem, List<MediaItem>, (String?, String?, String?) -> Unit) -> Unit,
@@ -78,6 +85,7 @@ fun TvVideoSearchScreen(
     val focusManager = LocalFocusManager.current
     var lastFocusedGridIndex by rememberSaveable { mutableIntStateOf(restoreGridIndex) }
     var recentQueries by remember { mutableStateOf(EnterprisePreferences.recentQueries()) }
+    var selectedFilter by remember { mutableStateOf(SearchFilterOption.ALL) }
 
     fun clearSearch() {
         searchQuery = ""
@@ -120,9 +128,7 @@ fun TvVideoSearchScreen(
                     .padding(if (adaptive.isCompact) 16.dp else 42.dp)
             ) {
                 Text(
-                    text = if (privacyMode) {
-                        "Search media"
-                    } else if (searchScope == SearchMode.InChat) {
+                    text = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
                         "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
                     } else {
                         "Search Telegram videos"
@@ -233,24 +239,47 @@ fun TvVideoSearchScreen(
                             }
                         )
                     } else {
-                        val videos = state.results.map { it.media }
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(if (adaptive.isCompact) 150.dp else 220.dp),
-                            state = gridState,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = PaddingValues(bottom = 48.dp),
-                            modifier = Modifier.fillMaxSize().focusGroup()
-                        ) {
-                            itemsIndexed(
-                                state.results,
-                                key = { _, row -> "${row.media.chatId}:${row.media.messageId}" }
-                            ) { index, row ->
-                                if (index >= state.results.size - 4 && state.hasMore) {
-                                    LaunchedEffect(state.results.size) {
-                                        viewModel.loadNextPage()
-                                    }
+                        val filteredResults = remember(state.results, selectedFilter) {
+                            when (selectedFilter) {
+                                SearchFilterOption.ALL -> state.results
+                                SearchFilterOption.MOVIES -> state.results.filter { it.media.durationSeconds >= 1200 }
+                                SearchFilterOption.CLIPS -> state.results.filter { it.media.durationSeconds in 1..300 }
+                                SearchFilterOption.LARGE -> state.results.filter { it.media.fileSizeBytes >= 300 * 1024 * 1024L }
+                            }
+                        }
+                        val videos = filteredResults.map { it.media }
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 12.dp)
+                            ) {
+                                items(SearchFilterOption.entries) { filter ->
+                                    BousygramChip(
+                                        text = filter.label,
+                                        selected = selectedFilter == filter,
+                                        onClick = { selectedFilter = filter }
+                                    )
                                 }
+                            }
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(if (adaptive.isCompact) 150.dp else 220.dp),
+                                state = gridState,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(bottom = 48.dp),
+                                modifier = Modifier.fillMaxSize().weight(1f).focusGroup()
+                            ) {
+                                itemsIndexed(
+                                    filteredResults,
+                                    key = { _, row -> "${row.media.chatId}:${row.media.messageId}" }
+                                ) { index, row ->
+                                    if (index >= filteredResults.size - 4 && state.hasMore) {
+                                        LaunchedEffect(filteredResults.size) {
+                                            viewModel.loadNextPage()
+                                        }
+                                    }
                                 MediaPosterCard(
                                     media = row.media,
                                     subtitle = row.channelLabel,
@@ -294,16 +323,19 @@ fun TvVideoSearchScreen(
                 }
             }
         }
-            }
-            if (preparingKey != null) {
-                LoadingOverlay(
-                    text = "Preparing video...",
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+        }
+    }
+        if (preparingKey != null) {
+            LoadingOverlay(
+                text = "Preparing video...",
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
+}
+
+
 
 @Composable
 private fun SearchField(

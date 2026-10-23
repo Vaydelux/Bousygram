@@ -11,7 +11,9 @@ internal data class TelegramGatewayFile(
     val isDownloadingCompleted: Boolean,
     val downloadOffset: Long,
     val downloadedPrefixSize: Long,
-    val isDownloadingActive: Boolean = false
+    val isDownloadingActive: Boolean = false,
+    val size: Long = 0L,
+    val expectedSize: Long = 0L
 )
 
 internal sealed class TelegramGatewayResult<out T> {
@@ -127,7 +129,7 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
                 handler@{ response ->
                     if (!continuation.isActive) return@handler
                     when (response) {
-                        is TdApi.Data -> continuation.resume(response.data?.takeIf { it.size == limit })
+                        is TdApi.Data -> continuation.resume(response.data?.takeIf { it.isNotEmpty() })
                         is TdApi.Error -> {
                             TelegramLogWrapper.logError("ReadFilePart", response)
                             continuation.resume(null)
@@ -145,6 +147,8 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
             isDownloadingCompleted = local?.isDownloadingCompleted == true,
             downloadOffset = local?.downloadOffset ?: 0L,
             downloadedPrefixSize = local?.downloadedPrefixSize ?: 0L,
-            isDownloadingActive = local?.isDownloadingActive == true
+            isDownloadingActive = local?.isDownloadingActive == true,
+            size = size,
+            expectedSize = expectedSize
         )
 }

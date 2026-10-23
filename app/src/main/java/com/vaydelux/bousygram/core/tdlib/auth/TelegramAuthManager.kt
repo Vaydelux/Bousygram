@@ -8,6 +8,7 @@ import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.data.store.ApiCredentialsStore
 import com.vaydelux.bousygram.data.store.TdlibDatabaseKeyStore
+import com.vaydelux.bousygram.domain.model.AuthMode
 import com.vaydelux.bousygram.domain.model.AuthStep
 import com.vaydelux.bousygram.domain.model.AuthUiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +21,14 @@ class TelegramAuthManager(private val context: Context) {
     private companion object {
         const val TAG = "TelegramAuthManager"
     }
-    private val _uiState = MutableStateFlow(AuthUiState(isLoading = true))
+    private val isTelevision: Boolean =
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    private val _uiState = MutableStateFlow(
+        AuthUiState(
+            isLoading = true,
+            preferredMode = if (isTelevision) AuthMode.QR else AuthMode.Phone
+        )
+    )
     val uiState: StateFlow<AuthUiState> = _uiState
 
     private val client: org.drinkless.tdlib.Client
@@ -28,7 +36,7 @@ class TelegramAuthManager(private val context: Context) {
     private val credentialsStore = ApiCredentialsStore(context)
     private val databaseKeyStore = TdlibDatabaseKeyStore(context)
     private val authLock = Any()
-    private var isPhoneLoginForced = true
+    private var isPhoneLoginForced = !isTelevision
     @Volatile
     private var qrRequestInFlight = false
     @Volatile
@@ -60,7 +68,14 @@ class TelegramAuthManager(private val context: Context) {
 
     fun requestQrCodeLogin() {
         isPhoneLoginForced = false
-        _uiState.update { it.copy(isLoading = true, message = null, qrCodeLink = null) }
+        _uiState.update {
+            it.copy(
+                preferredMode = AuthMode.QR,
+                isLoading = true,
+                message = null,
+                qrCodeLink = null
+            )
+        }
         client.send(TdApi.GetAuthorizationState()) { result ->
             when (result) {
                 is TdApi.AuthorizationStateWaitPhoneNumber -> requestQrCodeAuthentication()
@@ -86,6 +101,7 @@ class TelegramAuthManager(private val context: Context) {
         _uiState.update {
             it.copy(
                 step = AuthStep.ScanQrCode,
+                preferredMode = AuthMode.QR,
                 isLoading = true,
                 message = null,
                 qrCodeLink = null
@@ -99,7 +115,15 @@ class TelegramAuthManager(private val context: Context) {
 
     fun switchToPhoneLogin() {
         isPhoneLoginForced = true
-        _uiState.update { it.copy(step = AuthStep.EnterPhone, qrCodeLink = null, isLoading = true, message = null) }
+        _uiState.update {
+            it.copy(
+                step = AuthStep.EnterPhone,
+                preferredMode = AuthMode.Phone,
+                qrCodeLink = null,
+                isLoading = true,
+                message = null
+            )
+        }
         client.send(TdApi.GetAuthorizationState()) { result ->
             if (result is TdApi.AuthorizationStateWaitOtherDeviceConfirmation) {
                 resetPendingAuth()
@@ -403,6 +427,15 @@ class TelegramAuthManager(private val context: Context) {
             "Android TV"
         } else {
             Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
+        }
+    }
+
+    fun logout() {
+        Log.i(TAG, "Requesting Telegram session logout")
+        client.send(TdApi.LogOut()) { result ->
+            if (result is TdApi.Error) {
+                Log.w(TAG, "LogOut error: ${result.message}")
+            }
         }
     }
 

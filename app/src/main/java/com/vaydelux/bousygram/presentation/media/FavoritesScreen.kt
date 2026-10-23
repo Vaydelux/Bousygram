@@ -89,6 +89,19 @@ fun FavoritesScreen(
                         }
                     )
                 }
+                if (state.items.isNotEmpty()) {
+                    BousygramButton(
+                        text = "▶ Play All",
+                        onClick = {
+                            val first = state.items.firstOrNull() ?: return@BousygramButton
+                            viewModel.requestPlay(first) { request, error ->
+                                if (request != null) onPlay(request)
+                                else scope.launch { snackbarHost.showSnackbar(error ?: "Could not prepare playback") }
+                            }
+                        },
+                        selected = true
+                    )
+                }
                 if (!adaptive.isCompact) {
                     BousygramButton("Search", onOpenSearch)
                 }

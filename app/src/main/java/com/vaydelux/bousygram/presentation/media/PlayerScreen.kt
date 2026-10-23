@@ -30,7 +30,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -84,6 +93,7 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.MediaSession
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
@@ -172,6 +182,32 @@ fun PlayerScreen(
     var playbackSession by remember { mutableStateOf<PlaybackSession?>(null) }
     var activeLocalStreamUrl by remember { mutableStateOf<String?>(null) }
     var pendingResumeMs by remember { mutableLongStateOf(0L) }
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var seekFeedbackText by remember { mutableStateOf<String?>(null) }
+    var seekFeedbackSide by remember { mutableIntStateOf(0) }
+    var toastFeedbackText by remember { mutableStateOf<String?>(null) }
+    var showResumeRestartOption by remember { mutableStateOf(false) }
+
+    fun formatResizeMode(mode: Int): String = when (mode) {
+        AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Fit (Letterbox)"
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Crop & Zoom"
+        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch to Fill"
+        else -> "Fit"
+    }
+
+    LaunchedEffect(seekFeedbackText) {
+        if (seekFeedbackText != null) {
+            kotlinx.coroutines.delay(850)
+            seekFeedbackText = null
+        }
+    }
+
+    LaunchedEffect(toastFeedbackText) {
+        if (toastFeedbackText != null) {
+            kotlinx.coroutines.delay(1200)
+            toastFeedbackText = null
+        }
+    }
 
     fun recordMetrics() {
         PlaybackDiagnostics.recordPlayerMetrics(
@@ -302,6 +338,9 @@ fun PlayerScreen(
                 if (resume > 1_000L) {
                     pendingResumeMs = 0L
                     player.seekTo(resume)
+                    if (resume > 15_000L) {
+                        showResumeRestartOption = true
+                    }
                 }
                 if (firstFrameMs <= 0L && playerStartedAtMs > 0L) {
                     firstFrameMs = System.currentTimeMillis() - playerStartedAtMs
@@ -480,13 +519,39 @@ fun PlayerScreen(
                 null
             } else {
                 withContext(Dispatchers.IO) {
-                    LocalStreamingServer.prepareStream(
-                        fileId = item.fileId,
-                        declaredSize = item.fileSizeBytes,
-                        title = item.title,
-                        mimeType = item.mimeType,
-                        fileName = item.fileName
-                    )
+                    if (item.alternativeVideos.isNotEmpty()) {
+                        val options = item.alternativeVideos.mapNotNull { alt ->
+                            val fid = alt.fileId ?: return@mapNotNull null
+                            val q = alt.height.takeIf { it > 0 } ?: 720
+                            val tok = StreamAccessRegistry.issueFile(fid)
+                            com.vaydelux.bousygram.core.tdlib.server.VideoResolutionOption(q, fid, tok)
+                        }
+                        if (options.isNotEmpty()) {
+                            val hlsUrl = com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager.hlsMasterStreamUrl(options)
+                            com.vaydelux.bousygram.core.tdlib.server.StreamPreparation(
+                                fileId = item.fileId,
+                                resolvedSize = item.fileSizeBytes,
+                                url = hlsUrl,
+                                warmupStarted = true
+                            )
+                        } else {
+                            LocalStreamingServer.prepareStream(
+                                fileId = item.fileId,
+                                declaredSize = item.fileSizeBytes,
+                                title = item.title,
+                                mimeType = item.mimeType,
+                                fileName = item.fileName
+                            )
+                        }
+                    } else {
+                        LocalStreamingServer.prepareStream(
+                            fileId = item.fileId,
+                            declaredSize = item.fileSizeBytes,
+                            title = item.title,
+                            mimeType = item.mimeType,
+                            fileName = item.fileName
+                        )
+                    }
                 }
             }
             if (alreadyPreparedUrl == null && preparation == null) {
@@ -541,9 +606,16 @@ fun PlayerScreen(
                         .build()
                 )
             }
+        val effectiveMime = when {
+            streamUrl.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
+            videoMime == MimeTypes.APPLICATION_M3U8 -> null
+            else -> videoMime
+        }
         val mediaItemBuilder = ExoMediaItem.Builder()
             .setUri(streamUrl)
-            .setMimeType(videoMime)
+        if (!effectiveMime.isNullOrBlank()) {
+            mediaItemBuilder.setMimeType(effectiveMime)
+        }
         if (subtitleConfigs != null) {
             mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
         }
@@ -632,6 +704,8 @@ fun PlayerScreen(
                         val newPos = (player.currentPosition + delta).coerceIn(0L, max)
                         player.seekTo(newPos)
                         LocalStreamingServer.prefetchAtPosition(queue[queueIndex].fileId, fileSizeBytes, newPos, duration)
+                        seekFeedbackText = if (delta < 0) "-10s" else "+10s"
+                        seekFeedbackSide = if (delta < 0) -1 else 1
                         hudVisible = true
                         hudInteractionTick++
                     },
@@ -671,6 +745,8 @@ fun PlayerScreen(
                             newPos,
                             duration
                         )
+                        seekFeedbackText = "-10s"
+                        seekFeedbackSide = -1
                         true
                     }
                     Key.DirectionRight -> {
@@ -683,6 +759,8 @@ fun PlayerScreen(
                             newPos,
                             duration
                         )
+                        seekFeedbackText = "+10s"
+                        seekFeedbackSide = 1
                         true
                     }
                     Key.Enter, Key.DirectionCenter -> {
@@ -722,8 +800,24 @@ fun PlayerScreen(
                                 speed = nextSpeed(speed)
                                 player.setPlaybackSpeed(speed)
                                 EnterprisePreferences.setPreferredSpeed(speed)
+                                toastFeedbackText = "Speed: ${speed}x"
                                 hudVisible = true
                             }
+                            true
+                        }
+                        KeyEvent.KEYCODE_PROG_GREEN -> {
+                            resizeMode = when (resizeMode) {
+                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            }
+                            toastFeedbackText = "Aspect: " + formatResizeMode(resizeMode)
+                            hudVisible = true
+                            true
+                        }
+                        KeyEvent.KEYCODE_CAPTIONS -> {
+                            tracksPanelVisible = true
+                            hudVisible = true
                             true
                         }
                         else -> false
@@ -737,10 +831,14 @@ fun PlayerScreen(
                 PlayerView(it).apply {
                     useController = false
                     keepScreenOn = true
+                    this.resizeMode = resizeMode
                     this.player = player
                 }
             },
-            update = { it.player = player }
+            update = {
+                it.player = player
+                it.resizeMode = resizeMode
+            }
         )
         if (hudVisible) {
             PlayerHud(
@@ -759,7 +857,8 @@ fun PlayerScreen(
                     error = playbackError,
                     trackLabel = "${queueIndex + 1} / ${queue.size}",
                     cacheStateLabel = cacheState.playerLabel(),
-                    bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L)
+                    bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L),
+                    resizeMode = resizeMode
                 ),
                 compact = compactHud,
                 onExit = ::exitPlayback,
@@ -802,11 +901,22 @@ fun PlayerScreen(
                     tracksPanelVisible = true
                     hudVisible = true
                 },
+                onToggleResizeMode = {
+                    hudInteractionTick++
+                    resizeMode = when (resizeMode) {
+                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                    toastFeedbackText = "Aspect: " + formatResizeMode(resizeMode)
+                    hudVisible = true
+                },
                 onSpeed = {
                     hudInteractionTick++
                     speed = nextSpeed(speed)
                     player.setPlaybackSpeed(speed)
                     EnterprisePreferences.setPreferredSpeed(speed)
+                    toastFeedbackText = "Speed: ${speed}x"
                     hudVisible = true
                 },
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -819,6 +929,89 @@ fun PlayerScreen(
                 onClose = { tracksPanelVisible = false },
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
+        }
+
+        // Animated Seek Feedback Overlay
+        AnimatedVisibility(
+            visible = seekFeedbackText != null,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier.align(if (seekFeedbackSide < 0) Alignment.CenterStart else Alignment.CenterEnd)
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 48.dp)
+                    .size(76.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
+                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = seekFeedbackText.orEmpty(),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Mode Toast Overlay (Aspect ratio / Speed change)
+        AnimatedVisibility(
+            visible = toastFeedbackText != null,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically(),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 36.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.70f), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 20.dp, vertical = 9.dp)
+            ) {
+                Text(
+                    text = toastFeedbackText.orEmpty(),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Smart Resume Restart Prompt
+        AnimatedVisibility(
+            visible = showResumeRestartOption && hudVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .padding(top = 28.dp, end = 28.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable {
+                        player.seekTo(0L)
+                        showResumeRestartOption = false
+                        toastFeedbackText = "Restarted from beginning"
+                    },
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "↺ Start Over",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
     }
 }
@@ -862,7 +1055,11 @@ private fun TrackPickerOverlay(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (selectedType == C.TRACK_TYPE_TEXT) "Subtitles" else "Audio",
+                    when (selectedType) {
+                        C.TRACK_TYPE_TEXT -> "Subtitles"
+                        C.TRACK_TYPE_AUDIO -> "Audio"
+                        else -> "Video Quality"
+                    },
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface
@@ -880,6 +1077,14 @@ private fun TrackPickerOverlay(
                     { selectedType = C.TRACK_TYPE_AUDIO },
                     selected = selectedType == C.TRACK_TYPE_AUDIO
                 )
+                val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+                if (videoGroups.isNotEmpty() && videoGroups.any { it.length > 1 }) {
+                    BousygramButton(
+                        "⚙ Quality",
+                        { selectedType = C.TRACK_TYPE_VIDEO },
+                        selected = selectedType == C.TRACK_TYPE_VIDEO
+                    )
+                }
             }
 
             if (selectedType == C.TRACK_TYPE_TEXT) {
@@ -894,6 +1099,18 @@ private fun TrackPickerOverlay(
                             .build()
                     }
                 )
+            } else if (selectedType == C.TRACK_TYPE_VIDEO) {
+                TrackChoice(
+                    label = "Auto (Adaptive)",
+                    selected = !hasSelectedTrack,
+                    modifier = Modifier.focusRequester(firstChoiceFocus),
+                    onSelect = {
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .build()
+                    }
+                )
             } else if (visibleGroups.isEmpty()) {
                 Text("No alternate audio tracks are available.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -902,14 +1119,21 @@ private fun TrackPickerOverlay(
                 val trackGroup = group.mediaTrackGroup
                 for (trackIndex in 0 until trackGroup.length) {
                     val format = trackGroup.getFormat(trackIndex)
-                    val label = format.label?.takeIf { it.isNotBlank() }
-                        ?: format.language?.takeIf { it.isNotBlank() }
-                        ?: "Track ${trackIndex + 1}"
+                    val label = when (selectedType) {
+                        C.TRACK_TYPE_VIDEO -> {
+                            val h = format.height.takeIf { it > 0 }?.let { "${it}p" }
+                            val br = format.bitrate.takeIf { it > 0 }?.let { " (${it / 1000} kbps)" }.orEmpty()
+                            format.label?.takeIf { it.isNotBlank() } ?: ((h ?: "Video Stream") + br)
+                        }
+                        else -> format.label?.takeIf { it.isNotBlank() }
+                            ?: format.language?.takeIf { it.isNotBlank() }
+                            ?: "Track ${trackIndex + 1}"
+                    }
                     val selected = group.isTrackSelected(trackIndex)
                     TrackChoice(
                         label = label,
                         selected = selected,
-                        modifier = if (selectedType == C.TRACK_TYPE_AUDIO && groupIndex == 0 && trackIndex == 0) {
+                        modifier = if ((selectedType == C.TRACK_TYPE_AUDIO || selectedType == C.TRACK_TYPE_VIDEO) && groupIndex == 0 && trackIndex == 0) {
                             Modifier.focusRequester(firstChoiceFocus)
                         } else Modifier,
                         onSelect = { selectTrack(player, tracks, group, trackGroup, trackIndex) }
@@ -965,9 +1189,7 @@ private fun selectTrack(
 ) {
     val override = TrackSelectionOverride(trackGroup, listOf(trackIndex))
     val builder = player.trackSelectionParameters.buildUpon()
-    if (group.type == C.TRACK_TYPE_TEXT) {
-        builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-    }
+    builder.setTrackTypeDisabled(group.type, false)
     builder.setOverrideForType(override)
     player.trackSelectionParameters = builder.build()
 }
@@ -984,6 +1206,7 @@ private fun PlayerHud(
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
     onTracks: () -> Unit,
+    onToggleResizeMode: () -> Unit,
     onSpeed: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1103,6 +1326,12 @@ private fun PlayerHud(
                 BousygramButton("Prev", onSkipPrevious)
                 BousygramButton("Next", onSkipNext)
                 BousygramButton("Tracks", onTracks)
+                val aspectLabel = when (state.resizeMode) {
+                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+                    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
+                    else -> "Fit"
+                }
+                BousygramButton(aspectLabel, onToggleResizeMode)
                 BousygramButton("${speedLabel(state.speed)}x", onSpeed)
             }
             if (state.error != null) {

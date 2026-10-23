@@ -9,6 +9,15 @@ enum class MediaType {
     Video
 }
 
+data class MediaAlternativeVideo(
+    val id: Long,
+    val width: Int,
+    val height: Int,
+    val codec: String = "",
+    val hlsFileId: Int? = null,
+    val fileId: Int? = null
+) : Serializable
+
 data class MediaItem(
     val chatId: Long,
     val messageId: Long,
@@ -27,7 +36,9 @@ data class MediaItem(
     /** Original Telegram file name (used for format detection). */
     val fileName: String? = null,
     /** MIME type from Telegram (e.g. video/x-matroska). */
-    val mimeType: String? = null
+    val mimeType: String? = null,
+    /** Alternative video qualities (e.g. 1080p, 720p, 480p) provided by Telegram. */
+    val alternativeVideos: List<MediaAlternativeVideo> = emptyList()
 ) : Serializable
 
 enum class SortOrder {
