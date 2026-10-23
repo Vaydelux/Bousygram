@@ -6,6 +6,11 @@ import com.vaydelux.bousygram.app.BousygramApp
 import org.json.JSONArray
 import org.json.JSONObject
 
+enum class SelectedPlayerEngine(val label: String) {
+    MPV("Universal libmpv (MKV, AVI, FLV, SSA/ASS)"),
+    ExoPlayer("Media3 ExoPlayer")
+}
+
 enum class BufferMode(val label: String) {
     FastStart("Fast Start"),
     Balanced("Balanced"),
@@ -34,6 +39,8 @@ object EnterprisePreferences {
     private const val KEY_CACHE_LIMIT = "cache_limit"
     private const val KEY_LAST_ERROR = "last_error"
     private const val KEY_VISUAL_THEME = "visual_theme"
+    private const val KEY_PLAYER_ENGINE = "player_engine"
+
 
     private val prefs by lazy {
         BousygramApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -129,6 +136,17 @@ object EnterprisePreferences {
 
     fun preferredSpeed(): Float = prefs.getFloat(KEY_SPEED, 1.0f)
     fun setPreferredSpeed(value: Float) = prefs.edit { putFloat(KEY_SPEED, value) }
+
+    fun selectedPlayerEngine(): SelectedPlayerEngine = runCatching {
+        SelectedPlayerEngine.valueOf(
+            prefs.getString(KEY_PLAYER_ENGINE, SelectedPlayerEngine.MPV.name)
+                ?: SelectedPlayerEngine.MPV.name
+        )
+    }.getOrDefault(SelectedPlayerEngine.MPV)
+
+    fun setSelectedPlayerEngine(engine: SelectedPlayerEngine) = prefs.edit {
+        putString(KEY_PLAYER_ENGINE, engine.name)
+    }
 
     fun bufferMode(): BufferMode = runCatching {
         BufferMode.valueOf(prefs.getString(KEY_BUFFER_MODE, BufferMode.FastStart.name) ?: BufferMode.FastStart.name)

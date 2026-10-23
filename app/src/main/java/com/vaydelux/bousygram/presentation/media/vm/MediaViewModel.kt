@@ -368,6 +368,14 @@ class MediaViewModel(
         _uiState.update { it.copy(filterYear = year, filterMonth = month) }
     }
 
+    fun setCategoryTab(tab: com.vaydelux.bousygram.domain.model.MediaCategoryTab) {
+        _uiState.update { it.copy(selectedCategoryTab = tab, selectedSeriesTitle = null) }
+    }
+
+    fun selectSeries(seriesTitle: String?) {
+        _uiState.update { it.copy(selectedSeriesTitle = seriesTitle) }
+    }
+
     fun onItemFocused(item: MediaItem) {
         // Browsing must remain metadata-first. Do not download the first 2 MiB of every video
         // when a TV remote merely moves focus across a card. ExoPlayer/local streaming primes

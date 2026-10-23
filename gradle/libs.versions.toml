@@ -17,12 +17,14 @@ tvFoundation = "1.0.0"
 tvMaterial = "1.1.0"
 coilCompose = "2.7.0"
 media3 = "1.10.1"
+libmpv = "1.0.0"
 androidxTestExt = "1.3.0"
 espressoCore = "3.7.0"
 uiautomator = "2.3.0"
 junit4 = "4.13.2"
 
 [libraries]
+mpv = { group = "dev.jdtech.mpv", name = "libmpv", version.ref = "libmpv" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }

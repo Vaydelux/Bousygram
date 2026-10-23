@@ -328,6 +328,12 @@ fun BrowseScreen(
                     .map { "${it.chatId}:${it.messageId}" }
                     .toSet(),
                 safeMode = safeMode,
+                selectedCategoryTab = state.selectedCategoryTab,
+                selectedSeriesTitle = state.selectedSeriesTitle,
+                seriesGroups = state.seriesGroups,
+                topicGroups = state.topicGroups,
+                onSelectCategoryTab = viewModel::setCategoryTab,
+                onSelectSeries = viewModel::selectSeries,
                 modifier = Modifier.fillMaxSize()
             )
         }

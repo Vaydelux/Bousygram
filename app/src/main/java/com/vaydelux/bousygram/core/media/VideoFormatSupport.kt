@@ -95,24 +95,17 @@ object VideoFormatSupport {
                 mime == MimeTypes.VIDEO_MP4 || mime == "application/mp4" -> return MimeTypes.VIDEO_MP4
                 mime == MimeTypes.VIDEO_MATROSKA || mime == "application/x-matroska" -> return MimeTypes.VIDEO_MATROSKA
                 mime == MimeTypes.VIDEO_WEBM -> return MimeTypes.VIDEO_WEBM
-                mime == MimeTypes.VIDEO_MP2T || mime.contains("mp2t") -> return MimeTypes.VIDEO_MP2T
-                mime == MimeTypes.VIDEO_AVI || mime == "video/x-msvideo" -> return MimeTypes.VIDEO_AVI
-                mime == MimeTypes.VIDEO_MPEG -> return MimeTypes.VIDEO_MPEG
-                mime == MimeTypes.VIDEO_FLV -> return MimeTypes.VIDEO_FLV
-                mime.startsWith("video/") -> return mime
             }
         }
         return when (extensionOf(streamLabel(fileName, title))) {
+            "m3u8" -> MimeTypes.APPLICATION_M3U8
+            "mp4", "m4v", "fmp4", "3gp", "3g2" -> MimeTypes.VIDEO_MP4
             "mkv" -> MimeTypes.VIDEO_MATROSKA
             "webm" -> MimeTypes.VIDEO_WEBM
             "ts", "m2ts", "mts" -> MimeTypes.VIDEO_MP2T
             "avi" -> MimeTypes.VIDEO_AVI
             "flv", "f4v" -> MimeTypes.VIDEO_FLV
-            "mov" -> "video/quicktime"
             "mpeg", "mpg" -> MimeTypes.VIDEO_MPEG
-            "ogg", "ogv" -> "video/ogg"
-            "fmp4", "m4s", "cmaf", "m4v", "mp4", "3gp", "3g2" -> MimeTypes.VIDEO_MP4
-            "m3u8" -> MimeTypes.APPLICATION_M3U8
             else -> null
         }
     }

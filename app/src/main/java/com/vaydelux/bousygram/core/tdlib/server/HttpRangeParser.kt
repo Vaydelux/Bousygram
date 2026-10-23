@@ -1,6 +1,6 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
-/** Shared strict single-byte-range parser used by both local HTTP implementations. */
+/** Shared resilient single-byte-range parser used by both local HTTP implementations. */
 internal object HttpRangeParser {
     data class Range(val start: Long, val endInclusive: Long, val isPartial: Boolean)
 
@@ -14,16 +14,19 @@ internal object HttpRangeParser {
         if (header == null) return Result.Valid(Range(0L, fileSize - 1L, isPartial = false))
         val value = header.trim()
         if (!value.startsWith("bytes=", ignoreCase = true)) return Result.Unsatisfiable
-        val spec = value.substringAfter('=', "").trim()
-        // Multi-range responses are intentionally unsupported; never reinterpret them as a full file.
-        if (spec.isEmpty() || spec.contains(',') || spec.any { it.isWhitespace() }) return Result.Unsatisfiable
+        var spec = value.substringAfter('=', "").trim()
+        // If client sends multiple comma-separated ranges, honor the first range per HTTP progressive specs
+        if (spec.contains(',')) {
+            spec = spec.substringBefore(',').trim()
+        }
+        if (spec.isEmpty()) return Result.Unsatisfiable
         val dash = spec.indexOf('-')
         if (dash < 0 || dash != spec.lastIndexOf('-')) return Result.Unsatisfiable
-        val startText = spec.substring(0, dash)
-        val endText = spec.substring(dash + 1)
+        val startText = spec.substring(0, dash).trim()
+        val endText = spec.substring(dash + 1).trim()
 
         if (startText.isEmpty()) {
-            if (endText.any { !it.isDigit() }) return Result.Unsatisfiable
+            if (endText.isEmpty() || endText.any { !it.isDigit() }) return Result.Unsatisfiable
             val suffixLength = endText.toLongOrNull() ?: return Result.Unsatisfiable
             if (suffixLength <= 0L) return Result.Unsatisfiable
             val start = (fileSize - suffixLength.coerceAtMost(fileSize)).coerceAtLeast(0L)

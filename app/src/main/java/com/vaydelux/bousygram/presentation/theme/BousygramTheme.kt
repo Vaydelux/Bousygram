@@ -29,9 +29,9 @@ enum class BousygramThemePreset(
     val outline: Color
 ) {
     MIDNIGHT(
-        "midnight", "Midnight", "Indigo glow with mint highlights",
-        Color(0xFF8B93FF), Color(0xFF5EEDD0), Color(0xFFFFD98A),
-        Color(0xFF05070D), Color(0xFF101624), Color(0xFF1A2436), Color(0xFF3A4A64)
+        "midnight", "Midnight", "Deep navy with vibrant mint and cyan highlights",
+        Color(0xFF5EE5BE), Color(0xFF4AC4E2), Color(0xFFFFD98A),
+        Color(0xFF0A0F1D), Color(0xFF111927), Color(0xFF16243A), Color(0xFF223249)
     ),
     AURORA(
         "aurora", "Aurora", "Emerald and aqua on deep green",

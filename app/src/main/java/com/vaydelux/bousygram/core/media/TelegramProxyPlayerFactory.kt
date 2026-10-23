@@ -30,11 +30,19 @@ object TelegramProxyPlayerFactory {
         DefaultAllocator(true, ALLOCATOR_BLOCK_SIZE_BYTES)
 
     @OptIn(UnstableApi::class)
-    fun customLoadControl(mode: BufferMode = BufferMode.FastStart): DefaultLoadControl {
-        val (minBuffer, maxBuffer, startBuffer, rebuffer) = when (mode) {
-            BufferMode.FastStart -> BufferWindow(5_000, 30_000, 250, 500)
-            BufferMode.Balanced -> BufferWindow(10_000, 50_000, 400, 800)
-            BufferMode.StableNetwork -> BufferWindow(15_000, 60_000, 800, 1_500)
+    fun customLoadControl(
+        mode: BufferMode = BufferMode.FastStart,
+        isCellular: Boolean = com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular
+    ): DefaultLoadControl {
+        val (minBuffer, maxBuffer, startBuffer, rebuffer) = if (isCellular) {
+            // Cellular: 1.5s startup runway and 3s rebuffer to prevent stutter on network jitter
+            BufferWindow(15_000, 50_000, 1_500, 3_000)
+        } else {
+            when (mode) {
+                BufferMode.FastStart -> BufferWindow(5_000, 30_000, 300, 600)
+                BufferMode.Balanced -> BufferWindow(10_000, 50_000, 600, 1_000)
+                BufferMode.StableNetwork -> BufferWindow(15_000, 60_000, 1_000, 2_000)
+            }
         }
         return DefaultLoadControl.Builder()
             .setAllocator(customAllocator())
@@ -58,6 +66,7 @@ object TelegramProxyPlayerFactory {
     @OptIn(UnstableApi::class)
     fun customExtractorsFactory(): DefaultExtractorsFactory =
         DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
             .setMp4ExtractorFlags(
                 Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS or
                     Mp4Extractor.FLAG_READ_SEF_DATA
@@ -66,9 +75,7 @@ object TelegramProxyPlayerFactory {
                 FragmentedMp4Extractor.FLAG_WORKAROUND_EVERY_VIDEO_FRAME_IS_SYNC_FRAME or
                     FragmentedMp4Extractor.FLAG_ENABLE_EMSG_TRACK
             )
-            .setMatroskaExtractorFlags(
-                MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES
-            )
+            .setMatroskaExtractorFlags(0)
             .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES)
             .setTsExtractorMode(TsExtractor.MODE_SINGLE_PMT)
 

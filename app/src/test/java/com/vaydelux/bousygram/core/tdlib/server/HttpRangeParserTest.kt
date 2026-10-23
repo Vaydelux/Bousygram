@@ -31,6 +31,17 @@ class HttpRangeParserTest {
     }
 
     @Test
+    fun supportsWhitespaceAndFirstOfMultiRange() {
+        val spaced = (HttpRangeParser.parse("bytes= 10 - 25 ", 100) as HttpRangeParser.Result.Valid).range
+        assertEquals(10L, spaced.start)
+        assertEquals(25L, spaced.endInclusive)
+
+        val multi = (HttpRangeParser.parse("bytes=1-2, 4-5", 100) as HttpRangeParser.Result.Valid).range
+        assertEquals(1L, multi.start)
+        assertEquals(2L, multi.endInclusive)
+    }
+
+    @Test
     fun clampsEndButDoesNotClampInvalidStart() {
         val valid = (HttpRangeParser.parse("bytes=90-999", 100) as HttpRangeParser.Result.Valid).range
         assertEquals(99L, valid.endInclusive)
@@ -38,8 +49,8 @@ class HttpRangeParserTest {
     }
 
     @Test
-    fun rejectsMalformedMultiAndReversedRanges() {
-        listOf("bytes=", "bytes=abc-def", "bytes=10-2", "bytes=1-2,4-5", "bytes=-0", "items=0-2")
+    fun rejectsMalformedAndReversedRanges() {
+        listOf("bytes=", "bytes=abc-def", "bytes=10-2", "bytes=-0", "items=0-2")
             .forEach { header ->
                 assertTrue("Expected rejection for $header", HttpRangeParser.parse(header, 100) is HttpRangeParser.Result.Unsatisfiable)
             }

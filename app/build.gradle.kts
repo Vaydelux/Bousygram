@@ -60,7 +60,7 @@ android {
 
     defaultConfig {
         applicationId = "com.vaydelux.bousygram"
-        minSdk = 23
+        minSdk = 26
         targetSdk = 37
         versionCode = 10
         versionName = "1.0"
@@ -229,6 +229,9 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.exoplayer.hls)
+
+    // libmpv core engine
+    implementation(libs.mpv)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

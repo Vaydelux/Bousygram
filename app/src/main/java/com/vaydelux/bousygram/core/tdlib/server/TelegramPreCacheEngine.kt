@@ -20,7 +20,7 @@ object TelegramPreCacheEngine {
     private const val HEAD_PRIME_BYTES = 2L * 1024L * 1024L
     private const val CACHE_AHEAD_BYTES = 32L * 1024L * 1024L
     private const val MIN_CACHE_AHEAD_SHIFT_BYTES = 8L * 1024L * 1024L
-    private const val PRIME_PRIORITY = 32
+    private const val PRIME_PRIORITY = 12
     private const val CACHE_AHEAD_PRIORITY = 8
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -73,7 +73,12 @@ object TelegramPreCacheEngine {
     ) {
         if (fileId <= 0 || totalSize <= 0L) return
         val offset = positionToOffset(totalSize, positionMs, durationMs)
-        val length = min(maxBytes.coerceIn(1L, CACHE_AHEAD_BYTES * 2), totalSize - offset)
+        val effectiveMax = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) {
+            4L * 1024L * 1024L
+        } else {
+            maxBytes
+        }
+        val length = min(effectiveMax.coerceIn(1L, CACHE_AHEAD_BYTES * 2), totalSize - offset)
         if (length <= 0L) return
 
         val endExclusive = offset + length

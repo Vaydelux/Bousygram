@@ -261,7 +261,10 @@ class TelegramAuthManager(private val context: Context) {
             is TdApi.ConnectionStateConnectingToProxy -> "Connecting via proxy…"
             is TdApi.ConnectionStateReady -> "Connected to Telegram secure server"
             is TdApi.ConnectionStateUpdating -> "Updating secure databases…"
-            is TdApi.ConnectionStateWaitingForNetwork -> "Waiting for network connection…"
+            is TdApi.ConnectionStateWaitingForNetwork -> {
+                com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.refresh()
+                "Waiting for network connection…"
+            }
             else -> null
         }
         _uiState.update { it.copy(connectionStatus = statusText) }

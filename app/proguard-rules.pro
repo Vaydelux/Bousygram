@@ -26,6 +26,10 @@
 # TDLib Java bindings are consumed via native/bridge calls and should not be obfuscated away.
 -keep class org.drinkless.tdlib.** { *; }
 
+# libmpv bindings and native JNI bridge
+-keep class dev.jdtech.mpv.** { *; }
+-dontwarn dev.jdtech.mpv.**
+
 # Preserve app entry points and components.
 -keep class com.vaydelux.bousygram.app.BousygramApp { *; }
 -keep class com.vaydelux.bousygram.app.MainActivity { *; }

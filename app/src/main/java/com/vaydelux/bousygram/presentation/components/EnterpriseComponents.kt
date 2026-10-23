@@ -76,6 +76,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
@@ -88,10 +89,17 @@ import kotlin.math.sin
 
 enum class ShellDestination(val label: String, val glyph: String) {
     Home("Home", "H"),
-    Library("Library", "L"),
+    Continue("Continue", "C"),
     Favorites("Favorites", "F"),
-    Search("Search", "S"),
-    Settings("Settings", "G")
+    Offline("Offline", "O"),
+    Sources("Sources", "S"),
+    Search("Search", "Q"),
+    Settings("Settings", "G");
+
+    companion object {
+        val Library = Sources
+        val sidebarItems = listOf(Home, Continue, Favorites, Offline, Sources)
+    }
 }
 
 @Composable
@@ -120,7 +128,50 @@ fun ShellNavIcon(
                 }
                 drawPath(body, color = tint, style = stroke)
             }
-            ShellDestination.Library -> {
+            ShellDestination.Continue -> {
+                drawCircle(color = tint, radius = w * 0.38f, center = Offset(w * 0.5f, h * 0.5f), style = stroke)
+                val play = Path().apply {
+                    moveTo(w * 0.44f, h * 0.36f)
+                    lineTo(w * 0.64f, h * 0.50f)
+                    lineTo(w * 0.44f, h * 0.64f)
+                    close()
+                }
+                drawPath(play, color = tint)
+            }
+            ShellDestination.Favorites -> {
+                val heart = Path().apply {
+                    moveTo(w * 0.50f, h * 0.82f)
+                    cubicTo(w * 0.15f, h * 0.60f, w * 0.12f, h * 0.26f, w * 0.33f, h * 0.22f)
+                    cubicTo(w * 0.44f, h * 0.20f, w * 0.50f, h * 0.30f, w * 0.50f, h * 0.34f)
+                    cubicTo(w * 0.50f, h * 0.30f, w * 0.56f, h * 0.20f, w * 0.67f, h * 0.22f)
+                    cubicTo(w * 0.88f, h * 0.26f, w * 0.85f, h * 0.60f, w * 0.50f, h * 0.82f)
+                    close()
+                }
+                drawPath(heart, color = tint, style = stroke)
+            }
+            ShellDestination.Offline -> {
+                drawLine(
+                    color = tint,
+                    start = Offset(w * 0.5f, h * 0.20f),
+                    end = Offset(w * 0.5f, h * 0.62f),
+                    strokeWidth = w * 0.10f,
+                    cap = StrokeCap.Round
+                )
+                val arrow = Path().apply {
+                    moveTo(w * 0.32f, h * 0.46f)
+                    lineTo(w * 0.50f, h * 0.64f)
+                    lineTo(w * 0.68f, h * 0.46f)
+                }
+                drawPath(arrow, color = tint, style = stroke)
+                drawLine(
+                    color = tint,
+                    start = Offset(w * 0.24f, h * 0.80f),
+                    end = Offset(w * 0.76f, h * 0.80f),
+                    strokeWidth = w * 0.10f,
+                    cap = StrokeCap.Round
+                )
+            }
+            ShellDestination.Sources -> {
                 val cell = w * 0.30f
                 val gap = w * 0.10f
                 val start = w * 0.15f
@@ -137,28 +188,17 @@ fun ShellNavIcon(
                     }
                 }
             }
-            ShellDestination.Favorites -> {
-                val heart = Path().apply {
-                    moveTo(w * 0.50f, h * 0.82f)
-                    cubicTo(w * 0.15f, h * 0.60f, w * 0.12f, h * 0.26f, w * 0.33f, h * 0.22f)
-                    cubicTo(w * 0.44f, h * 0.20f, w * 0.50f, h * 0.30f, w * 0.50f, h * 0.34f)
-                    cubicTo(w * 0.50f, h * 0.30f, w * 0.56f, h * 0.20f, w * 0.67f, h * 0.22f)
-                    cubicTo(w * 0.88f, h * 0.26f, w * 0.85f, h * 0.60f, w * 0.50f, h * 0.82f)
-                    close()
-                }
-                drawPath(heart, color = tint, style = stroke)
-            }
             ShellDestination.Search -> {
                 drawCircle(
                     color = tint,
-                    radius = w * 0.27f,
-                    center = Offset(w * 0.43f, h * 0.43f),
+                    radius = w * 0.28f,
+                    center = Offset(w * 0.42f, h * 0.42f),
                     style = stroke
                 )
                 drawLine(
                     color = tint,
                     start = Offset(w * 0.63f, h * 0.63f),
-                    end = Offset(w * 0.84f, h * 0.84f),
+                    end = Offset(w * 0.86f, h * 0.86f),
                     strokeWidth = w * 0.11f,
                     cap = StrokeCap.Round
                 )
@@ -170,7 +210,7 @@ fun ShellNavIcon(
                 for (i in 0 until 6) {
                     val angle = Math.toRadians((i * 60).toDouble())
                     val r1 = w * 0.31f
-                    val r2 = w * 0.42f
+                    val r2 = w * 0.43f
                     drawLine(
                         color = tint,
                         start = Offset(
@@ -191,45 +231,115 @@ fun ShellNavIcon(
 }
 
 @Composable
+fun CenteredPlayBadge(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(Color.White),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(13.dp)) {
+            val w = size.width
+            val h = size.height
+            val path = Path().apply {
+                moveTo(w * 0.28f, h * 0.18f)
+                lineTo(w * 0.82f, h * 0.50f)
+                lineTo(w * 0.28f, h * 0.82f)
+                close()
+            }
+            drawPath(path, color = Color(0xFF0F172A))
+        }
+    }
+}
+
+@Composable
+fun ImagePlaceholderIcon(
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.size(26.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = Stroke(width = w * 0.085f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.12f, h * 0.16f),
+            size = Size(w * 0.76f, h * 0.68f),
+            cornerRadius = CornerRadius(w * 0.12f, w * 0.12f),
+            style = stroke
+        )
+        drawCircle(
+            color = tint,
+            radius = w * 0.08f,
+            center = Offset(w * 0.65f, h * 0.38f)
+        )
+        val path = Path().apply {
+            moveTo(w * 0.22f, h * 0.72f)
+            lineTo(w * 0.42f, h * 0.48f)
+            lineTo(w * 0.56f, h * 0.62f)
+            lineTo(w * 0.68f, h * 0.52f)
+            lineTo(w * 0.78f, h * 0.64f)
+        }
+        drawPath(path, color = tint, style = stroke)
+    }
+}
+
+@Composable
 fun BousygramAdaptiveShell(
     selected: ShellDestination,
     onSelect: (ShellDestination) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenSearch: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     showResume: Boolean = false,
     onResume: () -> Unit = {},
     content: @Composable () -> Unit
 ) {
     val adaptive = rememberAdaptiveMetrics()
     val useRail = adaptive.useTvChrome
-    if (useRail) {
-        Row(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .statusBarsPadding()
-        ) {
-            GlassNavigationRail(
-                selected = selected,
-                onSelect = onSelect,
-                showResume = showResume,
-                onResume = onResume
-            )
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                content()
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+    ) {
+        ModernTopBar(
+            onOpenSearch = onOpenSearch,
+            onOpenSettings = onOpenSettings,
+            showResume = showResume,
+            onResume = onResume
+        )
+
+        if (useRail) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(22.dp)
+            ) {
+                FloatingSidebar(
+                    selected = selected,
+                    onSelect = onSelect
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    content()
+                }
             }
-        }
-    } else {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            GlassTopBar(
-                showResume = showResume,
-                onResume = onResume,
-                modifier = Modifier.statusBarsPadding()
-            )
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+        } else {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
                 content()
             }
             GlassBottomBar(
@@ -242,176 +352,188 @@ fun BousygramAdaptiveShell(
 }
 
 @Composable
-private fun GlassNavigationRail(
-    selected: ShellDestination,
-    onSelect: (ShellDestination) -> Unit,
-    showResume: Boolean,
-    onResume: () -> Unit
-) {
-    val shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
-    val colors = MaterialTheme.colorScheme
-    Column(
-        modifier = Modifier
-            .width(114.dp)
-            .fillMaxHeight()
-            .padding(top = 12.dp, bottom = 12.dp, end = 8.dp)
-            .clip(shape)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        colors.surface.copy(alpha = 0.88f),
-                        colors.surfaceVariant.copy(alpha = 0.56f),
-                        colors.surface.copy(alpha = 0.88f)
-                    )
-                )
-            )
-            .border(1.dp, colors.outlineVariant, shape)
-            .padding(horizontal = 8.dp, vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(colors.primary, colors.secondary)
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "▶",
-                color = colors.onPrimary,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Text(
-            text = "Bousygram",
-            color = colors.onSurface,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
-        Spacer(Modifier.height(6.dp))
-        ShellDestination.entries.forEach { destination ->
-            RailDestination(
-                destination = destination,
-                selected = destination == selected,
-                onClick = { onSelect(destination) }
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        if (showResume) {
-            BousygramButton("Resume", onResume, selected = true, modifier = Modifier.fillMaxWidth())
-        }
-    }
-}
-
-@Composable
-private fun RailDestination(
-    destination: ShellDestination,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    TvFocusSurface(
-        onClick = onClick,
-        selected = selected,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)
-    ) { focused ->
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when {
-                            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
-                            focused -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.20f)
-                            else -> Color.Transparent
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                ShellNavIcon(
-                    destination = destination,
-                    tint = if (selected || focused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Text(
-                destination.label,
-                color = if (selected || focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
-}
-
-@Composable
-private fun GlassTopBar(
-    showResume: Boolean,
-    onResume: () -> Unit,
-    modifier: Modifier = Modifier
+fun ModernTopBar(
+    onOpenSearch: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+    showResume: Boolean = false,
+    onResume: () -> Unit = {}
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        colors.surface.copy(alpha = 0.92f),
-                        colors.background.copy(alpha = 0.75f)
-                    )
-                )
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Brush.linearGradient(listOf(colors.primary, colors.secondary))),
-            contentAlignment = Alignment.Center
+        // Left: Logo Badge + "Bousygram" title
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF132832))
+                    .border(1.dp, colors.primary.copy(alpha = 0.42f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .border(1.5.dp, colors.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "▶",
+                        color = colors.primary,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 1.dp)
+                    )
+                }
+            }
             Text(
-                text = "▶",
-                color = colors.onPrimary,
-                style = MaterialTheme.typography.labelLarge,
+                text = "Bousygram",
+                color = Color.White,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
                 fontWeight = FontWeight.Bold
             )
         }
-        Column(Modifier.weight(1f)) {
-            Text(
-                "Bousygram",
-                color = colors.onBackground,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                "Telegram Cinema Streamer",
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall
-            )
+
+        // Right: Search & Settings action buttons (+ optional resume chip)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (showResume) {
+                BousygramButton("Resume", onResume, selected = true)
+            }
+            TopBarIconButton(
+                onClick = onOpenSearch,
+                contentDescription = "Search"
+            ) { tint ->
+                ShellNavIcon(destination = ShellDestination.Search, tint = tint)
+            }
+            TopBarIconButton(
+                onClick = onOpenSettings,
+                contentDescription = "Settings"
+            ) { tint ->
+                ShellNavIcon(destination = ShellDestination.Settings, tint = tint)
+            }
         }
-        if (showResume) {
-            BousygramButton("▶ Resume", onResume, selected = true)
+    }
+}
+
+@Composable
+fun TopBarIconButton(
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    icon: @Composable (tint: Color) -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val tint = if (focused) colors.primary else Color(0xFF94A3B8)
+    Box(
+        modifier = modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) colors.surfaceVariant else Color.Transparent)
+            .border(
+                width = if (focused) 1.dp else 0.dp,
+                color = if (focused) colors.primary.copy(alpha = 0.5f) else Color.Transparent,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(color = colors.primary),
+                onClick = onClick
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .focusable(),
+        contentAlignment = Alignment.Center
+    ) {
+        icon(tint)
+    }
+}
+
+@Composable
+private fun FloatingSidebar(
+    selected: ShellDestination,
+    onSelect: (ShellDestination) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(20.dp)
+    Surface(
+        modifier = modifier
+            .width(136.dp)
+            .clip(shape)
+            .border(1.dp, Color(0xFF1E2B3E), shape),
+        color = Color(0xFF111927),
+        shape = shape
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 18.dp, horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            ShellDestination.sidebarItems.forEach { item ->
+                SidebarItem(
+                    destination = item,
+                    selected = item == selected,
+                    onClick = { onSelect(item) }
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun SidebarItem(
+    destination: ShellDestination,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val textColor = when {
+        selected -> colors.primary
+        focused -> Color.White
+        else -> Color(0xFF94A3B8)
+    }
+    val fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                when {
+                    focused -> colors.surfaceVariant.copy(alpha = 0.65f)
+                    else -> Color.Transparent
+                }
+            )
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(color = colors.primary),
+                onClick = onClick
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = destination.label,
+            color = textColor,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
+            fontWeight = fontWeight,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -431,14 +553,14 @@ private fun GlassBottomBar(
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
             )
             .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-        color = colors.surface.copy(alpha = 0.96f),
+        color = Color(0xFF111927),
         tonalElevation = 4.dp
     ) {
         NavigationBar(
             containerColor = Color.Transparent,
             tonalElevation = 0.dp
         ) {
-            ShellDestination.entries.forEach { destination ->
+            ShellDestination.sidebarItems.forEach { destination ->
                 val isSelected = destination == selected
                 NavigationBarItem(
                     selected = isSelected,
@@ -446,7 +568,7 @@ private fun GlassBottomBar(
                     icon = {
                         ShellNavIcon(
                             destination = destination,
-                            tint = if (isSelected) colors.secondary else colors.onSurfaceVariant,
+                            tint = if (isSelected) colors.primary else colors.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
                         )
                     },
@@ -460,9 +582,9 @@ private fun GlassBottomBar(
                         )
                     },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = colors.secondary,
-                        selectedTextColor = colors.secondary,
-                        indicatorColor = colors.primary.copy(alpha = 0.24f),
+                        selectedIconColor = colors.primary,
+                        selectedTextColor = colors.primary,
+                        indicatorColor = colors.primary.copy(alpha = 0.18f),
                         unselectedIconColor = colors.onSurfaceVariant,
                         unselectedTextColor = colors.onSurfaceVariant
                     )
@@ -675,29 +797,36 @@ fun MediaPosterCard(
             .build()
     }
     val labels = mediaDisplayLabels(media, subtitle)
-    val resumeFraction = remember(progress, privacyMode, media.fileId, media.durationSeconds, media.trustedDurationMs) {
-        if (privacyMode) {
+    val durationMs = remember(media.trustedDurationMs, media.durationSeconds) {
+        media.trustedDurationMs.takeIf { it > 0L }
+            ?: media.durationSeconds.takeIf { it > 0 }?.times(1000L)
+            ?: 0L
+    }
+    val isWatched = remember(media.chatId, media.messageId, durationMs) {
+        PlaybackProgressTracker.isWatched(media.chatId, media.messageId, durationMs)
+    }
+    val resumeFraction = remember(progress, privacyMode, media.chatId, media.messageId, media.fileId, durationMs, isWatched) {
+        if (privacyMode || isWatched) {
             null
         } else if (progress != null) {
             progress.coerceIn(0.02f, 0.98f)
+        } else if (durationMs > 0L) {
+            val position = PlaybackProgressTracker.getMessagePosition(media.chatId, media.messageId, durationMs)
+                .takeIf { it > 0 }
+                ?: media.fileId?.let { PlaybackProgressTracker.getPosition(it, durationMs) }
+                ?: 0
+            if (position <= 0) null else (position.toFloat() / durationMs.toFloat()).coerceIn(0.02f, 0.98f)
         } else {
-            val durationMs = media.trustedDurationMs.takeIf { it > 0L }
-                ?: media.durationSeconds.takeIf { it > 0 }?.times(1000L)
-            if (durationMs == null) {
-                null
-            } else {
-                val position = PlaybackProgressTracker.getMessagePosition(media.chatId, media.messageId, durationMs)
-                    .takeIf { it > 0 }
-                    ?: media.fileId?.let { PlaybackProgressTracker.getPosition(it, durationMs) }
-                    ?: 0
-                if (position <= 0) null else (position.toFloat() / durationMs.toFloat()).coerceIn(0.02f, 0.98f)
-            }
+            null
         }
     }
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier
             .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
+            .graphicsLayer {
+                if (isWatched) alpha = 0.58f
+            }
             .onFocusChanged {
                 focused = it.isFocused
                 onFocusChanged(it.isFocused)
@@ -751,11 +880,25 @@ fun MediaPosterCard(
                         )
                     }
                 }
-                badge?.let {
+                if (isWatched) {
                     GlassPill(
-                        text = it,
+                        text = "✓ Watched",
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                         accent = true
+                    )
+                } else {
+                    badge?.let {
+                        GlassPill(
+                            text = it,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                            accent = true
+                        )
+                    }
+                }
+                if (!isWatched && resumeFraction != null && resumeFraction in 0.05f..0.95f) {
+                    GlassPill(
+                        text = "Resume ${(resumeFraction * 100).toInt()}%",
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
                     )
                 }
                 if (!privacyMode) {
@@ -815,7 +958,7 @@ fun MediaPosterCard(
 }
 
 @Composable
-private fun GlassPill(
+internal fun GlassPill(
     text: String,
     modifier: Modifier = Modifier,
     accent: Boolean = false

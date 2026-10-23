@@ -38,6 +38,7 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 ?: dateTitle("Video", message.date)
             val file = video?.video
             val thumb = video?.thumbnail
+            val seriesInfo = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(title, fileName)
             val altVideos = content.alternativeVideos?.mapNotNull { alt ->
                 com.vaydelux.bousygram.domain.model.MediaAlternativeVideo(
                     id = alt.id,
@@ -64,7 +65,10 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 fileSizeBytes = tdFileSize(file),
                 fileName = fileName,
                 mimeType = mimeType,
-                alternativeVideos = altVideos
+                alternativeVideos = altVideos,
+                seriesTitle = seriesInfo.seriesTitle,
+                seasonNumber = seriesInfo.seasonNumber,
+                episodeNumber = seriesInfo.episodeNumber
             )
         }
         is TdApi.MessageVideoNote -> {
@@ -97,6 +101,7 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 ?: dateTitle("File", message.date)
             val file = document?.document
             val thumb = document?.thumbnail
+            val seriesInfo = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(title, fileName)
             MediaItem(
                 chatId = message.chatId,
                 messageId = message.id,
@@ -112,7 +117,10 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 trustedDurationMs = trustedDurationMs(file?.id, 0),
                 fileSizeBytes = tdFileSize(file),
                 fileName = fileName,
-                mimeType = mimeType
+                mimeType = mimeType,
+                seriesTitle = seriesInfo.seriesTitle,
+                seasonNumber = seriesInfo.seasonNumber,
+                episodeNumber = seriesInfo.episodeNumber
             )
         }
         is TdApi.MessageAnimation -> {
@@ -124,6 +132,7 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
             val title = content.caption?.text?.takeIf { it.isNotBlank() }
                 ?: fileName
                 ?: dateTitle("Animation", message.date)
+            val seriesInfo = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(title, fileName)
             MediaItem(
                 chatId = message.chatId,
                 messageId = message.id,
@@ -139,7 +148,10 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 trustedDurationMs = trustedDurationMs(file?.id, animation?.duration ?: 0),
                 fileSizeBytes = tdFileSize(file),
                 fileName = fileName,
-                mimeType = mimeType
+                mimeType = mimeType,
+                seriesTitle = seriesInfo.seriesTitle,
+                seasonNumber = seriesInfo.seasonNumber,
+                episodeNumber = seriesInfo.episodeNumber
             )
         }
         is TdApi.MessagePhoto -> {

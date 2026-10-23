@@ -17,12 +17,15 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.routing.get
+import io.ktor.server.routing.head
 import io.ktor.server.routing.routing
 import io.ktor.utils.io.ByteWriteChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.net.URLEncoder
 import kotlin.coroutines.coroutineContext
 import kotlin.math.min
@@ -41,9 +44,20 @@ data class VideoResolutionOption(
 object TelegramProxyManager {
     private const val TAG = "TelegramProxyManager"
     private const val HOST = "127.0.0.1"
-    private const val PORT = 8080
-    private const val LOCAL_STREAM_BASE_URL = "http://$HOST:$PORT/stream"
-    private const val LOCAL_ADAPTIVE_STREAM_BASE_URL = "http://$HOST:$PORT/adaptive-stream"
+    private const val DEFAULT_PORT = 8080
+    @Volatile
+    private var actualPort: Int = DEFAULT_PORT
+
+    val port: Int get() = actualPort
+    val localStreamBaseUrl: String get() = "http://$HOST:$actualPort/stream"
+    val localAdaptiveStreamBaseUrl: String get() = "http://$HOST:$actualPort/adaptive-stream"
+
+    private val _proxyBaseUrlFlow = kotlinx.coroutines.flow.MutableStateFlow(localStreamBaseUrl)
+    val proxyBaseUrlFlow: kotlinx.coroutines.flow.StateFlow<String> = _proxyBaseUrlFlow.asStateFlow()
+
+    private val supervisorScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+    private var supervisorJob: kotlinx.coroutines.Job? = null
+
     // Live playback stays sequential because TDLib has one active byte-window per file.
     private const val CHUNK_SIZE_BYTES = TelegramChunkScheduler.CHUNK_SIZE_BYTES
     private const val STREAM_PRIORITY = 32
@@ -54,16 +68,20 @@ object TelegramProxyManager {
     val isRunning: Boolean
         get() = server != null
 
+    @Synchronized
     fun startProxy() {
         if (server != null) return
         try {
-            server = embeddedServer(Netty, host = HOST, port = PORT) {
+            val nettyServer = embeddedServer(Netty, host = HOST, port = 0) {
                 routing {
                     get("/health") {
                         call.respond(HttpStatusCode.OK, "ok")
                     }
                     get("/stream") {
                         handleStream(call)
+                    }
+                    head("/stream") {
+                        handleHead(call)
                     }
                     get("/adaptive-stream") {
                         handleHlsMasterManifest(call)
@@ -76,19 +94,61 @@ object TelegramProxyManager {
                     }
                 }
             }.start(wait = false)
-            Log.i(TAG, "Ktor Telegram proxy started on http://$HOST:$PORT")
+            server = nettyServer
+            actualPort = kotlinx.coroutines.runBlocking {
+                runCatching { nettyServer.resolvedConnectors().firstOrNull()?.port }.getOrNull()
+            } ?: DEFAULT_PORT
+            val newUrl = "http://$HOST:$actualPort/stream"
+            _proxyBaseUrlFlow.value = newUrl
+            Log.i(TAG, "Ktor Telegram proxy started on $newUrl")
+            startSupervision()
         } catch (e: Exception) {
             server = null
-            val message = "Ktor proxy could not bind $HOST:$PORT; using fallback proxy. ${e.message.orEmpty()}"
+            actualPort = DEFAULT_PORT
+            val message = "Ktor proxy could not bind $HOST; using fallback proxy. ${e.message.orEmpty()}"
             Log.w(TAG, message, e)
             EnterprisePreferences.setLastError(message)
             PlaybackDiagnostics.recordStreamError(message)
         }
     }
 
+    private fun startSupervision() {
+        if (supervisorJob?.isActive == true) return
+        supervisorJob = supervisorScope.launch {
+            while (isActive) {
+                delay(5_000L)
+                val currentServer = server
+                if (currentServer == null) {
+                    Log.w(TAG, "Proxy supervisor detected dead server; rebinding fresh ephemeral port...")
+                    startProxy()
+                } else {
+                    val isHealthy = runCatching {
+                        val url = java.net.URL("http://$HOST:$actualPort/health")
+                        val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                            connectTimeout = 1_500
+                            readTimeout = 1_500
+                        }
+                        val code = conn.responseCode
+                        conn.disconnect()
+                        code == 200
+                    }.getOrDefault(false)
+
+                    if (!isHealthy) {
+                        Log.w(TAG, "Proxy supervisor loopback health check failed on port $actualPort; rebinding fresh ephemeral port...")
+                        stopProxy()
+                        startProxy()
+                    }
+                }
+            }
+        }
+    }
+
     fun stopProxy() {
+        supervisorJob?.cancel()
+        supervisorJob = null
         val running = server ?: return
         server = null
+        actualPort = DEFAULT_PORT
         try {
             running.stop(gracePeriodMillis = 500, timeoutMillis = 1_500)
             Log.i(TAG, "Ktor Telegram proxy stopped")
@@ -102,18 +162,24 @@ object TelegramProxyManager {
         size: Long,
         title: String,
         mimeType: String? = null,
-        fileName: String? = null
+        fileName: String? = null,
+        token: String? = null
     ): String {
         val label = VideoFormatSupport.streamLabel(fileName, title)
         val encodedTitle = URLEncoder.encode(label, "UTF-8")
         val contentType = VideoFormatSupport.httpContentType(mimeType, fileName, title)
         val encodedMime = URLEncoder.encode(contentType, "UTF-8")
-        return "${baseStreamUrl(fileId)}&size=$size&title=$encodedTitle&mime=$encodedMime"
+        val base = if (token != null) {
+            "$localStreamBaseUrl?fileId=$fileId&token=$token"
+        } else {
+            baseStreamUrl(fileId)
+        }
+        return "$base&size=$size&title=$encodedTitle&mime=$encodedMime"
     }
 
     fun baseStreamUrl(fileId: Int): String {
         val token = StreamAccessRegistry.issueFile(fileId)
-        return "$LOCAL_STREAM_BASE_URL?fileId=$fileId&token=$token"
+        return "$localStreamBaseUrl?fileId=$fileId&token=$token"
     }
 
     fun adaptiveStreamUrl(options: List<VideoResolutionOption>): String {
@@ -128,7 +194,7 @@ object TelegramProxyManager {
                 "${option.quality}:${option.fileId}:$token"
             }
         val query = URLEncoder.encode(encodedOptions, "UTF-8")
-        return "http://$HOST:$PORT/hls/master.m3u8?options=$query"
+        return "http://$HOST:$actualPort/hls/master.m3u8?options=$query"
     }
 
     private suspend fun handleStream(call: ApplicationCall) {
@@ -193,6 +259,56 @@ object TelegramProxyManager {
         }
     }
 
+    private suspend fun handleHead(call: ApplicationCall) {
+        val fileId = call.request.queryParameters["fileId"]?.toIntOrNull()
+        if (fileId == null || fileId <= 0) {
+            call.respond(HttpStatusCode.BadRequest, "Missing fileId")
+            return
+        }
+        if (!StreamAccessRegistry.authorizesFile(call.request.queryParameters["token"], fileId)) {
+            call.respond(HttpStatusCode.Forbidden, "Invalid or expired stream token")
+            return
+        }
+
+        var size = call.request.queryParameters["size"]?.toLongOrNull() ?: 0L
+        if (size <= 0L) size = LocalStreamingServer.resolveFileSize(fileId)
+        if (size <= 0L) {
+            call.respond(HttpStatusCode.ServiceUnavailable, "File size is not ready")
+            return
+        }
+
+        val title = call.request.queryParameters["title"].orEmpty()
+        val contentTypeValue = call.request.queryParameters["mime"]
+            ?.takeIf { it.isNotBlank() }
+            ?: VideoFormatSupport.httpContentType(null, title, title)
+        val contentType = runCatching { ContentType.parse(contentTypeValue) }
+            .getOrElse { ContentType.Application.OctetStream }
+
+        val rangeHeader = call.request.header(HttpHeaders.Range)
+        val range = when (val parsed = HttpRangeParser.parse(rangeHeader, size)) {
+            is HttpRangeParser.Result.Valid -> parsed.range
+            HttpRangeParser.Result.Unsatisfiable -> {
+                call.response.header(HttpHeaders.ContentRange, "bytes */$size")
+                call.response.header(HttpHeaders.AcceptRanges, "bytes")
+                call.respond(HttpStatusCode(416, "Range Not Satisfiable"))
+                return
+            }
+        }
+        val contentLength = range.endInclusive - range.start + 1
+        val isPartial = range.isPartial
+
+        call.response.header(HttpHeaders.AcceptRanges, "bytes")
+        call.response.header(HttpHeaders.ContentType, contentType.toString())
+        call.response.header(HttpHeaders.ContentLength, contentLength.toString())
+        if (isPartial) {
+            call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
+        }
+        call.response.header(HttpHeaders.Connection, "keep-alive")
+
+        val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
+        call.respond(status)
+    }
+
     private suspend fun handleHlsMasterManifest(call: ApplicationCall) {
         val options = parseResolutionOptions(call.request.queryParameters["options"])
         if (options.isEmpty()) {
@@ -223,7 +339,7 @@ object TelegramProxyManager {
                     else -> "${(opt.quality * 16) / 9}x${opt.quality}"
                 }
                 appendLine("#EXT-X-STREAM-INF:BANDWIDTH=$bandwidth,RESOLUTION=$resolution")
-                val streamUrl = "$LOCAL_STREAM_BASE_URL?fileId=${opt.fileId}&token=${opt.token}"
+                val streamUrl = "$localStreamBaseUrl?fileId=${opt.fileId}&token=${opt.token}"
                 appendLine(streamUrl)
             }
         }
@@ -280,7 +396,7 @@ object TelegramProxyManager {
     ): ByteArray? {
         var lastMessage = ""
         var attempt = 0
-        val maxAttempts = 75
+        val maxAttempts = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) 90 else 75
         while (coroutineContext.isActive && attempt < maxAttempts) {
             val result = TelegramChunkScheduler.fetchChunk(
                 TelegramChunkRequest(

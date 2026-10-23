@@ -38,8 +38,30 @@ data class MediaItem(
     /** MIME type from Telegram (e.g. video/x-matroska). */
     val mimeType: String? = null,
     /** Alternative video qualities (e.g. 1080p, 720p, 480p) provided by Telegram. */
-    val alternativeVideos: List<MediaAlternativeVideo> = emptyList()
+    val alternativeVideos: List<MediaAlternativeVideo> = emptyList(),
+    /** Series/Show Title if parsed from filename or caption. */
+    val seriesTitle: String? = null,
+    /** Season number if detected. */
+    val seasonNumber: Int? = null,
+    /** Episode number if detected. */
+    val episodeNumber: Int? = null,
+    /** Telegram message thread / topic ID. */
+    val messageThreadId: Long? = null,
+    /** Telegram topic / thread title. */
+    val topicName: String? = null
 ) : Serializable
+
+data class SeriesGroup(
+    val title: String,
+    val episodes: List<MediaItem>,
+    val totalSeasons: Int
+) : Serializable
+
+enum class MediaCategoryTab(val label: String) {
+    ALL("All Videos"),
+    SERIES("Series & Shows"),
+    TOPICS("Topics")
+}
 
 enum class SortOrder {
     DATE_DESC,
@@ -64,7 +86,9 @@ data class MediaUiState(
     val sidebarError: String? = null,
     val sortOrder: SortOrder = SortOrder.DATE_DESC,
     val filterYear: Int? = null,
-    val filterMonth: Int? = null
+    val filterMonth: Int? = null,
+    val selectedCategoryTab: MediaCategoryTab = MediaCategoryTab.ALL,
+    val selectedSeriesTitle: String? = null
 ) {
     val filteredAndSortedItems: List<MediaItem>
         get() {
@@ -86,6 +110,29 @@ data class MediaUiState(
                 SortOrder.SIZE_ASC -> result.sortedBy { it.fileSizeBytes }
             }
             return result
+        }
+
+    val seriesGroups: List<SeriesGroup>
+        get() {
+            return filteredAndSortedItems
+                .filter { !it.seriesTitle.isNullOrBlank() }
+                .groupBy { it.seriesTitle!!.trim() }
+                .map { (title, eps) ->
+                    val sortedEps = eps.sortedWith(
+                        compareBy<MediaItem> { it.seasonNumber ?: 1 }
+                            .thenBy { it.episodeNumber ?: 0 }
+                            .thenBy { it.date }
+                    )
+                    val seasons = sortedEps.mapNotNull { it.seasonNumber }.distinct().size.coerceAtLeast(1)
+                    SeriesGroup(title = title, episodes = sortedEps, totalSeasons = seasons)
+                }
+                .sortedBy { it.title }
+        }
+
+    val topicGroups: Map<String, List<MediaItem>>
+        get() {
+            return filteredAndSortedItems
+                .groupBy { it.topicName?.takeIf { t -> t.isNotBlank() } ?: (if (it.messageThreadId != null && it.messageThreadId != 0L) "Topic #${it.messageThreadId}" else "General") }
         }
 }
 

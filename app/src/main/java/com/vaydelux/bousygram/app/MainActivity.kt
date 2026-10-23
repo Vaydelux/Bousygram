@@ -1,12 +1,17 @@
 package com.vaydelux.bousygram.app
 
+import android.app.PictureInPictureParams
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -14,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
@@ -39,6 +45,88 @@ import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 
 class MainActivity : ComponentActivity() {
     private val authViewModel: AuthViewModel by viewModels()
+    var isPlayerActive by mutableStateOf(false)
+    var isInPipMode by mutableStateOf(false)
+    var currentPipAspectRatio by mutableStateOf(Rational(16, 9))
+    var currentPipSourceRect: android.graphics.Rect? = null
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (isPlayerActive) {
+            enterPipMode(currentPipAspectRatio, currentPipSourceRect)
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPipMode = isInPictureInPictureMode
+    }
+
+    fun enterPipMode(
+        aspectRatio: Rational = currentPipAspectRatio,
+        sourceRect: android.graphics.Rect? = currentPipSourceRect
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val clamped = clampAspectRatio(aspectRatio)
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(clamped)
+                    .apply {
+                        if (sourceRect != null && !sourceRect.isEmpty) {
+                            setSourceRectHint(sourceRect)
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            setAutoEnterEnabled(true)
+                            setSeamlessResizeEnabled(true)
+                        }
+                    }
+                    .build()
+                enterPictureInPictureMode(params)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun updatePipAutoEnter(
+        enabled: Boolean,
+        aspectRatio: Rational = currentPipAspectRatio,
+        sourceRect: android.graphics.Rect? = currentPipSourceRect
+    ) {
+        currentPipAspectRatio = aspectRatio
+        if (sourceRect != null) {
+            currentPipSourceRect = sourceRect
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val clamped = clampAspectRatio(aspectRatio)
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(clamped)
+                    .setAutoEnterEnabled(enabled)
+                    .setSeamlessResizeEnabled(true)
+                    .apply {
+                        val rect = sourceRect ?: currentPipSourceRect
+                        if (rect != null && !rect.isEmpty) {
+                            setSourceRectHint(rect)
+                        }
+                    }
+                    .build()
+                setPictureInPictureParams(params)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun clampAspectRatio(rational: Rational): Rational {
+        val floatVal = rational.toFloat()
+        return when {
+            floatVal < 0.41841f -> Rational(1000, 2390)
+            floatVal > 2.39f -> Rational(2390, 1000)
+            else -> rational
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,17 +184,33 @@ private fun BousygramAppRoot(
         authState.step != AuthStep.Authorized -> AuthScreen(viewModel = authViewModel)
         appScreen is AppScreen.Player -> {
             val screen = appScreen as AppScreen.Player
+            val activity = LocalContext.current as? MainActivity
+            DisposableEffect(Unit) {
+                activity?.isPlayerActive = true
+                activity?.updatePipAutoEnter(enabled = true)
+                onDispose {
+                    activity?.isPlayerActive = false
+                    activity?.updatePipAutoEnter(enabled = false)
+                }
+            }
             PlayerScreen(
                 request = screen.request,
-                onExit = { appScreen = screen.returnTo }
+                isInPipMode = activity?.isInPipMode ?: false,
+                onExit = { appScreen = screen.returnTo },
+                onEnterPip = {
+                    val act = activity
+                    if (act != null) {
+                        act.enterPipMode(act.currentPipAspectRatio, act.currentPipSourceRect)
+                    }
+                }
             )
         }
         else -> {
             val destination = when (appScreen) {
-                AppScreen.Library -> ShellDestination.Library
+                AppScreen.Library -> ShellDestination.Sources
                 is AppScreen.Favorites -> ShellDestination.Favorites
-                is AppScreen.Search -> ShellDestination.Search
-                is AppScreen.Settings -> ShellDestination.Settings
+                is AppScreen.Search -> ShellDestination.Home
+                is AppScreen.Settings -> ShellDestination.Home
                 else -> ShellDestination.Home
             }
             val lastPlayed = EnterprisePreferences.lastPlayed()
@@ -117,11 +221,22 @@ private fun BousygramAppRoot(
                     appScreen = AppScreen.Home
                     resumeSignal += 1
                 },
+                onOpenSearch = {
+                    appScreen = AppScreen.Search(returnTo = appScreen)
+                },
+                onOpenSettings = {
+                    appScreen = AppScreen.Settings(appScreen)
+                },
                 onSelect = { target ->
                     appScreen = when (target) {
                         ShellDestination.Home -> AppScreen.Home
-                        ShellDestination.Library -> AppScreen.Library
+                        ShellDestination.Continue -> {
+                            resumeSignal += 1
+                            AppScreen.Home
+                        }
                         ShellDestination.Favorites -> AppScreen.Favorites(appScreen)
+                        ShellDestination.Offline -> AppScreen.Library
+                        ShellDestination.Sources -> AppScreen.Library
                         ShellDestination.Search -> AppScreen.Search(returnTo = appScreen)
                         ShellDestination.Settings -> AppScreen.Settings(appScreen)
                     }

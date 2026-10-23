@@ -23,18 +23,25 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
         super<Application>.onCreate()
         instance = this
         System.loadLibrary("tdjni")
+        com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.init(this)
+        com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.enableStorageOptimizer()
+        com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.startPeriodicGc(intervalMinutes = 30)
         TelegramLogWrapper.configure()
         LocalStreamingServer.start()
+        TelegramProxyManager.startProxy()
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
     }
 
     override fun onStart(owner: LifecycleOwner) {
+        com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.refresh()
         TelegramPreCacheEngine.resumeBackgroundCaching()
         TelegramProxyManager.startProxy()
     }
 
     override fun onStop(owner: LifecycleOwner) {
-        TelegramProxyManager.stopProxy()
+        // The loopback proxy remains active for the process lifetime so PiP, background audio,
+        // and MediaSession playback continue unhindered without tearing down sockets.
+        com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.optimizeStorage()
         TelegramCachePruner.pruneCacheIfNecessary(
             context = this,
             tdLibCacheDir = File(filesDir, "tdlib_files")

@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 
@@ -55,7 +56,11 @@ internal object StreamAccessRegistry {
     /** Revoke one capability URL when its owner no longer needs it. */
     fun revoke(token: String?): Boolean {
         if (token.isNullOrBlank() || token.length > 128) return false
-        return grants.remove(token) != null
+        val tokenBytes = token.toByteArray(Charsets.UTF_8)
+        val matchedKey = grants.keys.firstOrNull { key ->
+            MessageDigest.isEqual(key.toByteArray(Charsets.UTF_8), tokenBytes)
+        } ?: return false
+        return grants.remove(matchedKey) != null
     }
 
     /** Extract and revoke this app's short capability from a locally generated URL. */
@@ -81,11 +86,31 @@ internal object StreamAccessRegistry {
         before - grants.size
     }
 
+    /**
+     * Rotates all current stream tokens on network transition.
+     * Existing tokens are given a brief 15-second grace window to let in-flight reads finish,
+     * while expiring stale tokens so they cannot survive the handoff.
+     */
+    fun rotateTokens() = synchronized(grants) {
+        val graceExpiry = System.currentTimeMillis() + 15_000L
+        for ((token, grant) in grants) {
+            if (grant.expiresAtMs > graceExpiry) {
+                grants[token] = grant.copy(expiresAtMs = graceExpiry)
+            }
+        }
+        android.util.Log.i("StreamAccessRegistry", "Rotated ${grants.size} active stream tokens with 15s grace window")
+    }
+
     private fun authorize(token: String?, expectedResource: String): Boolean {
         if (token.isNullOrBlank() || token.length > 128) return false
-        val grant = grants[token] ?: return false
+        val tokenBytes = token.toByteArray(Charsets.UTF_8)
+        val matchedKey = grants.keys.firstOrNull { key ->
+            MessageDigest.isEqual(key.toByteArray(Charsets.UTF_8), tokenBytes)
+        } ?: return false
+
+        val grant = grants[matchedKey] ?: return false
         if (grant.expiresAtMs <= System.currentTimeMillis()) {
-            grants.remove(token, grant)
+            grants.remove(matchedKey, grant)
             return false
         }
         return grant.resource == expectedResource

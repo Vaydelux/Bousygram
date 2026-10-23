@@ -48,7 +48,8 @@ data class PlayerHudState(
     val trackLabel: String,
     val cacheStateLabel: String? = null,
     val bufferedPositionMs: Long = 0L,
-    val resizeMode: Int = 0
+    val resizeMode: Int = 0,
+    val mediaKey: String = ""
 )
 
 sealed class PlaybackUiState {
