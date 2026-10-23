@@ -250,6 +250,7 @@ private fun BousygramAppRoot(
                     onSearchFocusChange = { searchFocus = it },
                     onAppScreenChange = { appScreen = it },
                     resumeSignal = resumeSignal,
+                    onResumeConsumed = { resumeSignal = 0 },
                     onLogout = { authViewModel.logout() }
                 )
             }
@@ -266,6 +267,7 @@ private fun AuthorizedContent(
     onSearchFocusChange: (SearchFocusState) -> Unit,
     onAppScreenChange: (AppScreen) -> Unit,
     resumeSignal: Int,
+    onResumeConsumed: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     val openPlayer: (PlaybackRequest, AppScreen) -> Unit = { request, returnTo ->
@@ -316,7 +318,8 @@ private fun AuthorizedContent(
             onStreamError = { message ->
                 Toast.makeText(BousygramApp.instance, message, Toast.LENGTH_LONG).show()
             },
-            resumeSignal = resumeSignal
+            resumeSignal = resumeSignal,
+            onResumeConsumed = onResumeConsumed
         )
     }
 }

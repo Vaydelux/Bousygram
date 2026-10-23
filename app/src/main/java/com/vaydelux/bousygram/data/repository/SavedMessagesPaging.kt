@@ -65,7 +65,7 @@ internal fun SavedMessagesRepository.loadLatestMediaPagedProgressiveInternal(
             return@resolveSavedMessagesChatInternal
         }
         client.send(TdApi.OpenChat(savedChatId)) {
-            searchMediaProgressiveInternal(savedChatId, limit, fromMessageId, onUpdate)
+            searchMediaProgressiveInternal(savedChatId, limit, fromMessageId, null, onUpdate)
         }
     }
 }
@@ -74,10 +74,11 @@ internal fun SavedMessagesRepository.loadChatMediaPagedProgressiveInternal(
     chatId: Long,
     limit: Int,
     fromMessageId: Long?,
+    topicId: Int? = null,
     onUpdate: (List<MediaItem>, Long, String?, Boolean) -> Unit
 ) {
     client.send(TdApi.OpenChat(chatId)) {
-        searchMediaProgressiveInternal(chatId, limit, fromMessageId, onUpdate)
+        searchMediaProgressiveInternal(chatId, limit, fromMessageId, topicId, onUpdate)
     }
 }
 

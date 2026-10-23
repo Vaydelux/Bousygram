@@ -239,6 +239,8 @@ object TelegramProxyManager {
         // as unavailable even when the network was fine.
         call.response.header(HttpHeaders.AcceptRanges, "bytes")
         call.response.header(HttpHeaders.ContentLength, contentLength.toString())
+        call.response.header("X-Content-Type-Options", "nosniff")
+        call.response.header("Cache-Control", "private, no-store")
         if (isPartial) {
             call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
         }
@@ -300,6 +302,8 @@ object TelegramProxyManager {
         call.response.header(HttpHeaders.AcceptRanges, "bytes")
         call.response.header(HttpHeaders.ContentType, contentType.toString())
         call.response.header(HttpHeaders.ContentLength, contentLength.toString())
+        call.response.header("X-Content-Type-Options", "nosniff")
+        call.response.header("Cache-Control", "private, no-store")
         if (isPartial) {
             call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
         }

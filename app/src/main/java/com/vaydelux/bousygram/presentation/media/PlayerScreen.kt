@@ -1,6 +1,10 @@
 package com.vaydelux.bousygram.presentation.media
 
+import android.app.Activity
 import android.content.Context
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -26,6 +30,8 @@ import com.vaydelux.bousygram.core.media.SeekThumbnailManager
 import com.vaydelux.bousygram.data.store.SessionHealthRecord
 import com.vaydelux.bousygram.data.store.StreamHealthTelemetry
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -86,6 +92,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.viewinterop.AndroidView
@@ -176,6 +183,17 @@ fun PlayerScreen(
     var hudVisible by remember { mutableStateOf(true) }
     var hudInteractionTick by remember { mutableIntStateOf(0) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
+    var episodesDrawerVisible by remember { mutableStateOf(false) }
+    var showBrightnessHud by remember { mutableStateOf(false) }
+    var showVolumeHud by remember { mutableStateOf(false) }
+    val currentActivity = context as? Activity
+    var gestureBrightness by remember {
+        mutableFloatStateOf(currentActivity?.window?.attributes?.screenBrightness?.takeIf { it in 0.01f..1f } ?: 0.5f)
+    }
+    val currentAudioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    var gestureVolume by remember {
+        mutableIntStateOf(currentAudioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 5)
+    }
     var title by remember(request, queueIndex) {
         mutableStateOf(queue.getOrElse(queueIndex) { queue.first() }.title)
     }
@@ -309,10 +327,21 @@ fun PlayerScreen(
         )
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(isInPipMode) {
+        val window = (context as? Activity)?.window
+        if (window != null && !isInPipMode) {
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        }
         onDispose {
             val activity = context as? MainActivity
             activity?.updatePipAutoEnter(enabled = false)
+            val win = (context as? Activity)?.window
+            if (win != null) {
+                val insetsController = WindowCompat.getInsetsController(win, win.decorView)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            }
         }
     }
 
@@ -470,7 +499,7 @@ fun PlayerScreen(
                     isPlaying = false
                     val current = queue.getOrNull(queueIndex) ?: return@collect
                     // Auto-Next Guard: Ensure video reached actual conclusion before advancing
-                    val reachedEnd = duration <= 0L || playerEngine.currentPositionMs >= (duration - 5_000L)
+                    val reachedEnd = duration > 5_000L && playerEngine.currentPositionMs >= (duration - 5_000L)
                     if (reachedEnd) {
                         PlaybackProgressTracker.clearMessagePosition(current.chatId, current.messageId)
                         if (EnterprisePreferences.autoPlayNext() && queueIndex < queue.lastIndex) {
@@ -806,8 +835,23 @@ fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(showBrightnessHud, gestureBrightness) {
+        if (showBrightnessHud) {
+            delay(1500)
+            showBrightnessHud = false
+        }
+    }
+
+    LaunchedEffect(showVolumeHud, gestureVolume) {
+        if (showVolumeHud) {
+            delay(1500)
+            showVolumeHud = false
+        }
+    }
+
     BackHandler(enabled = true) {
         when {
+            episodesDrawerVisible -> episodesDrawerVisible = false
             tracksPanelVisible -> tracksPanelVisible = false
             showResumeRestartOption -> showResumeRestartOption = false
             hudVisible -> hudVisible = false
@@ -835,6 +879,42 @@ fun PlayerScreen(
                     onTap = {
                         hudVisible = !hudVisible
                         hudInteractionTick++
+                    }
+                )
+            }
+            .pointerInput(Unit) {
+                var isLeft = false
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        isLeft = offset.x < size.width / 2f
+                    },
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        if (isLeft) {
+                            if (currentActivity != null) {
+                                val current = currentActivity.window.attributes.screenBrightness.let { if (it < 0f) 0.5f else it }
+                                val next = (current - (dragAmount / size.height.toFloat())).coerceIn(0.01f, 1.0f)
+                                val lp = currentActivity.window.attributes
+                                lp.screenBrightness = next
+                                currentActivity.window.attributes = lp
+                                gestureBrightness = next
+                                showBrightnessHud = true
+                                hudInteractionTick++
+                            }
+                        } else {
+                            if (currentAudioManager != null) {
+                                val maxVol = currentAudioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                                val current = currentAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                val delta = (-dragAmount / (size.height / (maxVol * 1.5f))).toInt()
+                                if (delta != 0) {
+                                    val next = (current + delta).coerceIn(0, maxVol)
+                                    currentAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+                                    gestureVolume = next
+                                    showVolumeHud = true
+                                    hudInteractionTick++
+                                }
+                            }
+                        }
                     }
                 )
             }
@@ -1054,6 +1134,7 @@ fun PlayerScreen(
                     toastFeedbackText = "Speed: ${speed}x"
                     hudVisible = true
                 },
+                onEpisodes = if (queue.size > 1) { { episodesDrawerVisible = !episodesDrawerVisible } } else null,
                 onPip = {
                     val activity = context as? MainActivity
                     if (activity != null) {
@@ -1072,6 +1153,149 @@ fun PlayerScreen(
                 onClose = { tracksPanelVisible = false },
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
+        }
+
+        // In-Player Episodes Drawer Overlay
+        AnimatedVisibility(
+            visible = episodesDrawerVisible && !isInPipMode,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = if (compactHud) 130.dp else 170.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xF20A101D),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E405D)),
+                modifier = Modifier
+                    .fillMaxWidth(if (compactHud) 0.96f else 0.85f)
+                    .padding(horizontal = 12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Episodes in Queue (${queue.size})",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        BousygramButton("Close", { episodesDrawerVisible = false })
+                    }
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        itemsIndexed(queue) { idx, item ->
+                            val isCurrent = idx == queueIndex
+                            val epShape = RoundedCornerShape(12.dp)
+                            Surface(
+                                shape = epShape,
+                                color = if (isCurrent) Color(0xFF162E3B) else Color(0xFF131D2D),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isCurrent) Color(0xFF5EE5BE) else Color(0xFF223249)
+                                ),
+                                modifier = Modifier
+                                    .width(if (compactHud) 160.dp else 200.dp)
+                                    .clip(epShape)
+                                    .clickable {
+                                        episodesDrawerVisible = false
+                                        goToTrack(idx)
+                                    }
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = "${idx + 1}. ${item.title}",
+                                        color = if (isCurrent) Color(0xFF5EE5BE) else Color.White,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = if (isCurrent) "▶ Playing" else formatMs((item.durationSeconds * 1000L)),
+                                        color = if (isCurrent) Color(0xFF5EE5BE) else Color(0xFF94A3B8),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Gesture Brightness HUD Pill (Left)
+        AnimatedVisibility(
+            visible = showBrightnessHud && !isInPipMode,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 28.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(alpha = 0.82f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E405D)),
+                modifier = Modifier.padding(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("☀️", fontSize = 22.sp)
+                    Text(
+                        "${(gestureBrightness * 100).toInt()}%",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Gesture Volume HUD Pill (Right)
+        AnimatedVisibility(
+            visible = showVolumeHud && !isInPipMode,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 28.dp)
+        ) {
+            val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+            val maxVol = remember(audioManager) { audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15 }
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(alpha = 0.82f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E405D)),
+                modifier = Modifier.padding(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("🔊", fontSize = 22.sp)
+                    Text(
+                        "${(gestureVolume * 100 / maxVol.coerceAtLeast(1))}%",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
         // Animated Seek Feedback Overlay
@@ -1307,6 +1531,7 @@ private fun PlayerHud(
     onTracks: () -> Unit,
     onToggleResizeMode: () -> Unit,
     onSpeed: () -> Unit,
+    onEpisodes: (() -> Unit)? = null,
     onPip: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -1434,6 +1659,9 @@ private fun PlayerHud(
                 }
                 BousygramButton(aspectLabel, onToggleResizeMode)
                 BousygramButton("${speedLabel(state.speed)}x", onSpeed)
+                if (onEpisodes != null) {
+                    BousygramButton("Episodes ☰", onEpisodes)
+                }
                 BousygramButton("PiP ⧉", onPip)
             }
             if (state.error != null) {

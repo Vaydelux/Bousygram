@@ -56,7 +56,24 @@ object TelegramPreCacheEngine {
                 )
                 trackedJobs += headJob
                 headJob.join()
-                Log.d(TAG, "Primed Telegram video head fileId=$fileId size=$size")
+
+                // Dual-Ended Tail Probing: For large files (> 4MB), pre-cache the tail (last 2MB)
+                // so non-faststart MP4 (moov atom at end) or MKV Cues resolve instantly without demuxer timeout.
+                if (size > 4L * 1024L * 1024L && !TelegramChunkScheduler.isPlaybackBusy(fileId)) {
+                    val tailLength = min(HEAD_PRIME_BYTES, size)
+                    val tailOffset = size - tailLength
+                    val tailJob = TelegramChunkScheduler.prefetchRange(
+                        fileId = fileId,
+                        offset = tailOffset,
+                        length = tailLength,
+                        purpose = TelegramChunkPurpose.Priming,
+                        priority = PRIME_PRIORITY - 1
+                    )
+                    trackedJobs += tailJob
+                    tailJob.join()
+                    Log.d(TAG, "Primed Telegram video tail fileId=$fileId offset=$tailOffset length=$tailLength")
+                }
+                Log.d(TAG, "Primed Telegram video head & tail fileId=$fileId size=$size")
             } finally {
                 activePrimeJobs.remove(fileId, trackedJobs)
             }

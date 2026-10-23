@@ -887,7 +887,12 @@ fun MediaPosterCard(
                         accent = true
                     )
                 } else {
-                    badge?.let {
+                    val displayBadge = badge ?: when (media.type) {
+                        com.vaydelux.bousygram.domain.model.MediaType.Audio -> media.docType ?: "AUDIO"
+                        com.vaydelux.bousygram.domain.model.MediaType.Document -> media.docType ?: "DOC"
+                        else -> null
+                    }
+                    displayBadge?.let {
                         GlassPill(
                             text = it,
                             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),

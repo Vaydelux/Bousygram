@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.presentation.media
 
+import android.view.ViewGroup
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.annotation.OptIn
@@ -28,6 +29,10 @@ fun VideoSurfaceView(
             modifier = modifier.fillMaxSize(),
             factory = { context ->
                 PlayerView(context).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
                     useController = false
                     keepScreenOn = true
                     this.resizeMode = resizeMode
@@ -44,6 +49,10 @@ fun VideoSurfaceView(
             modifier = modifier.fillMaxSize(),
             factory = { context ->
                 SurfaceView(context).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
                     keepScreenOn = true
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {
@@ -52,6 +61,7 @@ fun VideoSurfaceView(
                         }
 
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                            engine.attachSurface(holder.surface)
                             engine.setResizeMode(resizeMode)
                         }
 

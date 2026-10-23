@@ -60,4 +60,26 @@ class HttpRangeParserTest {
     fun rejectsZeroSizedFiles() {
         assertTrue(HttpRangeParser.parse(null, 0) is HttpRangeParser.Result.Unsatisfiable)
     }
+
+    @Test
+    fun clampsLargeFileAndOversizedRanges() {
+        val largeFileSize = 500L * 1024L * 1024L // 500 MiB
+        // Absent range on large file returns initial 8 MiB chunk as partial content
+        val absentLarge = (HttpRangeParser.parse(null, largeFileSize) as HttpRangeParser.Result.Valid).range
+        assertEquals(0L, absentLarge.start)
+        assertEquals(HttpRangeParser.MAX_STREAM_RANGE_BYTES - 1L, absentLarge.endInclusive)
+        assertTrue(absentLarge.isPartial)
+
+        // Open-ended range clamped to 8 MiB
+        val openLarge = (HttpRangeParser.parse("bytes=0-", largeFileSize) as HttpRangeParser.Result.Valid).range
+        assertEquals(0L, openLarge.start)
+        assertEquals(HttpRangeParser.MAX_STREAM_RANGE_BYTES - 1L, openLarge.endInclusive)
+        assertTrue(openLarge.isPartial)
+
+        // Mid-file oversized range (100 MB request) clamped to 8 MiB
+        val midLarge = (HttpRangeParser.parse("bytes=10485760-115343360", largeFileSize) as HttpRangeParser.Result.Valid).range
+        assertEquals(10485760L, midLarge.start)
+        assertEquals(10485760L + HttpRangeParser.MAX_STREAM_RANGE_BYTES - 1L, midLarge.endInclusive)
+        assertTrue(midLarge.isPartial)
+    }
 }

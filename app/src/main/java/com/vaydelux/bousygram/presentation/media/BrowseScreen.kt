@@ -45,6 +45,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.vaydelux.bousygram.core.media.ExternalPlayerLauncher
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
@@ -70,6 +71,7 @@ fun BrowseScreen(
     onStreamError: (String) -> Unit = {},
     libraryMode: Boolean = false,
     resumeSignal: Int = 0,
+    onResumeConsumed: () -> Unit = {},
     viewModel: MediaViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -167,7 +169,10 @@ fun BrowseScreen(
     }
 
     LaunchedEffect(resumeSignal) {
-        if (resumeSignal > 0 && !libraryMode) openLastPlayed()
+        if (resumeSignal > 0 && !libraryMode) {
+            openLastPlayed()
+            onResumeConsumed()
+        }
     }
 
     val pagePadding = if (adaptive.isCompact) 12.dp else 28.dp
@@ -332,8 +337,19 @@ fun BrowseScreen(
                 selectedSeriesTitle = state.selectedSeriesTitle,
                 seriesGroups = state.seriesGroups,
                 topicGroups = state.topicGroups,
+                availableTopics = state.availableTopics,
+                selectedTopicId = state.selectedTopicId,
                 onSelectCategoryTab = viewModel::setCategoryTab,
                 onSelectSeries = viewModel::selectSeries,
+                onSelectTopic = viewModel::selectTopic,
+                onOpenExternalPlayer = { item ->
+                    ExternalPlayerLauncher.launch(context, item)
+                },
+                onDeleteMedia = { item ->
+                    viewModel.deleteMediaItem(item) {
+                        viewModel.refresh()
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }

@@ -164,6 +164,9 @@ class MediaViewModel(
                 isSavedMessagesSelected = true,
                 selectedChatId = null,
                 selectedChatTitle = SAVED_MESSAGES_TITLE,
+                availableTopics = emptyList(),
+                selectedTopicId = null,
+                isLoadingTopics = false,
                 videoChats = current.videoChats.map { it.copy(isSelected = it.isSavedMessages) }
             )
         }
@@ -179,6 +182,9 @@ class MediaViewModel(
                 selectedChatTitle = title,
                 selectedChatId = chatId,
                 isSavedMessagesSelected = false,
+                availableTopics = emptyList(),
+                selectedTopicId = null,
+                isLoadingTopics = false,
                 hasMore = true,
                 isLoadingMore = false,
                 items = emptyList(),
@@ -186,6 +192,7 @@ class MediaViewModel(
                 videoChats = it.videoChats.map { source -> source.copy(isSelected = !source.isSavedMessages && source.chatId == chatId) }
             )
         }
+        loadForumTopics(chatId)
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null) { items, nextFromMessageId, error, isFinal ->
             if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
@@ -199,6 +206,44 @@ class MediaViewModel(
             }
             fetchThumbnails(items)
             scheduleChatSourceLoad()
+        }
+    }
+
+    fun loadForumTopics(chatId: Long) {
+        _uiState.update { it.copy(isLoadingTopics = true) }
+        repository.loadForumTopics(chatId) { topics, _ ->
+            _uiState.update { it.copy(availableTopics = topics, isLoadingTopics = false) }
+        }
+    }
+
+    fun selectTopic(topicId: Int?) {
+        val state = _uiState.value
+        val chatId = state.selectedChatId ?: return
+        if (state.selectedTopicId == topicId) return
+        val requestGeneration = ++mediaRequestGeneration
+        _uiState.update {
+            it.copy(
+                selectedTopicId = topicId,
+                isLoading = true,
+                error = null,
+                hasMore = true,
+                isLoadingMore = false,
+                items = emptyList(),
+                nextFromMessageId = 0L
+            )
+        }
+        repository.loadChatMediaPagedProgressive(chatId, pageSize, null, topicId = topicId) { items, nextFromMessageId, error, isFinal ->
+            if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            _uiState.update { current ->
+                current.copy(
+                    items = items,
+                    isLoading = !isFinal,
+                    error = error,
+                    hasMore = isFinal && nextFromMessageId != 0L,
+                    nextFromMessageId = if (isFinal) nextFromMessageId else 0L
+                )
+            }
+            fetchThumbnails(items)
         }
     }
 
@@ -220,7 +265,7 @@ class MediaViewModel(
             }
         } else {
             val chatId = state.selectedChatId ?: return
-            repository.loadChatMediaPagedProgressive(chatId, pageSize, nextFromMessageId) { items, nextFromId, error, isFinal ->
+            repository.loadChatMediaPagedProgressive(chatId, pageSize, nextFromMessageId, topicId = state.selectedTopicId) { items, nextFromId, error, isFinal ->
                 val current = _uiState.value
                 if (requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadChatMediaPagedProgressive
                 handleLoadMore(items, nextFromId, error, isFinal)

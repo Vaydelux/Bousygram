@@ -53,6 +53,7 @@ import com.vaydelux.bousygram.data.store.BufferMode
 import com.vaydelux.bousygram.data.store.CacheLimitOption
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
+import com.vaydelux.bousygram.data.store.PlaybackMode
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
@@ -88,6 +89,7 @@ fun SettingsScreen(
     var subtitlesDefault by remember { mutableStateOf(EnterprisePreferences.subtitlesDefault()) }
     var speed by remember { mutableFloatStateOf(EnterprisePreferences.preferredSpeed()) }
     var bufferMode by remember { mutableStateOf(EnterprisePreferences.bufferMode()) }
+    var playbackMode by remember { mutableStateOf(EnterprisePreferences.playbackMode()) }
     var cacheLimitOption by remember { mutableStateOf(EnterprisePreferences.cacheLimitOption()) }
     var storageRefresh by remember { mutableStateOf(0) }
     var lastPruneResult by remember { mutableStateOf<String?>(null) }
@@ -264,6 +266,28 @@ fun SettingsScreen(
                                     onClick = {
                                         bufferMode = mode
                                         EnterprisePreferences.setBufferMode(mode)
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Streaming Pipeline",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            PlaybackMode.entries.forEach { mode ->
+                                BousygramChip(
+                                    text = mode.label,
+                                    selected = playbackMode == mode,
+                                    onClick = {
+                                        playbackMode = mode
+                                        EnterprisePreferences.setPlaybackMode(mode)
                                     }
                                 )
                             }

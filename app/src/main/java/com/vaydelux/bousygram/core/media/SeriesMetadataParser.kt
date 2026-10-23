@@ -14,6 +14,9 @@ object SeriesMetadataParser {
     private val EPISODE_ONLY_REGEX = Regex("""(?i)\b(?:Episode|Ep)\.?\s*(\d{1,4})\b""")
     private val SEASON_ONLY_REGEX = Regex("""(?i)\b(?:Season|Series)\s*(\d{1,3})\b""")
 
+    private val ANIME_EPISODE_REGEX = Regex("""(?i)^(?:\[[^]]+\]\s*)?(.+?)\s*-\s*(\d{1,4})(?:\s*\[[^]]+\]|\s*\([^)]+\))?$""")
+    private val PART_REGEX = Regex("""(?i)\b(?:Part|CD|Disk|Disc)\s*(\d{1,2})\b""")
+
     // Common junk tokens to trim from raw series titles
     private val JUNK_SUFFIXES = Regex("""(?i)[. _-]*(?:720p|1080p|2160p|4k|uhd|hdtv|web-?dl|webrip|bluray|x264|x265|hevc|aac|dts|remux).*$""")
 
@@ -60,6 +63,24 @@ object SeriesMetadataParser {
             val rawTitle = cleanText.substring(0, match.range.first)
             val title = cleanTitle(rawTitle)
             return ParsedSeriesInfo(title, season, episode)
+        }
+
+        // Try Anime style: [ReleaseGroup] Show Name - 05 [1080p]
+        ANIME_EPISODE_REGEX.find(cleanText.trim())?.let { match ->
+            val rawTitle = match.groupValues[1]
+            val episode = match.groupValues[2].toIntOrNull()
+            if (episode != null) {
+                val title = cleanTitle(rawTitle)
+                return ParsedSeriesInfo(title, seasonNumber = 1, episodeNumber = episode)
+            }
+        }
+
+        // Try Multi-Part: Movie Part 1 or Movie CD2
+        PART_REGEX.find(cleanText)?.let { match ->
+            val part = match.groupValues[1].toIntOrNull()
+            val rawTitle = cleanText.substring(0, match.range.first)
+            val title = cleanTitle(rawTitle)
+            return ParsedSeriesInfo(title, seasonNumber = 1, episodeNumber = part)
         }
 
         // Try Episode X

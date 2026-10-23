@@ -4,7 +4,7 @@ import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 
 fun playableVideos(items: List<MediaItem>): List<MediaItem> =
-    items.filter { it.type == MediaType.Video && it.fileId != null }
+    items.filter { (it.type == MediaType.Video || it.type == MediaType.Audio) && it.fileId != null }
 
 fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
     playableVideos(videos).mapNotNull { item ->

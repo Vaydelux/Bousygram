@@ -28,6 +28,11 @@ private fun tdFileSize(file: TdApi.File?): Long {
 }
 
 internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Message): MediaItem? {
+    val topicThreadId: Long? = when (val t = message.topicId) {
+        is TdApi.MessageTopicForum -> t.forumTopicId.toLong()
+        is TdApi.MessageTopicThread -> t.messageThreadId
+        else -> null
+    }
     return when (val content = message.content) {
         is TdApi.MessageVideo -> {
             val video = content.video
@@ -68,7 +73,8 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 alternativeVideos = altVideos,
                 seriesTitle = seriesInfo.seriesTitle,
                 seasonNumber = seriesInfo.seasonNumber,
-                episodeNumber = seriesInfo.episodeNumber
+                episodeNumber = seriesInfo.episodeNumber,
+                messageThreadId = topicThreadId
             )
         }
         is TdApi.MessageVideoNote -> {
@@ -88,25 +94,70 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 thumbnailHeight = thumb?.height ?: 0,
                 durationSeconds = videoNote?.duration ?: 0,
                 trustedDurationMs = trustedDurationMs(file?.id, videoNote?.duration ?: 0),
-                fileSizeBytes = tdFileSize(file)
+                fileSizeBytes = tdFileSize(file),
+                messageThreadId = topicThreadId
             )
         }
-        is TdApi.MessageDocument -> {
-            val document = content.document
-            if (!isVideoDocumentInternal(document)) return null
-            val fileName = document?.fileName?.takeIf { it.isNotBlank() }
-            val mimeType = document?.mimeType?.takeIf { it.isNotBlank() }
-            val title = content.caption?.text?.takeIf { it.isNotBlank() }
+        is TdApi.MessageAudio -> {
+            val audio = content.audio
+            val file = audio?.audio
+            val thumb = audio?.albumCoverThumbnail
+            val fileName = audio?.fileName?.takeIf { it.isNotBlank() }
+            val mimeType = audio?.mimeType?.takeIf { it.isNotBlank() }
+            val performer = audio?.performer?.takeIf { it.isNotBlank() }
+            val songTitle = audio?.title?.takeIf { it.isNotBlank() }
                 ?: fileName
-                ?: dateTitle("File", message.date)
-            val file = document?.document
-            val thumb = document?.thumbnail
-            val seriesInfo = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(title, fileName)
+                ?: dateTitle("Audio", message.date)
+            val fullTitle = if (performer != null) "$performer - $songTitle" else songTitle
             MediaItem(
                 chatId = message.chatId,
                 messageId = message.id,
                 date = message.date,
-                type = MediaType.Video,
+                type = MediaType.Audio,
+                title = fullTitle,
+                fileId = file?.id,
+                thumbnailFileId = thumb?.file?.id,
+                miniThumbnailBytes = audio?.albumCoverMinithumbnail?.data,
+                thumbnailWidth = thumb?.width ?: 0,
+                thumbnailHeight = thumb?.height ?: 0,
+                durationSeconds = audio?.duration ?: 0,
+                trustedDurationMs = trustedDurationMs(file?.id, audio?.duration ?: 0),
+                fileSizeBytes = tdFileSize(file),
+                fileName = fileName,
+                mimeType = mimeType,
+                performer = performer,
+                docType = fileName?.substringAfterLast('.', "")?.uppercase()?.ifBlank { "AUDIO" } ?: "AUDIO",
+                messageThreadId = topicThreadId
+            )
+        }
+        is TdApi.MessageDocument -> {
+            val document = content.document
+            val fileName = document?.fileName?.takeIf { it.isNotBlank() }
+            val mimeType = document?.mimeType?.takeIf { it.isNotBlank() }
+            val isVideo = isVideoDocumentInternal(document)
+            val isAudio = mimeType?.startsWith("audio/") == true ||
+                fileName?.endsWith(".mp3", true) == true ||
+                fileName?.endsWith(".flac", true) == true ||
+                fileName?.endsWith(".m4a", true) == true ||
+                fileName?.endsWith(".ogg", true) == true ||
+                fileName?.endsWith(".wav", true) == true
+            val title = content.caption?.text?.takeIf { it.isNotBlank() }
+                ?: fileName
+                ?: dateTitle(if (isVideo) "Video" else if (isAudio) "Audio" else "File", message.date)
+            val file = document?.document
+            val thumb = document?.thumbnail
+            val seriesInfo = if (isVideo) com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(title, fileName) else null
+            val docType = fileName?.substringAfterLast('.', "")?.uppercase()?.ifBlank { "FILE" } ?: "FILE"
+            val type = when {
+                isVideo -> MediaType.Video
+                isAudio -> MediaType.Audio
+                else -> MediaType.Document
+            }
+            MediaItem(
+                chatId = message.chatId,
+                messageId = message.id,
+                date = message.date,
+                type = type,
                 title = title,
                 fileId = file?.id,
                 thumbnailFileId = thumb?.file?.id,
@@ -118,9 +169,11 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 fileSizeBytes = tdFileSize(file),
                 fileName = fileName,
                 mimeType = mimeType,
-                seriesTitle = seriesInfo.seriesTitle,
-                seasonNumber = seriesInfo.seasonNumber,
-                episodeNumber = seriesInfo.episodeNumber
+                docType = docType,
+                seriesTitle = seriesInfo?.seriesTitle,
+                seasonNumber = seriesInfo?.seasonNumber,
+                episodeNumber = seriesInfo?.episodeNumber,
+                messageThreadId = topicThreadId
             )
         }
         is TdApi.MessageAnimation -> {
@@ -151,7 +204,8 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 mimeType = mimeType,
                 seriesTitle = seriesInfo.seriesTitle,
                 seasonNumber = seriesInfo.seasonNumber,
-                episodeNumber = seriesInfo.episodeNumber
+                episodeNumber = seriesInfo.episodeNumber,
+                messageThreadId = topicThreadId
             )
         }
         is TdApi.MessagePhoto -> {
@@ -178,8 +232,21 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
     }
 }
 
-internal fun isVideoDocumentInternal(document: TdApi.Document?): Boolean =
-    VideoFormatSupport.isPlayableVideo(document?.mimeType, document?.fileName)
+internal fun isVideoDocumentInternal(document: TdApi.Document?): Boolean {
+    if (document == null) return false
+    if (VideoFormatSupport.isPlayableVideo(document.mimeType, document.fileName)) return true
+    // Telegram optimization: documents with a generated thumbnail or minithumbnail are playable media
+    if (document.thumbnail != null || document.minithumbnail != null) {
+        val mime = document.mimeType.orEmpty().lowercase()
+        val name = document.fileName.orEmpty().lowercase()
+        if (!name.endsWith(".apk") && !name.endsWith(".pdf") && !name.endsWith(".zip") &&
+            !name.endsWith(".tar") && !name.endsWith(".gz") &&
+            !mime.startsWith("image/") && !mime.startsWith("audio/")) {
+            return true
+        }
+    }
+    return false
+}
 
 private fun trustedDurationMs(fileId: Int?, durationSeconds: Int): Long {
     val fromTdLib = durationSeconds.takeIf { it > 0 }?.times(1000L) ?: 0L

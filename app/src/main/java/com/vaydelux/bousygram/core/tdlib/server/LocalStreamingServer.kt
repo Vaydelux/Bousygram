@@ -391,7 +391,9 @@ object LocalStreamingServer {
             if (parts.size != 3 || parts[1].isBlank() ||
                 !(parts[2] == "HTTP/1.1" || parts[2] == "HTTP/1.0")
             ) return send400(socket, "Malformed HTTP request line")
-            if (parts[0] != "GET") return send405(socket)
+            val method = parts[0]
+            if (method != "GET" && method != "HEAD") return send405(socket)
+            val isHeadRequest = (method == "HEAD")
 
             var rangeHeader: String? = null
             var headerCharacters = 0
@@ -418,9 +420,9 @@ object LocalStreamingServer {
 
             val uri = parts[1]
             when (uri.substringBefore('?')) {
-                "/stream" -> handleStreamRequest(socket, uri, rangeHeader)
-                "/subtitle" -> handleSubtitleRequest(socket, uri)
-                "/playlist.m3u" -> handlePlaylistRequest(socket, uri)
+                "/stream" -> handleStreamRequest(socket, uri, rangeHeader, isHead = isHeadRequest)
+                "/subtitle" -> if (!isHeadRequest) handleSubtitleRequest(socket, uri) else handleHeadSubtitleRequest(socket, uri)
+                "/playlist.m3u" -> if (!isHeadRequest) handlePlaylistRequest(socket, uri) else handleHeadPlaylistRequest(socket, uri)
                 else -> send404(socket)
             }
         } catch (e: java.net.SocketTimeoutException) {
@@ -443,7 +445,7 @@ object LocalStreamingServer {
         }
     }
 
-    private fun handleStreamRequest(socket: Socket, uri: String, rangeHeader: String?) {
+    private fun handleStreamRequest(socket: Socket, uri: String, rangeHeader: String?, isHead: Boolean = false) {
         val query = uri.substringAfter("?", "")
         val params = parseQueryParams(query)
         val fileId = params["fileId"]?.toIntOrNull() ?: return send400(socket, "Missing fileId")
@@ -461,7 +463,7 @@ object LocalStreamingServer {
         val contentType = mimeParam
             ?: VideoFormatSupport.httpContentType(null, title, title)
 
-        if (VERBOSE_STREAM_LOGS) Log.i(TAG, "Streaming fileId=$fileId size=$size MIME=$contentType range=$rangeHeader")
+        if (VERBOSE_STREAM_LOGS) Log.i(TAG, "Streaming fileId=$fileId size=$size MIME=$contentType range=$rangeHeader head=$isHead")
 
         val parsedRange = HttpRangeParser.parse(rangeHeader, size)
         val range = (parsedRange as? HttpRangeParser.Result.Valid)?.range
@@ -479,7 +481,9 @@ object LocalStreamingServer {
         }
 
         writeHeaders(out, headers)
-        streamBytes(fileId, size, rangeStart, rangeEnd, out, socket)
+        if (!isHead) {
+            streamBytes(fileId, size, rangeStart, rangeEnd, out, socket)
+        }
     }
 
     private fun writeHeaders(out: OutputStream, headers: String) {
@@ -493,6 +497,8 @@ object LocalStreamingServer {
             "Content-Type: $contentType\r\n" +
             "Accept-Ranges: bytes\r\n" +
             "Content-Length: $size\r\n" +
+            "X-Content-Type-Options: nosniff\r\n" +
+            "Cache-Control: private, no-store\r\n" +
             "Connection: close\r\n\r\n"
 
     /** Range-requested (206 Partial Content) response headers. */
@@ -508,6 +514,8 @@ object LocalStreamingServer {
             "Accept-Ranges: bytes\r\n" +
             "Content-Range: bytes $rangeStart-$rangeEnd/$size\r\n" +
             "Content-Length: $contentLength\r\n" +
+            "X-Content-Type-Options: nosniff\r\n" +
+            "Cache-Control: private, no-store\r\n" +
             "Connection: close\r\n\r\n"
 
     /** Plain 200 OK headers for an in-memory body of [contentLength] bytes. */
@@ -515,7 +523,33 @@ object LocalStreamingServer {
         "HTTP/1.1 200 OK\r\n" +
             "Content-Type: $contentType\r\n" +
             "Content-Length: $contentLength\r\n" +
+            "X-Content-Type-Options: nosniff\r\n" +
+            "Cache-Control: private, no-store\r\n" +
             "Connection: close\r\n\r\n"
+
+    private fun handleHeadSubtitleRequest(socket: Socket, uri: String) {
+        val query = uri.substringAfter("?", "")
+        val params = parseQueryParams(query)
+        val fileId = params["fileId"]?.toIntOrNull() ?: return send400(socket, "Missing fileId")
+        if (!StreamAccessRegistry.authorizesFile(params["token"], fileId)) {
+            return send403(socket, "Invalid or expired subtitle token")
+        }
+        val out = socket.getOutputStream()
+        val localFile = getFileStatus(fileId)
+        val length = localFile?.size ?: 0L
+        writeHeaders(out, buildStreamOkHeaders("text/plain", length))
+    }
+
+    private fun handleHeadPlaylistRequest(socket: Socket, uri: String) {
+        val params = parseQueryParams(uri.substringAfter("?", ""))
+        if (!StreamAccessRegistry.authorizesPlaylist(params["token"])) {
+            return send403(socket, "Invalid or expired playlist token")
+        }
+        val playlist = currentPlaylist ?: "#EXTM3U\n"
+        val out = socket.getOutputStream()
+        val bytes = playlist.toByteArray(Charsets.UTF_8)
+        writeHeaders(out, buildBodyHeaders("audio/x-mpegurl", bytes.size))
+    }
 
     private fun handleSubtitleRequest(socket: Socket, uri: String) {
         val query = uri.substringAfter("?", "")
@@ -803,7 +837,13 @@ object LocalStreamingServer {
             min((timeMs / 1000L) * 512_000L, totalSize - 1).coerceAtLeast(0L)
         }
         val remaining = totalSize - offset
-        val chunkSize = min(PREFETCH_CHUNK_BYTES, remaining)
+        val bitrateBps = if (durationMs > 0) {
+            (totalSize * 1000L) / durationMs
+        } else {
+            2_000_000L // default ~2 MB/s for 1080p
+        }
+        val adaptiveRunway = max(8L * 1024L * 1024L, min(48L * 1024L * 1024L, bitrateBps * 25L))
+        val chunkSize = min(adaptiveRunway, remaining)
         if (chunkSize > 0) {
             TelegramChunkScheduler.prefetchRange(
                 fileId = fileId,
@@ -812,7 +852,7 @@ object LocalStreamingServer {
                 purpose = TelegramChunkPurpose.CacheAhead,
                 priority = STREAM_FAST_PRIORITY
             )
-            if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Prefetch fileId=$fileId offset=$offset limit=$chunkSize (timeMs=$timeMs)")
+            if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Adaptive prefetch fileId=$fileId offset=$offset limit=$chunkSize (bitrate=${bitrateBps * 8 / 1_000_000}Mbps, timeMs=$timeMs)")
         }
     }
 

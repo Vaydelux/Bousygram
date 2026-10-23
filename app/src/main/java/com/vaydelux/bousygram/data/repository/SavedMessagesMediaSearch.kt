@@ -15,6 +15,7 @@ internal fun SavedMessagesRepository.searchMediaProgressiveInternal(
     chatId: Long,
     limit: Int,
     fromMessageId: Long?,
+    topicId: Int? = null,
     onUpdate: (items: List<MediaItem>, nextFromMessageId: Long, error: String?, isFinal: Boolean) -> Unit
 ) {
     val plan = createMediaSearchPlan(limit)
@@ -119,16 +120,16 @@ internal fun SavedMessagesRepository.searchMediaProgressiveInternal(
     // Do not query PhotoAndVideo: this app's library is video-only and that filter duplicates
     // MessageVideo results while adding photos that the UI discards. Document searches inspect
     // more messages because they can also match ordinary files before the video documents.
-    searchWithFilterInternal(chatId, pageLimit, fromMessageId, TdApi.SearchMessagesFilterVideo()) { items, error ->
+    searchWithFilterInternal(chatId, pageLimit, fromMessageId, TdApi.SearchMessagesFilterVideo(), topicId) { items, error ->
         collect(items, error)
     }
-    searchWithFilterInternal(chatId, documentLimit, fromMessageId, TdApi.SearchMessagesFilterDocument()) { items, error ->
+    searchWithFilterInternal(chatId, documentLimit, fromMessageId, TdApi.SearchMessagesFilterDocument(), topicId) { items, error ->
         collect(items, error)
     }
-    searchWithFilterInternal(chatId, pageLimit, fromMessageId, TdApi.SearchMessagesFilterVideoNote()) { items, error ->
+    searchWithFilterInternal(chatId, pageLimit, fromMessageId, TdApi.SearchMessagesFilterVideoNote(), topicId) { items, error ->
         collect(items, error)
     }
-    searchWithFilterInternal(chatId, pageLimit, fromMessageId, TdApi.SearchMessagesFilterAnimation()) { items, error ->
+    searchWithFilterInternal(chatId, pageLimit, fromMessageId, TdApi.SearchMessagesFilterAnimation(), topicId) { items, error ->
         collect(items, error)
     }
 }
@@ -199,12 +200,14 @@ internal fun SavedMessagesRepository.searchWithFilterInternal(
     limit: Int,
     fromMessageId: Long?,
     filter: TdApi.SearchMessagesFilter,
+    topicId: Int? = null,
     onItems: (List<MediaItem>, String?) -> Unit
 ) {
+    val topic = if (topicId != null && topicId != 0) TdApi.MessageTopicForum(topicId) else null
     // TDLib requires SearchChatMessages.offset to be <= 0.
     val query = TdApi.SearchChatMessages(
         chatId,
-        null,
+        topic,
         "",
         null,
         fromMessageId ?: 0,

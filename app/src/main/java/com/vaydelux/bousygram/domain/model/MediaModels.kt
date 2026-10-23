@@ -6,7 +6,9 @@ const val SAVED_MESSAGES_TITLE = "Saved Messages"
 
 enum class MediaType {
     Photo,
-    Video
+    Video,
+    Audio,
+    Document
 }
 
 data class MediaAlternativeVideo(
@@ -48,7 +50,11 @@ data class MediaItem(
     /** Telegram message thread / topic ID. */
     val messageThreadId: Long? = null,
     /** Telegram topic / thread title. */
-    val topicName: String? = null
+    val topicName: String? = null,
+    /** Performer / Artist if audio track. */
+    val performer: String? = null,
+    /** Extracted document / archive format (e.g. APK, PDF, ZIP, FLAC). */
+    val docType: String? = null
 ) : Serializable
 
 data class SeriesGroup(
@@ -60,6 +66,8 @@ data class SeriesGroup(
 enum class MediaCategoryTab(val label: String) {
     ALL("All Videos"),
     SERIES("Series & Shows"),
+    AUDIO("Audio & Music"),
+    DOCUMENTS("Documents"),
     TOPICS("Topics")
 }
 
@@ -69,6 +77,20 @@ enum class SortOrder {
     SIZE_DESC,
     SIZE_ASC
 }
+
+data class ForumTopicChannel(
+    val id: Int, // forumTopicId / message_thread_id
+    val chatId: Long,
+    val name: String,
+    val iconColor: Int = 0x6FB9F0,
+    val iconCustomEmojiId: Long = 0L,
+    val isPinned: Boolean = false,
+    val isClosed: Boolean = false,
+    val isGeneral: Boolean = false,
+    val unreadCount: Int = 0,
+    val totalMessages: Int = 0,
+    val mediaCount: Int = 0
+) : Serializable
 
 data class MediaUiState(
     val items: List<MediaItem> = emptyList(),
@@ -88,7 +110,10 @@ data class MediaUiState(
     val filterYear: Int? = null,
     val filterMonth: Int? = null,
     val selectedCategoryTab: MediaCategoryTab = MediaCategoryTab.ALL,
-    val selectedSeriesTitle: String? = null
+    val selectedSeriesTitle: String? = null,
+    val availableTopics: List<ForumTopicChannel> = emptyList(),
+    val selectedTopicId: Int? = null,
+    val isLoadingTopics: Boolean = false
 ) {
     val filteredAndSortedItems: List<MediaItem>
         get() {
@@ -151,5 +176,7 @@ data class VideoChatItem(
     val isSavedMessages: Boolean,
     val isSelected: Boolean = false,
     val kind: ChatSourceKind = if (isSavedMessages) ChatSourceKind.SAVED_MESSAGES else ChatSourceKind.OTHER,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val isForum: Boolean = false,
+    val topicsCount: Int = 0
 )

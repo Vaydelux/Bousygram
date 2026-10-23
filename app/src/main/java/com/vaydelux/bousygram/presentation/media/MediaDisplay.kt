@@ -72,10 +72,12 @@ private fun isGenericMediaTitle(value: String): Boolean {
     val normalized = value.trim().lowercase(Locale.US)
     return normalized == "video" ||
         normalized == "photo" ||
+        normalized == "audio" ||
         normalized == "file" ||
         normalized == "animation" ||
         normalized == "video note" ||
         normalized.startsWith("video - ") ||
+        normalized.startsWith("audio - ") ||
         normalized.startsWith("file - ") ||
         normalized.startsWith("animation - ") ||
         normalized.startsWith("video note - ")

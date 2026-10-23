@@ -24,6 +24,12 @@ enum class CacheLimitOption(val label: String, val bytes: Long) {
     TenGb("10 GB", 10L * 1024L * 1024L * 1024L)
 }
 
+enum class PlaybackMode(val label: String) {
+    TDLibLocal("TDLib Local Direct"),
+    FastLink("Fast-Link VPS Proxy"),
+    Auto("Auto Failover")
+}
+
 object EnterprisePreferences {
     private const val PREFS_NAME = "enterprise_ui_prefs"
     private const val KEY_FAVORITES = "favorites"
@@ -40,6 +46,9 @@ object EnterprisePreferences {
     private const val KEY_LAST_ERROR = "last_error"
     private const val KEY_VISUAL_THEME = "visual_theme"
     private const val KEY_PLAYER_ENGINE = "player_engine"
+    private const val KEY_PLAYBACK_MODE = "playback_mode"
+    private const val KEY_FASTLINK_URL = "fastlink_url"
+    private const val KEY_FASTLINK_BOT = "fastlink_bot"
 
 
     private val prefs by lazy {
@@ -167,6 +176,18 @@ object EnterprisePreferences {
 
     fun setLastError(message: String) = prefs.edit { putString(KEY_LAST_ERROR, message.take(400)) }
     fun lastError(): String = prefs.getString(KEY_LAST_ERROR, "None").orEmpty()
+
+    fun playbackMode(): PlaybackMode = runCatching {
+        PlaybackMode.valueOf(prefs.getString(KEY_PLAYBACK_MODE, PlaybackMode.TDLibLocal.name) ?: PlaybackMode.TDLibLocal.name)
+    }.getOrDefault(PlaybackMode.TDLibLocal)
+
+    fun setPlaybackMode(value: PlaybackMode) = prefs.edit { putString(KEY_PLAYBACK_MODE, value.name) }
+
+    fun fastLinkServerUrl(): String = prefs.getString(KEY_FASTLINK_URL, "").orEmpty()
+    fun setFastLinkServerUrl(url: String) = prefs.edit { putString(KEY_FASTLINK_URL, url.trim()) }
+
+    fun fastLinkBotUsername(): String = prefs.getString(KEY_FASTLINK_BOT, "").orEmpty()
+    fun setFastLinkBotUsername(username: String) = prefs.edit { putString(KEY_FASTLINK_BOT, username.trim().removePrefix("@")) }
 
     fun diagnosticsText(cacheSizeBytes: Long, appVersion: String): String = buildString {
         appendLine("Bousygram diagnostics")

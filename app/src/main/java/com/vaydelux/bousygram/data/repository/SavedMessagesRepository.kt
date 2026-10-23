@@ -66,11 +66,15 @@ class SavedMessagesRepository {
         chatId: Long,
         limit: Int,
         fromMessageId: Long?,
+        topicId: Int? = null,
         onUpdate: (List<MediaItem>, Long, String?, Boolean) -> Unit
-    ) = loadChatMediaPagedProgressiveInternal(chatId, limit, fromMessageId, onUpdate)
+    ) = loadChatMediaPagedProgressiveInternal(chatId, limit, fromMessageId, topicId, onUpdate)
 
     fun loadVideoChats(limit: Int, selectedChatId: Long?, onResult: (List<VideoChatItem>, String?) -> Unit) =
         loadVideoChatsInternal(limit, selectedChatId, onResult)
+
+    fun loadForumTopics(chatId: Long, query: String = "", onResult: (List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>, String?) -> Unit) =
+        loadForumTopicsInternal(chatId, query, onResult)
 
     fun fetchThumbnailPath(fileId: Int, onResult: (String?) -> Unit) =
         fetchThumbnailPathInternal(fileId, onResult)

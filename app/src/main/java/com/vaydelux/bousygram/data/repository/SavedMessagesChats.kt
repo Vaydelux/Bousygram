@@ -79,17 +79,32 @@ internal fun SavedMessagesRepository.loadVideoChatsInternal(
                                 is TdApi.ChatTypeSecret -> ChatSourceKind.SECRET
                                 else -> ChatSourceKind.OTHER
                             }
-                            val source = VideoChatItem(
-                                chatId = chatId,
-                                title = title,
-                                isSavedMessages = isSaved,
-                                isSelected = if (isSaved) selectedChatId == null || chatId == selectedChatId else chatId == selectedChatId,
-                                kind = kind,
-                                isArchived = mergedIds[chatId] == true
-                            )
-                            synchronized(lock) { chatMap[chatId] = source }
+                            fun recordSource(isForum: Boolean) {
+                                val source = VideoChatItem(
+                                    chatId = chatId,
+                                    title = title,
+                                    isSavedMessages = isSaved,
+                                    isSelected = if (isSaved) selectedChatId == null || chatId == selectedChatId else chatId == selectedChatId,
+                                    kind = kind,
+                                    isArchived = mergedIds[chatId] == true,
+                                    isForum = isForum
+                                )
+                                synchronized(lock) { chatMap[chatId] = source }
+                                if (pendingBatch.decrementAndGet() == 0) loadChatDetails(offset + batch.size)
+                            }
+
+                            val chatType = chat.type
+                            if (chatType is TdApi.ChatTypeSupergroup) {
+                                client.send(TdApi.GetSupergroup(chatType.supergroupId)) { sgResult ->
+                                    val sg = sgResult as? TdApi.Supergroup
+                                    recordSource(sg?.isForum == true)
+                                }
+                            } else {
+                                recordSource(false)
+                            }
+                        } else {
+                            if (pendingBatch.decrementAndGet() == 0) loadChatDetails(offset + batch.size)
                         }
-                        if (pendingBatch.decrementAndGet() == 0) loadChatDetails(offset + batch.size)
                     }
                 }
             }
