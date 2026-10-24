@@ -54,6 +54,7 @@ object PlaybackSessionController {
 
     private val nextSessionNumber = AtomicLong(1L)
     private val activeSessionsByFile = ConcurrentHashMap<Int, Int>()
+    private val activeSessions = ConcurrentHashMap.newKeySet<PlaybackSession>()
     private val isVideoPlayingFlag = AtomicBoolean(false)
 
     fun setVideoPlaying(playing: Boolean) {
@@ -65,6 +66,20 @@ object PlaybackSessionController {
 
     /** Returns true if video playback is currently active. */
     fun isVideoPlaying(): Boolean = isVideoPlayingFlag.get() || !activeSessionsByFile.isEmpty()
+
+    fun bindActiveFile(fileId: Int) {
+        if (fileId > 0) {
+            activeSessionsByFile.compute(fileId) { _, count -> (count ?: 0) + 1 }
+        }
+    }
+
+    fun unbindActiveFile(fileId: Int) {
+        if (fileId > 0) {
+            activeSessionsByFile.computeIfPresent(fileId) { _, count ->
+                if (count <= 1) null else count - 1
+            }
+        }
+    }
 
     fun start(
         queue: List<com.vaydelux.bousygram.presentation.media.PlaybackQueueItem>,
@@ -81,10 +96,12 @@ object PlaybackSessionController {
             startPositionMs = startPositionMs.coerceAtLeast(0L),
             onCancelDownloads = onCancelDownloads
         )
-        val fileId = session.fileId
-        if (fileId > 0) {
-            activeSessionsByFile.compute(fileId) { _, count -> (count ?: 0) + 1 }
+        queue.forEach { item ->
+            if (item.fileId > 0) {
+                bindActiveFile(item.fileId)
+            }
         }
+        activeSessions.add(session)
         record(session)
         return session
     }
@@ -98,16 +115,21 @@ object PlaybackSessionController {
             startPositionMs = startPositionMs.coerceAtLeast(0L)
         )
         if (fileId > 0) {
-            // CHM.compute serializes updates per key, avoiding the empty-set/remove race where a
-            // concurrent start could otherwise be lost while another session stops.
-            activeSessionsByFile.compute(fileId) { _, count -> (count ?: 0) + 1 }
+            bindActiveFile(fileId)
         }
+        activeSessions.add(session)
         record(session)
         return session
     }
 
     /** True while at least one playback session is using this TDLib file. */
-    fun isFileActive(fileId: Int): Boolean = (activeSessionsByFile[fileId] ?: 0) > 0
+    fun isFileActive(fileId: Int): Boolean {
+        if (fileId <= 0) return false
+        if ((activeSessionsByFile[fileId] ?: 0) > 0) return true
+        return activeSessions.any { session ->
+            !session.isStopped() && (session.fileId == fileId || session.queue.any { it.fileId == fileId })
+        }
+    }
 
     fun recordFirstFrame(session: PlaybackSession, firstFrameMs: Long) {
         if (firstFrameMs in 1L..4_000L) {
@@ -206,9 +228,13 @@ object PlaybackSessionController {
     fun stop(session: PlaybackSession?, reason: PlaybackCacheStopReason, cancelTdLibDownload: Boolean = true) {
         session ?: return
         if (!session.markStoppedOnce()) return
+        activeSessions.remove(session)
         if (session.fileId > 0) {
-            activeSessionsByFile.computeIfPresent(session.fileId) { _, count ->
-                if (count <= 1) null else count - 1
+            unbindActiveFile(session.fileId)
+        }
+        session.queue.forEach { item ->
+            if (item.fileId > 0) {
+                unbindActiveFile(item.fileId)
             }
         }
         session.lastStopReason = reason

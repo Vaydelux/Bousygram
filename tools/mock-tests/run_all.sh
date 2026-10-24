@@ -46,11 +46,11 @@ for resource in (
 
 build = Path('app/build.gradle.kts').read_text()
 assert 'Using debug signing for local release verification' not in build
-assert 'Refusing to build $name: production signing is not configured.' in build
+assert 'Production signing is not configured' in build
 assert 'nativeLibrary.isFile && nativeLibrary.length() > 0L' in build
-assert 'if (!tdLibAvailableAbis.contains("arm64-v8a"))' in build
+assert 'if (!abis.contains("arm64-v8a"))' in build
 assert build.index('val hasReleaseSigning') < build.index('android {')
-assert 'signingConfig = signingConfigs.getByName("debug")' not in build.split('buildTypes {', 1)[1].split('create("staging")', 1)[0]
+assert 'signingConfig = signingConfigs.getByName("debug")' not in build.split('buildTypes {', 1)[1]
 
 queue_builder = Path('app/src/main/java/com/vaydelux/bousygram/presentation/media/PlaybackHelpers.kt').read_text()
 assert 'url = null' in queue_builder

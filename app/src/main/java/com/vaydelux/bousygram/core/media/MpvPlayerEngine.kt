@@ -25,16 +25,17 @@ class MpvPlayerEngine(
 
     companion object {
         private const val TAG = "MpvPlayerEngine"
-        private const val CELLULAR_DEMUXER_MAX_BYTES = "6291456"    // 6 MB runway
-        private const val WIFI_DEMUXER_MAX_BYTES = "33554432"        // 32 MB runway
-        private const val DEMUXER_MAX_BACK_BYTES = "2097152"         // 2 MB back cache
-        private const val DEMUXER_CACHE_SECS = "60"
     }
 
+    private val appContext: Context = context.applicationContext ?: context
     private val mpv: MPVLib = MPVLib.create(context)
         ?: throw IllegalStateException("Failed to create libmpv instance from native context")
     private val isDestroyed = AtomicBoolean(false)
     private var isCellular = initialIsCellular
+    private var bufferConfig = PlayerBufferConfig.resolveMpvConfig(context, initialIsCellular)
+
+    override val bufferConfigDescription: String get() = bufferConfig.description
+    val localStreamingServerPort: Int get() = com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer.port
 
     private val _playbackState = MutableStateFlow<EnginePlaybackState>(EnginePlaybackState.Idle)
     override val playbackState: StateFlow<EnginePlaybackState> = _playbackState.asStateFlow()
@@ -207,10 +208,11 @@ class MpvPlayerEngine(
             }
 
             // Demuxer adaptive buffer configuration
-            val demuxerBytes = if (isCellular) CELLULAR_DEMUXER_MAX_BYTES else WIFI_DEMUXER_MAX_BYTES
-            mpv.setOptionString("demuxer-max-bytes", demuxerBytes)
-            mpv.setOptionString("demuxer-max-back-bytes", DEMUXER_MAX_BACK_BYTES)
-            mpv.setOptionString("cache-secs", DEMUXER_CACHE_SECS)
+            mpv.setOptionString("cache", bufferConfig.cacheEnabled)
+            mpv.setOptionString("demuxer-max-bytes", bufferConfig.demuxerMaxBytes.toString())
+            mpv.setOptionString("demuxer-max-back-bytes", bufferConfig.demuxerMaxBackBytes.toString())
+            mpv.setOptionString("demuxer-readahead-secs", bufferConfig.demuxerReadaheadSecs.toString())
+            mpv.setOptionString("cache-secs", bufferConfig.demuxerReadaheadSecs.toString())
 
             mpv.init()
 
@@ -369,9 +371,14 @@ class MpvPlayerEngine(
         if (isDestroyed.get()) return
         this.isCellular = isCellular
         try {
-            val demuxerBytes = if (isCellular) CELLULAR_DEMUXER_MAX_BYTES else WIFI_DEMUXER_MAX_BYTES
-            mpv.setPropertyString("demuxer-max-bytes", demuxerBytes)
-            Log.i(TAG, "Updated mpv demuxer-max-bytes to $demuxerBytes (isCellular=$isCellular)")
+            val newConfig = PlayerBufferConfig.resolveMpvConfig(appContext, isCellular)
+            this.bufferConfig = newConfig
+            mpv.setPropertyString("cache", newConfig.cacheEnabled)
+            mpv.setPropertyString("demuxer-max-bytes", newConfig.demuxerMaxBytes.toString())
+            mpv.setPropertyString("demuxer-max-back-bytes", newConfig.demuxerMaxBackBytes.toString())
+            mpv.setPropertyString("demuxer-readahead-secs", newConfig.demuxerReadaheadSecs.toString())
+            mpv.setPropertyString("cache-secs", newConfig.demuxerReadaheadSecs.toString())
+            Log.i(TAG, "Updated mpv buffer config: ${newConfig.description}")
         } catch (e: Throwable) {
             Log.e(TAG, "Error updating mpv network demuxer buffer", e)
         }

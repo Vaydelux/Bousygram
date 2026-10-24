@@ -27,6 +27,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import com.vaydelux.bousygram.core.media.SeekThumbnailManager
+import com.vaydelux.bousygram.core.media.TdLibDataSource
 import com.vaydelux.bousygram.data.store.SessionHealthRecord
 import com.vaydelux.bousygram.data.store.StreamHealthTelemetry
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -113,7 +114,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.runtime.key
 import com.vaydelux.bousygram.core.media.PlaybackState
 import kotlin.coroutines.cancellation.CancellationException
 import androidx.media3.session.MediaSession
@@ -249,6 +252,7 @@ fun PlayerScreen(
     var activeLocalStreamUrl by remember { mutableStateOf<String?>(null) }
     var pendingResumeMs by remember { mutableLongStateOf(0L) }
     var hasFallenBackToMpv by remember(playbackSessionId) { mutableStateOf(false) }
+    var lastHandledEndedTrackIndex by remember { mutableIntStateOf(-1) }
     val playerSessionStartMs = remember { System.currentTimeMillis() }
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -343,6 +347,12 @@ fun PlayerScreen(
         }
         val fallbackReason = PlaybackTelemetryRecorder.getFallbackReason(playbackSessionId)
         val failure = fatalError ?: playbackError
+        val fid = current?.fileId ?: 0
+        val cachedAtStart = PlaybackTelemetryRecorder.consumeFullyCachedAtStart(fid)
+        val headerTime = PlaybackTelemetryRecorder.consumeHeaderChunkTime(fid)
+        val tailTime = PlaybackTelemetryRecorder.consumeTailChunkTime(fid)
+        val throughput = PlaybackTelemetryRecorder.consumeThroughput(fid)
+            ?: com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.getAverageThroughput().takeIf { it > 0 }
 
         PlaybackTelemetryRecorder.record(
             PlaybackTelemetryRecord(
@@ -357,7 +367,12 @@ fun PlayerScreen(
                 container = container,
                 fileSize = size,
                 failureReason = failure,
-                fallbackReason = fallbackReason
+                fallbackReason = fallbackReason,
+                isFullyCachedAtStart = cachedAtStart,
+                timeToHeaderChunkMs = headerTime,
+                timeToTailChunkMs = tailTime,
+                averageThroughputBytesPerSec = throughput,
+                bufferConfig = playerEngine.bufferConfigDescription.takeIf { it.isNotBlank() }
             )
         )
     }
@@ -484,74 +499,110 @@ fun PlayerScreen(
     }
 
     fun goToTrack(newIndex: Int) {
-        if (newIndex !in queue.indices || newIndex == queueIndex) return
+        if (newIndex !in queue.indices || newIndex == queueIndex || playbackSession.isTransitioning) return
+        lastHandledEndedTrackIndex = queueIndex
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
         val oldItem = queue.getOrNull(queueIndex)
-        if (oldItem != null && playerEngine.currentPositionMs > 0) {
-            PlaybackProgressTracker.saveMessagePosition(
-                oldItem.chatId,
-                oldItem.messageId,
-                playerEngine.currentPositionMs.toInt(),
-                duration,
-                oldItem.fileId,
-                oldItem.title
-            )
+        if (oldItem != null) {
+            StreamAccessRegistry.revokeFile(oldItem.fileId)
+            if (playerEngine.currentPositionMs > 0) {
+                PlaybackProgressTracker.saveMessagePosition(
+                    oldItem.chatId,
+                    oldItem.messageId,
+                    playerEngine.currentPositionMs.toInt(),
+                    duration,
+                    oldItem.fileId,
+                    oldItem.title
+                )
+            }
         }
         stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
         reloadNonce = 0
         retryCount = 0
         pendingResumeMs = 0L
         isReconnecting = false
+        firstFrameMs = 0L
+        isOpening = true
+        isBuffering = true
+        isPlaying = false
+        position = 0L
+        duration = 0L
+        playbackError = null
         playerEngine.stop()
+        playerEngine.detachSurface()
         playbackSession.goToIndex(newIndex)
     }
 
     fun skipNext(): Boolean {
-        if (!playbackSession.hasNext) return false
+        if (!playbackSession.hasNext || playbackSession.isTransitioning) return false
+        lastHandledEndedTrackIndex = queueIndex
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
         val oldItem = queue.getOrNull(queueIndex)
-        if (oldItem != null && playerEngine.currentPositionMs > 0) {
-            PlaybackProgressTracker.saveMessagePosition(
-                oldItem.chatId,
-                oldItem.messageId,
-                playerEngine.currentPositionMs.toInt(),
-                duration,
-                oldItem.fileId,
-                oldItem.title
-            )
+        if (oldItem != null) {
+            StreamAccessRegistry.revokeFile(oldItem.fileId)
+            if (playerEngine.currentPositionMs > 0) {
+                PlaybackProgressTracker.saveMessagePosition(
+                    oldItem.chatId,
+                    oldItem.messageId,
+                    playerEngine.currentPositionMs.toInt(),
+                    duration,
+                    oldItem.fileId,
+                    oldItem.title
+                )
+            }
         }
         stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
         reloadNonce = 0
         retryCount = 0
         pendingResumeMs = 0L
         isReconnecting = false
+        firstFrameMs = 0L
+        isOpening = true
+        isBuffering = true
+        isPlaying = false
+        position = 0L
+        duration = 0L
+        playbackError = null
         playerEngine.stop()
+        playerEngine.detachSurface()
         return playbackSession.next()
     }
 
     fun skipPrevious(): Boolean {
-        if (!playbackSession.hasPrevious) return false
+        if (!playbackSession.hasPrevious || playbackSession.isTransitioning) return false
+        lastHandledEndedTrackIndex = queueIndex
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
         val oldItem = queue.getOrNull(queueIndex)
-        if (oldItem != null && playerEngine.currentPositionMs > 0) {
-            PlaybackProgressTracker.saveMessagePosition(
-                oldItem.chatId,
-                oldItem.messageId,
-                playerEngine.currentPositionMs.toInt(),
-                duration,
-                oldItem.fileId,
-                oldItem.title
-            )
+        if (oldItem != null) {
+            StreamAccessRegistry.revokeFile(oldItem.fileId)
+            if (playerEngine.currentPositionMs > 0) {
+                PlaybackProgressTracker.saveMessagePosition(
+                    oldItem.chatId,
+                    oldItem.messageId,
+                    playerEngine.currentPositionMs.toInt(),
+                    duration,
+                    oldItem.fileId,
+                    oldItem.title
+                )
+            }
         }
         stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
         reloadNonce = 0
         retryCount = 0
         pendingResumeMs = 0L
         isReconnecting = false
+        firstFrameMs = 0L
+        isOpening = true
+        isBuffering = true
+        isPlaying = false
+        position = 0L
+        duration = 0L
+        playbackError = null
         playerEngine.stop()
+        playerEngine.detachSurface()
         return playbackSession.previous()
     }
 
@@ -584,7 +635,7 @@ fun PlayerScreen(
         )
     }
 
-    LaunchedEffect(playerEngine) {
+    LaunchedEffect(playerEngine, queueIndex) {
         var hadFirstFrame = false
         playerEngine.playbackState.collect { state ->
             when (state) {
@@ -646,9 +697,14 @@ fun PlayerScreen(
                     isBuffering = false
                     isPlaying = false
                     val current = queue.getOrNull(queueIndex) ?: return@collect
+                    if (lastHandledEndedTrackIndex == queueIndex) {
+                        Log.d("PlayerScreen", "Ignoring duplicate Ended event for index $queueIndex")
+                        return@collect
+                    }
                     // Auto-Next Guard: Ensure video reached actual conclusion before advancing
                     val reachedEnd = duration > 5_000L && playerEngine.currentPositionMs >= (duration - 5_000L)
                     if (reachedEnd) {
+                        lastHandledEndedTrackIndex = queueIndex
                         commitPlaybackTelemetry(fatalError = null)
                         PlaybackProgressTracker.clearMessagePosition(current.chatId, current.messageId)
                         scope.launch {
@@ -872,9 +928,16 @@ fun PlayerScreen(
             ?.let { duration = it }
             ?: item.durationSeconds.takeIf { it > 0 }?.let { duration = it * 1000L }
         lastSavedPosition = 0L
-        val streamUrl = run {
-            // The initial local URL was already prepared by the repository. Reuse it once
-            // instead of issuing a duplicate token; later queue items and retries get a fresh URL.
+        val isExo = playerEngine is ExoPlayerEngine
+        val streamUrl = if (isExo) {
+            val resolvedSize = item.fileSizeBytes.takeIf { it > 0L }
+                ?: withContext(Dispatchers.IO) { LocalStreamingServer.resolveFileSize(item.fileId) }
+            fileSizeBytes = resolvedSize
+            cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
+            activeLocalStreamUrl = null
+            TdLibDataSource.buildUri(item.fileId, resolvedSize, item.fileName).toString()
+        } else {
+            // MpvPlayerEngine path uses LocalStreamingServer with per-file capability token
             val alreadyPreparedUrl = request.url.takeIf {
                 queueIndex == initialIndex && reloadNonce == 0 &&
                     it.startsWith("http://127.0.0.1")
@@ -947,9 +1010,10 @@ fun PlayerScreen(
                     ?: 0L
                 cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
             }
-            alreadyPreparedUrl ?: preparation!!.url
+            val resolvedUrl = alreadyPreparedUrl ?: preparation!!.url
+            activeLocalStreamUrl = resolvedUrl.takeIf { it.startsWith("http://127.0.0.1") }
+            resolvedUrl
         }
-        activeLocalStreamUrl = streamUrl.takeIf { it.startsWith("http://127.0.0.1") }
         val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
         val resumePosition = lastGoodPosition
             .takeIf { it > 0L }
@@ -1055,10 +1119,24 @@ fun PlayerScreen(
         }
     }
 
+    BackHandler(enabled = true) {
+        if (tracksPanelVisible || episodesDrawerVisible) {
+            tracksPanelVisible = false
+            episodesDrawerVisible = false
+        } else {
+            exitPlayback()
+        }
+    }
+
     PredictiveBackHandler(enabled = true) { progress ->
         try {
             progress.collect { /* handle predictive progress */ }
-            exitPlayback()
+            if (tracksPanelVisible || episodesDrawerVisible) {
+                tracksPanelVisible = false
+                episodesDrawerVisible = false
+            } else {
+                exitPlayback()
+            }
         } catch (e: CancellationException) {
             // gesture cancelled by user
         }
@@ -1186,12 +1264,22 @@ fun PlayerScreen(
                         true
                     }
                     Key.Back -> {
-                        exitPlayback()
+                        if (tracksPanelVisible || episodesDrawerVisible) {
+                            tracksPanelVisible = false
+                            episodesDrawerVisible = false
+                        } else {
+                            exitPlayback()
+                        }
                         true
                     }
                     else -> when (event.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_BACK -> {
-                            exitPlayback()
+                            if (tracksPanelVisible || episodesDrawerVisible) {
+                                tracksPanelVisible = false
+                                episodesDrawerVisible = false
+                            } else {
+                                exitPlayback()
+                            }
                             true
                         }
                         KeyEvent.KEYCODE_CHANNEL_DOWN,
@@ -1244,25 +1332,34 @@ fun PlayerScreen(
                 }
             }
     ) {
-        VideoSurfaceView(
-            engine = playerEngine,
-            resizeMode = effectiveResizeMode,
-            modifier = Modifier
-                .fillMaxSize()
-                .onGloballyPositioned { coordinates ->
-                    if (coordinates.isAttached) {
-                        val bounds = coordinates.boundsInWindow()
-                        if (bounds.width > 0 && bounds.height > 0) {
-                            videoBoundsOnScreen = Rect(
-                                bounds.left.toInt(),
-                                bounds.top.toInt(),
-                                bounds.right.toInt(),
-                                bounds.bottom.toInt()
-                            )
+        key(queueIndex) {
+            VideoSurfaceView(
+                engine = playerEngine,
+                resizeMode = effectiveResizeMode,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { coordinates ->
+                        if (coordinates.isAttached) {
+                            val bounds = coordinates.boundsInWindow()
+                            if (bounds.width > 0 && bounds.height > 0) {
+                                videoBoundsOnScreen = Rect(
+                                    bounds.left.toInt(),
+                                    bounds.top.toInt(),
+                                    bounds.right.toInt(),
+                                    bounds.bottom.toInt()
+                                )
+                            }
                         }
                     }
-                }
-        )
+            )
+        }
+        if (firstFrameMs == 0L || isOpening) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            )
+        }
         if (hudVisible && !isInPipMode) {
             PlayerHud(
                 state = PlayerHudState(

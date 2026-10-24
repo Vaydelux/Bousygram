@@ -78,6 +78,13 @@ class PlaybackSession(
     var lastStopReason: PlaybackCacheStopReason = PlaybackCacheStopReason.None
         internal set
     private val stopped = AtomicBoolean(false)
+    private val transitionLock = Any()
+    private val _isTransitioning = AtomicBoolean(false)
+    val isTransitioning: Boolean get() = _isTransitioning.get()
+
+    fun finishTransition() {
+        _isTransitioning.set(false)
+    }
 
     /**
      * Backward-compatible constructor for single-file sessions.
@@ -109,41 +116,47 @@ class PlaybackSession(
     /**
      * Advances to the next video in the queue as an in-place queue operation without navigation.
      * Cancels downloads for the previous video.
-     * Returns true if queue advanced, false if already at the end.
+     * Returns true if queue advanced, false if already at the end or if a transition is currently in flight.
      */
     fun next(): Boolean {
-        if (!hasNext) return false
-        val prevFileId = currentItem?.fileId ?: 0
-        val nextIdx = _currentIndex.value + 1
-        _currentIndex.value = nextIdx
-        currentPositionMs = 0L
-        retryCount = 0
-        if (prevFileId > 0) {
-            onCancelDownloads?.invoke(prevFileId)
+        synchronized(transitionLock) {
+            if (!hasNext || _isTransitioning.get()) return false
+            _isTransitioning.set(true)
+            val prevFileId = currentItem?.fileId ?: 0
+            val nextIdx = _currentIndex.value + 1
+            _currentIndex.value = nextIdx
+            currentPositionMs = 0L
+            retryCount = 0
+            if (prevFileId > 0) {
+                onCancelDownloads?.invoke(prevFileId)
+            }
+            val nextItem = queue[nextIdx]
+            _state.value = PlaybackState.Preparing(nextItem)
+            return true
         }
-        val nextItem = queue[nextIdx]
-        _state.value = PlaybackState.Preparing(nextItem)
-        return true
     }
 
     /**
      * Steps to the previous video in the queue as an in-place queue operation without navigation.
      * Cancels downloads for the previous video.
-     * Returns true if queue stepped back, false if already at the beginning.
+     * Returns true if queue stepped back, false if already at the beginning or if a transition is currently in flight.
      */
     fun previous(): Boolean {
-        if (!hasPrevious) return false
-        val prevFileId = currentItem?.fileId ?: 0
-        val prevIdx = _currentIndex.value - 1
-        _currentIndex.value = prevIdx
-        currentPositionMs = 0L
-        retryCount = 0
-        if (prevFileId > 0) {
-            onCancelDownloads?.invoke(prevFileId)
+        synchronized(transitionLock) {
+            if (!hasPrevious || _isTransitioning.get()) return false
+            _isTransitioning.set(true)
+            val prevFileId = currentItem?.fileId ?: 0
+            val prevIdx = _currentIndex.value - 1
+            _currentIndex.value = prevIdx
+            currentPositionMs = 0L
+            retryCount = 0
+            if (prevFileId > 0) {
+                onCancelDownloads?.invoke(prevFileId)
+            }
+            val prevItem = queue[prevIdx]
+            _state.value = PlaybackState.Preparing(prevItem)
+            return true
         }
-        val prevItem = queue[prevIdx]
-        _state.value = PlaybackState.Preparing(prevItem)
-        return true
     }
 
     /**
@@ -151,33 +164,39 @@ class PlaybackSession(
      * Cancels downloads for the previous video.
      */
     fun goToIndex(newIndex: Int): Boolean {
-        if (newIndex !in queue.indices || newIndex == _currentIndex.value) return false
-        val prevFileId = currentItem?.fileId ?: 0
-        _currentIndex.value = newIndex
-        currentPositionMs = 0L
-        retryCount = 0
-        if (prevFileId > 0) {
-            onCancelDownloads?.invoke(prevFileId)
+        synchronized(transitionLock) {
+            if (newIndex !in queue.indices || newIndex == _currentIndex.value || _isTransitioning.get()) return false
+            _isTransitioning.set(true)
+            val prevFileId = currentItem?.fileId ?: 0
+            _currentIndex.value = newIndex
+            currentPositionMs = 0L
+            retryCount = 0
+            if (prevFileId > 0) {
+                onCancelDownloads?.invoke(prevFileId)
+            }
+            val item = queue[newIndex]
+            _state.value = PlaybackState.Preparing(item)
+            return true
         }
-        val item = queue[newIndex]
-        _state.value = PlaybackState.Preparing(item)
-        return true
     }
 
     /**
      * Advances on track completion. Returns true if advanced to next, false if ended queue.
      */
     fun onAutoNext(): Boolean {
-        return if (hasNext) {
-            next()
-        } else {
-            val current = currentItem
-            if (current != null) {
-                _state.value = PlaybackState.Ended(current)
+        synchronized(transitionLock) {
+            return if (hasNext) {
+                next()
             } else {
-                _state.value = PlaybackState.Idle
+                val current = currentItem
+                if (current != null) {
+                    _state.value = PlaybackState.Ended(current)
+                } else {
+                    _state.value = PlaybackState.Idle
+                }
+                _isTransitioning.set(false)
+                false
             }
-            false
         }
     }
 
@@ -189,19 +208,23 @@ class PlaybackSession(
     fun onPlaying(item: PlaybackQueueItem? = currentItem) {
         val target = item ?: currentItem ?: return
         _state.value = PlaybackState.Playing(target)
+        _isTransitioning.set(false)
     }
 
     fun onEnded(item: PlaybackQueueItem? = currentItem) {
         val target = item ?: currentItem ?: return
         _state.value = PlaybackState.Ended(target)
+        _isTransitioning.set(false)
     }
 
     fun onError(message: String, cause: Throwable? = null, item: PlaybackQueueItem? = currentItem) {
         _state.value = PlaybackState.Error(item ?: currentItem, message, cause)
+        _isTransitioning.set(false)
     }
 
     fun release() {
         if (markStoppedOnce()) {
+            _isTransitioning.set(false)
             val activeId = fileId
             if (activeId > 0) {
                 onCancelDownloads?.invoke(activeId)

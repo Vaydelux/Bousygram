@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Bousygram"
 include(":app")
+include(":baselineprofile")

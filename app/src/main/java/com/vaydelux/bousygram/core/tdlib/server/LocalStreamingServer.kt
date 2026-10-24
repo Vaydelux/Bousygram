@@ -57,6 +57,9 @@ object LocalStreamingServer {
     private const val MAX_HTTP_HEADERS = 64
     private var serverSocket: ServerSocket? = null
     private var serverPort: Int = 0
+
+    val port: Int get() = serverPort
+    val actualPort: Int get() = serverPort
     @Volatile
     private var executor: ExecutorService = createExecutor()
     private val fileStatusCache = ConcurrentHashMap<Int, CachedFileStatus>()
@@ -131,13 +134,6 @@ object LocalStreamingServer {
     ): String {
         if (!isRunning) start()
         val resolvedSize = if (size > 0L) size else resolveFileSize(fileId)
-        if (TelegramProxyManager.isRunning || !BuildConfig.LEGACY_STREAMING_FALLBACK_ENABLED) {
-            if (!TelegramProxyManager.isRunning) TelegramProxyManager.startProxy()
-            check(TelegramProxyManager.isRunning) {
-                "The local Ktor streaming server could not start; no valid stream URL can be issued."
-            }
-            return TelegramProxyManager.getStreamUrl(fileId, resolvedSize, title, mimeType, fileName)
-        }
         check(isRunning && serverPort > 0) {
             EnterprisePreferences.setLastError("Streaming server has no bound port")
             "The loopback streaming server could not start; no valid stream URL can be issued."
@@ -734,6 +730,7 @@ object LocalStreamingServer {
                                     break
                                 } catch (e: Exception) {
                                     Log.w(TAG, "Socket write error (client closed)", e)
+                                    TelegramChunkScheduler.onClientDisconnected(fileId, currentOffset)
                                     return
                                 }
                             }
@@ -755,6 +752,9 @@ object LocalStreamingServer {
             }
         } finally {
             try { diskReader?.close() } catch (_: Exception) {}
+            if (!clientOpen()) {
+                TelegramChunkScheduler.onClientDisconnected(fileId, currentOffset)
+            }
         }
     }
 
@@ -833,10 +833,16 @@ object LocalStreamingServer {
                 val read = file.read(buffer, 0, min(buffer.size.toLong(), remaining).toInt())
                 if (read <= 0) break
                 if (fileId > 0) PlaybackTelemetryRecorder.notifyFirstByte(fileId)
-                out.write(buffer, 0, read)
+                try {
+                    out.write(buffer, 0, read)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Socket write error during disk streaming (client closed)", e)
+                    if (fileId > 0) TelegramChunkScheduler.onClientDisconnected(fileId, startPos + length - remaining)
+                    return
+                }
                 remaining -= read
             }
-            out.flush()
+            try { out.flush() } catch (_: Exception) {}
         }
     }
 

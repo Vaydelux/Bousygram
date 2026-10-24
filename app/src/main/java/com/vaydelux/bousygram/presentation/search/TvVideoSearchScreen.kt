@@ -1,5 +1,13 @@
 package com.vaydelux.bousygram.presentation.search
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.speech.RecognizerIntent
+import android.view.KeyEvent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -19,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,7 +45,19 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -77,10 +98,13 @@ fun TvVideoSearchScreen(
     val uiState by viewModel.uiState.collectAsState()
     val searchScope by viewModel.scope.collectAsState()
     val adaptive = rememberAdaptiveMetrics()
+    val context = LocalContext.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var preparingKey by remember { mutableStateOf<String?>(null) }
     var privacyMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
+    var isVoiceListening by remember { mutableStateOf(false) }
     val searchInputFocusRequester = remember { FocusRequester() }
+    val voiceButtonFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
     val focusManager = LocalFocusManager.current
     var lastFocusedGridIndex by rememberSaveable { mutableIntStateOf(restoreGridIndex) }
@@ -101,6 +125,39 @@ fun TvVideoSearchScreen(
         focusManager.moveFocus(FocusDirection.Down)
     }
 
+    val voiceSearchLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        isVoiceListening = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenMatches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val recognizedQuery = spokenMatches?.firstOrNull()?.trim()
+            if (!recognizedQuery.isNullOrBlank()) {
+                searchQuery = recognizedQuery
+                executeSearch(recognizedQuery)
+            }
+        }
+    }
+
+    fun launchVoiceSearch() {
+        val prompt = buildVoiceSearchPrompt(searchScope, viewModel.inChatTitle.ifBlank { inChatTitle })
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        try {
+            isVoiceListening = true
+            voiceSearchLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            isVoiceListening = false
+            Toast.makeText(context, "Voice search is not available on this device", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            isVoiceListening = false
+            Toast.makeText(context, "Unable to activate voice search", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     LaunchedEffect(inChatId, inChatTitle) {
         if (inChatId != null) {
             viewModel.setInChatScope(inChatId, inChatTitle)
@@ -112,6 +169,7 @@ fun TvVideoSearchScreen(
     LaunchedEffect(Unit) {
         when (restoreFocusTarget) {
             SearchFocusTarget.SearchField -> runCatching { searchInputFocusRequester.requestFocus() }
+            SearchFocusTarget.VoiceButton -> runCatching { voiceButtonFocusRequester.requestFocus() }
             SearchFocusTarget.Grid -> {
                 if (restoreGridIndex > 0) {
                     runCatching { gridState.scrollToItem(restoreGridIndex) }
@@ -121,7 +179,20 @@ fun TvVideoSearchScreen(
     }
 
     BousygramScaffold(modifier) {
-        Box(Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onKeyEvent { keyEvent ->
+                    if (keyEvent.type == KeyEventType.KeyDown &&
+                        (keyEvent.key.nativeKeyCode == KeyEvent.KEYCODE_SEARCH ||
+                         keyEvent.key.nativeKeyCode == KeyEvent.KEYCODE_VOICE_ASSIST)) {
+                        launchVoiceSearch()
+                        true
+                    } else {
+                        false
+                    }
+                }
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -151,9 +222,24 @@ fun TvVideoSearchScreen(
                                         com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onFocusCleared()
                                     }
                                 },
-                            onSearch = { executeSearch() }
+                            onSearch = { executeSearch() },
+                            onVoiceSearch = { launchVoiceSearch() }
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            VoiceSearchButton(
+                                onClick = { launchVoiceSearch() },
+                                isListening = isVoiceListening,
+                                isCompact = true,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(voiceButtonFocusRequester)
+                                    .onFocusChanged {
+                                        if (it.isFocused) {
+                                            onFocusStateChanged(SearchFocusTarget.VoiceButton, lastFocusedGridIndex)
+                                            com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onFocusCleared()
+                                        }
+                                    }
+                            )
                             BousygramButton("Search", { executeSearch() }, modifier = Modifier.weight(1f))
                             BousygramButton("Clear", { clearSearch() }, modifier = Modifier.weight(1f))
                         }
@@ -165,7 +251,11 @@ fun TvVideoSearchScreen(
                         }
                     }
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         SearchField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
@@ -179,7 +269,20 @@ fun TvVideoSearchScreen(
                                         com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onFocusCleared()
                                     }
                                 },
-                            onSearch = { executeSearch() }
+                            onSearch = { executeSearch() },
+                            onVoiceSearch = { launchVoiceSearch() }
+                        )
+                        VoiceSearchButton(
+                            onClick = { launchVoiceSearch() },
+                            isListening = isVoiceListening,
+                            modifier = Modifier
+                                .focusRequester(voiceButtonFocusRequester)
+                                .onFocusChanged {
+                                    if (it.isFocused) {
+                                        onFocusStateChanged(SearchFocusTarget.VoiceButton, lastFocusedGridIndex)
+                                        com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onFocusCleared()
+                                    }
+                                }
                         )
                         BousygramButton("Search", { executeSearch() })
                         BousygramButton("Clear", { clearSearch() })
@@ -214,14 +317,17 @@ fun TvVideoSearchScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(1f)
+                        .semantics {
+                            liveRegion = LiveRegionMode.Polite
+                        },
                     contentAlignment = Alignment.Center
                 ) {
             when (val state = uiState) {
                 is SearchUiState.Idle -> {
                     EmptyStateView(
                         title = "Ready to search",
-                        message = "Enter keywords or pick a recent query to scan Telegram videos.",
+                        message = "Use voice search, enter keywords, or pick a recent query to scan Telegram videos.",
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -350,7 +456,8 @@ private fun SearchField(
     onValueChange: (String) -> Unit,
     label: String,
     modifier: Modifier = Modifier,
-    onSearch: () -> Unit
+    onSearch: () -> Unit,
+    onVoiceSearch: (() -> Unit)? = null
 ) {
     BousygramTextField(
         value = value,
@@ -358,6 +465,22 @@ private fun SearchField(
         label = label,
         modifier = modifier,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() })
+        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+        trailingIcon = onVoiceSearch?.let { voiceAction ->
+            {
+                IconButton(
+                    onClick = voiceAction,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Voice search"
+                        role = Role.Button
+                    }
+                ) {
+                    VoiceMicIcon(
+                        tint = MaterialTheme.colorScheme.primary,
+                        size = 20.dp
+                    )
+                }
+            }
+        }
     )
 }

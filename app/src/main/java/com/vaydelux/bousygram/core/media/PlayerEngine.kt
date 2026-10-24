@@ -34,6 +34,7 @@ interface PlayerEngine {
     val audioDecoderName: String get() = "Unknown"
     val tracks: StateFlow<List<MediaTrackInfo>>
     val videoDimensions: StateFlow<Pair<Int, Int>>
+    val bufferConfigDescription: String get() = ""
 
     fun attachSurface(surface: Surface)
     fun detachSurface()

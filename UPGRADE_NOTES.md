@@ -60,7 +60,7 @@ python -m unittest discover -s tests -v
 
 This update starts the release-confidence phase and closes several playback-token lifecycle issues:
 
-- Production `release` and `hardenedRelease` tasks no longer fall back to debug signing. Debug and staging builds remain available without production secrets.
+- Production `release` task uses R8 minification and requires release signing credentials (fail-closed). Debug builds remain available for local testing.
 - `verifyTdlibAbiCoverage` fails if the packaged TDLib runtime is absent or if `arm64-v8a/libtdjni.so` is missing/empty.
 - Instrumentation tests now include a launch path for the real app screen (without `ui_preview=true`) as well as a separate preview-only visual smoke test.
 - Playback queues no longer mint an access URL/token for every queued video. A local capability URL is prepared when the item is selected; local playback capabilities are revoked when the active URL is replaced or the player exits.

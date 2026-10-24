@@ -5,6 +5,7 @@ import com.vaydelux.bousygram.presentation.media.PlaybackRequest
 
 enum class SearchFocusTarget {
     SearchField,
+    VoiceButton,
     Grid
 }
 
@@ -43,3 +44,13 @@ val SearchFocusStateSaver: Saver<SearchFocusState, List<Int>> = Saver(
         )
     }
 )
+
+/**
+ * Unwraps any nested Player destinations to find the root non-player destination (e.g. Home, Library).
+ * Guarantees that returning from Player always navigates back to the originating screen.
+ */
+tailrec fun unwrapNonPlayerScreen(screen: AppScreen): AppScreen = when (screen) {
+    is AppScreen.Player -> unwrapNonPlayerScreen(screen.returnTo)
+    else -> screen
+}
+

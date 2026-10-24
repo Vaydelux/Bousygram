@@ -20,7 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * Wraps [ExoPlayer] created by [TelegramProxyPlayerFactory].
  */
 class ExoPlayerEngine(
-    val player: ExoPlayer
+    val player: ExoPlayer,
+    val bufferConfig: PlayerBufferConfig.ExoBufferConfig? = null
 ) : PlayerEngine {
 
     companion object {
@@ -28,15 +29,18 @@ class ExoPlayerEngine(
             context: Context,
             preferredSpeed: Float = 1.0f
         ): ExoPlayerEngine {
+            val bufferConfig = PlayerBufferConfig.resolveExoConfig(context)
             val exo = TelegramProxyPlayerFactory.build(
                 context = context,
-                preferredSpeed = preferredSpeed
+                preferredSpeed = preferredSpeed,
+                bufferConfig = bufferConfig
             )
-            return ExoPlayerEngine(exo)
+            return ExoPlayerEngine(exo, bufferConfig)
         }
     }
 
     override val engineName: String = "ExoPlayer"
+    override val bufferConfigDescription: String get() = bufferConfig?.description ?: "exo:default"
 
     private val _playbackState = MutableStateFlow<EnginePlaybackState>(EnginePlaybackState.Idle)
     override val playbackState: StateFlow<EnginePlaybackState> = _playbackState.asStateFlow()
@@ -205,6 +209,7 @@ class ExoPlayerEngine(
     override fun stop() {
         player.stop()
         player.clearMediaItems()
+        player.clearVideoSurface()
         _playbackState.value = EnginePlaybackState.Idle
     }
 

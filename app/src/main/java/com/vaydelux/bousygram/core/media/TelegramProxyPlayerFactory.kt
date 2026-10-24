@@ -38,24 +38,22 @@ object TelegramProxyPlayerFactory {
     @OptIn(UnstableApi::class)
     fun customLoadControl(
         mode: BufferMode = BufferMode.FastStart,
-        isCellular: Boolean = com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular
+        isCellular: Boolean = com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular,
+        context: Context? = null,
+        bufferConfig: PlayerBufferConfig.ExoBufferConfig? = null
     ): DefaultLoadControl {
-        val (minBuffer, maxBuffer, startBuffer, rebuffer) = if (isCellular) {
-            // Cellular: 30-60s read-ahead, 1.5s start buffer, 2.5s rebuffer
-            BufferWindow(30_000, 60_000, 1_500, 2_500)
-        } else {
-            // Android TV / Wi-Fi: 30-60s read-ahead, start at ~1-2.5s buffered
-            when (mode) {
-                BufferMode.FastStart -> BufferWindow(30_000, 60_000, 1_500, 2_500)
-                BufferMode.Balanced -> BufferWindow(30_000, 60_000, 2_000, 2_500)
-                BufferMode.StableNetwork -> BufferWindow(45_000, 60_000, 2_500, 3_000)
-            }
-        }
-        return DefaultLoadControl.Builder()
-            .setAllocator(customAllocator())
-            .setBufferDurationsMs(minBuffer, maxBuffer, startBuffer, rebuffer)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
+        val config = bufferConfig ?: context?.let { PlayerBufferConfig.resolveExoConfig(it) }
+            ?: PlayerBufferConfig.ExoBufferConfig(
+                minBufferMs = PlayerBufferConfig.EXO_DEFAULT_MIN_BUFFER_MS,
+                maxBufferMs = PlayerBufferConfig.EXO_DEFAULT_MAX_BUFFER_MS,
+                bufferForPlaybackMs = PlayerBufferConfig.EXO_DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                bufferForPlaybackAfterRebufferMs = PlayerBufferConfig.EXO_DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                backBufferMs = PlayerBufferConfig.EXO_DEFAULT_BACK_BUFFER_MS,
+                retainBackBufferFromKeyframe = PlayerBufferConfig.EXO_RETAIN_BACK_BUFFER_FROM_KEYFRAME,
+                isLowRam = false,
+                description = "exo:normal"
+            )
+        return PlayerBufferConfig.buildLoadControl(config)
     }
 
     @OptIn(UnstableApi::class)
@@ -90,7 +88,8 @@ object TelegramProxyPlayerFactory {
     fun build(
         context: Context,
         loadErrorHandlingPolicy: LoadErrorHandlingPolicy? = null,
-        preferredSpeed: Float = 1f
+        preferredSpeed: Float = 1f,
+        bufferConfig: PlayerBufferConfig.ExoBufferConfig? = null
     ): ExoPlayer {
         val httpDataSource = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(false)
@@ -109,7 +108,7 @@ object TelegramProxyPlayerFactory {
                 }
 
                 override fun open(dataSpec: DataSpec): Long {
-                    activeSource = if (TdLibDataSource.isTdLibUri(dataSpec.uri)) {
+                    activeSource = if (TdLibDataSource.isDirectPlayable(dataSpec.uri)) {
                         tdLibSource
                     } else {
                         defaultSource
@@ -138,7 +137,7 @@ object TelegramProxyPlayerFactory {
         }
 
         return ExoPlayer.Builder(context)
-            .setLoadControl(customLoadControl(runCatching { EnterprisePreferences.bufferMode() }.getOrDefault(BufferMode.FastStart)))
+            .setLoadControl(customLoadControl(context = context, bufferConfig = bufferConfig))
             .setRenderersFactory(customRenderersFactory(context))
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(

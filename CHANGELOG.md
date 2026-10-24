@@ -70,7 +70,7 @@
 
 ## Implementation checklist — Phase 1 and playback-token follow-up (2026-10-21)
 
-- Removed the debug-signing fallback from `release` and `hardenedRelease`; production packaging now fails with an actionable message unless a release keystore is configured.
+- Removed the debug-signing fallback from `release`; production packaging now fails with an actionable message unless a release keystore is configured.
 - Strengthened the TDLib ABI verification task to require a non-empty `arm64-v8a/libtdjni.so` for modern phone/TV release targets.
 - Added a persistent database-key mode marker in SharedPreferences and `noBackupFilesDir`; conflicting markers or a missing key for an encrypted database now fail closed rather than guessing.
 - Changed legacy plaintext API credential migration to return the value only after the encrypted replacement is durably committed; failed migration removes the plaintext entry on a best-effort basis and requires re-entry.

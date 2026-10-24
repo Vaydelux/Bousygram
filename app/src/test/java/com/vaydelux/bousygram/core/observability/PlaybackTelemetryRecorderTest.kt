@@ -276,4 +276,113 @@ class PlaybackTelemetryRecorderTest {
         assertEquals("no playback sessions", PlaybackTelemetryRecorder.summary())
         assertEquals("No playback telemetry recorded yet.", PlaybackTelemetryRecorder.exportSummary())
     }
+
+    @Test
+    fun recordsAndSerializesNewTelemetryFields() {
+        val record = PlaybackTelemetryRecord(
+            sessionId = "sess_telemetry_extended",
+            timeToFirstByteMs = 150L,
+            timeToFirstFrameMs = 320L,
+            rebufferCount = 1,
+            totalRebufferMs = 400L,
+            engine = "ExoPlayer",
+            videoDecoderName = "c2.android.avc.decoder",
+            audioDecoderName = "c2.android.aac.decoder",
+            container = "mp4",
+            fileSize = 104_857_600L,
+            failureReason = null,
+            fallbackReason = null,
+            isFullyCachedAtStart = true,
+            timeToHeaderChunkMs = 45L,
+            timeToTailChunkMs = 120L,
+            averageThroughputBytesPerSec = 4_500_000L
+        )
+
+        PlaybackTelemetryRecorder.record(record)
+        val retrieved = PlaybackTelemetryRecorder.getRecords().single()
+
+        assertTrue(retrieved.isFullyCachedAtStart)
+        assertEquals(45L, retrieved.timeToHeaderChunkMs)
+        assertEquals(120L, retrieved.timeToTailChunkMs)
+        assertEquals(4_500_000L, retrieved.averageThroughputBytesPerSec)
+
+        // Verify JSON serialization round-trip
+        val json = PlaybackTelemetrySerializer.recordToJson(record)
+        val parsed = PlaybackTelemetrySerializer.parseRecord(json)
+        assertNotNull(parsed)
+        assertTrue(parsed!!.isFullyCachedAtStart)
+        assertEquals(45L, parsed.timeToHeaderChunkMs)
+        assertEquals(120L, parsed.timeToTailChunkMs)
+        assertEquals(4_500_000L, parsed.averageThroughputBytesPerSec)
+
+        val summary = PlaybackTelemetryRecorder.exportSummary()
+        assertTrue(summary.contains("cached=true"))
+        assertTrue(summary.contains("header=45ms"))
+        assertTrue(summary.contains("tail=120ms"))
+
+        val exportJson = PlaybackTelemetryRecorder.exportJson()
+        assertTrue(exportJson.contains("\"isFullyCachedAtStart\": true"))
+        assertTrue(exportJson.contains("\"timeToHeaderChunkMs\": 45"))
+        assertTrue(exportJson.contains("\"timeToTailChunkMs\": 120"))
+        assertTrue(exportJson.contains("\"averageThroughputBytesPerSec\": 4500000"))
+    }
+
+    @Test
+    fun telemetryTrackingLifecycleMethods() {
+        val fileId = 99
+        PlaybackTelemetryRecorder.recordFullyCachedAtStart(fileId, true)
+        PlaybackTelemetryRecorder.recordHeaderChunkTime(fileId, 55L)
+        PlaybackTelemetryRecorder.recordTailChunkTime(fileId, 110L)
+        PlaybackTelemetryRecorder.recordThroughput(fileId, 3_200_000L)
+
+        assertEquals(55L, PlaybackTelemetryRecorder.peekHeaderChunkTime(fileId))
+        assertTrue(PlaybackTelemetryRecorder.consumeFullyCachedAtStart(fileId))
+        assertFalse(PlaybackTelemetryRecorder.consumeFullyCachedAtStart(fileId))
+
+        assertEquals(55L, PlaybackTelemetryRecorder.consumeHeaderChunkTime(fileId))
+        assertNull(PlaybackTelemetryRecorder.consumeHeaderChunkTime(fileId))
+
+        assertEquals(110L, PlaybackTelemetryRecorder.consumeTailChunkTime(fileId))
+        assertNull(PlaybackTelemetryRecorder.consumeTailChunkTime(fileId))
+
+        assertEquals(3_200_000L, PlaybackTelemetryRecorder.consumeThroughput(fileId))
+        assertNull(PlaybackTelemetryRecorder.consumeThroughput(fileId))
+    }
+
+    @Test
+    fun recordsBufferConfigAndSerializesToTelemetry() {
+        val bufferConfigStr = "exo:normal(min=30000ms,max=120000ms,play=2500ms,rebuf=5000ms,back=30000ms)"
+        val record = PlaybackTelemetryRecord(
+            sessionId = "sess_buffer_cfg_1",
+            timeToFirstByteMs = 150L,
+            timeToFirstFrameMs = 400L,
+            rebufferCount = 1,
+            totalRebufferMs = 850L,
+            engine = "ExoPlayer",
+            videoDecoderName = "c2.android.avc.decoder",
+            audioDecoderName = "c2.android.aac.decoder",
+            container = "mp4",
+            fileSize = 75_000_000L,
+            bufferConfig = bufferConfigStr
+        )
+
+        PlaybackTelemetryRecorder.record(record)
+        val retrieved = PlaybackTelemetryRecorder.getRecords().single()
+        assertEquals(bufferConfigStr, retrieved.bufferConfig)
+
+        // Verify JSON roundtrip
+        val json = PlaybackTelemetrySerializer.recordToJson(record)
+        assertTrue(json.contains("\"bufferConfig\":\"exo:normal(min=30000ms,max=120000ms,play=2500ms,rebuf=5000ms,back=30000ms)\""))
+        val parsed = PlaybackTelemetrySerializer.parseRecord(json)
+        assertNotNull(parsed)
+        assertEquals(bufferConfigStr, parsed?.bufferConfig)
+
+        // Verify exportSummary contains buf string
+        val summary = PlaybackTelemetryRecorder.exportSummary()
+        assertTrue(summary.contains("buf=[exo:normal(min=30000ms,max=120000ms,play=2500ms,rebuf=5000ms,back=30000ms)]"))
+
+        // Verify exportJson contains bufferConfig
+        val exportJson = PlaybackTelemetryRecorder.exportJson()
+        assertTrue(exportJson.contains("\"bufferConfig\": \"exo:normal(min=30000ms,max=120000ms,play=2500ms,rebuf=5000ms,back=30000ms)\""))
+    }
 }

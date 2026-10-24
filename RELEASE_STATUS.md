@@ -30,7 +30,7 @@ The Gradle wrapper stopped before Gradle startup because `services.gradle.org` c
 1. Use Android Studio on a network-connected development machine with Android SDK API 37, then sync Gradle and run the commands above.
 2. Fix every compile/lint/test failure and rerun the suite.
 3. Install the debug build on an ARM64 phone and Android TV device; complete the end-to-end test matrix in `MOCK_TEST_REPORT.md`.
-4. Configure a real production signing keystore and expected SHA-256 fingerprint; run `:app:assembleHardenedRelease` and verify the APK certificate.
+4. Configure a real production signing keystore and expected SHA-256 fingerprint; run `:app:assembleRelease` and verify the APK certificate.
 5. Publish only the verified, signed artifact from the release pipeline.
 
 Do not treat passing mock tests as proof that the full Android app compiles or is production-ready.

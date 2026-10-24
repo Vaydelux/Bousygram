@@ -181,14 +181,12 @@ Configured in `app/build.gradle.kts`:
 | Variant | Minify / Obfuscation | Shrink Resources | Signing Config | Intended Purpose |
 |---|---|---|---|---|
 | **`debug`** | `false` | `false` | Debug Key | Local development and device testing |
-| **`staging`** | `false` | `false` | Debug Key | Pre-production testing with release configuration |
-| **`release`** | `false` | `false` | Release Keystore | Standard release |
-| **`hardenedRelease`**| `true` (R8 / ProGuard)| `true` | Release Keystore | Production distribution |
+| **`release`** | `true` (R8 / ProGuard)| `true` | Release Keystore | Production distribution |
 
 ### Automated Quality & Release Gates:
 1. **`verifyTdlibAbiCoverage`**: Verifies that native `libtdjni.so` is present and non-empty. Specifically requires `arm64-v8a` support before any release artifact can be assembled.
-2. **Fail-Closed Release Signing Gate**: Gradle task interceptor prevents silent fallback to debug certificates for `assembleRelease` or `assembleHardenedRelease`. The build explicitly aborts if `RELEASE_STORE_FILE` and associated passwords are not supplied.
-3. **Dynamic APK Naming**: Built APKs are automatically named with the version name and variant (e.g., `Bousygram-v1.0-debug.apk`).
+2. **Fail-Closed Release Signing Gate**: Release packaging fails closed if `RELEASE_STORE_FILE` and associated signing credentials are not supplied.
+3. **Dynamic APK Naming**: Built APKs are automatically named with the version name, variant, and ABI split (e.g., `Bousygram-v1.0-release-arm64-v8a.apk`).
 
 ---
 
@@ -201,16 +199,16 @@ During this repository audit, the build system, compilers, and test suites were 
 | **16 KB Page Alignment** | Native ELF Header Inspection | **PASSED** | All `arm64-v8a` native libraries (`libtdjni.so`, `libmpv.so`, `libavcodec.so`, etc.) verified aligned to `0x4000` (16,384 bytes). |
 | **TDLib ABI Coverage** | `.\gradlew.bat :app:verifyTdlibAbiCoverage` | **PASSED** | Verified `arm64-v8a` (21.4 MB) and `armeabi-v7a` (15.7 MB) native libraries. |
 | **Kotlin / Compose Compilation** | `.\gradlew.bat :app:compileDebugKotlin` | **PASSED** | 1m 39s. All Jetpack Compose TV screens, ViewModels, and data layers compiled cleanly with 4GB heap. |
-| **Android Unit Tests** | `.\gradlew.bat :app:testDebugUnitTest` | **PASSED** | 1m 31s. All 31 unit tests (including `MediaTopicFilteringTest`, `PlaybackHelpersTest`, `SeriesMetadataParserTest`, `VideoFormatSupportTest`, etc.) passed with 100% success. |
-| **Debug APK ABI Split Assembly** | `.\gradlew.bat :app:assembleDebug` | **PASSED** | 2m 20s. Full dexing (D8/R8), native lib packaging, and split APK generation completed. |
+| **Android Unit Tests** | `.\gradlew.bat :app:testDebugUnitTest` | **PASSED** | All 154 unit tests (including `TelegramChunkSchedulerTest`, `PlaybackTelemetryRecorderTest`, `MediaTopicFilteringTest`, `PlaybackHelpersTest`, `SeriesMetadataParserTest`, `VoiceSearchAccessibilityTest`, etc.) passed with 100% success. |
+| **Release Minified APK Assembly** | `.\gradlew.bat assembleRelease` | **PASSED** | 15m 55s. Full R8 code minification, resource shrinking, LintVital verification, ART profile compilation, and split APK packaging completed cleanly. |
 | **Fast-Link Mock Tests** | `python .\server\fastlink-proxy\run_mock_tests.py` | **PASSED** | 14/14 tests passed in 0.282s (range parsing, token lifecycle, routes). |
 
-### Generated Artifacts
-- **Directory**: `app/build/outputs/apk/debug/`
+### Generated Release Artifacts
+- **Directory**: `app/build/outputs/apk/release/`
 - **Split APKs**:
-  - `Bousygram-v1.0-debug-arm64-v8a.apk` (`71,879,828 bytes` ≈ 68.5 MB) — Tailored for modern Android TVs and 64-bit devices.
-  - `Bousygram-v1.0-debug-armeabi-v7a.apk` (`63,821,796 bytes` ≈ 60.8 MB) — Tailored for legacy 32-bit Android TV streaming sticks.
-  - `Bousygram-v1.0-debug-universal.apk` (`110,304,096 bytes` ≈ 105.18 MB) — Complete universal fallback containing all ABIs.
+  - `Bousygram-v1.0-release-arm64-v8a.apk` (`55,111,094 bytes` ≈ 52.5 MB) — Tailored for modern Android TVs and 64-bit devices with full R8 minification and resource shrinking.
+  - `Bousygram-v1.0-release-armeabi-v7a.apk` (`47,053,062 bytes` ≈ 44.8 MB) — Tailored for legacy 32-bit Android TV streaming sticks with full R8 minification and resource shrinking.
+  - `Bousygram-v1.0-release-universal.apk` (`93,535,362 bytes` ≈ 89.2 MB) — Complete universal fallback containing all ABIs.
 - **APK Package Metadata**: Application ID `com.vaydelux.bousygram`, Version Code `10`, Version Name `1.0`.
 
 ---
@@ -273,8 +271,8 @@ $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 # 4. Assemble debug split APKs
 .\gradlew.bat :app:assembleDebug
 
-# 5. Assemble production hardened release (requires signing credentials in local.properties)
-.\gradlew.bat :app:assembleHardenedRelease
+# 5. Assemble production release with R8 minification (requires signing credentials in local.properties)
+.\gradlew.bat :app:assembleRelease
 ```
 
 ### 9.3 Installing to Android TV Device

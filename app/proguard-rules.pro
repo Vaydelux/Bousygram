@@ -55,6 +55,7 @@
 
 # Media3 / ExoPlayer
 -keep class androidx.media3.** { *; }
+-keepclassmembers class androidx.media3.** { *; }
 -dontwarn androidx.media3.**
 
 # Ktor & Netty loopback server
@@ -67,10 +68,23 @@
 -dontwarn reactor.blockhound.integration.BlockHoundIntegration
 -dontwarn io.ktor.**
 -keep class io.ktor.** { *; }
+-keepclassmembers class io.ktor.** { *; }
+-dontwarn io.netty.**
+-keep class io.netty.** { *; }
+-keepclassmembers class io.netty.** { *; }
 
 # Coil image loading
 -dontwarn coil.**
 -keep class coil.** { *; }
+
+# Room database
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
+
+# Baseline Profile & ProfileInstaller
+-dontwarn androidx.profileinstaller.**
+-keep class androidx.profileinstaller.** { *; }
 
 # Serializable models
 -keepclassmembers class * implements java.io.Serializable {
@@ -81,3 +95,4 @@
     java.lang.Object writeReplace();
     java.lang.Object readResolve();
 }
+

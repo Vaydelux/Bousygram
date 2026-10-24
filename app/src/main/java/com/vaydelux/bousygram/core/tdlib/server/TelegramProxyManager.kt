@@ -258,12 +258,19 @@ object TelegramProxyManager {
         }
         TelegramChunkScheduler.noteFileSize(fileId, size)
         TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
-        call.respondBytesWriter(contentType = contentType, status = status) {
-            streamTelegramFileSequentially(
-                fileId,
-                HttpByteRange(range.start, range.endInclusive),
-                this
-            )
+        TelegramChunkScheduler.openPlayback(fileId, size)
+        try {
+            call.respondBytesWriter(contentType = contentType, status = status) {
+                streamTelegramFileSequentially(
+                    fileId,
+                    HttpByteRange(range.start, range.endInclusive),
+                    this
+                )
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Ktor stream closed by client fileId=$fileId: ${e.message}")
+            TelegramChunkScheduler.onClientDisconnected(fileId, range.start)
+            throw e
         }
     }
 
@@ -378,23 +385,31 @@ object TelegramProxyManager {
             if (expectedOffset > range.end) return@coroutineScope
         }
 
-        while (expectedOffset <= range.end) {
-            coroutineContext.ensureActive()
-            val limit = min(CHUNK_SIZE_BYTES.toLong(), range.end - expectedOffset + 1L).toInt()
-            if (limit <= 0) break
-            val chunk = fetchReadyChunkForStream(
-                fileId = fileId,
-                offset = expectedOffset,
-                limit = limit,
-                purpose = TelegramChunkPurpose.Streaming
-            )
-            if (chunk == null) {
-                Log.w(TAG, "Stream chunk unavailable fileId=$fileId offset=$expectedOffset; terminating stream gracefully")
-                break
+        try {
+            while (expectedOffset <= range.end) {
+                coroutineContext.ensureActive()
+                val limit = min(CHUNK_SIZE_BYTES.toLong(), range.end - expectedOffset + 1L).toInt()
+                if (limit <= 0) break
+                val chunk = fetchReadyChunkForStream(
+                    fileId = fileId,
+                    offset = expectedOffset,
+                    limit = limit,
+                    purpose = TelegramChunkPurpose.Streaming
+                )
+                if (chunk == null) {
+                    Log.w(TAG, "Stream chunk unavailable fileId=$fileId offset=$expectedOffset; terminating stream gracefully")
+                    break
+                }
+                channel.writeFully(chunk, 0, chunk.size)
+                channel.flush()
+                expectedOffset += chunk.size
             }
-            channel.writeFully(chunk, 0, chunk.size)
-            channel.flush()
-            expectedOffset += chunk.size
+        } catch (e: Throwable) {
+            if (expectedOffset <= range.end) {
+                Log.d(TAG, "Client cancelled mid-range fileId=$fileId offset=$expectedOffset: ${e.message}")
+                TelegramChunkScheduler.onClientDisconnected(fileId, expectedOffset)
+            }
+            throw e
         }
     }
 

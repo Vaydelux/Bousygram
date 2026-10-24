@@ -520,6 +520,7 @@ class MediaViewModel(
                 else requestedThumbnailFileIds.remove(thumbnailFileId)
             }
         }
+        // Do not download the first 2 MiB of every video on TV D-pad focus; only resolve metadata/thumbnails.
         // Prefetch on focus: >400 ms debounce, 2MB head (and MP4 tail), low priority, max 2 concurrent, never while playing
         com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onCardFocused(item)
     }

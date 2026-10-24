@@ -1,35 +1,41 @@
-*.iml
-.gradle
+# ==========================================
+# Gradle & Build Artifacts
+# ==========================================
+.gradle/
+**/build/
+build/
+app/build/
+buildSrc/build/
+build-tools/tdlib-arm64/build/
+out/
+captures/
 .kotlin/
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.idea/
-.DS_Store
-/build
-/app/build
-/buildSrc/build
-/build-tools/tdlib-arm64/build/
-/.codex-checkpoints/
-/out
-/captures
-/fastlink-proxy-render/
-.externalNativeBuild
-.cxx
-local.properties
+gradle-app.setting
 
-# Keystores & signing
+# Binary & Package Outputs
+*.apk
+*.aab
+*.dm
+*.class
+*.war
+*.ear
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# ==========================================
+# Local Configuration & Secrets
+# ==========================================
+local.properties
+/local.properties
+release.keystore.b64
+
+# Keystores & Signing Certificates
 *.jks
 *.keystore
 *.p12
 *.pem
-release.keystore.b64
 
-# Secrets & configs
+# Secrets & Configs
 **/google-services.json
 **/firebase.json
 **/service-account*.json
@@ -40,40 +46,61 @@ release.keystore.b64
 **/keys.properties
 **/keystore.properties
 
-# Logs
-*.log
-__pycache__/
-*.pyc
+# ==========================================
+# IDE & Editor Files
+# ==========================================
+# Android Studio / IntelliJ
+*.iml
+.idea/
 
-# Kotlin/Java artifacts
-*.class
-*.jar
-!gradle/wrapper/gradle-wrapper.jar
-*.war
-*.ear
-*.apk
-*.aab
+# VS Code & Fleet
+.vscode/
+.fleet/
 
-# IntelliJ/Android Studio
-/.idea/*
-!/.idea/codeStyles
-!/.idea/codeStyles/**
-!/.idea/runConfigurations
-!/.idea/runConfigurations/**
-/.idea/sonarlint
-
-# Gradle
-/gradle-app.setting
-
-# NDK
+# ==========================================
+# NDK & Native Compilation
+# ==========================================
+.externalNativeBuild/
+.cxx/
 **/obj/
 **/*.so
 
-# But include TDLib native library (required for app to work)
+# CRITICAL: Preserve bundled TDLib native library
 !app/src/main/jniLibs/**/*.so
 
-.git/
-**/__pycache__/
-**/*.pyc
-**/.gradle/
-**/build/
+# ==========================================
+# Python / Server Artifacts
+# ==========================================
+__pycache__/
+**/*/__pycache__/
+*.py[cod]
+*$py.class
+/fastlink-proxy-render/
+
+# ==========================================
+# Diagnostics, Logs & Profiling
+# ==========================================
+*.log
+*.hprof
+hs_err_pid*
+
+# ==========================================
+# OS & System Files
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Backups & Editor Swap Files
+*.bak
+*.swp
+*~
+/.codex-checkpoints/

@@ -113,15 +113,13 @@ Optional Firebase Test Lab jobs are disabled unless the repository variable `FIR
 .\gradlew.bat :app:assembleDebug
 ```
 
-Release variants:
+Release build:
 
 ```powershell
-.\gradlew.bat :app:assembleStaging
 .\gradlew.bat :app:assembleRelease
-.\gradlew.bat :app:assembleHardenedRelease
 ```
 
-APK files are named with the app version, for example `Bousygram-v1.0-debug.apk`.
+APK files are named with the app version, variant, and ABI split, for example `Bousygram-v1.0-release-arm64-v8a.apk`.
 
 ---
 

@@ -36,6 +36,7 @@ import com.vaydelux.bousygram.presentation.components.ShellDestination
 import com.vaydelux.bousygram.presentation.navigation.AppScreen
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusState
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusStateSaver
+import com.vaydelux.bousygram.presentation.navigation.unwrapNonPlayerScreen
 import com.vaydelux.bousygram.presentation.preview.TvHybridPreviewHost
 import com.vaydelux.bousygram.presentation.search.SearchViewModel
 import com.vaydelux.bousygram.presentation.settings.SettingsScreen
@@ -172,7 +173,7 @@ private fun BousygramAppRoot(
 
     BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen !is AppScreen.Home) {
         appScreen = when (val screen = appScreen) {
-            is AppScreen.Player -> screen.returnTo
+            is AppScreen.Player -> unwrapNonPlayerScreen(screen.returnTo)
             is AppScreen.Search -> screen.returnTo
             AppScreen.Library -> AppScreen.Home
             is AppScreen.Favorites -> screen.returnTo
@@ -198,7 +199,7 @@ private fun BousygramAppRoot(
             PlayerScreen(
                 request = screen.request,
                 isInPipMode = activity?.isInPipMode ?: false,
-                onExit = { appScreen = screen.returnTo },
+                onExit = { appScreen = unwrapNonPlayerScreen(screen.returnTo) },
                 onEnterPip = {
                     val act = activity
                     if (act != null) {
@@ -278,7 +279,7 @@ private fun AuthorizedContent(
     onLogout: () -> Unit
 ) {
     val openPlayer: (PlaybackRequest, AppScreen) -> Unit = { request, returnTo ->
-        onAppScreenChange(AppScreen.Player(request, returnTo))
+        onAppScreenChange(AppScreen.Player(request, unwrapNonPlayerScreen(returnTo)))
     }
     when (val screen = appScreen) {
         is AppScreen.Search -> SearchRoute(

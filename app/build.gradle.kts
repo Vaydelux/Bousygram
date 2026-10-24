@@ -4,6 +4,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
@@ -104,11 +105,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
-            if (hasReleaseSigning) {
-                signingConfig = signingConfigs.getByName("release")
-            } else {
-                signingConfig = signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -152,6 +149,12 @@ android {
         }
     }
 
+}
+
+baselineProfile {
+    warnings {
+        maxAgpVersion = false
+    }
 }
 
 androidComponents {
@@ -231,6 +234,8 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     annotationProcessor(libs.androidx.room.compiler)
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

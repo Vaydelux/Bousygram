@@ -788,7 +788,8 @@ fun BousygramTextField(
     modifier: Modifier = Modifier,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
-    visualTransformation: VisualTransformation = VisualTransformation.None
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailingIcon: (@Composable () -> Unit)? = null
 ) {
     OutlinedTextField(
         value = value,
@@ -798,6 +799,7 @@ fun BousygramTextField(
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
         visualTransformation = visualTransformation,
+        trailingIcon = trailingIcon,
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 60.dp),

@@ -37,14 +37,15 @@ class BousygramRouter(
     }
 
     fun openPlayer(request: PlaybackRequest, returnTo: AppScreen = currentScreen) {
-        currentScreen = AppScreen.Player(request = request, returnTo = returnTo)
+        val safeReturnTo = unwrapNonPlayerScreen(returnTo)
+        currentScreen = AppScreen.Player(request = request, returnTo = safeReturnTo)
     }
 
     fun popBack(): Boolean {
         val screen = currentScreen
         if (screen is AppScreen.Home) return false
         currentScreen = when (screen) {
-            is AppScreen.Player -> screen.returnTo
+            is AppScreen.Player -> unwrapNonPlayerScreen(screen.returnTo)
             is AppScreen.Search -> screen.returnTo
             AppScreen.Library -> AppScreen.Home
             is AppScreen.Favorites -> screen.returnTo
