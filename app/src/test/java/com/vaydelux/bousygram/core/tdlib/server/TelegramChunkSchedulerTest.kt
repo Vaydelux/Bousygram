@@ -5,14 +5,25 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 class TelegramChunkSchedulerTest {
+    @Before
+    fun setUp() {
+        TelegramChunkScheduler.resetForTests()
+        TelegramFileGatewayRegistry.reset()
+        TelegramChunkScheduler.resumeBackgroundWork()
+    }
+
     @After
     fun tearDown() {
         TelegramChunkScheduler.resetForTests()
@@ -152,6 +163,129 @@ class TelegramChunkSchedulerTest {
         assertEquals(1, gateway.totalDownloadCalls())
     }
 
+    @Test
+    fun tailFirstOrderingServesTailImmediatelyWithoutWaitingForCompletion() = runBlocking {
+        val totalSize = 10 * 1024 * 1024 // 10 MB MP4
+        val bytes = ByteArray(totalSize) { index -> (index % 251).toByte() }
+        val tailOffset = totalSize - 4096L
+        val gateway = FakeTelegramFileGateway(
+            bytes = bytes,
+            completed = false,
+            downloadOffset = 0L,
+            downloadedPrefixSize = 0L
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.noteFileSize(55, totalSize.toLong())
+
+        // On open, parallel head and tail are triggered:
+        TelegramChunkScheduler.openPlayback(fileId = 55, totalSize = totalSize.toLong(), isMp4 = true).join()
+
+        // Simulate TDLib delivering tail bytes first via UpdateFile
+        TelegramChunkScheduler.onFileUpdated(
+            TelegramGatewayFile(
+                fileId = 55,
+                localPath = gateway.tempFileAbsolutePath,
+                isDownloadingCompleted = false,
+                downloadOffset = totalSize - 2L * 1024L * 1024L,
+                downloadedPrefixSize = 2L * 1024L * 1024L,
+                size = totalSize.toLong()
+            )
+        )
+
+        // Player requests tail first (to read moov atom at end of file)
+        val tailResult = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(55, tailOffset, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+
+        val ready = tailResult as TelegramChunkResult.Ready
+        assertArrayEquals(bytes.copyOfRange(tailOffset.toInt(), (tailOffset + 4096).toInt()), ready.bytes)
+        // Verify tail download was requested with PLAYBACK_PRIORITY (32) and without waiting for isDownloadingCompleted
+        val tailDownload = gateway.downloadRecords.firstOrNull { it.fileId == 55 && it.offset > 0L }
+        assertNotNull(tailDownload)
+        assertEquals(TelegramChunkScheduler.PLAYBACK_PRIORITY, tailDownload!!.priority)
+    }
+
+    @Test
+    fun seekOutsideWindowCancelsStaleDownloadAndStartsNewRangeAtHighPriority() = runBlocking {
+        val totalSize = 100 * 1024 * 1024 // 100 MB file
+        val bytes = ByteArray(totalSize) { index -> (index % 199).toByte() }
+        val gateway = FakeTelegramFileGateway(bytes, completed = false, downloadOffset = 0L, downloadedPrefixSize = 4096L)
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.noteFileSize(66, totalSize.toLong())
+
+        // Initial playhead chunk at offset 0
+        val initialResult = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(66, 0L, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+        assertEquals(TelegramChunkResult.Ready::class, initialResult::class)
+
+        // User seeks to 50 MB (far outside the 8MB playback window)
+        val seekOffset = 50L * 1024L * 1024L
+        val seekResult = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(66, seekOffset, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+        assertEquals(TelegramChunkResult.Ready::class, seekResult::class)
+
+        // Verify cancelDownloadFile was invoked on seek
+        assertTrue(gateway.cancelledFiles.contains(66))
+        assertTrue(gateway.cancelCalls.get() > 0)
+
+        // Verify new download at seek offset was issued with PLAYBACK_PRIORITY (32)
+        val seekDownload = gateway.downloadRecords.firstOrNull { it.fileId == 66 && it.offset == seekOffset }
+        assertNotNull(seekDownload)
+        assertEquals(TelegramChunkScheduler.PLAYBACK_PRIORITY, seekDownload!!.priority)
+    }
+
+    @Test
+    fun prefetchRunsAtLowerPriorityThanAwaitedPlayback() = runBlocking {
+        val bytes = ByteArray(256 * 1024) { 1 }
+        val gateway = FakeTelegramFileGateway(bytes)
+        TelegramFileGatewayRegistry.installForTests(gateway)
+
+        TelegramChunkScheduler.prefetchRange(
+            fileId = 80,
+            offset = 0L,
+            length = 4096L,
+            purpose = TelegramChunkPurpose.CacheAhead,
+            priority = TelegramChunkScheduler.PREFETCH_PRIORITY
+        ).join()
+
+        val prefetchDownload = gateway.downloadRecords.firstOrNull { it.fileId == 80 }
+        assertNotNull(prefetchDownload)
+        assertEquals(TelegramChunkScheduler.PREFETCH_PRIORITY, prefetchDownload!!.priority)
+        assertTrue(prefetchDownload.priority < TelegramChunkScheduler.PLAYBACK_PRIORITY)
+    }
+
+    @Test
+    fun downloadFailureReResolvesFileIdViaGetMessageAndRetriesOnce() = runBlocking {
+        val totalSize = 1024 * 1024
+        val bytes = ByteArray(totalSize) { 9 }
+        val gateway = FakeTelegramFileGateway(bytes, completed = true)
+        val oldFileId = 100
+        val newFileId = 101
+
+        gateway.failFileIdOnce = oldFileId
+        gateway.reResolveFileResult = TelegramGatewayFile(
+            fileId = newFileId,
+            localPath = gateway.tempFileAbsolutePath,
+            isDownloadingCompleted = true,
+            downloadOffset = 0L,
+            downloadedPrefixSize = totalSize.toLong(),
+            size = totalSize.toLong()
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.noteFileContext(fileId = oldFileId, chatId = 12345L, messageId = 67890L)
+
+        val result = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(oldFileId, 0L, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+
+        assertEquals(TelegramChunkResult.Ready::class, result::class)
+        assertEquals(1, gateway.reResolveCalls.get())
+        // Verify subsequent requests for oldFileId use remapped fileId
+        assertEquals(newFileId, TelegramChunkScheduler.resolveEffectiveFileId(oldFileId))
+    }
+
     private class FakeTelegramFileGateway(
         private val bytes: ByteArray,
         private val completed: Boolean = true,
@@ -163,6 +297,22 @@ class TelegramChunkSchedulerTest {
             writeBytes(bytes)
             deleteOnExit()
         }
+        val tempFileAbsolutePath: String get() = tempFile.absolutePath
+
+        data class DownloadRecord(
+            val fileId: Int,
+            val priority: Int,
+            val offset: Long,
+            val limit: Int
+        )
+
+        val downloadRecords = CopyOnWriteArrayList<DownloadRecord>()
+        val cancelCalls = AtomicInteger(0)
+        val cancelledFiles = ConcurrentHashMap.newKeySet<Int>()
+        var failFileIdOnce: Int? = null
+        var reResolveFileResult: TelegramGatewayFile? = null
+        val reResolveCalls = AtomicInteger(0)
+
         private val counts = ConcurrentHashMap<String, AtomicInteger>()
         private val activeDownloads = AtomicInteger(0)
         val maxActiveDownloads = AtomicInteger(0)
@@ -182,8 +332,14 @@ class TelegramChunkSchedulerTest {
                 }
             }
             return try {
-                counts.getOrPut("$fileId:$offset:$limit") { AtomicInteger(0) }.incrementAndGet()
-                TelegramGatewayResult.Success(file(fileId))
+                downloadRecords.add(DownloadRecord(fileId, priority, offset, limit))
+                if (failFileIdOnce == fileId) {
+                    failFileIdOnce = null
+                    TelegramGatewayResult.Failure(code = 400, message = "FILE_REFERENCE_EXPIRED", fatal = true)
+                } else {
+                    counts.getOrPut("$fileId:$offset:$limit") { AtomicInteger(0) }.incrementAndGet()
+                    TelegramGatewayResult.Success(file(fileId, offset = offset))
+                }
             } finally {
                 activeDownloads.decrementAndGet()
             }
@@ -201,15 +357,28 @@ class TelegramChunkSchedulerTest {
             return if (start in 0 until end && end - start == limit) bytes.copyOfRange(start, end) else null
         }
 
+        override suspend fun cancelDownloadFile(fileId: Int, onlyIfPending: Boolean): Boolean {
+            cancelCalls.incrementAndGet()
+            cancelledFiles.add(fileId)
+            return true
+        }
+
+        override suspend fun reResolveFile(chatId: Long, messageId: Long): TelegramGatewayFile? {
+            reResolveCalls.incrementAndGet()
+            return reResolveFileResult
+        }
+
         fun totalDownloadCalls(): Int = counts.values.sumOf { it.get() }
 
-        private fun file(fileId: Int): TelegramGatewayFile =
-            TelegramGatewayFile(
+        private fun file(fileId: Int, offset: Long? = null): TelegramGatewayFile {
+            val effOffset = offset ?: downloadRecords.lastOrNull { it.fileId == fileId }?.offset ?: downloadOffset
+            return TelegramGatewayFile(
                 fileId = fileId,
                 localPath = tempFile.absolutePath,
                 isDownloadingCompleted = completed,
-                downloadOffset = downloadOffset,
-                downloadedPrefixSize = downloadedPrefixSize
+                downloadOffset = effOffset,
+                downloadedPrefixSize = if (completed) bytes.size.toLong() else downloadedPrefixSize
             )
+        }
     }
 }

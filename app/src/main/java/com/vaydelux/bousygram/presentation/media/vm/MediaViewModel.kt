@@ -56,6 +56,8 @@ class MediaViewModel(
                                 else current.copy(items = listOf(newItem) + current.items)
                             }
                             fetchThumbnails(listOf(newItem))
+                            com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(listOf(newItem))
+                            enrichMediaItemsAsync(listOf(newItem))
                         }
                     }
                 }
@@ -112,6 +114,7 @@ class MediaViewModel(
         TdLibClient.removeDeleteMessageHandler(deleteMessageHandler)
         TdLibClient.removeUpdateHandler(chatUpdateHandler)
         repository.shutdown()
+        com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onFocusCleared()
         super.onCleared()
     }
 
@@ -135,6 +138,18 @@ class MediaViewModel(
                 nextFromMessageId = 0L
             )
         }
+        viewModelScope.launch {
+            val cached = com.vaydelux.bousygram.data.database.VideoIndexRepository.getIndexedVideosForChat(
+                repository.cachedSavedMessagesChatId,
+                null
+            )
+            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+                _uiState.update { current ->
+                    if (current.items.isEmpty()) current.copy(items = cached) else current
+                }
+                enrichMediaItemsAsync(cached)
+            }
+        }
         repository.loadLatestMediaPagedProgressive(pageSize, null) { items, nextFromMessageId, error, isFinal ->
             if (requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
             _uiState.update { current ->
@@ -145,6 +160,10 @@ class MediaViewModel(
                     hasMore = isFinal && nextFromMessageId != 0L,
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
+            }
+            if (items.isNotEmpty()) {
+                com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
+                enrichMediaItemsAsync(items)
             }
             fetchThumbnails(items)
             scheduleChatSourceLoad()
@@ -192,6 +211,18 @@ class MediaViewModel(
                 videoChats = it.videoChats.map { source -> source.copy(isSelected = !source.isSavedMessages && source.chatId == chatId) }
             )
         }
+        viewModelScope.launch {
+            val cached = com.vaydelux.bousygram.data.database.VideoIndexRepository.getIndexedVideosForChat(
+                chatId,
+                null
+            )
+            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+                _uiState.update { current ->
+                    if (current.items.isEmpty()) current.copy(items = cached) else current
+                }
+                enrichMediaItemsAsync(cached)
+            }
+        }
         loadForumTopics(chatId)
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null) { items, nextFromMessageId, error, isFinal ->
             if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
@@ -203,6 +234,10 @@ class MediaViewModel(
                     hasMore = isFinal && nextFromMessageId != 0L,
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
+            }
+            if (items.isNotEmpty()) {
+                com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
+                enrichMediaItemsAsync(items)
             }
             fetchThumbnails(items)
             scheduleChatSourceLoad()
@@ -232,6 +267,17 @@ class MediaViewModel(
                 nextFromMessageId = 0L
             )
         }
+        viewModelScope.launch {
+            val cached = com.vaydelux.bousygram.data.database.VideoIndexRepository.getIndexedVideosForChat(
+                chatId,
+                topicId?.toLong()
+            )
+            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+                _uiState.update { current ->
+                    if (current.items.isEmpty()) current.copy(items = cached) else current
+                }
+            }
+        }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null, topicId = topicId) { items, nextFromMessageId, error, isFinal ->
             if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
@@ -242,6 +288,9 @@ class MediaViewModel(
                     hasMore = isFinal && nextFromMessageId != 0L,
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
+            }
+            if (items.isNotEmpty()) {
+                com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
             }
             fetchThumbnails(items)
         }
@@ -290,7 +339,44 @@ class MediaViewModel(
                 nextFromMessageId = if (isFinal) nextFromMessageId else current.nextFromMessageId
             )
         }
-        if (items.isNotEmpty()) fetchThumbnails(items)
+        if (items.isNotEmpty()) {
+            com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
+            enrichMediaItemsAsync(items)
+            fetchThumbnails(items)
+        }
+    }
+
+    private val enrichedMediaKeys =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    private fun enrichMediaItemsAsync(items: List<MediaItem>) {
+        val itemsToEnrich = items.filter { item ->
+            val key = "${item.chatId}_${item.messageId}"
+            (item.tmdbPosterPath.isNullOrBlank() && item.tmdbTitle.isNullOrBlank()) && enrichedMediaKeys.add(key)
+        }
+        if (itemsToEnrich.isEmpty()) return
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val context = com.vaydelux.bousygram.app.BousygramApp.instance
+            itemsToEnrich.chunked(10).forEach { chunk ->
+                val enrichedChunk = chunk.map { item ->
+                    try {
+                        com.vaydelux.bousygram.data.repository.TmdbRepository.enrich(item, context)
+                    } catch (e: Exception) {
+                        item
+                    }
+                }
+                _uiState.update { current ->
+                    val enrichedMap = enrichedChunk.associateBy { "${it.chatId}_${it.messageId}" }
+                    current.copy(
+                        items = current.items.map { existing ->
+                            val key = "${existing.chatId}_${existing.messageId}"
+                            enrichedMap[key] ?: existing
+                        }
+                    )
+                }
+            }
+        }
     }
 
     private fun fetchThumbnails(items: List<MediaItem>) {
@@ -422,9 +508,6 @@ class MediaViewModel(
     }
 
     fun onItemFocused(item: MediaItem) {
-        // Browsing must remain metadata-first. Do not download the first 2 MiB of every video
-        // when a TV remote merely moves focus across a card. ExoPlayer/local streaming primes
-        // the selected video only after the user opens it; here we may request just its thumbnail.
         item.fileId?.let { fileId ->
             MediaDurationResolver.cachedDurationMs(fileId)
                 .takeIf { it > 0L && it != item.trustedDurationMs }
@@ -437,6 +520,12 @@ class MediaViewModel(
                 else requestedThumbnailFileIds.remove(thumbnailFileId)
             }
         }
+        // Prefetch on focus: >400 ms debounce, 2MB head (and MP4 tail), low priority, max 2 concurrent, never while playing
+        com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onCardFocused(item)
+    }
+
+    fun onItemFocusLost(item: MediaItem) {
+        com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onCardFocusLost(item)
     }
 
     private fun updateThumbnailPathForFile(thumbnailFileId: Int, path: String) {

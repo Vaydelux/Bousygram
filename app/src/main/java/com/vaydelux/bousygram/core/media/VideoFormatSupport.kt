@@ -110,9 +110,136 @@ object VideoFormatSupport {
         }
     }
 
+    fun resolveContainer(fileName: String?, mimeType: String?, title: String = ""): String {
+        val ext = extensionOf(streamLabel(fileName, title))
+        if (!ext.isNullOrBlank()) return ext
+        val mime = mimeType?.lowercase()?.trim().orEmpty()
+        return when {
+            mime.contains("matroska") -> "mkv"
+            mime.contains("mp4") -> "mp4"
+            mime.contains("webm") -> "webm"
+            mime.contains("mp2t") -> "ts"
+            mime.contains("quicktime") -> "mov"
+            mime.contains("msvideo") || mime.contains("avi") -> "avi"
+            mime.contains("flv") -> "flv"
+            mime.contains("mpegurl") -> "m3u8"
+            mime.contains("3gpp") -> "3gp"
+            mime.startsWith("video/") -> mime.removePrefix("video/").substringBefore(';').trim()
+            else -> "unknown"
+        }
+    }
+
     private fun extensionOf(label: String): String? {
         val dot = label.lastIndexOf('.')
         if (dot < 0 || dot == label.lastIndex) return null
         return label.substring(dot + 1).lowercase().trim().takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Determines whether an error is caused by video/audio decoder initialization, capability, or decoding failures.
+     */
+    fun isDecoderError(error: Throwable?, message: String?): Boolean {
+        if (error is androidx.media3.common.PlaybackException) {
+            when (error.errorCode) {
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> return true
+            }
+        }
+        val text = buildString {
+            if (!message.isNullOrBlank()) append(message).append(" ")
+            if (error != null) {
+                append(error::class.java.name).append(" ")
+                append(error.message.orEmpty()).append(" ")
+                error.cause?.let {
+                    append(it::class.java.name).append(" ")
+                    append(it.message.orEmpty())
+                }
+            }
+        }.lowercase()
+        return text.contains("decoder") ||
+            text.contains("mediacodec") ||
+            text.contains("codec_") ||
+            text.contains("codecinit") ||
+            text.contains("unsupported_codec")
+    }
+
+    /**
+     * Determines whether an error is caused by container demuxing, stream parsing, or malformed headers.
+     */
+    fun isContainerError(error: Throwable?, message: String?): Boolean {
+        if (error is androidx.media3.common.PlaybackException) {
+            when (error.errorCode) {
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED -> return true
+            }
+        }
+        val text = buildString {
+            if (!message.isNullOrBlank()) append(message).append(" ")
+            if (error != null) {
+                append(error::class.java.name).append(" ")
+                append(error.message.orEmpty()).append(" ")
+                error.cause?.let {
+                    append(it::class.java.name).append(" ")
+                    append(it.message.orEmpty())
+                }
+            }
+        }.lowercase()
+        return text.contains("container") ||
+            text.contains("parser") ||
+            text.contains("malformed") ||
+            text.contains("extractor") ||
+            text.contains("demux")
+    }
+
+    /**
+     * Determines whether an error is caused by unsupported stream or track formats.
+     */
+    fun isUnsupportedFormatError(error: Throwable?, message: String?): Boolean {
+        if (error is androidx.media3.common.PlaybackException) {
+            when (error.errorCode) {
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> return true
+            }
+        }
+        val text = buildString {
+            if (!message.isNullOrBlank()) append(message).append(" ")
+            if (error != null) {
+                append(error::class.java.name).append(" ")
+                append(error.message.orEmpty()).append(" ")
+                error.cause?.let {
+                    append(it::class.java.name).append(" ")
+                    append(it.message.orEmpty())
+                }
+            }
+        }.lowercase()
+        return text.contains("unsupported") ||
+            text.contains("unrecognized") ||
+            text.contains("none of the available extractors") ||
+            text.contains("format not supported")
+    }
+
+    /**
+     * Identifies whether the given error warrants an automatic fallback to libmpv.
+     * Triggers strictly on decoder, container, or unsupported-format errors.
+     */
+    fun isExoPlayerFallbackCandidate(error: Throwable?, message: String?): Boolean =
+        isDecoderError(error, message) || isContainerError(error, message) || isUnsupportedFormatError(error, message)
+
+    /**
+     * Classifies the specific fallback reason for telemetry reporting.
+     */
+    fun classifyFallbackReason(error: Throwable?, message: String?): String {
+        val detail = message?.takeIf { it.isNotBlank() } ?: error?.message?.takeIf { it.isNotBlank() } ?: "Unknown cause"
+        return when {
+            isDecoderError(error, message) -> "Decoder error: $detail"
+            isContainerError(error, message) -> "Container/parser error: $detail"
+            isUnsupportedFormatError(error, message) -> "Unsupported format error: $detail"
+            else -> "Format error: $detail"
+        }
     }
 }

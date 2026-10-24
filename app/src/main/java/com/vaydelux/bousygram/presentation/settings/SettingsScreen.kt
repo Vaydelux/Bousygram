@@ -4,16 +4,13 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import androidx.compose.animation.AnimatedVisibility
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,16 +20,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -49,18 +44,12 @@ import androidx.compose.ui.unit.sp
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCacheStorageStats
-import com.vaydelux.bousygram.data.store.BufferMode
-import com.vaydelux.bousygram.data.store.CacheLimitOption
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
-import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
-import com.vaydelux.bousygram.data.store.PlaybackMode
-import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramChip
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
-import com.vaydelux.bousygram.presentation.components.FeatureRow
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import java.io.File
@@ -68,13 +57,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Settings Screen strictly constrained to:
+ * 1. Privacy mode (blur posters)
+ * 2. Subtitle language
+ * 3. Clear cache
+ * 4. Export diagnostics
+ * 5. Log out
+ */
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    themePreset: BousygramThemePreset,
-    onThemePresetChange: (BousygramThemePreset) -> Unit,
+    themePreset: BousygramThemePreset = BousygramThemePreset.DARK,
+    onThemePresetChange: (BousygramThemePreset) -> Unit = {},
     modifier: Modifier = Modifier,
-    onLogout: () -> Unit = {}
+    onLogout: () -> Unit = {},
+    onOpenAbout: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -82,28 +80,20 @@ fun SettingsScreen(
     val clipboard = remember { context.getSystemService(ClipboardManager::class.java) }
     val tdLibCacheDir = remember(context) { File(context.filesDir, "tdlib_files") }
 
-    var selectedEngine by remember { mutableStateOf(EnterprisePreferences.selectedPlayerEngine()) }
     var safeMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
-    var hideWatched by remember { mutableStateOf(EnterprisePreferences.hideWatched()) }
-    var autoPlayNext by remember { mutableStateOf(EnterprisePreferences.autoPlayNext()) }
-    var subtitlesDefault by remember { mutableStateOf(EnterprisePreferences.subtitlesDefault()) }
-    var speed by remember { mutableFloatStateOf(EnterprisePreferences.preferredSpeed()) }
-    var bufferMode by remember { mutableStateOf(EnterprisePreferences.bufferMode()) }
-    var playbackMode by remember { mutableStateOf(EnterprisePreferences.playbackMode()) }
-    var cacheLimitOption by remember { mutableStateOf(EnterprisePreferences.cacheLimitOption()) }
+    var subtitleLang by remember { mutableStateOf(EnterprisePreferences.subtitleLanguage()) }
     var storageRefresh by remember { mutableStateOf(0) }
-    var lastPruneResult by remember { mutableStateOf<String?>(null) }
-    var isDiagnosticsExpanded by remember { mutableStateOf(false) }
+    var clearCacheStatus by remember { mutableStateOf<String?>(null) }
+    var isClearingCache by remember { mutableStateOf(false) }
 
     val storageStats by produceState(
         initialValue = TelegramCacheStorageStats(
             appCacheBytes = 0L,
             appFilesBytes = 0L,
             tdLibCacheBytes = 0L,
-            cacheLimitBytes = TelegramCachePruner.DEFAULT_CACHE_CEILING_BYTES
+            cacheLimitBytes = TelegramCachePruner.calculateDynamicCacheLimit(context)
         ),
         context,
-        cacheLimitOption,
         storageRefresh
     ) {
         value = withContext(Dispatchers.IO) {
@@ -111,19 +101,21 @@ fun SettingsScreen(
         }
     }
     val cacheSize = storageStats.totalBytes
-    val diagnostics = remember(
-        safeMode,
-        hideWatched,
-        autoPlayNext,
-        subtitlesDefault,
-        speed,
-        bufferMode,
-        cacheLimitOption,
-        cacheSize
-    ) {
+
+    val diagnosticsText = remember(safeMode, subtitleLang, cacheSize) {
         EnterprisePreferences.diagnosticsText(cacheSize, BuildConfig.VERSION_NAME)
     }
-    val playbackReport = remember(storageRefresh) { PlaybackDiagnostics.sessionReport() }
+
+    val subtitleLanguages = listOf(
+        "en" to "English",
+        "es" to "Spanish",
+        "fr" to "French",
+        "de" to "German",
+        "ja" to "Japanese",
+        "ko" to "Korean",
+        "ar" to "Arabic",
+        "off" to "Off"
+    )
 
     BousygramScaffold(modifier) {
         Row(
@@ -132,7 +124,6 @@ fun SettingsScreen(
                 .padding(if (adaptive.isCompact) 16.dp else 28.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // Sidebar for Non-Compact screen
             if (!adaptive.isCompact) {
                 Column(
                     modifier = Modifier.width(280.dp),
@@ -145,46 +136,28 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "Enterprise Telegram video client configuration and storage management.",
+                        "Zero-configuration controls and diagnostics.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(Modifier.height(8.dp))
                     BousygramButton("Back", onBack, modifier = Modifier.fillMaxWidth())
 
-                    EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("STATUS", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("TDLib MTProto", style = MaterialTheme.typography.labelMedium, color = Color.White)
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF5EE5BE)))
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Keystore AES-256", style = MaterialTheme.typography.labelMedium, color = Color.White)
-                                Text("Active", style = MaterialTheme.typography.labelSmall, color = Color(0xFF5EE5BE))
-                            }
-                        }
-                    }
+                    Spacer(Modifier.weight(1f))
+                    BousygramButton(
+                        text = "About & TMDB Notice",
+                        onClick = onOpenAbout,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
-            // Main Settings Content
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxSize()
-                    .focusGroup(),
+                    .fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Header on Compact screen
                 if (adaptive.isCompact) {
                     item {
                         Row(
@@ -194,378 +167,242 @@ fun SettingsScreen(
                         ) {
                             Text(
                                 "Settings",
-                                color = MaterialTheme.colorScheme.onBackground,
                                 style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
                             )
                             BousygramButton("Back", onBack)
                         }
                     }
                 }
 
-                // Section 1: Playback
+                // 1. Privacy Mode
                 item {
-                    Section("1. Playback") {
-                        Text(
-                            "Preferred Media Engine",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
+                    EnterprisePanel(Modifier.fillMaxWidth()) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            SelectedPlayerEngine.entries.forEach { engine ->
-                                BousygramChip(
-                                    text = engine.label,
-                                    selected = selectedEngine == engine,
-                                    onClick = {
-                                        selectedEngine = engine
-                                        EnterprisePreferences.setSelectedPlayerEngine(engine)
-                                    }
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Default Speed",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { value ->
-                                BousygramChip(
-                                    text = "${value}x",
-                                    selected = speed == value,
-                                    onClick = {
-                                        speed = value
-                                        EnterprisePreferences.setPreferredSpeed(value)
-                                    }
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Stream Runway Mode",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            BufferMode.entries.forEach { mode ->
-                                BousygramChip(
-                                    text = mode.label,
-                                    selected = bufferMode == mode,
-                                    onClick = {
-                                        bufferMode = mode
-                                        EnterprisePreferences.setBufferMode(mode)
-                                    }
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Streaming Pipeline",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            PlaybackMode.entries.forEach { mode ->
-                                BousygramChip(
-                                    text = mode.label,
-                                    selected = playbackMode == mode,
-                                    onClick = {
-                                        playbackMode = mode
-                                        EnterprisePreferences.setPlaybackMode(mode)
-                                    }
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(6.dp))
-                        FeatureRow("Auto-play next episode", if (autoPlayNext) "On" else "Off", onClick = {
-                            autoPlayNext = !autoPlayNext
-                            EnterprisePreferences.setAutoPlayNext(autoPlayNext)
-                        })
-                        FeatureRow("Subtitles by default", if (subtitlesDefault) "On" else "Off", onClick = {
-                            subtitlesDefault = !subtitlesDefault
-                            EnterprisePreferences.setSubtitlesDefault(subtitlesDefault)
-                        })
-                    }
-                }
-
-                // Section 2: Appearance
-                item {
-                    Section("2. Appearance") {
-                        Text(
-                            "Color Theme",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            BousygramThemePreset.entries.forEach { preset ->
-                                ThemePresetCard(
-                                    preset = preset,
-                                    selected = themePreset == preset,
-                                    onClick = { onThemePresetChange(preset) }
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(6.dp))
-                        FeatureRow("Privacy Mode (Blur Posters)", if (safeMode) "Active" else "Off", onClick = {
-                            safeMode = !safeMode
-                            EnterprisePreferences.setSafeMode(safeMode)
-                        })
-                        FeatureRow("Hide Watched Media", if (hideWatched) "On" else "Off", onClick = {
-                            hideWatched = !hideWatched
-                            EnterprisePreferences.setHideWatched(hideWatched)
-                        })
-                    }
-                }
-
-                // Section 3: Storage & Native File Cache
-                item {
-                    Section("3. Storage & Cache") {
-                        FeatureRow("Total Local Footprint", formatBytes(cacheSize), {})
-                        LinearProgressIndicator(
-                            progress = {
-                                if (storageStats.cacheLimitBytes <= 0L) 0f
-                                else (cacheSize.toFloat() / storageStats.cacheLimitBytes.toFloat()).coerceIn(0f, 1f)
-                            },
-                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                            color = MaterialTheme.colorScheme.secondary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("TDLib Cache: ${formatBytes(storageStats.tdLibCacheBytes)}", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
-                            Text("Limit: ${formatBytes(storageStats.cacheLimitBytes)}", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
-                        }
-
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Cache Ceiling Limit",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            CacheLimitOption.entries.forEach { option ->
-                                BousygramChip(
-                                    text = option.label,
-                                    selected = cacheLimitOption == option,
-                                    onClick = {
-                                        cacheLimitOption = option
-                                        EnterprisePreferences.setCacheLimitOption(option)
-                                        storageRefresh++
-                                    }
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            BousygramButton(
-                                text = "Prune Cache Now",
-                                onClick = {
-                                    scope.launch {
-                                        lastPruneResult = "Pruning..."
-                                        val result = withContext(Dispatchers.IO) {
-                                            TelegramCachePruner.pruneCacheNow(context, tdLibCacheDir)
-                                        }
-                                        lastPruneResult = "Freed ${formatBytes(result.freedBytes)} (${result.deletedFiles} files)"
-                                        storageRefresh++
+                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text(
+                                    "Privacy mode",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Blur media posters and thumbnails on screens to protect viewing privacy.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            Switch(
+                                checked = safeMode,
+                                onCheckedChange = {
+                                    safeMode = it
+                                    EnterprisePreferences.setSafeMode(it)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color(0xFF071014),
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // 2. Subtitle Language
+                item {
+                    EnterprisePanel(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                "Subtitle language",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Preferred language for automatic subtitle selection in video playback.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(subtitleLanguages.size) { idx ->
+                                        val (code, label) = subtitleLanguages[idx]
+                                        val selected = subtitleLang.equals(code, ignoreCase = true)
+                                        BousygramChip(
+                                            text = label,
+                                            selected = selected,
+                                            onClick = {
+                                                subtitleLang = code
+                                                EnterprisePreferences.setSubtitleLanguage(code)
+                                            }
+                                        )
                                     }
                                 }
-                            )
-                            if (lastPruneResult != null) {
+                            }
+                        }
+                    }
+                }
+
+                // 3. Clear Cache
+                item {
+                    EnterprisePanel(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                    Text(
+                                        "Clear cache",
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Local media cache size: ${formatBytes(cacheSize)}. Watched and inactive segments will be deleted.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                BousygramButton(
+                                    text = if (isClearingCache) "Clearing…" else "Clear Cache Now",
+                                    onClick = {
+                                        if (!isClearingCache) {
+                                            isClearingCache = true
+                                            scope.launch {
+                                                val result = withContext(Dispatchers.IO) {
+                                                    TelegramCachePruner.pruneCacheNow(context, tdLibCacheDir)
+                                                }
+                                                clearCacheStatus = "Cleared ${formatBytes(result.freedBytes)} (${result.deletedFiles} files)"
+                                                isClearingCache = false
+                                                storageRefresh++
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            if (clearCacheStatus != null) {
                                 Text(
-                                    lastPruneResult!!,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFF5EE5BE)
+                                    text = clearCacheStatus.orEmpty(),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                         }
                     }
                 }
 
-                // Section 4: Account & Session
+                // 4. Export Diagnostics
                 item {
-                    Section("4. Account & Security") {
-                        FeatureRow("Connection Protocol", "Direct Telegram MTProto (Native C++)", {})
-                        FeatureRow("Local Encryption", "Hardware Keystore AES-256 GCM", {})
-                        Spacer(Modifier.height(8.dp))
+                    EnterprisePanel(Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text(
+                                    "Export diagnostics",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Export streaming health, system telemetry, and session metrics.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            BousygramButton(
+                                text = "Export Diagnostics",
+                                onClick = {
+                                    clipboard?.setPrimaryClip(
+                                        ClipData.newPlainText("Bousygram Diagnostics", diagnosticsText)
+                                    )
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        putExtra(Intent.EXTRA_TEXT, diagnosticsText)
+                                        type = "text/plain"
+                                    }
+                                    val chooser = Intent.createChooser(sendIntent, "Export diagnostics")
+                                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(chooser)
+                                    Toast.makeText(context, "Diagnostics copied to clipboard", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // 5. Log Out
+                item {
+                    EnterprisePanel(Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text(
+                                    "Log out",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Sign out of this Telegram account and clear authenticated session tokens.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            BousygramButton(
+                                text = "Log Out",
+                                onClick = onLogout,
+                                modifier = Modifier
+                            )
+                        }
+                    }
+                }
+
+                if (adaptive.isCompact) {
+                    item {
                         BousygramButton(
-                            text = "Sign Out / Switch Account",
-                            onClick = onLogout,
+                            text = "About & TMDB Attribution",
+                            onClick = onOpenAbout,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
-
-                // Section 5: Diagnostics Accordion
-                item {
-                    Section("5. Diagnostics & Health") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            BousygramButton(
-                                text = "Copy Diagnostic Report",
-                                onClick = {
-                                    runCatching {
-                                        clipboard?.setPrimaryClip(
-                                            ClipData.newPlainText("Bousygram Diagnostics", diagnostics + "\n\n" + playbackReport)
-                                        )
-                                    }
-                                }
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                var copyFeedback by remember { mutableStateOf(false) }
-                                val context = LocalContext.current
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFF243B55),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable {
-                                            val json = com.vaydelux.bousygram.data.store.StreamHealthTelemetry.exportJson()
-                                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                                            val clip = android.content.ClipData.newPlainText("Bousygram Telemetry", json)
-                                            clipboard?.setPrimaryClip(clip)
-                                            copyFeedback = true
-                                        }
-                                ) {
-                                    Text(
-                                        text = if (copyFeedback) "Copied JSON ✓" else "Export JSON 📋",
-                                        color = if (copyFeedback) Color(0xFF5EE5BE) else Color.White,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFF1E2E48),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { isDiagnosticsExpanded = !isDiagnosticsExpanded }
-                                ) {
-                                    Text(
-                                        text = if (isDiagnosticsExpanded) "Hide Details ▲" else "View Details ▼",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        AnimatedVisibility(visible = isDiagnosticsExpanded) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFF0C1420),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 10.dp)
-                                    .border(1.dp, Color(0xFF1F2E45), RoundedCornerShape(12.dp))
-                            ) {
-                                Text(
-                                    text = diagnostics + "\n\n" + playbackReport + "\n\nStream Telemetry:\n" +
-                                        com.vaydelux.bousygram.data.store.StreamHealthTelemetry.exportJson(),
-                                    color = Color(0xFF94A3B8),
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
-                        }
-                    }
-                }
             }
-        }
-    }
-}
-
-@Composable
-private fun ThemePresetCard(
-    preset: BousygramThemePreset,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    TvFocusSurface(
-        onClick = onClick,
-        selected = selected,
-        width = 142.dp
-    ) { focused ->
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                listOf(preset.primary, preset.secondary, preset.tertiary).forEach { swatch ->
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(swatch)
-                    )
-                }
-                if (selected || focused) {
-                    Text("✓", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
-                }
-            }
-            Text(
-                preset.displayName,
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1
-            )
-            Text(
-                preset.description,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 2
-            )
-        }
-    }
-}
-
-@Composable
-private fun Section(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    EnterprisePanel(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            content()
         }
     }
 }

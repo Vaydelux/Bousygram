@@ -1,0 +1,65 @@
+# Application & Activity Entry
+HSPLcom/vaydelux/bousygram/app/BousygramApp;-><init>()V
+HSPLcom/vaydelux/bousygram/app/BousygramApp;->onCreate()V
+HSPLcom/vaydelux/bousygram/app/MainActivity;-><init>()V
+HSPLcom/vaydelux/bousygram/app/MainActivity;->onCreate(Landroid/os/Bundle;)V
+Lcom/vaydelux/bousygram/app/BousygramApp;
+Lcom/vaydelux/bousygram/app/MainActivity;
+Lcom/vaydelux/bousygram/app/MainActivityKt;
+
+# Theme & Adaptive Design System
+Lcom/vaydelux/bousygram/presentation/theme/BousygramThemeKt;
+Lcom/vaydelux/bousygram/presentation/theme/BousygramThemePreset;
+Lcom/vaydelux/bousygram/presentation/adaptive/DeviceProfile;
+Lcom/vaydelux/bousygram/presentation/adaptive/WindowLayoutType;
+Lcom/vaydelux/bousygram/presentation/adaptive/AdaptiveMetrics;
+Lcom/vaydelux/bousygram/presentation/adaptive/DeviceProfileKt;
+Lcom/vaydelux/bousygram/presentation/components/EnterpriseComponentsKt;
+Lcom/vaydelux/bousygram/presentation/components/TvFocusSurfaceKt;
+Lcom/vaydelux/bousygram/presentation/components/MediaPosterCardKt;
+
+# Navigation & Screen State
+Lcom/vaydelux/bousygram/presentation/navigation/AppScreen;
+Lcom/vaydelux/bousygram/presentation/navigation/ShellDestination;
+Lcom/vaydelux/bousygram/presentation/navigation/BousygramNavKt;
+Lcom/vaydelux/bousygram/presentation/navigation/BousygramRouterKt;
+
+# Home Dashboard & Media Browsing
+Lcom/vaydelux/bousygram/presentation/layout/TvHybridHomeDashboardKt;
+Lcom/vaydelux/bousygram/presentation/media/BrowseScreenKt;
+Lcom/vaydelux/bousygram/presentation/media/PlayerScreenKt;
+Lcom/vaydelux/bousygram/presentation/media/SeriesDetailScreenKt;
+Lcom/vaydelux/bousygram/presentation/media/vm/MediaViewModel;
+Lcom/vaydelux/bousygram/presentation/media/VideoPlayerViewModel;
+Lcom/vaydelux/bousygram/presentation/settings/SettingsScreenKt;
+
+# Domain Models
+Lcom/vaydelux/bousygram/domain/model/MediaItem;
+Lcom/vaydelux/bousygram/domain/model/MediaType;
+Lcom/vaydelux/bousygram/domain/model/SeriesGroup;
+Lcom/vaydelux/bousygram/domain/model/VideoChatItem;
+Lcom/vaydelux/bousygram/domain/model/MediaCategoryTab;
+
+# Repositories & Data Store
+Lcom/vaydelux/bousygram/data/store/EnterprisePreferences;
+Lcom/vaydelux/bousygram/data/repository/SavedMessagesRepository;
+Lcom/vaydelux/bousygram/data/repository/ContinueWatchingRepository;
+Lcom/vaydelux/bousygram/core/tdlib/utils/PlaybackProgressTracker;
+Lcom/vaydelux/bousygram/core/tdlib/cache/OfflineCacheManager;
+Lcom/vaydelux/bousygram/core/tdlib/prefetch/FocusPrefetchManager;
+
+# Media Engines & Streaming Core
+Lcom/vaydelux/bousygram/core/media/PlayerEngineFactory;
+Lcom/vaydelux/bousygram/core/media/PlayerEngine;
+Lcom/vaydelux/bousygram/core/media/ExoPlayerEngine;
+Lcom/vaydelux/bousygram/core/media/MpvPlayerEngine;
+Lcom/vaydelux/bousygram/core/media/UniversalMediaSessionBridge;
+Lcom/vaydelux/bousygram/core/tdlib/server/TelegramProxyManager;
+Lcom/vaydelux/bousygram/core/tdlib/server/LocalStreamingServer;
+Lcom/vaydelux/bousygram/core/tdlib/server/TelegramChunkScheduler;
+Lcom/vaydelux/bousygram/core/tdlib/auth/TelegramAuthManager;
+
+# TDLib & mpv JNI
+Lorg/drinkless/tdlib/Client;
+Lorg/drinkless/tdlib/TdApi;
+Ldev/jdtech/mpv/MPVLib;

@@ -49,6 +49,7 @@ class BousygramRouter(
             AppScreen.Library -> AppScreen.Home
             is AppScreen.Favorites -> screen.returnTo
             is AppScreen.Settings -> screen.returnTo
+            is AppScreen.About -> screen.returnTo
             AppScreen.Home -> AppScreen.Home
         }
         return true

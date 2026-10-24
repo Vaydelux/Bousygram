@@ -27,23 +27,28 @@ private fun tdFileSize(file: TdApi.File?): Long {
     return 0L
 }
 
-internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Message): MediaItem? {
+internal fun SavedMessagesRepository.mapMessageToMediaInternal(
+    message: TdApi.Message,
+    fallbackTopicId: Long? = null
+): MediaItem? {
     val topicThreadId: Long? = when (val t = message.topicId) {
         is TdApi.MessageTopicForum -> t.forumTopicId.toLong()
         is TdApi.MessageTopicThread -> t.messageThreadId
-        else -> null
+        else -> fallbackTopicId
     }
     return when (val content = message.content) {
         is TdApi.MessageVideo -> {
             val video = content.video
             val fileName = video?.fileName?.takeIf { it.isNotBlank() }
             val mimeType = video?.mimeType?.takeIf { it.isNotBlank() }
-            val title = content.caption?.text?.takeIf { it.isNotBlank() }
+            val captionText = content.caption?.text?.takeIf { it.isNotBlank() }
+            val title = captionText
                 ?: fileName
                 ?: dateTitle("Video", message.date)
             val file = video?.video
             val thumb = video?.thumbnail
             val seriesInfo = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(title, fileName)
+            val parsedMeta = com.vaydelux.bousygram.core.media.MediaMetadataParser.parse(title, captionText, fileName)
             val altVideos = content.alternativeVideos?.mapNotNull { alt ->
                 com.vaydelux.bousygram.domain.model.MediaAlternativeVideo(
                     id = alt.id,
@@ -71,9 +76,10 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 fileName = fileName,
                 mimeType = mimeType,
                 alternativeVideos = altVideos,
-                seriesTitle = seriesInfo.seriesTitle,
-                seasonNumber = seriesInfo.seasonNumber,
-                episodeNumber = seriesInfo.episodeNumber,
+                seriesTitle = if (parsedMeta.isSeries) (parsedMeta.title.ifBlank { seriesInfo.seriesTitle }) else seriesInfo.seriesTitle,
+                seasonNumber = parsedMeta.seasonNumber ?: seriesInfo.seasonNumber,
+                episodeNumber = parsedMeta.episodeNumber ?: seriesInfo.episodeNumber,
+                releaseYear = parsedMeta.year,
                 messageThreadId = topicThreadId
             )
         }
@@ -141,12 +147,14 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 fileName?.endsWith(".m4a", true) == true ||
                 fileName?.endsWith(".ogg", true) == true ||
                 fileName?.endsWith(".wav", true) == true
-            val title = content.caption?.text?.takeIf { it.isNotBlank() }
+            val captionText = content.caption?.text?.takeIf { it.isNotBlank() }
+            val title = captionText
                 ?: fileName
                 ?: dateTitle(if (isVideo) "Video" else if (isAudio) "Audio" else "File", message.date)
             val file = document?.document
             val thumb = document?.thumbnail
             val seriesInfo = if (isVideo) com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(title, fileName) else null
+            val parsedMeta = if (isVideo) com.vaydelux.bousygram.core.media.MediaMetadataParser.parse(title, captionText, fileName) else null
             val docType = fileName?.substringAfterLast('.', "")?.uppercase()?.ifBlank { "FILE" } ?: "FILE"
             val type = when {
                 isVideo -> MediaType.Video
@@ -170,9 +178,10 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 fileName = fileName,
                 mimeType = mimeType,
                 docType = docType,
-                seriesTitle = seriesInfo?.seriesTitle,
-                seasonNumber = seriesInfo?.seasonNumber,
-                episodeNumber = seriesInfo?.episodeNumber,
+                seriesTitle = if (parsedMeta?.isSeries == true) (parsedMeta.title.ifBlank { seriesInfo?.seriesTitle }) else seriesInfo?.seriesTitle,
+                seasonNumber = parsedMeta?.seasonNumber ?: seriesInfo?.seasonNumber,
+                episodeNumber = parsedMeta?.episodeNumber ?: seriesInfo?.episodeNumber,
+                releaseYear = parsedMeta?.year,
                 messageThreadId = topicThreadId
             )
         }
@@ -182,10 +191,12 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
             val thumb = animation?.thumbnail
             val fileName = animation?.fileName?.takeIf { it.isNotBlank() }
             val mimeType = animation?.mimeType?.takeIf { it.isNotBlank() }
-            val title = content.caption?.text?.takeIf { it.isNotBlank() }
+            val captionText = content.caption?.text?.takeIf { it.isNotBlank() }
+            val title = captionText
                 ?: fileName
                 ?: dateTitle("Animation", message.date)
             val seriesInfo = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(title, fileName)
+            val parsedMeta = com.vaydelux.bousygram.core.media.MediaMetadataParser.parse(title, captionText, fileName)
             MediaItem(
                 chatId = message.chatId,
                 messageId = message.id,
@@ -202,9 +213,10 @@ internal fun SavedMessagesRepository.mapMessageToMediaInternal(message: TdApi.Me
                 fileSizeBytes = tdFileSize(file),
                 fileName = fileName,
                 mimeType = mimeType,
-                seriesTitle = seriesInfo.seriesTitle,
-                seasonNumber = seriesInfo.seasonNumber,
-                episodeNumber = seriesInfo.episodeNumber,
+                seriesTitle = if (parsedMeta.isSeries) (parsedMeta.title.ifBlank { seriesInfo.seriesTitle }) else seriesInfo.seriesTitle,
+                seasonNumber = parsedMeta.seasonNumber ?: seriesInfo.seasonNumber,
+                episodeNumber = parsedMeta.episodeNumber ?: seriesInfo.episodeNumber,
+                releaseYear = parsedMeta.year,
                 messageThreadId = topicThreadId
             )
         }

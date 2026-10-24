@@ -7,8 +7,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 enum class SelectedPlayerEngine(val label: String) {
-    MPV("Universal libmpv (MKV, AVI, FLV, SSA/ASS)"),
-    ExoPlayer("Media3 ExoPlayer")
+    AUTO("Auto (ExoPlayer + mpv fallback)"),
+    ExoPlayer("Media3 ExoPlayer"),
+    MPV("Universal libmpv (MKV, AVI, FLV, SSA/ASS)")
 }
 
 enum class BufferMode(val label: String) {
@@ -40,6 +41,7 @@ object EnterprisePreferences {
     private const val KEY_SAFE_MODE = "safe_mode"
     private const val KEY_AUTO_PLAY_NEXT = "auto_play_next"
     private const val KEY_SUBTITLES_DEFAULT = "subtitles_default"
+    private const val KEY_SUBTITLE_LANGUAGE = "subtitle_language"
     private const val KEY_SPEED = "preferred_speed"
     private const val KEY_BUFFER_MODE = "buffer_mode"
     private const val KEY_CACHE_LIMIT = "cache_limit"
@@ -143,15 +145,18 @@ object EnterprisePreferences {
     fun subtitlesDefault(): Boolean = prefs.getBoolean(KEY_SUBTITLES_DEFAULT, true)
     fun setSubtitlesDefault(value: Boolean) = prefs.edit { putBoolean(KEY_SUBTITLES_DEFAULT, value) }
 
+    fun subtitleLanguage(): String = prefs.getString(KEY_SUBTITLE_LANGUAGE, "en") ?: "en"
+    fun setSubtitleLanguage(value: String) = prefs.edit { putString(KEY_SUBTITLE_LANGUAGE, value) }
+
     fun preferredSpeed(): Float = prefs.getFloat(KEY_SPEED, 1.0f)
     fun setPreferredSpeed(value: Float) = prefs.edit { putFloat(KEY_SPEED, value) }
 
     fun selectedPlayerEngine(): SelectedPlayerEngine = runCatching {
         SelectedPlayerEngine.valueOf(
-            prefs.getString(KEY_PLAYER_ENGINE, SelectedPlayerEngine.MPV.name)
-                ?: SelectedPlayerEngine.MPV.name
+            prefs.getString(KEY_PLAYER_ENGINE, SelectedPlayerEngine.ExoPlayer.name)
+                ?: SelectedPlayerEngine.ExoPlayer.name
         )
-    }.getOrDefault(SelectedPlayerEngine.MPV)
+    }.getOrDefault(SelectedPlayerEngine.ExoPlayer)
 
     fun setSelectedPlayerEngine(engine: SelectedPlayerEngine) = prefs.edit {
         putString(KEY_PLAYER_ENGINE, engine.name)
@@ -163,16 +168,15 @@ object EnterprisePreferences {
 
     fun setBufferMode(value: BufferMode) = prefs.edit { putString(KEY_BUFFER_MODE, value.name) }
 
-    fun cacheLimitOption(): CacheLimitOption = runCatching {
-        CacheLimitOption.valueOf(
-            prefs.getString(KEY_CACHE_LIMIT, CacheLimitOption.TwoGb.name)
-                ?: CacheLimitOption.TwoGb.name
-        )
-    }.getOrDefault(CacheLimitOption.TwoGb)
+    @Deprecated("Cache limit is now automatically managed based on a fraction of free storage")
+    fun cacheLimitOption(): CacheLimitOption = CacheLimitOption.TwoGb
 
-    fun setCacheLimitOption(value: CacheLimitOption) = prefs.edit { putString(KEY_CACHE_LIMIT, value.name) }
+    @Deprecated("Cache limit setting has been removed in favor of automatic cache management")
+    fun setCacheLimitOption(value: CacheLimitOption) {
+        // No-op: automatic cache management is active
+    }
 
-    fun cacheLimitBytes(): Long = cacheLimitOption().bytes
+    fun cacheLimitBytes(): Long = com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner.calculateDynamicCacheLimit()
 
     fun setLastError(message: String) = prefs.edit { putString(KEY_LAST_ERROR, message.take(400)) }
     fun lastError(): String = prefs.getString(KEY_LAST_ERROR, "None").orEmpty()
@@ -203,10 +207,11 @@ object EnterprisePreferences {
         appendLine("Favorites: ${favoriteKeys().size}")
         appendLine("Pinned chats: ${pinnedChatIds().size}")
         appendLine("Cache size: ${cacheSizeBytes / (1024 * 1024)} MB")
-        appendLine("Cache limit: ${cacheLimitOption().label}")
+        appendLine("Cache limit: ${cacheLimitBytes() / (1024 * 1024)} MB (automatic)")
         appendLine("Full-video background cache: Disabled")
         appendLine("Last error: ${lastError()}")
         appendLine("Playback: ${PlaybackDiagnostics.summary()}")
+        appendLine("Playback telemetry: ${com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder.summary()}")
     }
 
     fun exportSettingsJson(): String = JSONObject()

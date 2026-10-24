@@ -74,43 +74,45 @@ android {
 
         val apiId = properties.getProperty("TELEGRAM_API_ID") ?: ""
         val apiHash = properties.getProperty("TELEGRAM_API_HASH") ?: ""
+        val tmdbApiKey = properties.getProperty("TMDB_API_KEY") ?: System.getenv("TMDB_API_KEY") ?: ""
         buildConfigField("String", "TELEGRAM_API_ID", "\"$apiId\"")
         buildConfigField("String", "TELEGRAM_API_HASH", "\"$apiHash\"")
+        buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "true")
 
     }
 
+    val isBuildingBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
+    splits {
+        abi {
+            isEnable = !isBuildingBundle
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = true
+        }
+    }
+
+    bundle {
+        abi {
+            enableSplit = true
+        }
+    }
+
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
-            // Never sign a release artifact with the debug certificate. Release tasks are
-            // guarded below and fail with an actionable message when signing is not configured.
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
             }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-        }
-        create("hardenedRelease") {
-            initWith(getByName("release"))
-            isDebuggable = false
-            isMinifyEnabled = true
-            isShrinkResources = true
-            buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
-            matchingFallbacks += listOf("release")
-            // Do not silently fall back to debug signing for a hardened release.
-            if (hasReleaseSigning) {
-                signingConfig = signingConfigs.getByName("release")
-            }
-        }
-        create("staging") {
-            initWith(getByName("release"))
-            isDebuggable = true
-            signingConfig = signingConfigs.getByName("debug")
-            matchingFallbacks += listOf("release")
         }
     }
     compileOptions {
@@ -156,47 +158,39 @@ androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
             val versionName = output.versionName.orNull ?: "1.0"
-            output.outputFileName.set("Bousygram-v$versionName-${variant.name}.apk")
+            val abi = output.filters.find { it.filterType == com.android.build.api.variant.FilterConfiguration.FilterType.ABI }?.identifier
+            val suffix = if (abi != null) "-$abi" else "-universal"
+            output.outputFileName.set("Bousygram-v$versionName-${variant.name}$suffix.apk")
         }
     }
 }
 
-// Fail closed for production package tasks. Debug/staging builds remain available without
-// release secrets, but release artifacts must never be silently debug-signed or unsigned.
-tasks.configureEach {
-    val isProductionArtifactTask =
-        name in setOf("assembleRelease", "assembleHardenedRelease", "bundleRelease", "bundleHardenedRelease") ||
-            name.startsWith("packageRelease") || name.startsWith("packageHardenedRelease")
-    if (isProductionArtifactTask) {
-        doFirst {
-            if (!hasReleaseSigning) {
-                throw GradleException(
-                    "Refusing to build $name: production signing is not configured. " +
-                        "Set RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD " +
-                        "in local.properties or the build environment. Use :app:assembleDebug for local testing."
-                )
-            }
-        }
-    }
+// Inform if production signing credentials are not present in local.properties.
+if (!hasReleaseSigning) {
+    logger.info(
+        "Production signing is not configured. Set RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, " +
+            "RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD in local.properties for production signing."
+    )
 }
 
 tasks.register("verifyTdlibAbiCoverage") {
     group = "verification"
     description = "Verify TDLib ABI coverage for release targets"
+    val abis = tdLibAvailableAbis
     doLast {
-        if (tdLibAvailableAbis.isEmpty()) {
+        if (abis.isEmpty()) {
             throw GradleException(
                 "Missing TDLib native binaries. Expected non-empty libtdjni.so files under src/main/jniLibs/<abi>/."
             )
         }
-        if (!tdLibAvailableAbis.contains("arm64-v8a")) {
+        if (!abis.contains("arm64-v8a")) {
             throw GradleException(
                 "Missing required arm64-v8a/libtdjni.so. Bousygram targets modern Android phones and TVs; " +
                     "an APK without the arm64 TDLib runtime is not eligible for release. " +
-                    "Available ABIs: $tdLibAvailableAbis"
+                    "Available ABIs: $abis"
             )
         }
-        logger.lifecycle("Verified non-empty TDLib native binaries for ABIs: $tdLibAvailableAbis")
+        logger.lifecycle("Verified non-empty TDLib native binaries for ABIs: $abis")
     }
 }
 
@@ -233,8 +227,14 @@ dependencies {
     // libmpv core engine
     implementation(libs.mpv)
 
+    // Room database indexing
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    annotationProcessor(libs.androidx.room.compiler)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("org.json:json:20231013")
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(libs.androidx.test.uiautomator)

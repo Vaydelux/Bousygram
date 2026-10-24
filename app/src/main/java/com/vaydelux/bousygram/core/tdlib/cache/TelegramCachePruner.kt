@@ -12,7 +12,23 @@ import java.io.File
 object TelegramCachePruner {
     private const val TAG = "TelegramCachePruner"
     const val DEFAULT_CACHE_CEILING_BYTES = 2L * 1024L * 1024L * 1024L
+    const val DEFAULT_STORAGE_FRACTION = 0.20 // 20% of free storage
+    const val MIN_CACHE_LIMIT_BYTES = 256L * 1024L * 1024L // 256 MB minimum floor
+    const val MAX_CACHE_LIMIT_BYTES = 20L * 1024L * 1024L * 1024L // 20 GB ceiling
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Dynamically calculates cache ceiling capped to a fraction (20%) of available free storage.
+     */
+    fun calculateDynamicCacheLimit(context: Context? = null): Long {
+        return runCatching {
+            val ctx = context ?: com.vaydelux.bousygram.app.BousygramApp.instance
+            val stat = android.os.StatFs(ctx.cacheDir.absolutePath)
+            val availableBytes = stat.availableBytes
+            val budget = (availableBytes * DEFAULT_STORAGE_FRACTION).toLong()
+            budget.coerceIn(MIN_CACHE_LIMIT_BYTES, MAX_CACHE_LIMIT_BYTES)
+        }.getOrDefault(DEFAULT_CACHE_CEILING_BYTES)
+    }
 
     fun pruneCacheIfNecessary(context: Context, tdLibCacheDir: File) {
         val appContext = context.applicationContext

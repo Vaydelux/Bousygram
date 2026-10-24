@@ -78,6 +78,15 @@ internal object StreamAccessRegistry {
         return revoke(token)
     }
 
+    /** Revoke all capability URLs scoped to a specific file ID when switching tracks or stopping. */
+    fun revokeFile(fileId: Int): Int = synchronized(grants) {
+        if (fileId <= 0) return 0
+        val target = "file:$fileId"
+        val before = grants.size
+        grants.entries.removeIf { (_, grant) -> grant.resource == target }
+        before - grants.size
+    }
+
     /** Remove expired entries eagerly without invalidating any still-valid grant. */
     fun purgeExpired(): Int = synchronized(grants) {
         val before = grants.size

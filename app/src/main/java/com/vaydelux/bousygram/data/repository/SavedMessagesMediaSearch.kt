@@ -57,7 +57,7 @@ internal fun SavedMessagesRepository.searchMediaProgressiveInternal(
         // TDLib's message search index may be temporarily incomplete after login or sync.
         // Fall back to a bounded chat-history scan only when all indexed filters returned no
         // playable videos; normal results never wait for history scanning.
-        loadMediaFromHistoryInternal(chatId, fromMessageId, pageLimit) { historyItems ->
+        loadMediaFromHistoryInternal(chatId, fromMessageId, pageLimit, topicId) { historyItems ->
             val finalItems = historyItems
                 .filter { it.type == MediaType.Video && it.fileId != null }
                 .dedupeAndSort()
@@ -153,9 +153,11 @@ private fun SavedMessagesRepository.loadMediaFromHistoryInternal(
     chatId: Long,
     fromMessageId: Long?,
     limit: Int,
+    topicId: Int? = null,
     onResult: (List<MediaItem>) -> Unit
 ) {
     val collected = mutableListOf<MediaItem>()
+    val isSpecificTopic = topicId != null && topicId != 0
 
     fun requestPage(anchorMessageId: Long, page: Int) {
         if (collected.size >= limit || page >= HISTORY_MAX_PAGES) {
@@ -164,9 +166,14 @@ private fun SavedMessagesRepository.loadMediaFromHistoryInternal(
         }
 
         val offset = if (anchorMessageId == 0L) 0 else 1
-        client.send(
+        val isSpecificTopic = topicId != null && topicId != 0
+        val request: TdApi.Function<TdApi.Messages> = if (topicId != null && topicId != 0) {
+            TdApi.GetForumTopicHistory(chatId, topicId, anchorMessageId, offset, HISTORY_PAGE_SIZE)
+        } else {
             TdApi.GetChatHistory(chatId, anchorMessageId, offset, HISTORY_PAGE_SIZE, false)
-        ) { histResult ->
+        }
+
+        client.send(request) { histResult ->
             when (histResult) {
                 is TdApi.Messages -> {
                     val messages = histResult.messages.orEmpty()
@@ -176,8 +183,13 @@ private fun SavedMessagesRepository.loadMediaFromHistoryInternal(
                     }
 
                     val pageItems = messages
-                        .mapNotNull { mapMessageToMediaInternal(it) }
+                        .mapNotNull { mapMessageToMediaInternal(it, topicId?.toLong()) }
                         .filter { it.type == MediaType.Video && it.fileId != null }
+                        .filter {
+                            if (topicId == null || topicId == 0) true
+                            else it.messageThreadId == topicId.toLong() ||
+                                (topicId == 1 && (it.messageThreadId == null || it.messageThreadId == 0L || it.messageThreadId == 1L))
+                        }
                     collected += pageItems
 
                     val nextAnchor = messages.lastOrNull()?.id ?: 0L
@@ -218,7 +230,9 @@ internal fun SavedMessagesRepository.searchWithFilterInternal(
     client.send(query) { result ->
         when (result) {
             is TdApi.FoundChatMessages -> {
-                val items = result.messages?.mapNotNull(::mapMessageToMediaInternal).orEmpty()
+                val items = result.messages?.mapNotNull {
+                    mapMessageToMediaInternal(it, topicId?.toLong())
+                }.orEmpty()
                 onItems(items, null)
             }
             is TdApi.Error -> onItems(emptyList(), result.message)

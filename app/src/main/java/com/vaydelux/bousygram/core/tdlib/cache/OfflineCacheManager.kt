@@ -6,8 +6,11 @@ import androidx.core.content.edit
 import com.vaydelux.bousygram.app.BousygramApp
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
+import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
+import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
+import com.vaydelux.bousygram.data.database.AppDatabase
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import org.drinkless.tdlib.TdApi
 import java.util.Collections
@@ -74,7 +77,7 @@ object OfflineCacheManager {
         prefs.edit { putStringSet(KEY_PINNED, pinnedFiles.map { it.toString() }.toSet()) }
     }
 
-    private fun triggerCacheCleanupIfNeeded() {
+    fun triggerCacheCleanupIfNeeded() {
         runCatching {
             cleanupExecutor.execute {
                 runCatching { synchronized(cleanupLock) { performCacheCleanup() } }
@@ -83,13 +86,25 @@ object OfflineCacheManager {
         }.onFailure { Log.w(TAG, "Cache cleanup could not be scheduled", it) }
     }
 
-    /** Runs LRU cleanup on the caller's background thread and reports confirmed TDLib deletions. */
+    /** Returns true if a cached file corresponds to watched/completed media. */
+    fun isWatched(fileId: Int): Boolean {
+        if (PlaybackProgressTracker.isWatched(fileId)) return true
+        return runCatching {
+            val entity = AppDatabase.getInstance(BousygramApp.instance).videoDao().getVideoByFileId(fileId)
+            if (entity != null) {
+                val durationMs = entity.duration * 1000L
+                PlaybackProgressTracker.isWatched(entity.chatId, entity.messageId, durationMs)
+            } else false
+        }.getOrDefault(false)
+    }
+
+    /** Runs automatic cleanup on the caller's background thread and reports confirmed TDLib deletions. */
     fun pruneTrackedCacheNow(): TrackedCacheCleanupResult = synchronized(cleanupLock) {
         performCacheCleanup()
     }
 
     private fun performCacheCleanup(): TrackedCacheCleanupResult {
-        val cacheLimit = EnterprisePreferences.cacheLimitBytes().coerceAtLeast(0L)
+        val cacheLimit = TelegramCachePruner.calculateDynamicCacheLimit().coerceAtLeast(0L)
         val allPrefs = prefs.all
         val accessed = allPrefs.entries.mapNotNull { (key, value) ->
             if (!key.startsWith(KEY_ACCESS_PREFIX)) return@mapNotNull null
@@ -112,41 +127,58 @@ object OfflineCacheManager {
         val files = fileIds.mapNotNull { id -> fileById[id]?.let { id to it } }
         var totalSize = files.sumOf { (_, file) -> file.local.downloadedSize.coerceAtLeast(0L) }
         val initialTrackedBytes = totalSize
-        if (totalSize <= cacheLimit) {
-            return TrackedCacheCleanupResult(0, 0L, totalSize, cacheLimit, initiallyOverLimit = false)
-        }
 
         var deletedFiles = 0
         var freedBytes = 0L
         val accessTime = accessed.toMap()
         val now = System.currentTimeMillis()
-        val candidates = files
+
+        // Invariant: Never remove pinned or active media
+        val safeCandidates = files
             .filter { (id, file) ->
                 !pinnedFiles.contains(id) &&
                     !PlaybackSessionController.isFileActive(id) &&
                     !TelegramPreCacheEngine.isCaching(id) &&
                     TelegramChunkScheduler.activeChunkCount(id) == 0 &&
                     !file.local.isDownloadingActive &&
-                    (accessTime[id]?.let { now - it >= RECENT_ACCESS_PROTECTION_MS } ?: true) &&
+                    !FocusPrefetchManager.isPrefetching(id) &&
                     !file.local.path.isNullOrBlank() && file.local.downloadedSize > 0L
             }
-            .sortedBy { (id, _) -> accessTime[id] ?: 0L }
 
-        // Choose the oldest safe files until the expected deleted size meets the limit. Requests
-        // are issued together and confirmed asynchronously to prevent N * timeout blocking.
         val plannedDeletions = mutableListOf<Pair<Int, Long>>()
         var plannedTotal = totalSize
-        for ((fileId, file) in candidates) {
-            if (plannedTotal <= cacheLimit) break
-            if (pinnedFiles.contains(fileId) || PlaybackSessionController.isFileActive(fileId) ||
-                TelegramPreCacheEngine.isCaching(fileId) || TelegramChunkScheduler.activeChunkCount(fileId) > 0 ||
-                file.local.isDownloadingActive ||
-                accessTime[fileId]?.let { System.currentTimeMillis() - it < RECENT_ACCESS_PROTECTION_MS } == true
-            ) continue
+
+        // Phase 1: Automatically remove watched data first
+        val watchedCandidates = safeCandidates.filter { (id, _) -> isWatched(id) }
+        for ((fileId, file) in watchedCandidates) {
             val fileSize = file.local.downloadedSize.coerceAtLeast(0L)
-            if (fileSize <= 0L) continue
-            plannedDeletions += fileId to fileSize
-            plannedTotal = (plannedTotal - fileSize).coerceAtLeast(0L)
+            if (fileSize > 0L) {
+                plannedDeletions += fileId to fileSize
+                plannedTotal = (plannedTotal - fileSize).coerceAtLeast(0L)
+                Log.i(TAG, "Queued watched media for automatic eviction fileId=$fileId sizeMiB=${fileSize / (1024 * 1024)}")
+            }
+        }
+
+        // Phase 2: Cap cache to fraction of free storage: evict safe LRU candidates if still above dynamic limit
+        if (plannedTotal > cacheLimit) {
+            val remainingCandidates = safeCandidates
+                .filterNot { (id, _) -> plannedDeletions.any { it.first == id } }
+                .filter { (id, _) ->
+                    accessTime[id]?.let { now - it >= RECENT_ACCESS_PROTECTION_MS } ?: true
+                }
+                .sortedBy { (id, _) -> accessTime[id] ?: 0L }
+
+            for ((fileId, file) in remainingCandidates) {
+                if (plannedTotal <= cacheLimit) break
+                val fileSize = file.local.downloadedSize.coerceAtLeast(0L)
+                if (fileSize <= 0L) continue
+                plannedDeletions += fileId to fileSize
+                plannedTotal = (plannedTotal - fileSize).coerceAtLeast(0L)
+            }
+        }
+
+        if (plannedDeletions.isEmpty()) {
+            return TrackedCacheCleanupResult(0, 0L, totalSize, cacheLimit, initiallyOverLimit = initialTrackedBytes > cacheLimit)
         }
 
         val confirmedDeletions = deleteFilesBlocking(plannedDeletions.map { it.first })
@@ -161,7 +193,7 @@ object OfflineCacheManager {
             }
         }
         if (totalSize > cacheLimit) {
-            Log.w(TAG, "Tracked cache remains above limit; pinned, recently used, active, untracked, or uncached IDs are not safe eviction candidates sizeMiB=${totalSize / (1024 * 1024)} limitMiB=${cacheLimit / (1024 * 1024)}")
+            Log.w(TAG, "Tracked cache remains above dynamic limit; pinned, active, or protected IDs were preserved sizeMiB=${totalSize / (1024 * 1024)} limitMiB=${cacheLimit / (1024 * 1024)}")
         }
         return TrackedCacheCleanupResult(
             deletedFiles = deletedFiles,
@@ -204,7 +236,8 @@ object OfflineCacheManager {
         if (fileIds.isEmpty()) return emptySet()
         val eligibleFileIds = fileIds.filterNot { fileId ->
             pinnedFiles.contains(fileId) || PlaybackSessionController.isFileActive(fileId) ||
-                TelegramPreCacheEngine.isCaching(fileId) || TelegramChunkScheduler.activeChunkCount(fileId) > 0
+                TelegramPreCacheEngine.isCaching(fileId) || TelegramChunkScheduler.activeChunkCount(fileId) > 0 ||
+                FocusPrefetchManager.isPrefetching(fileId)
         }
         if (eligibleFileIds.isEmpty()) return emptySet()
         val confirmed = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()

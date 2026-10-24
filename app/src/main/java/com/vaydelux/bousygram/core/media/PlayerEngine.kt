@@ -22,12 +22,16 @@ data class MediaTrackInfo(
 }
 
 interface PlayerEngine {
+    val engineName: String
     val playbackState: StateFlow<EnginePlaybackState>
     val currentPositionMs: Long
     val durationMs: Long
     val bufferedPositionMs: Long
     val isPlaying: Boolean
+    val playWhenReady: Boolean
     val activeDecoder: String
+    val videoDecoderName: String get() = activeDecoder
+    val audioDecoderName: String get() = "Unknown"
     val tracks: StateFlow<List<MediaTrackInfo>>
     val videoDimensions: StateFlow<Pair<Int, Int>>
 

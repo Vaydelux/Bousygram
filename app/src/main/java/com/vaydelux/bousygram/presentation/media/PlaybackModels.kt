@@ -40,6 +40,7 @@ data class PlayerHudState(
     val durationTrusted: Boolean,
     val speed: Float,
     val isPlaying: Boolean,
+    val playWhenReady: Boolean = false,
     val isBuffering: Boolean,
     val isOpening: Boolean = false,
     val isReconnecting: Boolean = false,

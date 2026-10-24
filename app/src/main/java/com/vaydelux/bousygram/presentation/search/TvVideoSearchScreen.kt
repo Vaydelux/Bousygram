@@ -146,7 +146,10 @@ fun TvVideoSearchScreen(
                             modifier = Modifier
                                 .focusRequester(searchInputFocusRequester)
                                 .onFocusChanged {
-                                    if (it.isFocused) onFocusStateChanged(SearchFocusTarget.SearchField, lastFocusedGridIndex)
+                                    if (it.isFocused) {
+                                        onFocusStateChanged(SearchFocusTarget.SearchField, lastFocusedGridIndex)
+                                        com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onFocusCleared()
+                                    }
                                 },
                             onSearch = { executeSearch() }
                         )
@@ -171,7 +174,10 @@ fun TvVideoSearchScreen(
                                 .weight(1f)
                                 .focusRequester(searchInputFocusRequester)
                                 .onFocusChanged {
-                                    if (it.isFocused) onFocusStateChanged(SearchFocusTarget.SearchField, lastFocusedGridIndex)
+                                    if (it.isFocused) {
+                                        onFocusStateChanged(SearchFocusTarget.SearchField, lastFocusedGridIndex)
+                                        com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onFocusCleared()
+                                    }
                                 },
                             onSearch = { executeSearch() }
                         )
@@ -306,6 +312,7 @@ fun TvVideoSearchScreen(
                                             if (it.isFocused) {
                                                 lastFocusedGridIndex = index
                                                 onFocusStateChanged(SearchFocusTarget.Grid, index)
+                                                com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onCardFocused(row.media)
                                             }
                                         }
                                 )

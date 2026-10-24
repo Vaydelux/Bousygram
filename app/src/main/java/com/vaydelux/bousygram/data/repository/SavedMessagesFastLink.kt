@@ -17,7 +17,9 @@ internal fun SavedMessagesRepository.prepareLocalStreamInternal(
         declaredSize = item.fileSizeBytes,
         title = item.title,
         mimeType = item.mimeType,
-        fileName = item.fileName
+        fileName = item.fileName,
+        chatId = item.chatId,
+        messageId = item.messageId
     )
     if (preparation == null) {
         onResult(null, "File is not ready to stream yet")

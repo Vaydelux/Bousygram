@@ -42,6 +42,10 @@ fun VideoSurfaceView(
             update = { view ->
                 view.player = engine.player
                 view.resizeMode = resizeMode
+            },
+            onRelease = { view ->
+                view.player = null
+                engine.detachSurface()
             }
         )
     } else {
@@ -73,6 +77,9 @@ fun VideoSurfaceView(
             },
             update = {
                 engine.setResizeMode(resizeMode)
+            },
+            onRelease = {
+                engine.detachSurface()
             }
         )
     }

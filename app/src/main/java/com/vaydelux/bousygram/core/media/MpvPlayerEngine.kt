@@ -48,11 +48,29 @@ class MpvPlayerEngine(
     private val _bufferedPositionMs = MutableStateFlow(0L)
     override val bufferedPositionMs: Long get() = _bufferedPositionMs.value
 
+    override val engineName: String = "mpv"
+
     private val _isPlaying = MutableStateFlow(false)
     override val isPlaying: Boolean get() = _isPlaying.value
 
+    private val _playWhenReady = MutableStateFlow(true)
+    override val playWhenReady: Boolean get() = _playWhenReady.value
+
     private val _activeDecoder = MutableStateFlow("Auto")
     override val activeDecoder: String get() = _activeDecoder.value
+
+    private val _videoCodec = MutableStateFlow("Unknown")
+    private val _audioCodec = MutableStateFlow("Unknown")
+
+    override val videoDecoderName: String
+        get() {
+            val codec = _videoCodec.value.ifBlank { "Unknown" }
+            val hw = _activeDecoder.value
+            return if (codec != "Unknown") "$codec ($hw)" else hw
+        }
+
+    override val audioDecoderName: String
+        get() = _audioCodec.value.ifBlank { "Unknown" }
 
     private val _tracks = MutableStateFlow<List<MediaTrackInfo>>(emptyList())
     override val tracks: StateFlow<List<MediaTrackInfo>> = _tracks.asStateFlow()
@@ -122,6 +140,7 @@ class MpvPlayerEngine(
                     if (value) {
                         _playbackState.value = EnginePlaybackState.Ended
                         _isPlaying.value = false
+                        _playWhenReady.value = false
                     }
                 }
             }
@@ -136,6 +155,12 @@ class MpvPlayerEngine(
                     } else {
                         _activeDecoder.value = "Software (FFmpeg)"
                     }
+                }
+                "video-codec" -> {
+                    if (value.isNotBlank()) _videoCodec.value = value
+                }
+                "audio-codec" -> {
+                    if (value.isNotBlank()) _audioCodec.value = value
                 }
             }
         }
@@ -176,9 +201,6 @@ class MpvPlayerEngine(
             mpv.setOptionString("tls-verify", "no")
             mpv.setOptionString("audio-pitch-correction", "yes")
 
-            // HDMI Audio Bitstreaming Passthrough
-            mpv.setOptionString("audio-spdif", "ac3,eac3,dts,dts-hd,truehd")
-
             // Android TV frame rate display sync
             if (isTv) {
                 mpv.setOptionString("video-sync", "display-resample")
@@ -205,6 +227,8 @@ class MpvPlayerEngine(
             mpv.observeProperty("dheight", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             mpv.observeProperty("video-params/w", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             mpv.observeProperty("video-params/h", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            mpv.observeProperty("video-codec", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            mpv.observeProperty("audio-codec", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             Log.i(TAG, "MpvPlayerEngine initialized successfully")
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to initialize MpvPlayerEngine", e)
@@ -237,6 +261,7 @@ class MpvPlayerEngine(
             _durationMs.value = 0L
             _bufferedPositionMs.value = 0L
             _playbackState.value = EnginePlaybackState.Buffering
+            _playWhenReady.value = true
             mpv.command(arrayOf("loadfile", streamUrl))
         } catch (e: Throwable) {
             Log.e(TAG, "Error loading stream in mpv: $streamUrl", e)
@@ -247,6 +272,7 @@ class MpvPlayerEngine(
     override fun play() {
         if (isDestroyed.get()) return
         try {
+            _playWhenReady.value = true
             mpv.setPropertyBoolean("pause", false)
             _isPlaying.value = true
         } catch (e: Throwable) {
@@ -257,6 +283,7 @@ class MpvPlayerEngine(
     override fun pause() {
         if (isDestroyed.get()) return
         try {
+            _playWhenReady.value = false
             mpv.setPropertyBoolean("pause", true)
             _isPlaying.value = false
         } catch (e: Throwable) {
@@ -412,6 +439,8 @@ class MpvPlayerEngine(
                 )
             }
             _tracks.value = list
+            runCatching { mpv.getPropertyString("video-codec") }.getOrNull()?.takeIf { it.isNotBlank() }?.let { _videoCodec.value = it }
+            runCatching { mpv.getPropertyString("audio-codec") }.getOrNull()?.takeIf { it.isNotBlank() }?.let { _audioCodec.value = it }
         } catch (e: Throwable) {
             Log.e(TAG, "Error refreshing mpv tracks", e)
         }

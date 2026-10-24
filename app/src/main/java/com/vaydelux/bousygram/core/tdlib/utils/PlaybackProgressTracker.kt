@@ -80,10 +80,14 @@ object PlaybackProgressTracker {
         if (chatId == 0L || messageId == 0L) return
         prefs.edit { remove(messageKey(chatId, messageId)) }
         com.vaydelux.bousygram.data.repository.ContinueWatchingRepository.markCompleted(chatId, messageId)
+        com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager.triggerCacheCleanupIfNeeded()
     }
 
     fun isWatched(chatId: Long, messageId: Long, durationMs: Long): Boolean =
         com.vaydelux.bousygram.data.repository.ContinueWatchingRepository.isWatched(chatId, messageId, durationMs)
+
+    fun isWatched(fileId: Int): Boolean =
+        com.vaydelux.bousygram.data.repository.ContinueWatchingRepository.isWatched(fileId)
 
     fun hasResume(chatId: Long, messageId: Long, fileId: Int?): Boolean =
         getMessagePosition(chatId, messageId) > 0 || (fileId != null && getPosition(fileId) > 0)

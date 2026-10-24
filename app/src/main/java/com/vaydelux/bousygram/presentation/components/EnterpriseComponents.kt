@@ -77,6 +77,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
@@ -89,16 +91,19 @@ import kotlin.math.sin
 
 enum class ShellDestination(val label: String, val glyph: String) {
     Home("Home", "H"),
+    Library("Library", "L"),
+    Search("Search", "Q"),
+    Me("Me", "M"),
     Continue("Continue", "C"),
     Favorites("Favorites", "F"),
     Offline("Offline", "O"),
-    Sources("Sources", "S"),
-    Search("Search", "Q"),
-    Settings("Settings", "G");
+    Sources("Library", "S"),
+    Settings("Me", "G"),
+    About("About", "i");
 
     companion object {
-        val Library = Sources
-        val sidebarItems = listOf(Home, Continue, Favorites, Offline, Sources)
+        val navItems = listOf(Home, Library, Search, Me)
+        val sidebarItems = navItems
     }
 }
 
@@ -171,6 +176,7 @@ fun ShellNavIcon(
                     cap = StrokeCap.Round
                 )
             }
+            ShellDestination.Library,
             ShellDestination.Sources -> {
                 val cell = w * 0.30f
                 val gap = w * 0.10f
@@ -203,28 +209,27 @@ fun ShellNavIcon(
                     cap = StrokeCap.Round
                 )
             }
+            ShellDestination.Me,
             ShellDestination.Settings -> {
-                val center = Offset(w * 0.50f, h * 0.50f)
-                drawCircle(color = tint, radius = w * 0.15f, center = center, style = stroke)
-                drawCircle(color = tint, radius = w * 0.31f, center = center, style = stroke)
-                for (i in 0 until 6) {
-                    val angle = Math.toRadians((i * 60).toDouble())
-                    val r1 = w * 0.31f
-                    val r2 = w * 0.43f
-                    drawLine(
-                        color = tint,
-                        start = Offset(
-                            center.x + (r1 * cos(angle)).toFloat(),
-                            center.y + (r1 * sin(angle)).toFloat()
-                        ),
-                        end = Offset(
-                            center.x + (r2 * cos(angle)).toFloat(),
-                            center.y + (r2 * sin(angle)).toFloat()
-                        ),
-                        strokeWidth = w * 0.10f,
-                        cap = StrokeCap.Round
-                    )
+                val center = Offset(w * 0.50f, h * 0.36f)
+                drawCircle(color = tint, radius = w * 0.18f, center = center, style = stroke)
+                val body = Path().apply {
+                    moveTo(w * 0.22f, h * 0.82f)
+                    cubicTo(w * 0.25f, h * 0.60f, w * 0.75f, h * 0.60f, w * 0.78f, h * 0.82f)
                 }
+                drawPath(body, color = tint, style = stroke)
+            }
+            ShellDestination.About -> {
+                val center = Offset(w * 0.50f, h * 0.50f)
+                drawCircle(color = tint, radius = w * 0.38f, center = center, style = stroke)
+                drawCircle(color = tint, radius = w * 0.05f, center = Offset(w * 0.50f, h * 0.32f))
+                drawLine(
+                    color = tint,
+                    start = Offset(w * 0.50f, h * 0.44f),
+                    end = Offset(w * 0.50f, h * 0.68f),
+                    strokeWidth = w * 0.10f,
+                    cap = StrokeCap.Round
+                )
             }
         }
     }
@@ -296,10 +301,11 @@ fun BousygramAdaptiveShell(
     onOpenSettings: () -> Unit = {},
     showResume: Boolean = false,
     onResume: () -> Unit = {},
+    navFocusRequester: FocusRequester? = null,
     content: @Composable () -> Unit
 ) {
     val adaptive = rememberAdaptiveMetrics()
-    val useRail = adaptive.useTvChrome
+    val isPhone = adaptive.isPhoneLayout
 
     Column(
         modifier = modifier
@@ -307,34 +313,28 @@ fun BousygramAdaptiveShell(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
     ) {
-        ModernTopBar(
-            onOpenSearch = onOpenSearch,
-            onOpenSettings = onOpenSettings,
-            showResume = showResume,
-            onResume = onResume
-        )
-
-        if (useRail) {
-            Row(
+        if (!isPhone) {
+            // TV and Tablet: Top nav bar, not a side drawer
+            TvTopNavBar(
+                selected = selected,
+                onSelect = onSelect,
+                onOpenSearch = onOpenSearch,
+                onOpenProfile = onOpenSettings,
+                focusRequester = navFocusRequester
+            )
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(22.dp)
             ) {
-                FloatingSidebar(
-                    selected = selected,
-                    onSelect = onSelect
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                ) {
-                    content()
-                }
+                content()
             }
         } else {
+            // Phone: Clean header, Content, Bottom Navigation (Home, Library, Search, Me)
+            PhoneTopBar(
+                onOpenSearch = onOpenSearch,
+                onOpenProfile = onOpenSettings
+            )
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -352,77 +352,207 @@ fun BousygramAdaptiveShell(
 }
 
 @Composable
-fun ModernTopBar(
+fun TvTopNavBar(
+    selected: ShellDestination,
+    onSelect: (ShellDestination) -> Unit,
     onOpenSearch: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier,
-    showResume: Boolean = false,
-    onResume: () -> Unit = {}
+    focusRequester: FocusRequester? = null
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .padding(horizontal = 28.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Left: Logo Badge + "Bousygram" title
+        // Left: Logo Badge + "Bousygram" title + [Home, Library, Search]
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF132832))
-                    .border(1.dp, colors.primary.copy(alpha = 0.42f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .border(1.5.dp, colors.primary, CircleShape),
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF132832))
+                        .border(1.dp, colors.primary.copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "▶",
-                        color = colors.primary,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 1.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .border(1.5.dp, colors.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "▶",
+                            color = colors.primary,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 1.dp)
+                        )
+                    }
                 }
+                Text(
+                    text = "Bousygram",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Top Nav items
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(ShellDestination.Home, ShellDestination.Library, ShellDestination.Search).forEach { dest ->
+                    val isSelected = when (dest) {
+                        ShellDestination.Home -> selected == ShellDestination.Home
+                        ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
+                        ShellDestination.Search -> selected == ShellDestination.Search
+                        else -> false
+                    }
+                    var focused by remember { mutableStateOf(false) }
+                    val interaction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                when {
+                                    focused -> colors.primary.copy(alpha = 0.22f)
+                                    isSelected -> Color.White.copy(alpha = 0.08f)
+                                    else -> Color.Transparent
+                                }
+                            )
+                            .border(
+                                width = if (focused) 1.5.dp else 0.dp,
+                                color = if (focused) colors.primary else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .clickable(
+                                interactionSource = interaction,
+                                indication = ripple(color = colors.primary),
+                                onClick = {
+                                    if (dest == ShellDestination.Search) onOpenSearch() else onSelect(dest)
+                                }
+                            )
+                            .onFocusChanged { focused = it.isFocused }
+                            .focusable()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = dest.label,
+                            color = when {
+                                isSelected -> colors.primary
+                                focused -> Color.White
+                                else -> Color(0xFF94A3B8)
+                            },
+                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp),
+                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+
+        // Right: Profile action button
+        var profileFocused by remember { mutableStateOf(false) }
+        val profileInteraction = remember { MutableInteractionSource() }
+        val isProfileSelected = selected == ShellDestination.Me || selected == ShellDestination.Settings
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        profileFocused -> colors.primary.copy(alpha = 0.22f)
+                        isProfileSelected -> Color.White.copy(alpha = 0.08f)
+                        else -> Color(0xFF131F33)
+                    }
+                )
+                .border(
+                    width = if (profileFocused) 1.5.dp else 1.dp,
+                    color = if (profileFocused) colors.primary else Color(0xFF1E2D44),
+                    shape = CircleShape
+                )
+                .clickable(
+                    interactionSource = profileInteraction,
+                    indication = ripple(color = colors.primary),
+                    onClick = onOpenProfile
+                )
+                .onFocusChanged { profileFocused = it.isFocused }
+                .focusable(),
+            contentAlignment = Alignment.Center
+        ) {
+            ShellNavIcon(
+                destination = ShellDestination.Me,
+                tint = if (profileFocused || isProfileSelected) colors.primary else Color(0xFF94A3B8),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun PhoneTopBar(
+    onOpenSearch: () -> Unit,
+    onOpenProfile: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF132832))
+                    .border(1.dp, colors.primary.copy(alpha = 0.42f), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "▶",
+                    color = colors.primary,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                    fontWeight = FontWeight.Bold
+                )
             }
             Text(
                 text = "Bousygram",
                 color = Color.White,
-                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                 fontWeight = FontWeight.Bold
             )
         }
-
-        // Right: Search & Settings action buttons (+ optional resume chip)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (showResume) {
-                BousygramButton("Resume", onResume, selected = true)
-            }
-            TopBarIconButton(
-                onClick = onOpenSearch,
-                contentDescription = "Search"
-            ) { tint ->
+            TopBarIconButton(onClick = onOpenSearch, contentDescription = "Search") { tint ->
                 ShellNavIcon(destination = ShellDestination.Search, tint = tint)
             }
-            TopBarIconButton(
-                onClick = onOpenSettings,
-                contentDescription = "Settings"
-            ) { tint ->
-                ShellNavIcon(destination = ShellDestination.Settings, tint = tint)
+            TopBarIconButton(onClick = onOpenProfile, contentDescription = "Profile") { tint ->
+                ShellNavIcon(destination = ShellDestination.Me, tint = tint)
             }
         }
     }
@@ -463,81 +593,6 @@ fun TopBarIconButton(
 }
 
 @Composable
-private fun FloatingSidebar(
-    selected: ShellDestination,
-    onSelect: (ShellDestination) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val shape = RoundedCornerShape(20.dp)
-    Surface(
-        modifier = modifier
-            .width(136.dp)
-            .clip(shape)
-            .border(1.dp, Color(0xFF1E2B3E), shape),
-        color = Color(0xFF111927),
-        shape = shape
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 18.dp, horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            ShellDestination.sidebarItems.forEach { item ->
-                SidebarItem(
-                    destination = item,
-                    selected = item == selected,
-                    onClick = { onSelect(item) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SidebarItem(
-    destination: ShellDestination,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    var focused by remember { mutableStateOf(false) }
-    val colors = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val textColor = when {
-        selected -> colors.primary
-        focused -> Color.White
-        else -> Color(0xFF94A3B8)
-    }
-    val fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                when {
-                    focused -> colors.surfaceVariant.copy(alpha = 0.65f)
-                    else -> Color.Transparent
-                }
-            )
-            .clickable(
-                interactionSource = interaction,
-                indication = ripple(color = colors.primary),
-                onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable()
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-    ) {
-        Text(
-            text = destination.label,
-            color = textColor,
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
-            fontWeight = fontWeight,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
 private fun GlassBottomBar(
     selected: ShellDestination,
     onSelect: (ShellDestination) -> Unit,
@@ -560,8 +615,14 @@ private fun GlassBottomBar(
             containerColor = Color.Transparent,
             tonalElevation = 0.dp
         ) {
-            ShellDestination.sidebarItems.forEach { destination ->
-                val isSelected = destination == selected
+            ShellDestination.navItems.forEach { destination ->
+                val isSelected = when (destination) {
+                    ShellDestination.Home -> selected == ShellDestination.Home
+                    ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
+                    ShellDestination.Search -> selected == ShellDestination.Search
+                    ShellDestination.Me -> selected == ShellDestination.Me || selected == ShellDestination.Settings
+                    else -> destination == selected
+                }
                 NavigationBarItem(
                     selected = isSelected,
                     onClick = { onSelect(destination) },
@@ -785,7 +846,8 @@ fun MediaPosterCard(
         media.messageId,
         if (privacyMode) null else media.miniThumbnailBytes
     )
-    val imageData = if (privacyMode) null else media.thumbnailPath?.let { path ->
+    val preferredThumbnail = media.tmdbPosterPath ?: media.thumbnailPath
+    val imageData = if (privacyMode) null else preferredThumbnail?.let { path ->
         if (path.startsWith("http")) path else File(path)
     } ?: miniThumbnail
     val context = LocalContext.current

@@ -40,6 +40,7 @@ import com.vaydelux.bousygram.presentation.preview.TvHybridPreviewHost
 import com.vaydelux.bousygram.presentation.search.SearchViewModel
 import com.vaydelux.bousygram.presentation.settings.SettingsScreen
 import com.vaydelux.bousygram.presentation.search.TvVideoSearchScreen
+import com.vaydelux.bousygram.presentation.about.AboutScreen
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 
@@ -176,6 +177,7 @@ private fun BousygramAppRoot(
             AppScreen.Library -> AppScreen.Home
             is AppScreen.Favorites -> screen.returnTo
             is AppScreen.Settings -> screen.returnTo
+            is AppScreen.About -> screen.returnTo
             else -> AppScreen.Home
         }
     }
@@ -207,13 +209,15 @@ private fun BousygramAppRoot(
         }
         else -> {
             val destination = when (appScreen) {
-                AppScreen.Library -> ShellDestination.Sources
+                AppScreen.Library -> ShellDestination.Library
                 is AppScreen.Favorites -> ShellDestination.Favorites
-                is AppScreen.Search -> ShellDestination.Home
-                is AppScreen.Settings -> ShellDestination.Home
+                is AppScreen.About -> ShellDestination.About
+                is AppScreen.Search -> ShellDestination.Search
+                is AppScreen.Settings -> ShellDestination.Me
                 else -> ShellDestination.Home
             }
             val lastPlayed = EnterprisePreferences.lastPlayed()
+            val navFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
             BousygramAdaptiveShell(
                 selected = destination,
                 showResume = lastPlayed != null,
@@ -227,6 +231,7 @@ private fun BousygramAppRoot(
                 onOpenSettings = {
                     appScreen = AppScreen.Settings(appScreen)
                 },
+                navFocusRequester = navFocusRequester,
                 onSelect = { target ->
                     appScreen = when (target) {
                         ShellDestination.Home -> AppScreen.Home
@@ -235,10 +240,10 @@ private fun BousygramAppRoot(
                             AppScreen.Home
                         }
                         ShellDestination.Favorites -> AppScreen.Favorites(appScreen)
-                        ShellDestination.Offline -> AppScreen.Library
-                        ShellDestination.Sources -> AppScreen.Library
+                        ShellDestination.Library, ShellDestination.Sources, ShellDestination.Offline -> AppScreen.Library
                         ShellDestination.Search -> AppScreen.Search(returnTo = appScreen)
-                        ShellDestination.Settings -> AppScreen.Settings(appScreen)
+                        ShellDestination.Me, ShellDestination.Settings -> AppScreen.Settings(appScreen)
+                        ShellDestination.About -> AppScreen.About(appScreen)
                     }
                 }
             ) {
@@ -251,6 +256,7 @@ private fun BousygramAppRoot(
                     onAppScreenChange = { appScreen = it },
                     resumeSignal = resumeSignal,
                     onResumeConsumed = { resumeSignal = 0 },
+                    onBackToNavBar = { navFocusRequester.requestFocus() },
                     onLogout = { authViewModel.logout() }
                 )
             }
@@ -268,6 +274,7 @@ private fun AuthorizedContent(
     onAppScreenChange: (AppScreen) -> Unit,
     resumeSignal: Int,
     onResumeConsumed: () -> Unit = {},
+    onBackToNavBar: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     val openPlayer: (PlaybackRequest, AppScreen) -> Unit = { request, returnTo ->
@@ -294,7 +301,8 @@ private fun AuthorizedContent(
             onStreamError = { message ->
                 Toast.makeText(BousygramApp.instance, message, Toast.LENGTH_LONG).show()
             },
-            libraryMode = true
+            libraryMode = true,
+            onBackToNavBar = onBackToNavBar
         )
         is AppScreen.Favorites -> FavoritesScreen(
             onBack = { onAppScreenChange(screen.returnTo) },
@@ -305,7 +313,11 @@ private fun AuthorizedContent(
             onBack = { onAppScreenChange(screen.returnTo) },
             themePreset = themePreset,
             onThemePresetChange = onThemePresetChange,
-            onLogout = onLogout
+            onLogout = onLogout,
+            onOpenAbout = { onAppScreenChange(AppScreen.About(screen)) }
+        )
+        is AppScreen.About -> AboutScreen(
+            onBack = { onAppScreenChange(screen.returnTo) }
         )
         else -> BrowseScreen(
             onPlay = { request -> openPlayer(request, AppScreen.Home) },
@@ -319,7 +331,8 @@ private fun AuthorizedContent(
                 Toast.makeText(BousygramApp.instance, message, Toast.LENGTH_LONG).show()
             },
             resumeSignal = resumeSignal,
-            onResumeConsumed = onResumeConsumed
+            onResumeConsumed = onResumeConsumed,
+            onBackToNavBar = onBackToNavBar
         )
     }
 }

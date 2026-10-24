@@ -54,7 +54,19 @@ data class MediaItem(
     /** Performer / Artist if audio track. */
     val performer: String? = null,
     /** Extracted document / archive format (e.g. APK, PDF, ZIP, FLAC). */
-    val docType: String? = null
+    val docType: String? = null,
+    /** Release Year parsed from filename/caption or matched from TMDB. */
+    val releaseYear: Int? = null,
+    /** Local cached path or remote URL for TMDB poster artwork. */
+    val tmdbPosterPath: String? = null,
+    /** Local cached path or remote URL for TMDB backdrop artwork. */
+    val tmdbBackdropPath: String? = null,
+    /** Plot overview / synopsis from TMDB. */
+    val tmdbOverview: String? = null,
+    /** Vote average / rating from TMDB. */
+    val tmdbRating: Float? = null,
+    /** Matched official title from TMDB. */
+    val tmdbTitle: String? = null
 ) : Serializable
 
 data class SeriesGroup(
@@ -117,7 +129,21 @@ data class MediaUiState(
 ) {
     val filteredAndSortedItems: List<MediaItem>
         get() {
-            var result = items
+            val topicNameMap = availableTopics.associate { it.id.toLong() to it.name }
+            var result = items.map { item ->
+                if (item.topicName == null && item.messageThreadId != null) {
+                    val resolved = topicNameMap[item.messageThreadId]
+                    if (resolved != null) item.copy(topicName = resolved) else item
+                } else {
+                    item
+                }
+            }
+            if (selectedTopicId != null && selectedTopicId != 0) {
+                result = result.filter { item ->
+                    item.messageThreadId == selectedTopicId.toLong() ||
+                    (selectedTopicId == 1 && (item.messageThreadId == null || item.messageThreadId == 0L || item.messageThreadId == 1L))
+                }
+            }
             if (filterYear != null) {
                 result = result.filter { item ->
                     val cal = java.util.Calendar.getInstance().apply {
@@ -139,26 +165,70 @@ data class MediaUiState(
 
     val seriesGroups: List<SeriesGroup>
         get() {
-            return filteredAndSortedItems
-                .filter { !it.seriesTitle.isNullOrBlank() }
-                .groupBy { it.seriesTitle!!.trim() }
-                .map { (title, eps) ->
-                    val sortedEps = eps.sortedWith(
-                        compareBy<MediaItem> { it.seasonNumber ?: 1 }
-                            .thenBy { it.episodeNumber ?: 0 }
-                            .thenBy { it.date }
-                    )
-                    val seasons = sortedEps.mapNotNull { it.seasonNumber }.distinct().size.coerceAtLeast(1)
-                    SeriesGroup(title = title, episodes = sortedEps, totalSeasons = seasons)
-                }
-                .sortedBy { it.title }
+            val selectedTopicName = selectedTopicId?.let { id ->
+                availableTopics.firstOrNull { it.id == id }?.name
+            }
+            return groupMediaIntoSeries(filteredAndSortedItems, selectedTopicName)
         }
 
     val topicGroups: Map<String, List<MediaItem>>
         get() {
-            return filteredAndSortedItems
-                .groupBy { it.topicName?.takeIf { t -> t.isNotBlank() } ?: (if (it.messageThreadId != null && it.messageThreadId != 0L) "Topic #${it.messageThreadId}" else "General") }
+            val topicNameMap = availableTopics.associate { it.id.toLong() to it.name }
+            return items
+                .groupBy { item ->
+                    item.topicName?.takeIf { it.isNotBlank() }
+                        ?: item.messageThreadId?.let { topicNameMap[it] }
+                        ?: (if (item.messageThreadId != null && item.messageThreadId != 0L) "Topic #${item.messageThreadId}" else "General")
+                }
         }
+
+    val topicSeriesGroups: Map<String, List<SeriesGroup>>
+        get() {
+            return topicGroups.mapValues { (topicTitle, topicVideos) ->
+                groupMediaIntoSeries(topicVideos, topicTitle)
+            }
+        }
+}
+
+/**
+ * Groups videos into series within each topic or chat.
+ * Videos with explicit series titles use them; otherwise they group under their topic name or default title.
+ * Episodes within each series are ordered by season number, episode number, and date.
+ */
+fun groupMediaIntoSeries(
+    items: List<MediaItem>,
+    defaultSeriesTitle: String? = null
+): List<SeriesGroup> {
+    val cleanDefault = defaultSeriesTitle?.trim()?.takeIf {
+        it.isNotBlank() && !it.equals("general", ignoreCase = true) && !it.startsWith("topic-", ignoreCase = true)
+    }
+    return items
+        .filter { it.type == MediaType.Video || it.fileId != null }
+        .mapNotNull { item ->
+            val parsedTitle = item.seriesTitle?.trim()?.takeIf { it.isNotBlank() }
+            val hasEpisodeInfo = item.seasonNumber != null || item.episodeNumber != null
+            val series = when {
+                parsedTitle != null -> parsedTitle
+                hasEpisodeInfo -> {
+                    item.topicName?.trim()?.takeIf {
+                        it.isNotBlank() && !it.equals("general", ignoreCase = true) && !it.startsWith("topic-", ignoreCase = true)
+                    } ?: cleanDefault ?: "Series"
+                }
+                else -> null
+            }
+            if (series != null) item to series else null
+        }
+        .groupBy({ it.second }, { it.first })
+        .map { (title, eps) ->
+            val sortedEps = eps.sortedWith(
+                compareBy<MediaItem> { it.seasonNumber ?: 1 }
+                    .thenBy { it.episodeNumber ?: 0 }
+                    .thenBy { it.date }
+            )
+            val seasons = sortedEps.mapNotNull { it.seasonNumber }.distinct().size.coerceAtLeast(1)
+            SeriesGroup(title = title, episodes = sortedEps, totalSeasons = seasons)
+        }
+        .sortedBy { it.title }
 }
 
 enum class ChatSourceKind(val label: String) {

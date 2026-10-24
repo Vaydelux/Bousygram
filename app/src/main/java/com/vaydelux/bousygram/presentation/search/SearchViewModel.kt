@@ -6,9 +6,11 @@ import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
 import com.vaydelux.bousygram.data.repository.searchChatVideos
 import com.vaydelux.bousygram.data.repository.searchGlobalVideos
 import com.vaydelux.bousygram.domain.model.MediaItem
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class SearchMode {
     Global,
@@ -87,6 +89,28 @@ class SearchViewModel(
         }
         _uiState.value = SearchUiState.Loading
         viewModelScope.launch {
+            val cachedItems = withContext(Dispatchers.IO) {
+                if (searchMode == SearchMode.InChat) {
+                    com.vaydelux.bousygram.data.database.VideoIndexRepository.searchIndexedVideos(currentQuery, inChatId, limit = 50)
+                } else {
+                    com.vaydelux.bousygram.data.database.VideoIndexRepository.searchIndexedVideos(currentQuery, null, limit = 50)
+                }
+            }
+            if (cachedItems.isNotEmpty() && _uiState.value is SearchUiState.Loading) {
+                val cachedRows = cachedItems.map {
+                    SearchResultRow(
+                        media = it,
+                        channelLabel = if (searchMode == SearchMode.InChat) inChatTitle else (chatTitles[it.chatId] ?: "Telegram")
+                    )
+                }
+                accumulated.addAll(cachedRows)
+                _uiState.value = SearchUiState.Success(
+                    query = currentQuery,
+                    results = cachedRows,
+                    hasMore = false
+                )
+            }
+
             when (searchMode) {
                 SearchMode.Global -> runGlobalSearch(isAppend = false)
                 SearchMode.InChat -> runInChatSearch(isAppend = false)
@@ -127,6 +151,9 @@ class SearchViewModel(
                 accumulated.clear()
                 accumulated.addAll(rows)
             }
+            if (data.items.isNotEmpty()) {
+                com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(data.items)
+            }
             nextOffset = data.nextOffset
             publishSuccess(data.nextOffset.isNotEmpty())
         }
@@ -149,6 +176,9 @@ class SearchViewModel(
             } else {
                 accumulated.clear()
                 accumulated.addAll(rows)
+            }
+            if (items.isNotEmpty()) {
+                com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
             }
             nextFromMessageId = nextId
             publishSuccess(items.isNotEmpty() && nextId != 0L)

@@ -21,14 +21,17 @@ fun mediaDisplayLabels(
     val fileName = item.fileName?.trim()?.takeIf { it.isNotBlank() }
     val rawTitle = item.title.trim()
     val cleanTitle = rawTitle.takeIf { it.isNotBlank() && !isGenericMediaTitle(it) }
+    val tmdbTitle = item.tmdbTitle?.trim()?.takeIf { it.isNotBlank() }
     val fallbackTitle = fallbackMediaTitle(item)
     val title = when {
+        tmdbTitle != null -> tmdbTitle
         fileName != null && (cleanTitle == null || cleanTitle == fileName) -> fileName
         cleanTitle != null -> cleanTitle
         fileName != null -> fileName
         else -> fallbackTitle
     }
     val secondaryParts = buildList {
+        item.releaseYear?.let { add(it.toString()) }
         if (fileName != null && fileName != title) add(fileName)
         sourceLabel.takeIf { it.isNotBlank() }?.let(::add)
     }

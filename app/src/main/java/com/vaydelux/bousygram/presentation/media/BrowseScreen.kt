@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.media
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,6 +61,16 @@ import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.layout.TvHybridHomeDashboard
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import com.vaydelux.bousygram.presentation.components.TvFocusSurface
+import com.vaydelux.bousygram.presentation.media.SeriesDetailScreen
+
 @Composable
 fun BrowseScreen(
     onPlay: (PlaybackRequest) -> Unit,
@@ -72,6 +83,7 @@ fun BrowseScreen(
     libraryMode: Boolean = false,
     resumeSignal: Int = 0,
     onResumeConsumed: () -> Unit = {},
+    onBackToNavBar: () -> Unit = {},
     viewModel: MediaViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -116,6 +128,14 @@ fun BrowseScreen(
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
+    }
+
+    BackHandler(enabled = state.selectedSeriesTitle != null) {
+        viewModel.selectSeries(null)
+    }
+
+    BackHandler(enabled = state.selectedSeriesTitle == null && state.selectedTopicId != null) {
+        viewModel.selectTopic(null)
     }
 
     fun openVideo(item: MediaItem) {
@@ -178,119 +198,324 @@ fun BrowseScreen(
     val pagePadding = if (adaptive.isCompact) 12.dp else 28.dp
     val posterMin = if (adaptive.isCompact) 160.dp else 220.dp
     Box(modifier = modifier.fillMaxSize()) {
-        if (libraryMode) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
-                    .padding(horizontal = pagePadding, vertical = if (adaptive.isCompact) 12.dp else 22.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+        val activeSeries = state.seriesGroups.firstOrNull { it.title == state.selectedSeriesTitle }
+        if (activeSeries != null) {
+            SeriesDetailScreen(
+                series = activeSeries,
+                onPlayEpisode = ::openVideo,
+                onBack = { viewModel.selectSeries(null) },
+                isPhone = adaptive.isPhoneLayout,
+                privacyMode = safeMode,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (libraryMode) {
+            if (adaptive.isPhoneLayout) {
+                // Phone Library: group list, then topic chips, then a 3-column poster grid.
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Video library",
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = if (adaptive.isCompact) {
-                                MaterialTheme.typography.headlineSmall
-                            } else {
-                                MaterialTheme.typography.headlineLarge
-                            }
-                        )
-                        Text(
-                            if (safeMode) "Private browsing · video media only" else "${state.selectedChatTitle} · ${videos.size} videos",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = if (adaptive.isCompact) {
-                                MaterialTheme.typography.bodySmall
-                            } else {
-                                MaterialTheme.typography.bodyMedium
-                            },
-                            maxLines = 1
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (state.hasMore) {
-                            RefreshChip(if (state.isLoadingMore) "Loading…" else "Load more") {
-                                viewModel.loadMoreIfNeeded()
-                            }
-                        }
-                        RefreshChip("Search source") {
-                            val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                            onOpenSearch(chatId, state.selectedChatTitle)
-                        }
-                    }
-                }
-                ChatSourceTabs(
-                    chats = state.videoChats,
-                    savedSelected = state.isSavedMessagesSelected,
-                    selectedChatId = state.selectedChatId,
-                    pinnedChatIds = pinnedChats,
-                    onSelectSavedMessages = viewModel::load,
-                    onSelectChat = { viewModel.loadChat(it.chatId, it.title) },
-                    onOpenAllChats = { showAllChatsPicker = true }
-                )
-                if (state.isSidebarLoading) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("Syncing Telegram chats…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    item { SortChip("Newest", state.sortOrder == SortOrder.DATE_DESC) { viewModel.setSortOrder(SortOrder.DATE_DESC) } }
-                    item { SortChip("Oldest", state.sortOrder == SortOrder.DATE_ASC) { viewModel.setSortOrder(SortOrder.DATE_ASC) } }
-                    item { SortChip("Largest", state.sortOrder == SortOrder.SIZE_DESC) { viewModel.setSortOrder(SortOrder.SIZE_DESC) } }
-                    item { SortChip("Smallest", state.sortOrder == SortOrder.SIZE_ASC) { viewModel.setSortOrder(SortOrder.SIZE_ASC) } }
-                    item { SortChip("Continue only", hideWatched) {
-                        hideWatched = !hideWatched
-                        EnterprisePreferences.setHideWatched(hideWatched)
-                    } }
-                    item { SortChip("Privacy mode", safeMode) {
-                        safeMode = !safeMode
-                        EnterprisePreferences.setSafeMode(safeMode)
-                    } }
-                    item { SortChip("Pin source", EnterprisePreferences.isPinnedChat(state.selectedChatId)) {
-                        EnterprisePreferences.togglePinnedChat(state.selectedChatId)
-                        pinnedChats = EnterprisePreferences.pinnedChatIds()
-                    } }
-                    item { RefreshChip("Refresh", { viewModel.refresh(); viewModel.refreshVideoChats() }) }
-                }
-                if (!state.sidebarError.isNullOrBlank()) {
-                    Text(state.sidebarError.orEmpty(), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
-                }
-                if (!state.error.isNullOrBlank()) {
-                    Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error)
-                }
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    when {
-                        state.isLoading && videos.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                        videos.isEmpty() -> EmptyStateView(
-                            title = "No videos in this source",
-                            message = if (safeMode) "No videos in this source. Choose another source or tap Refresh." else "No videos found in ${state.selectedChatTitle}. Choose another source or refresh.",
-                            actionText = "Refresh",
-                            onAction = { viewModel.refresh(); viewModel.refreshVideoChats() },
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                        else -> LazyVerticalGrid(
-                            state = libraryGridState,
-                            columns = GridCells.Adaptive(posterMin),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
-                        ) {
-                            items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
-                                MediaPosterCard(
-                                    media = item,
-                                    subtitle = state.selectedChatTitle,
-                                    onClick = { openVideo(item) },
-                                    cardWidth = null,
-                                    privacyMode = safeMode,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    onFocusChanged = { focused -> if (focused) viewModel.onItemFocused(item) }
+                    Text(
+                        "Library",
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    // Group list
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item {
+                            val isSelected = state.isSavedMessagesSelected
+                            TvFocusSurface(
+                                onClick = viewModel::load,
+                                selected = isSelected
+                            ) { focused ->
+                                Text(
+                                    text = "Saved Messages",
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
+                            }
+                        }
+                        items(state.videoChats, key = { it.chatId }) { chat ->
+                            val isSelected = chat.chatId == state.selectedChatId && !state.isSavedMessagesSelected
+                            TvFocusSurface(
+                                onClick = { viewModel.loadChat(chat.chatId, chat.title) },
+                                selected = isSelected
+                            ) { focused ->
+                                Text(
+                                    text = chat.title,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Topic chips
+                    if (state.availableTopics.isNotEmpty()) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            item {
+                                val isSelected = state.selectedTopicId == null
+                                TvFocusSurface(
+                                    onClick = { viewModel.selectTopic(null) },
+                                    selected = isSelected
+                                ) { focused ->
+                                    Text(
+                                        text = "All",
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            items(state.availableTopics, key = { it.id }) { topic ->
+                                val isSelected = state.selectedTopicId == topic.id
+                                TvFocusSurface(
+                                    onClick = { viewModel.selectTopic(topic.id) },
+                                    selected = isSelected
+                                ) { focused ->
+                                    Text(
+                                        text = "# ${topic.name}",
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 3-column poster grid
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        if (state.isLoading && videos.isEmpty()) {
+                            CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        } else if (videos.isEmpty()) {
+                            EmptyStateView(
+                                title = "No videos in this source",
+                                message = "Switch to another channel above or search your media.",
+                                actionText = "Refresh",
+                                onAction = { viewModel.refresh(); viewModel.refreshVideoChats() },
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        } else {
+                            LazyVerticalGrid(
+                                state = libraryGridState,
+                                columns = GridCells.Fixed(3),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
+                            ) {
+                                items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                    MediaPosterCard(
+                                        media = item,
+                                        subtitle = state.selectedChatTitle,
+                                        onClick = {
+                                            if (item.seriesTitle != null) {
+                                                viewModel.selectSeries(item.seriesTitle)
+                                            } else {
+                                                openVideo(item)
+                                            }
+                                        },
+                                        cardWidth = null,
+                                        privacyMode = safeMode,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        onFocusChanged = { focused -> if (focused) viewModel.onItemFocused(item) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // TV and Tablet split layout:
+                // Left list: Groups & Channels | Right: Topics (chips) + grid of posters
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
+                        .onKeyEvent { event ->
+                            if (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                                onBackToNavBar()
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        .padding(horizontal = 24.dp, vertical = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    // Left list: Groups & Channels
+                    Column(
+                        modifier = Modifier
+                            .width(260.dp)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Groups & Channels",
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            item {
+                                val isSelected = state.isSavedMessagesSelected
+                                TvFocusSurface(
+                                    onClick = viewModel::load,
+                                    selected = isSelected
+                                ) { focused ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (isSelected) "> Saved Messages" else "  Saved Messages",
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                            items(state.videoChats, key = { it.chatId }) { chat ->
+                                val isSelected = chat.chatId == state.selectedChatId && !state.isSavedMessagesSelected
+                                TvFocusSurface(
+                                    onClick = { viewModel.loadChat(chat.chatId, chat.title) },
+                                    selected = isSelected
+                                ) { focused ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (isSelected) "> ${chat.title}" else "  ${chat.title}",
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        if (chat.isForum) {
+                                            Text(
+                                                text = "${chat.topicsCount}T",
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Right pane: Topics (chips) on top + grid of posters
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // Topics chips: [All] [Topic A] [Topic B]
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            item {
+                                val isSelected = state.selectedTopicId == null
+                                TvFocusSurface(
+                                    onClick = { viewModel.selectTopic(null) },
+                                    selected = isSelected
+                                ) { focused ->
+                                    Text(
+                                        text = "All",
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                            items(state.availableTopics, key = { it.id }) { topic ->
+                                val isSelected = state.selectedTopicId == topic.id
+                                TvFocusSurface(
+                                    onClick = { viewModel.selectTopic(topic.id) },
+                                    selected = isSelected
+                                ) { focused ->
+                                    Text(
+                                        text = topic.name,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Grid of posters
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            if (state.isLoading && videos.isEmpty()) {
+                                CircularProgressIndicator(Modifier.align(Alignment.Center))
+                            } else if (videos.isEmpty()) {
+                                EmptyStateView(
+                                    title = "No videos in this source",
+                                    message = "Choose another channel from the left or search your media.",
+                                    actionText = "Refresh",
+                                    onAction = { viewModel.refresh(); viewModel.refreshVideoChats() },
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            } else {
+                                LazyVerticalGrid(
+                                    state = libraryGridState,
+                                    columns = GridCells.Adaptive(if (adaptive.isTv) 200.dp else 160.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
+                                ) {
+                                    items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                        MediaPosterCard(
+                                            media = item,
+                                            subtitle = state.selectedChatTitle,
+                                            onClick = {
+                                                if (item.seriesTitle != null) {
+                                                    viewModel.selectSeries(item.seriesTitle)
+                                                } else {
+                                                    openVideo(item)
+                                                }
+                                            },
+                                            cardWidth = null,
+                                            privacyMode = safeMode,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            onFocusChanged = { focused -> if (focused) viewModel.onItemFocused(item) }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -350,6 +575,7 @@ fun BrowseScreen(
                         viewModel.refresh()
                     }
                 },
+                onBackToNavBar = onBackToNavBar,
                 modifier = Modifier.fillMaxSize()
             )
         }

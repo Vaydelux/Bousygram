@@ -113,7 +113,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
+import com.vaydelux.bousygram.core.media.PlaybackState
+import kotlin.coroutines.cancellation.CancellationException
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.vaydelux.bousygram.core.media.EnginePlaybackState
@@ -130,6 +132,10 @@ import com.vaydelux.bousygram.core.media.StreamingSessionManager
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.core.network.AppNetworkState
 import com.vaydelux.bousygram.core.network.NetworkConnectivityObserver
+import com.vaydelux.bousygram.core.media.UniversalMediaSessionBridge
+import com.vaydelux.bousygram.core.tv.WatchNextManager
+import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecord
+import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.PlaybackLogContext
 import com.vaydelux.bousygram.core.observability.StructuredPlaybackLogger
@@ -179,7 +185,22 @@ fun PlayerScreen(
         queueIndexForRequest(queue, request.chatId, request.messageId, request.fileId).coerceAtLeast(0)
     }
 
-    var queueIndex by remember(request) { mutableIntStateOf(initialIndex) }
+    val playbackSession = remember(request) {
+        PlaybackSessionController.start(
+            queue = queue,
+            startIndex = initialIndex,
+            startPositionMs = 0L,
+            onCancelDownloads = { prevFileId ->
+                if (prevFileId > 0) {
+                    TelegramPreCacheEngine.stopCaching(prevFileId, cancelTdLibDownload = true)
+                    com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.cancelPrefetch(prevFileId)
+                    StreamAccessRegistry.revokeFile(prevFileId)
+                }
+            }
+        )
+    }
+    val queueIndex by playbackSession.currentIndex.collectAsState()
+    val sessionState by playbackSession.state.collectAsState()
     var hudVisible by remember { mutableStateOf(true) }
     var hudInteractionTick by remember { mutableIntStateOf(0) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
@@ -217,12 +238,17 @@ fun PlayerScreen(
     var fileSizeBytes by remember { mutableLongStateOf(0L) }
     var playerStartedAtMs by remember { mutableLongStateOf(0L) }
     var firstFrameMs by remember { mutableLongStateOf(0L) }
+    var timeToFirstByteMs by remember { mutableLongStateOf(0L) }
+    var totalRebufferMs by remember { mutableLongStateOf(0L) }
+    var rebufferStartMs by remember { mutableLongStateOf(0L) }
+    var playbackSessionId by remember { mutableStateOf("pb_${System.currentTimeMillis()}_$queueIndex") }
+    var playbackCommitted by remember { mutableStateOf(false) }
     var decoderName by remember { mutableStateOf("Unknown") }
     var droppedFrames by remember { mutableIntStateOf(0) }
     var cacheState by remember { mutableStateOf(PlaybackCacheState.Preparing) }
-    var playbackSession by remember { mutableStateOf<PlaybackSession?>(null) }
     var activeLocalStreamUrl by remember { mutableStateOf<String?>(null) }
     var pendingResumeMs by remember { mutableLongStateOf(0L) }
+    var hasFallenBackToMpv by remember(playbackSessionId) { mutableStateOf(false) }
     val playerSessionStartMs = remember { System.currentTimeMillis() }
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -294,16 +320,47 @@ fun PlayerScreen(
             )
         )
     }
-    val mediaSession = remember(playerEngine) {
-        val engine = playerEngine
-        if (engine is ExoPlayerEngine) {
-            MediaSession.Builder(context, engine.player).build()
-        } else {
-            null
-        }
-    }
     val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
+
+    fun commitPlaybackTelemetry(fatalError: String? = null) {
+        if (playbackCommitted) return
+        playbackCommitted = true
+        val current = queue.getOrNull(queueIndex)
+        if (rebufferStartMs > 0L) {
+            totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
+            rebufferStartMs = 0L
+        }
+        val engineName = playerEngine.engineName
+        val vDec = playerEngine.videoDecoderName.ifBlank { "Unknown" }
+        val aDec = playerEngine.audioDecoderName.ifBlank { "Unknown" }
+        val container = VideoFormatSupport.resolveContainer(fileName, current?.mimeType, title)
+        val size = if (fileSizeBytes > 0L) fileSizeBytes else (current?.fileSizeBytes ?: 0L)
+        val ttfb = when {
+            timeToFirstByteMs > 0L -> timeToFirstByteMs
+            firstFrameMs > 0L -> firstFrameMs
+            else -> 0L
+        }
+        val fallbackReason = PlaybackTelemetryRecorder.getFallbackReason(playbackSessionId)
+        val failure = fatalError ?: playbackError
+
+        PlaybackTelemetryRecorder.record(
+            PlaybackTelemetryRecord(
+                sessionId = playbackSessionId,
+                timeToFirstByteMs = ttfb,
+                timeToFirstFrameMs = firstFrameMs,
+                rebufferCount = rebufferCount,
+                totalRebufferMs = totalRebufferMs,
+                engine = engineName,
+                videoDecoderName = vDec,
+                audioDecoderName = aDec,
+                container = container,
+                fileSize = size,
+                failureReason = failure,
+                fallbackReason = fallbackReason
+            )
+        )
+    }
 
     val videoDimensions by playerEngine.videoDimensions.collectAsState()
     val currentItem = queue.getOrNull(queueIndex)
@@ -404,12 +461,7 @@ fun PlayerScreen(
     }
 
     fun stopCurrentCache(reason: PlaybackCacheStopReason) {
-        val session = playbackSession
-        if (session != null) {
-            PlaybackSessionController.stop(session, reason)
-            return
-        }
-        queue.getOrNull(queueIndex)?.fileId?.let { fileId -> TelegramPreCacheEngine.stopCaching(fileId) }
+        PlaybackSessionController.stop(playbackSession, reason)
     }
 
     fun revokeLocalPlaybackCapabilities() {
@@ -419,8 +471,15 @@ fun PlayerScreen(
     }
 
     fun exitPlayback() {
+        PlaybackSessionController.setVideoPlaying(false)
+        playerEngine.detachSurface()
+        playerEngine.stop()
+        playerEngine.release()
+        playbackSession.release()
         revokeLocalPlaybackCapabilities()
         stopCurrentCache(PlaybackCacheStopReason.Back)
+        streamingSessionManager.releaseLocks()
+        audioFocusController.abandon()
         onExit()
     }
 
@@ -428,8 +487,8 @@ fun PlayerScreen(
         if (newIndex !in queue.indices || newIndex == queueIndex) return
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
-        val oldItem = queue[queueIndex]
-        if (playerEngine.currentPositionMs > 0) {
+        val oldItem = queue.getOrNull(queueIndex)
+        if (oldItem != null && playerEngine.currentPositionMs > 0) {
             PlaybackProgressTracker.saveMessagePosition(
                 oldItem.chatId,
                 oldItem.messageId,
@@ -440,13 +499,89 @@ fun PlayerScreen(
             )
         }
         stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
-        playbackSession = null
         reloadNonce = 0
         retryCount = 0
         pendingResumeMs = 0L
         isReconnecting = false
         playerEngine.stop()
-        queueIndex = newIndex
+        playbackSession.goToIndex(newIndex)
+    }
+
+    fun skipNext(): Boolean {
+        if (!playbackSession.hasNext) return false
+        StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
+        activeLocalStreamUrl = null
+        val oldItem = queue.getOrNull(queueIndex)
+        if (oldItem != null && playerEngine.currentPositionMs > 0) {
+            PlaybackProgressTracker.saveMessagePosition(
+                oldItem.chatId,
+                oldItem.messageId,
+                playerEngine.currentPositionMs.toInt(),
+                duration,
+                oldItem.fileId,
+                oldItem.title
+            )
+        }
+        stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
+        reloadNonce = 0
+        retryCount = 0
+        pendingResumeMs = 0L
+        isReconnecting = false
+        playerEngine.stop()
+        return playbackSession.next()
+    }
+
+    fun skipPrevious(): Boolean {
+        if (!playbackSession.hasPrevious) return false
+        StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
+        activeLocalStreamUrl = null
+        val oldItem = queue.getOrNull(queueIndex)
+        if (oldItem != null && playerEngine.currentPositionMs > 0) {
+            PlaybackProgressTracker.saveMessagePosition(
+                oldItem.chatId,
+                oldItem.messageId,
+                playerEngine.currentPositionMs.toInt(),
+                duration,
+                oldItem.fileId,
+                oldItem.title
+            )
+        }
+        stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
+        reloadNonce = 0
+        retryCount = 0
+        pendingResumeMs = 0L
+        isReconnecting = false
+        playerEngine.stop()
+        return playbackSession.previous()
+    }
+
+    val mediaSessionBridge = remember(playerEngine) {
+        UniversalMediaSessionBridge(
+            context = context,
+            playerEngine = playerEngine,
+            onSeekIncrement = { deltaMs ->
+                val target = (playerEngine.currentPositionMs + deltaMs).coerceIn(0L, duration)
+                playerEngine.seekTo(target)
+                position = target
+            },
+            onSkipNext = {
+                skipNext()
+            },
+            onSkipPrevious = {
+                skipPrevious()
+            }
+        )
+    }
+
+    LaunchedEffect(isPlaying, position, speed, title, duration) {
+        PlaybackSessionController.setVideoPlaying(isPlaying)
+        mediaSessionBridge.updateState(
+            isPlaying = isPlaying,
+            positionMs = position,
+            speed = speed,
+            title = title,
+            durationMs = duration
+        )
     }
 
     LaunchedEffect(playerEngine) {
@@ -457,6 +592,9 @@ fun PlayerScreen(
                     isBuffering = true
                     if (firstFrameMs > 0L) {
                         rebufferCount++
+                        if (rebufferStartMs == 0L) {
+                            rebufferStartMs = System.currentTimeMillis()
+                        }
                         recordMetrics()
                     }
                 }
@@ -465,6 +603,10 @@ fun PlayerScreen(
                     isOpening = false
                     isReconnecting = false
                     playbackError = null
+                    if (rebufferStartMs > 0L) {
+                        totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
+                        rebufferStartMs = 0L
+                    }
                     if (playerEngine.durationMs > 0L) {
                         applyPlayerDurationMs(playerEngine.durationMs)
                     }
@@ -475,18 +617,24 @@ fun PlayerScreen(
                         hadFirstFrame = true
                         firstFrameMs = System.currentTimeMillis() - playerStartedAtMs
                         decoderName = playerEngine.activeDecoder
+                        if (timeToFirstByteMs == 0L) {
+                            val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
+                            val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, playerStartedAtMs)
+                            timeToFirstByteMs = if (ttfb > 0L) ttfb else firstFrameMs.coerceAtLeast(1L)
+                        }
                         recordMetrics()
                         val current = queue.getOrNull(queueIndex)
                         if (current != null && fileSizeBytes > 0L) {
                             TelegramPreCacheEngine.cacheFullVideoOnWifi(context, current.fileId, fileSizeBytes)
                         }
-                        playbackSession?.let { session ->
-                            PlaybackSessionController.recordFirstFrame(session, firstFrameMs)
+                        PlaybackSessionController.recordFirstFrame(playbackSession, firstFrameMs)
+                        if (current != null) {
+                            playbackSession.onPlaying(current)
                         }
                     }
 
                     val resume = pendingResumeMs
-                    if (resume > 1_000L) {
+                    if (resume > 0L) {
                         pendingResumeMs = 0L
                         playerEngine.seekTo(resume)
                         if (resume > 15_000L) {
@@ -501,10 +649,18 @@ fun PlayerScreen(
                     // Auto-Next Guard: Ensure video reached actual conclusion before advancing
                     val reachedEnd = duration > 5_000L && playerEngine.currentPositionMs >= (duration - 5_000L)
                     if (reachedEnd) {
+                        commitPlaybackTelemetry(fatalError = null)
                         PlaybackProgressTracker.clearMessagePosition(current.chatId, current.messageId)
-                        if (EnterprisePreferences.autoPlayNext() && queueIndex < queue.lastIndex) {
-                            goToTrack(queueIndex + 1)
+                        scope.launch {
+                            WatchNextManager.removeFromWatchNext(
+                                context,
+                                "bousy_${current.chatId}_${current.messageId}_${current.fileId}"
+                            )
+                        }
+                        if (EnterprisePreferences.autoPlayNext() && playbackSession.hasNext) {
+                            skipNext()
                         } else {
+                            playbackSession.onEnded(current)
                             exitPlayback()
                         }
                     } else {
@@ -523,23 +679,31 @@ fun PlayerScreen(
                     val retryPosition = maxOf(playerEngine.currentPositionMs, lastGoodPosition).coerceAtLeast(0L)
                     lastGoodPosition = retryPosition
                     hudVisible = true
-                    val session = playbackSession
-                    if (session != null) {
-                        val playbackEx = (state.cause as? PlaybackException)
-                            ?: PlaybackException(state.message, state.cause, PlaybackException.ERROR_CODE_UNSPECIFIED)
-                        PlaybackSessionController.recordError(session, playbackEx, retryCount)
-                    }
+                    val playbackEx = (state.cause as? PlaybackException)
+                        ?: PlaybackException(state.message, state.cause, PlaybackException.ERROR_CODE_UNSPECIFIED)
+                    PlaybackSessionController.recordError(playbackSession, playbackEx, retryCount)
+                    playbackSession.onError(message, state.cause, item)
 
-                    // Engine Failover: If MpvPlayerEngine fails, seamlessly failover to ExoPlayerEngine at current position
-                    if (playerEngine is MpvPlayerEngine && retryCount == 0) {
-                        Log.w("PlayerScreen", "MPV engine error: $message. Executing seamless hot failover to ExoPlayerEngine at $retryPosition ms")
+                    // Automatic fallback to libmpv on decoder, container, or unsupported-format errors.
+                    // Resumes at the same position, falls back strictly once per session, and records reason in telemetry.
+                    val isFallbackCandidate = VideoFormatSupport.isExoPlayerFallbackCandidate(state.cause, state.message)
+                    if (playerEngine is ExoPlayerEngine && !hasFallenBackToMpv && isFallbackCandidate) {
+                        hasFallenBackToMpv = true
+                        val fallbackReason = VideoFormatSupport.classifyFallbackReason(state.cause, state.message)
+                        Log.w("PlayerScreen", "ExoPlayer error ($message). Executing automatic fallback to libmpv at $retryPosition ms. Reason: $fallbackReason")
+
+                        PlaybackTelemetryRecorder.recordFallback(playbackSessionId, fallbackReason)
+                        PlaybackDiagnostics.recordStreamError("FallbackToMpv: $fallbackReason")
+
                         val (fallback, pos) = PlayerEngineFactory.createFallback(context, playerEngine, speed)
                         playerEngine = fallback
-                        pendingResumeMs = pos
+                        pendingResumeMs = if (pos > 0L) pos else retryPosition
+                        lastGoodPosition = pendingResumeMs
                         retryCount = 1
                         isReconnecting = true
                         isBuffering = true
                         playbackError = null
+                        hudVisible = false
                         reloadNonce++
                     } else if (item != null && retryCount < MAX_AUTO_RETRIES) {
                         retryCount++
@@ -548,6 +712,9 @@ fun PlayerScreen(
                         isBuffering = true
                         playbackError = null
                         scope.launch {
+                            // Re-resolve file from TDLib in case fileId went stale
+                            com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
+                                .reResolveFile(item.chatId, item.messageId)
                             delay(maxOf(autoRetryDelayMs(retryCount), 2_000L))
                             if (queue.getOrNull(queueIndex)?.fileId == item.fileId && playbackError == null) {
                                 reloadNonce++
@@ -556,6 +723,7 @@ fun PlayerScreen(
                     } else {
                         isReconnecting = false
                         playbackError = message
+                        commitPlaybackTelemetry(fatalError = message)
                     }
                 }
                 is EnginePlaybackState.Idle -> Unit
@@ -607,6 +775,7 @@ fun PlayerScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            commitPlaybackTelemetry()
             val current = queue.getOrNull(queueIndex)
             val totalPlayTime = System.currentTimeMillis() - playerSessionStartMs
             if (current != null && totalPlayTime > 1_000L) {
@@ -636,17 +805,42 @@ fun PlayerScreen(
                     current.fileId,
                     current.title
                 )
+                scope.launch {
+                    WatchNextManager.updateProgress(
+                        context = context,
+                        chatId = current.chatId,
+                        messageId = current.messageId,
+                        fileId = current.fileId,
+                        title = current.title,
+                        currentPositionMs = playerEngine.currentPositionMs,
+                        durationMs = duration,
+                        thumbnailPath = null
+                    )
+                }
             }
+            playerEngine.detachSurface()
+            playerEngine.stop()
+            playerEngine.release()
+            playbackSession.release()
+            PlaybackSessionController.setVideoPlaying(false)
             revokeLocalPlaybackCapabilities()
             stopCurrentCache(PlaybackCacheStopReason.Dispose)
             streamingSessionManager.releaseLocks()
             audioFocusController.abandon()
-            mediaSession?.release()
-            playerEngine.release()
+            mediaSessionBridge.release()
         }
     }
 
     LaunchedEffect(request, queueIndex) {
+        if (!playbackCommitted && playerStartedAtMs > 0L) {
+            commitPlaybackTelemetry()
+        }
+        playbackSessionId = "pb_${System.currentTimeMillis()}_$queueIndex"
+        playbackCommitted = false
+        hasFallenBackToMpv = false
+        timeToFirstByteMs = 0L
+        totalRebufferMs = 0L
+        rebufferStartMs = 0L
         retryCount = 0
         rebufferCount = 0
         firstFrameMs = 0L
@@ -654,7 +848,6 @@ fun PlayerScreen(
         decoderName = "Unknown"
         lastGoodPosition = 0L
         lastAheadPrefetchPosition = 0L
-        playbackSession = null
         cacheState = PlaybackCacheState.Preparing
         isReconnecting = false
         playbackError = null
@@ -711,7 +904,9 @@ fun PlayerScreen(
                                 declaredSize = item.fileSizeBytes,
                                 title = item.title,
                                 mimeType = item.mimeType,
-                                fileName = item.fileName
+                                fileName = item.fileName,
+                                chatId = item.chatId,
+                                messageId = item.messageId
                             )
                         }
                     } else {
@@ -720,15 +915,19 @@ fun PlayerScreen(
                             declaredSize = item.fileSizeBytes,
                             title = item.title,
                             mimeType = item.mimeType,
-                            fileName = item.fileName
+                            fileName = item.fileName,
+                            chatId = item.chatId,
+                            messageId = item.messageId
                         )
                     }
                 }
             }
             if (alreadyPreparedUrl == null && preparation == null) {
                 val message = "Stream not ready. The file may still be downloading in Telegram."
+                playbackSession.onError(message, null, item)
                 playbackError = message
                 PlaybackDiagnostics.recordStreamError(message)
+                commitPlaybackTelemetry(fatalError = message)
                 isOpening = false
                 isReconnecting = false
                 isBuffering = false
@@ -755,15 +954,13 @@ fun PlayerScreen(
         val resumePosition = lastGoodPosition
             .takeIf { it > 0L }
             ?: PlaybackProgressTracker.getMessagePosition(item.chatId, item.messageId, duration).toLong()
-        playbackSession?.let {
-            PlaybackSessionController.stop(it, PlaybackCacheStopReason.ErrorRecovery, cancelTdLibDownload = false)
-        }
-        val session = PlaybackSessionController.start(item.fileId, resumePosition)
-        playbackSession = session
+        playbackSession.onPreparing(item)
+        playbackSession.currentPositionMs = resumePosition
         playerEngine.stop()
 
         firstFrameMs = 0L
         playerStartedAtMs = System.currentTimeMillis()
+        PlaybackTelemetryRecorder.clearFirstByte(item.fileId)
         pendingResumeMs = resumePosition
         playerEngine.prepare(streamUrl)
         playerEngine.setPlaybackSpeed(speed)
@@ -792,7 +989,7 @@ fun PlayerScreen(
 
     LaunchedEffect(hudVisible, isPlaying, playbackError, tracksPanelVisible, queueIndex, hudInteractionTick) {
         if (hudVisible && isPlaying && playbackError == null && !tracksPanelVisible) {
-            delay(5_500)
+            delay(3_000)
             hudVisible = false
         }
     }
@@ -801,23 +998,32 @@ fun PlayerScreen(
         while (true) {
             position = playerEngine.currentPositionMs.coerceAtLeast(0L)
             applyPlayerDurationMs(playerEngine.durationMs)
-            isPlaying = playerEngine.isPlaying
+            if (timeToFirstByteMs == 0L && playerStartedAtMs > 0L) {
+                val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
+                val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, playerStartedAtMs)
+                if (ttfb > 0L) {
+                    timeToFirstByteMs = ttfb
+                } else if (playerEngine.bufferedPositionMs > 0L) {
+                    timeToFirstByteMs = (System.currentTimeMillis() - playerStartedAtMs).coerceAtLeast(1L)
+                }
+            }
+            val enginePlaying = playerEngine.isPlaying
+            val enginePlayWhenReady = playerEngine.playWhenReady
+            if (enginePlaying || !enginePlayWhenReady || playerEngine.playbackState.value is EnginePlaybackState.Ended) {
+                isPlaying = enginePlaying
+            }
             val current = queue[queueIndex]
             cacheState = TelegramPreCacheEngine.cacheState(current.fileId)
             if (position > lastGoodPosition && playerEngine.playbackState.value is EnginePlaybackState.Ready) {
                 lastGoodPosition = position
             }
-            playbackSession?.let { session ->
-                PlaybackSessionController.recordProgress(session, position, fileSizeBytes, duration)
-            }
+            PlaybackSessionController.recordProgress(playbackSession, position, fileSizeBytes, duration)
             if (position > 0L &&
                 duration > 0L &&
                 fileSizeBytes > 0L &&
                 position - lastAheadPrefetchPosition >= CACHE_AHEAD_REFRESH_MS
             ) {
-                playbackSession?.let { session ->
-                    PlaybackSessionController.cacheAhead(session, fileSizeBytes, position, duration)
-                }
+                PlaybackSessionController.cacheAhead(playbackSession, fileSizeBytes, position, duration)
                 lastAheadPrefetchPosition = position
             }
             if (position > 0 && position - lastSavedPosition >= 5_000L) {
@@ -849,13 +1055,12 @@ fun PlayerScreen(
         }
     }
 
-    BackHandler(enabled = true) {
-        when {
-            episodesDrawerVisible -> episodesDrawerVisible = false
-            tracksPanelVisible -> tracksPanelVisible = false
-            showResumeRestartOption -> showResumeRestartOption = false
-            hudVisible -> hudVisible = false
-            else -> exitPlayback()
+    PredictiveBackHandler(enabled = true) { progress ->
+        try {
+            progress.collect { /* handle predictive progress */ }
+            exitPlayback()
+        } catch (e: CancellationException) {
+            // gesture cancelled by user
         }
     }
 
@@ -922,22 +1127,21 @@ fun PlayerScreen(
             .focusable()
             .onKeyEvent { event ->
                 if (tracksPanelVisible) {
-                    if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
-                        (event.key == Key.Back || event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU)
-                    ) {
-                        tracksPanelVisible = false
-                        return@onKeyEvent true
+                    if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                        if (event.key == Key.Back || event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK) {
+                            exitPlayback()
+                            return@onKeyEvent true
+                        }
+                        if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU) {
+                            tracksPanelVisible = false
+                            return@onKeyEvent true
+                        }
                     }
                     // Let the focus system move between the controls in the track picker.
                     return@onKeyEvent false
                 }
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
                 hudInteractionTick++
-                // When the HUD is visible, arrows should move focus between buttons, not seek
-                // behind the user's back. Video-only seeking remains available with the HUD hidden.
-                if (hudVisible && event.key in setOf(Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown)) {
-                    return@onKeyEvent false
-                }
                 when (event.key) {
                     Key.DirectionLeft -> {
                         val newPos = (playerEngine.currentPositionMs - SEEK_INCREMENT_MS).coerceAtLeast(0L)
@@ -966,32 +1170,38 @@ fun PlayerScreen(
                         seekFeedbackSide = 1
                         true
                     }
-                    Key.Enter, Key.DirectionCenter -> {
-                        if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                    Key.DirectionUp -> {
+                        tracksPanelVisible = true
                         true
                     }
-                    Key.DirectionUp, Key.DirectionDown -> {
-                        hudVisible = !hudVisible
-                        true
-                    }
-                    Key.Back -> {
-                        when {
-                            tracksPanelVisible -> tracksPanelVisible = false
-                            showResumeRestartOption -> showResumeRestartOption = false
-                            hudVisible -> hudVisible = false
-                            else -> exitPlayback()
+                    Key.DirectionDown -> {
+                        if (queueIndex < queue.lastIndex || playbackSession.hasNext) {
+                            skipNext()
                         }
                         true
                     }
+                    Key.Enter, Key.DirectionCenter -> {
+                        if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                        hudVisible = true
+                        true
+                    }
+                    Key.Back -> {
+                        exitPlayback()
+                        true
+                    }
                     else -> when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_BACK -> {
+                            exitPlayback()
+                            true
+                        }
                         KeyEvent.KEYCODE_CHANNEL_DOWN,
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                            if (queueIndex > 0) goToTrack(queueIndex - 1) else true
+                            skipPrevious()
                             true
                         }
                         KeyEvent.KEYCODE_CHANNEL_UP,
                         KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                            if (queueIndex < queue.lastIndex) goToTrack(queueIndex + 1) else true
+                            skipNext()
                             true
                         }
                         KeyEvent.KEYCODE_DPAD_CENTER,
@@ -1063,6 +1273,7 @@ fun PlayerScreen(
                     durationTrusted = duration > 0L,
                     speed = speed,
                     isPlaying = isPlaying,
+                    playWhenReady = playerEngine.playWhenReady,
                     isBuffering = isBuffering,
                     isOpening = isOpening,
                     isReconnecting = isReconnecting,
@@ -1104,11 +1315,11 @@ fun PlayerScreen(
                 },
                 onSkipPrevious = {
                     hudInteractionTick++
-                    if (queueIndex > 0) goToTrack(queueIndex - 1)
+                    skipPrevious()
                 },
                 onSkipNext = {
                     hudInteractionTick++
-                    if (queueIndex < queue.lastIndex) goToTrack(queueIndex + 1) else exitPlayback()
+                    if (!skipNext()) exitPlayback()
                 },
                 onTracks = {
                     hudInteractionTick++
@@ -1155,6 +1366,114 @@ fun PlayerScreen(
             )
         }
 
+        // Clear Buffering Indicator
+        if (isBuffering && playbackError == null && !isInPipMode) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF0B131E).copy(alpha = 0.88f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                    shadowElevation = 12.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(32.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 3.dp
+                        )
+                        Text(
+                            text = "Buffering…",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+
+        // Next Episode Card in last 30s with Countdown
+        val hasNext = queueIndex < queue.lastIndex || playbackSession.hasNext
+        val remainingMs = duration - position
+        val showCountdownCard = duration > 30_000L && remainingMs in 1..30_000L && hasNext && !isInPipMode
+        val nextEpisodeItem = queue.getOrNull(queueIndex + 1)
+
+        AnimatedVisibility(
+            visible = showCountdownCard,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 24.dp, bottom = if (hudVisible) 140.dp else 28.dp)
+        ) {
+            val countdownSecs = ((remainingMs + 999) / 1000).toInt().coerceAtLeast(1)
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF0F172A).copy(alpha = 0.95f),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
+                shadowElevation = 10.dp,
+                modifier = Modifier.widthIn(max = 320.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "$countdownSecs",
+                                color = Color(0xFF071014),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = "Next Episode in ${countdownSecs}s",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    if (nextEpisodeItem != null) {
+                        Text(
+                            text = nextEpisodeItem.title,
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        BousygramButton(
+                            text = "Play Now ▶",
+                            onClick = { skipNext() },
+                            selected = true
+                        )
+                    }
+                }
+            }
+        }
+
         // In-Player Episodes Drawer Overlay
         AnimatedVisibility(
             visible = episodesDrawerVisible && !isInPipMode,
@@ -1166,8 +1485,8 @@ fun PlayerScreen(
         ) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
-                color = Color(0xF20A101D),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E405D)),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier
                     .fillMaxWidth(if (compactHud) 0.96f else 0.85f)
                     .padding(horizontal = 12.dp)
@@ -1183,7 +1502,7 @@ fun PlayerScreen(
                     ) {
                         Text(
                             text = "Episodes in Queue (${queue.size})",
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -1198,10 +1517,10 @@ fun PlayerScreen(
                             val epShape = RoundedCornerShape(12.dp)
                             Surface(
                                 shape = epShape,
-                                color = if (isCurrent) Color(0xFF162E3B) else Color(0xFF131D2D),
+                                color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                 border = androidx.compose.foundation.BorderStroke(
                                     1.dp,
-                                    if (isCurrent) Color(0xFF5EE5BE) else Color(0xFF223249)
+                                    if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                                 ),
                                 modifier = Modifier
                                     .width(if (compactHud) 160.dp else 200.dp)
@@ -1214,7 +1533,7 @@ fun PlayerScreen(
                                 Column(modifier = Modifier.padding(10.dp)) {
                                     Text(
                                         text = "${idx + 1}. ${item.title}",
-                                        color = if (isCurrent) Color(0xFF5EE5BE) else Color.White,
+                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                                         maxLines = 2,
@@ -1223,7 +1542,7 @@ fun PlayerScreen(
                                     Spacer(Modifier.height(4.dp))
                                     Text(
                                         text = if (isCurrent) "▶ Playing" else formatMs((item.durationSeconds * 1000L)),
-                                        color = if (isCurrent) Color(0xFF5EE5BE) else Color(0xFF94A3B8),
+                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelSmall
                                     )
                                 }
@@ -1245,8 +1564,8 @@ fun PlayerScreen(
         ) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = Color.Black.copy(alpha = 0.82f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E405D)),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.padding(8.dp)
             ) {
                 Column(
@@ -1257,7 +1576,7 @@ fun PlayerScreen(
                     Text("☀️", fontSize = 22.sp)
                     Text(
                         "${(gestureBrightness * 100).toInt()}%",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -1278,8 +1597,8 @@ fun PlayerScreen(
             val maxVol = remember(audioManager) { audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15 }
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = Color.Black.copy(alpha = 0.82f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E405D)),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.padding(8.dp)
             ) {
                 Column(
@@ -1290,7 +1609,7 @@ fun PlayerScreen(
                     Text("🔊", fontSize = 22.sp)
                     Text(
                         "${(gestureVolume * 100 / maxVol.coerceAtLeast(1))}%",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -1537,12 +1856,13 @@ private fun PlayerHud(
 ) {
     val edgePadding = if (compact) 12.dp else 32.dp
     val innerPadding = if (compact) 14.dp else 22.dp
+    val isPlayingOrPending = (state.playWhenReady && state.error == null) || state.isPlaying
     val statusText = when {
         state.error != null -> "Playback error"
         state.isReconnecting -> "Retrying download"
         state.isOpening -> "Downloading"
         state.isBuffering -> "Buffering"
-        state.isPlaying -> "Playing"
+        isPlayingOrPending -> "Playing"
         else -> "Paused"
     }
     val statusLine = listOfNotNull(
@@ -1557,7 +1877,8 @@ private fun PlayerHud(
             .fillMaxWidth()
             .padding(edgePadding)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, hudShape),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = hudShape,
         tonalElevation = 8.dp
     ) {
@@ -1571,6 +1892,7 @@ private fun PlayerHud(
                     Text(
                         text = state.title,
                         style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1646,12 +1968,17 @@ private fun PlayerHud(
             ) {
                 BousygramButton("-30s", { onSeekBy(-30_000L) })
                 BousygramButton("-10s", { onSeekBy(-SEEK_INCREMENT_MS) })
-                BousygramButton(if (state.isPlaying) "Pause" else "Play", onPlayPause, selected = true)
+                val playPauseLabel = if (isPlayingOrPending) "Pause" else "Play"
+                BousygramButton(
+                    text = playPauseLabel,
+                    onClick = onPlayPause,
+                    selected = true,
+                    modifier = Modifier.widthIn(min = 76.dp)
+                )
                 BousygramButton("+10s", { onSeekBy(SEEK_INCREMENT_MS) })
                 BousygramButton("+30s", { onSeekBy(30_000L) })
                 BousygramButton("Prev", onSkipPrevious)
                 BousygramButton("Next", onSkipNext)
-                BousygramButton("Tracks", onTracks)
                 val aspectLabel = when (state.resizeMode) {
                     AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
                     AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"

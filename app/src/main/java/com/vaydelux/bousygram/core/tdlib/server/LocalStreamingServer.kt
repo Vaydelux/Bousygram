@@ -5,6 +5,7 @@ import android.util.Log
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
+import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
@@ -154,9 +155,17 @@ object LocalStreamingServer {
         declaredSize: Long,
         title: String,
         mimeType: String? = null,
-        fileName: String? = null
+        fileName: String? = null,
+        chatId: Long = 0L,
+        messageId: Long = 0L
     ): StreamPreparation? {
+        if (chatId != 0L && messageId != 0L) {
+            TelegramChunkScheduler.noteFileContext(fileId, chatId, messageId)
+        }
         val size = resolveSizeWithWarmup(fileId, declaredSize) ?: return null
+        val contentType = VideoFormatSupport.httpContentType(mimeType, fileName, title)
+        val isMp4 = contentType.contains("mp4") || fileName?.endsWith(".mp4", ignoreCase = true) == true
+        TelegramChunkScheduler.openPlayback(fileId, size, isMp4 = isMp4)
         return StreamPreparation(
             fileId = fileId,
             resolvedSize = size,
@@ -622,7 +631,7 @@ object LocalStreamingServer {
             val completeOnDisk = initialFile?.local?.isDownloadingCompleted == true
             if (completeOnDisk) {
                 if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Direct disk streaming fileId=$fileId path=$initialPath range=$startPos-$endPos")
-                streamDiskRangeToOutput(initialPath, 0L, startPos, requestedLength, out, clientOpen)
+                streamDiskRangeToOutput(initialPath, 0L, startPos, requestedLength, out, clientOpen, fileId = fileId)
                 return
             }
         }
@@ -718,6 +727,7 @@ object LocalStreamingServer {
                             )
                             if (bytesRead > 0) {
                                 try {
+                                    PlaybackTelemetryRecorder.notifyFirstByte(fileId)
                                     out.write(buffer, 0, bytesRead)
                                     currentOffset += bytesRead
                                     lastProgressMs = System.currentTimeMillis()
@@ -729,7 +739,9 @@ object LocalStreamingServer {
                             }
                         }
                     }
-                    Thread.sleep(50)
+                    kotlinx.coroutines.runBlocking {
+                        TelegramChunkScheduler.awaitPrefixReady(fileId, currentOffset, 1, timeoutMs = 750L)
+                    }
                     retryCount++
                 }
 
@@ -805,7 +817,8 @@ object LocalStreamingServer {
         startPos: Long,
         length: Long,
         out: OutputStream,
-        clientOpen: () -> Boolean = { true }
+        clientOpen: () -> Boolean = { true },
+        fileId: Int = 0
     ) {
         val buffer = ByteArray(STREAM_READ_BUFFER_BYTES)
         var remaining = length
@@ -819,6 +832,7 @@ object LocalStreamingServer {
             while (remaining > 0 && clientOpen()) {
                 val read = file.read(buffer, 0, min(buffer.size.toLong(), remaining).toInt())
                 if (read <= 0) break
+                if (fileId > 0) PlaybackTelemetryRecorder.notifyFirstByte(fileId)
                 out.write(buffer, 0, read)
                 remaining -= read
             }
@@ -850,7 +864,7 @@ object LocalStreamingServer {
                 offset = offset,
                 length = chunkSize,
                 purpose = TelegramChunkPurpose.CacheAhead,
-                priority = STREAM_FAST_PRIORITY
+                priority = TelegramChunkScheduler.PREFETCH_PRIORITY
             )
             if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Adaptive prefetch fileId=$fileId offset=$offset limit=$chunkSize (bitrate=${bitrateBps * 8 / 1_000_000}Mbps, timeMs=$timeMs)")
         }

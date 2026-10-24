@@ -56,11 +56,13 @@ internal object PlaybackDiagnostics {
     private const val KEY_CURRENT_OFFSET = "current_offset"
 
     private val prefs by lazy {
-        BousygramApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        runCatching {
+            BousygramApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }.getOrNull()
     }
 
     fun recordPlayerMetrics(metrics: StreamMetrics) {
-        prefs.edit {
+        prefs?.edit {
             putLong(KEY_FIRST_FRAME_MS, metrics.firstFrameMs)
             putInt(KEY_RETRY_COUNT, metrics.retryCount)
             putInt(KEY_REBUFFER_COUNT, metrics.rebufferCount)
@@ -71,7 +73,7 @@ internal object PlaybackDiagnostics {
     }
 
     fun recordStreamError(message: String) {
-        prefs.edit { putString(KEY_LAST_STREAM_ERROR, message.take(400)) }
+        prefs?.edit { putString(KEY_LAST_STREAM_ERROR, message.take(400)) }
     }
 
     fun recordSession(
@@ -82,7 +84,7 @@ internal object PlaybackDiagnostics {
         stallReason: String,
         cacheStopReason: String
     ) {
-        prefs.edit {
+        prefs?.edit {
             putString(KEY_SESSION_ID, sessionId.take(80))
             putInt(KEY_ACTIVE_FILE_ID, activeFileId)
             putLong(KEY_CURRENT_OFFSET, currentOffset)
@@ -100,7 +102,7 @@ internal object PlaybackDiagnostics {
         proxyStatus: String,
         readSource: String
     ) {
-        prefs.edit {
+        prefs?.edit {
             putLong(KEY_LAST_STALLED_OFFSET, lastStalledOffset)
             putInt(KEY_CHUNK_RETRY_COUNT, chunkRetryCount)
             putLong(KEY_CACHE_AHEAD_BYTES, cacheAheadBytes)
@@ -154,25 +156,25 @@ internal object PlaybackDiagnostics {
 
     fun snapshot(): PlaybackDiagnosticsSnapshot =
         PlaybackDiagnosticsSnapshot(
-            sessionId = prefs.getString(KEY_SESSION_ID, null).orEmpty().ifBlank { "none" },
-            activeFileId = prefs.getInt(KEY_ACTIVE_FILE_ID, 0),
-            firstFrameMs = prefs.getLong(KEY_FIRST_FRAME_MS, 0L),
-            retryCount = prefs.getInt(KEY_RETRY_COUNT, 0),
-            rebufferCount = prefs.getInt(KEY_REBUFFER_COUNT, 0),
-            decoderName = prefs.getString(KEY_DECODER_NAME, null).orEmpty().ifBlank { "Unknown" },
-            droppedFrames = prefs.getInt(KEY_DROPPED_FRAMES, 0),
-            bufferMode = prefs.getString(KEY_BUFFER_MODE, null).orEmpty().ifBlank {
-                EnterprisePreferences.bufferMode().name
+            sessionId = prefs?.getString(KEY_SESSION_ID, null).orEmpty().ifBlank { "none" },
+            activeFileId = prefs?.getInt(KEY_ACTIVE_FILE_ID, 0) ?: 0,
+            firstFrameMs = prefs?.getLong(KEY_FIRST_FRAME_MS, 0L) ?: 0L,
+            retryCount = prefs?.getInt(KEY_RETRY_COUNT, 0) ?: 0,
+            rebufferCount = prefs?.getInt(KEY_REBUFFER_COUNT, 0) ?: 0,
+            decoderName = prefs?.getString(KEY_DECODER_NAME, null).orEmpty().ifBlank { "Unknown" },
+            droppedFrames = prefs?.getInt(KEY_DROPPED_FRAMES, 0) ?: 0,
+            bufferMode = prefs?.getString(KEY_BUFFER_MODE, null).orEmpty().ifBlank {
+                runCatching { EnterprisePreferences.bufferMode().name }.getOrDefault("Balanced")
             },
-            lastStreamError = prefs.getString(KEY_LAST_STREAM_ERROR, null).orEmpty().ifBlank { "None" },
-            lastStalledOffset = prefs.getLong(KEY_LAST_STALLED_OFFSET, 0L),
-            chunkRetryCount = prefs.getInt(KEY_CHUNK_RETRY_COUNT, 0),
-            cacheAheadBytes = prefs.getLong(KEY_CACHE_AHEAD_BYTES, 0L),
-            activeChunkCount = prefs.getInt(KEY_ACTIVE_CHUNK_COUNT, 0),
-            proxyStatus = prefs.getString(KEY_PROXY_STATUS, "none").orEmpty(),
-            readSource = prefs.getString(KEY_READ_SOURCE, "unknown").orEmpty(),
-            stallReason = prefs.getString(KEY_STALL_REASON, "none").orEmpty(),
-            cacheStopReason = prefs.getString(KEY_CACHE_STOP_REASON, "none").orEmpty(),
-            currentOffset = prefs.getLong(KEY_CURRENT_OFFSET, 0L)
+            lastStreamError = prefs?.getString(KEY_LAST_STREAM_ERROR, null).orEmpty().ifBlank { "None" },
+            lastStalledOffset = prefs?.getLong(KEY_LAST_STALLED_OFFSET, 0L) ?: 0L,
+            chunkRetryCount = prefs?.getInt(KEY_CHUNK_RETRY_COUNT, 0) ?: 0,
+            cacheAheadBytes = prefs?.getLong(KEY_CACHE_AHEAD_BYTES, 0L) ?: 0L,
+            activeChunkCount = prefs?.getInt(KEY_ACTIVE_CHUNK_COUNT, 0) ?: 0,
+            proxyStatus = prefs?.getString(KEY_PROXY_STATUS, "none").orEmpty(),
+            readSource = prefs?.getString(KEY_READ_SOURCE, "unknown").orEmpty(),
+            stallReason = prefs?.getString(KEY_STALL_REASON, "none").orEmpty(),
+            cacheStopReason = prefs?.getString(KEY_CACHE_STOP_REASON, "none").orEmpty(),
+            currentOffset = prefs?.getLong(KEY_CURRENT_OFFSET, 0L) ?: 0L
         )
 }

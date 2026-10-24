@@ -60,14 +60,14 @@ object NetworkConnectivityObserver {
         try {
             cm.registerNetworkCallback(request, networkCallback)
             isRegistered = true
-            updateNetworkState()
+            updateNetworkState(forceDispatch = true)
             Log.i(TAG, "NetworkConnectivityObserver successfully registered")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register network callback", e)
         }
     }
 
-    private fun updateNetworkState() {
+    private fun updateNetworkState(forceDispatch: Boolean = false) {
         val cm = connectivityManager ?: return
         val activeNetwork = cm.activeNetwork
         val capabilities = activeNetwork?.let { cm.getNetworkCapabilities(it) }
@@ -91,9 +91,9 @@ object NetworkConnectivityObserver {
         }
 
         val oldState = _networkState.value
-        if (oldState != newState) {
+        if (forceDispatch || oldState != newState) {
             _networkState.value = newState
-            Log.i(TAG, "Network state changed to: $newState")
+            Log.i(TAG, "Network state changed to: $newState (forceDispatch=$forceDispatch)")
             if (oldState is AppNetworkState.WiFi && newState is AppNetworkState.Cellular) {
                 Log.i(TAG, "Wi-Fi to cellular handoff detected: rotating stream capability tokens")
                 com.vaydelux.bousygram.core.tdlib.server.StreamAccessRegistry.rotateTokens()
@@ -125,6 +125,6 @@ object NetworkConnectivityObserver {
 
     /** Forces an immediate refresh and sync of network state to TDLib */
     fun refresh() {
-        updateNetworkState()
+        updateNetworkState(forceDispatch = true)
     }
 }

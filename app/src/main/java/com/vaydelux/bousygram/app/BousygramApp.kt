@@ -23,6 +23,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
         super<Application>.onCreate()
         instance = this
         System.loadLibrary("tdjni")
+        com.vaydelux.bousygram.data.database.VideoIndexRepository.init(this)
         com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.init(this)
         com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.enableStorageOptimizer()
         com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.startPeriodicGc(intervalMinutes = 30)

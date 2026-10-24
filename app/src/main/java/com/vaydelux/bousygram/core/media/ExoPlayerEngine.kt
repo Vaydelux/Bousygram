@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +36,8 @@ class ExoPlayerEngine(
         }
     }
 
+    override val engineName: String = "ExoPlayer"
+
     private val _playbackState = MutableStateFlow<EnginePlaybackState>(EnginePlaybackState.Idle)
     override val playbackState: StateFlow<EnginePlaybackState> = _playbackState.asStateFlow()
 
@@ -42,15 +45,50 @@ class ExoPlayerEngine(
     override val durationMs: Long get() = player.duration.coerceAtLeast(0L)
     override val bufferedPositionMs: Long get() = player.bufferedPosition.coerceAtLeast(0L)
     override val isPlaying: Boolean get() = player.isPlaying
+    override val playWhenReady: Boolean get() = player.playWhenReady
 
     private val _activeDecoder = MutableStateFlow("MediaCodec (Hardware)")
     override val activeDecoder: String get() = _activeDecoder.value
+
+    private var _videoDecoderName: String = "Unknown"
+    override val videoDecoderName: String get() = _videoDecoderName
+
+    private var _audioDecoderName: String = "Unknown"
+    override val audioDecoderName: String get() = _audioDecoderName
 
     private val _tracks = MutableStateFlow<List<MediaTrackInfo>>(emptyList())
     override val tracks: StateFlow<List<MediaTrackInfo>> = _tracks.asStateFlow()
 
     private val _videoDimensions = MutableStateFlow<Pair<Int, Int>>(Pair(0, 0))
     override val videoDimensions: StateFlow<Pair<Int, Int>> = _videoDimensions.asStateFlow()
+
+    private val analyticsListener = object : AnalyticsListener {
+        override fun onVideoDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long
+        ) {
+            _videoDecoderName = decoderName
+            updateActiveDecoder()
+        }
+
+        override fun onAudioDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long
+        ) {
+            _audioDecoderName = decoderName
+            updateActiveDecoder()
+        }
+    }
+
+    private fun updateActiveDecoder() {
+        if (_videoDecoderName != "Unknown" || _audioDecoderName != "Unknown") {
+            _activeDecoder.value = "$_videoDecoderName / $_audioDecoderName"
+        }
+    }
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -86,6 +124,7 @@ class ExoPlayerEngine(
 
     init {
         player.addListener(listener)
+        player.addAnalyticsListener(analyticsListener)
     }
 
     override fun attachSurface(surface: Surface) {
@@ -171,6 +210,7 @@ class ExoPlayerEngine(
 
     override fun release() {
         player.removeListener(listener)
+        player.removeAnalyticsListener(analyticsListener)
         player.release()
     }
 

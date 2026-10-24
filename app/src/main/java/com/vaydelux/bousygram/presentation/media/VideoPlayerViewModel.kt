@@ -50,6 +50,10 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var currentErrorRetryCount = 0
 
     private val playerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            PlaybackSessionController.setVideoPlaying(isPlaying)
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_BUFFERING -> showBufferingDebounced()
@@ -138,6 +142,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     override fun onCleared() {
+        PlaybackSessionController.setVideoPlaying(false)
         bufferingJob?.cancel()
         stopActiveCaching(PlaybackCacheStopReason.ViewModelCleared)
         player.removeListener(playerListener)

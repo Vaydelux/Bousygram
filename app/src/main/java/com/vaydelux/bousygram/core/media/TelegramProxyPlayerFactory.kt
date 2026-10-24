@@ -3,7 +3,13 @@ package com.vaydelux.bousygram.core.media
 import android.content.Context
 import android.os.Build
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
+import android.net.Uri
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -35,13 +41,14 @@ object TelegramProxyPlayerFactory {
         isCellular: Boolean = com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular
     ): DefaultLoadControl {
         val (minBuffer, maxBuffer, startBuffer, rebuffer) = if (isCellular) {
-            // Cellular: 1.5s startup runway and 3s rebuffer to prevent stutter on network jitter
-            BufferWindow(15_000, 50_000, 1_500, 3_000)
+            // Cellular: 30-60s read-ahead, 1.5s start buffer, 2.5s rebuffer
+            BufferWindow(30_000, 60_000, 1_500, 2_500)
         } else {
+            // Android TV / Wi-Fi: 30-60s read-ahead, start at ~1-2.5s buffered
             when (mode) {
-                BufferMode.FastStart -> BufferWindow(5_000, 30_000, 300, 600)
-                BufferMode.Balanced -> BufferWindow(10_000, 50_000, 600, 1_000)
-                BufferMode.StableNetwork -> BufferWindow(15_000, 60_000, 1_000, 2_000)
+                BufferMode.FastStart -> BufferWindow(30_000, 60_000, 1_500, 2_500)
+                BufferMode.Balanced -> BufferWindow(30_000, 60_000, 2_000, 2_500)
+                BufferMode.StableNetwork -> BufferWindow(45_000, 60_000, 2_500, 3_000)
             }
         }
         return DefaultLoadControl.Builder()
@@ -90,7 +97,41 @@ object TelegramProxyPlayerFactory {
             .setConnectTimeoutMs(20_000)
             .setReadTimeoutMs(180_000)
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSource, customExtractorsFactory()).apply {
+        val compositeDataSourceFactory = DataSource.Factory {
+            val defaultSource = DefaultDataSource.Factory(context, httpDataSource).createDataSource()
+            val tdLibSource = TdLibDataSource.Factory().createDataSource()
+            object : DataSource {
+                private var activeSource: DataSource = defaultSource
+
+                override fun addTransferListener(transferListener: androidx.media3.datasource.TransferListener) {
+                    defaultSource.addTransferListener(transferListener)
+                    tdLibSource.addTransferListener(transferListener)
+                }
+
+                override fun open(dataSpec: DataSpec): Long {
+                    activeSource = if (TdLibDataSource.isTdLibUri(dataSpec.uri)) {
+                        tdLibSource
+                    } else {
+                        defaultSource
+                    }
+                    return activeSource.open(dataSpec)
+                }
+
+                override fun read(target: ByteArray, offset: Int, length: Int): Int =
+                    activeSource.read(target, offset, length)
+
+                override fun getUri(): Uri? = activeSource.uri
+
+                override fun getResponseHeaders(): Map<String, List<String>> =
+                    activeSource.responseHeaders
+
+                override fun close() {
+                    activeSource.close()
+                }
+            }
+        }
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(compositeDataSourceFactory, customExtractorsFactory()).apply {
             if (loadErrorHandlingPolicy != null) {
                 setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             }
@@ -100,11 +141,19 @@ object TelegramProxyPlayerFactory {
             .setLoadControl(customLoadControl(runCatching { EnterprisePreferences.bufferMode() }.getOrDefault(BufferMode.FastStart)))
             .setRenderersFactory(customRenderersFactory(context))
             .setMediaSourceFactory(mediaSourceFactory)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true
+            )
             .build()
             .apply {
                 playWhenReady = true
                 setPlaybackSpeed(preferredSpeed)
                 setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
             }
     }
 }

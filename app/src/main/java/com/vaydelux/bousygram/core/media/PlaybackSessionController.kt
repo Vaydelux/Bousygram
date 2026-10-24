@@ -4,6 +4,7 @@ import androidx.media3.common.PlaybackException
 import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.PlaybackRecoveryAction
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
+import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import com.vaydelux.bousygram.data.store.BufferMode
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
@@ -43,29 +44,6 @@ enum class PlaybackRetryDecision {
     SkipOrReport
 }
 
-class PlaybackSession internal constructor(
-    val sessionId: String,
-    val fileId: Int,
-    val startedAtMs: Long,
-    startPositionMs: Long
-) {
-    var currentPositionMs: Long = startPositionMs
-        internal set
-    var currentOffsetBytes: Long = 0L
-        internal set
-    var retryCount: Int = 0
-        internal set
-    var consecutiveRangeStalls: Int = 0
-        internal set
-    var lastStallReason: PlaybackStallReason = PlaybackStallReason.None
-        internal set
-    var lastStopReason: PlaybackCacheStopReason = PlaybackCacheStopReason.None
-        internal set
-    private val stopped = AtomicBoolean(false)
-
-    internal fun markStoppedOnce(): Boolean = stopped.compareAndSet(false, true)
-}
-
 object PlaybackSessionController {
     private const val STARTUP_CACHE_LEAD_MS = 12_000L
     private const val STABLE_CACHE_LEAD_MS = 30_000L
@@ -76,8 +54,43 @@ object PlaybackSessionController {
 
     private val nextSessionNumber = AtomicLong(1L)
     private val activeSessionsByFile = ConcurrentHashMap<Int, Int>()
+    private val isVideoPlayingFlag = AtomicBoolean(false)
+
+    fun setVideoPlaying(playing: Boolean) {
+        isVideoPlayingFlag.set(playing)
+        if (playing) {
+            FocusPrefetchManager.cancelAll()
+        }
+    }
+
+    /** Returns true if video playback is currently active. */
+    fun isVideoPlaying(): Boolean = isVideoPlayingFlag.get() || !activeSessionsByFile.isEmpty()
+
+    fun start(
+        queue: List<com.vaydelux.bousygram.presentation.media.PlaybackQueueItem>,
+        startIndex: Int = 0,
+        startPositionMs: Long = 0L,
+        onCancelDownloads: ((fileId: Int) -> Unit)? = null
+    ): PlaybackSession {
+        FocusPrefetchManager.cancelAll()
+        val session = PlaybackSession(
+            queue = queue,
+            initialIndex = startIndex,
+            sessionId = "pb-${System.currentTimeMillis()}-${nextSessionNumber.getAndIncrement()}",
+            startedAtMs = System.currentTimeMillis(),
+            startPositionMs = startPositionMs.coerceAtLeast(0L),
+            onCancelDownloads = onCancelDownloads
+        )
+        val fileId = session.fileId
+        if (fileId > 0) {
+            activeSessionsByFile.compute(fileId) { _, count -> (count ?: 0) + 1 }
+        }
+        record(session)
+        return session
+    }
 
     fun start(fileId: Int, startPositionMs: Long = 0L): PlaybackSession {
+        FocusPrefetchManager.cancelAll()
         val session = PlaybackSession(
             sessionId = "pb-${System.currentTimeMillis()}-${nextSessionNumber.getAndIncrement()}",
             fileId = fileId,
@@ -207,6 +220,10 @@ object PlaybackSessionController {
             else -> session.lastStallReason
         }
         TelegramPreCacheEngine.stopCaching(session.fileId, cancelTdLibDownload)
+        if (cancelTdLibDownload && session.fileId > 0) {
+            com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.cancelPrefetch(session.fileId)
+        }
+        session.release()
         record(session)
     }
 

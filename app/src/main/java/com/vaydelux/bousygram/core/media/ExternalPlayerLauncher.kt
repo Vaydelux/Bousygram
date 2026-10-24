@@ -21,7 +21,9 @@ object ExternalPlayerLauncher {
             declaredSize = item.fileSizeBytes,
             title = item.title,
             mimeType = item.mimeType,
-            fileName = item.fileName
+            fileName = item.fileName,
+            chatId = item.chatId,
+            messageId = item.messageId
         )
 
         val streamUrl = prep?.url

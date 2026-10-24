@@ -130,13 +130,23 @@ object ContinueWatchingRepository {
 
     fun getEntry(chatId: Long, messageId: Long): ContinueWatchingEntry? {
         val entryKey = key(chatId, messageId)
-        return entries[entryKey]
+        return synchronized(entries) { entries[entryKey] }
     }
 
     fun isWatched(chatId: Long, messageId: Long, durationMs: Long): Boolean {
         val entry = getEntry(chatId, messageId) ?: return false
         if (entry.completed) return true
         if (durationMs > 0L && entry.positionMs >= (durationMs * COMPLETED_THRESHOLD_RATIO).toLong()) {
+            return true
+        }
+        return false
+    }
+
+    fun isWatched(fileId: Int): Boolean {
+        if (fileId <= 0) return false
+        val entry = synchronized(entries) { entries.values.firstOrNull { it.fileId == fileId } } ?: return false
+        if (entry.completed) return true
+        if (entry.durationMs > 0L && entry.positionMs >= (entry.durationMs * COMPLETED_THRESHOLD_RATIO).toLong()) {
             return true
         }
         return false

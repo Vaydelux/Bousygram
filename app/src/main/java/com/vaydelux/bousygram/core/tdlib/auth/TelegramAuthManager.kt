@@ -311,6 +311,7 @@ class TelegramAuthManager(private val context: Context) {
                 _uiState.update {
                     it.copy(step = AuthStep.Authorized, isLoading = false, code = "", password = "", message = null)
                 }
+                com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.refresh()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
                 _uiState.update { it.copy(message = "Logging out…", isLoading = true) }

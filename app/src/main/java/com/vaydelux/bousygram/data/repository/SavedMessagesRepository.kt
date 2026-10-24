@@ -87,7 +87,9 @@ class SavedMessagesRepository {
             declaredSize = item.fileSizeBytes,
             title = item.title,
             mimeType = item.mimeType,
-            fileName = item.fileName
+            fileName = item.fileName,
+            chatId = item.chatId,
+            messageId = item.messageId
         )
         if (prepared == null) Result.failure(IllegalStateException("File is not ready to stream yet"))
         else Result.success(prepared.url)

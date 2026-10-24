@@ -39,6 +39,10 @@ internal interface TelegramFileGateway {
     suspend fun getFile(fileId: Int): TelegramGatewayFile?
 
     suspend fun readFilePart(fileId: Int, offset: Long, limit: Int): ByteArray?
+
+    suspend fun cancelDownloadFile(fileId: Int, onlyIfPending: Boolean = false): Boolean = true
+
+    suspend fun reResolveFile(chatId: Long, messageId: Long): TelegramGatewayFile? = null
 }
 
 internal object TelegramFileGatewayRegistry {
@@ -140,7 +144,49 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
             )
         }
 
-    private fun TdApi.File.toGatewayFile(): TelegramGatewayFile =
+    override suspend fun cancelDownloadFile(fileId: Int, onlyIfPending: Boolean): Boolean =
+        suspendCancellableCoroutine { continuation ->
+            TdLibClient.client.send(
+                TdApi.CancelDownloadFile(fileId, onlyIfPending),
+                handler@{ response ->
+                    if (!continuation.isActive) return@handler
+                    continuation.resume(response is TdApi.Ok)
+                }
+            )
+        }
+
+    override suspend fun reResolveFile(chatId: Long, messageId: Long): TelegramGatewayFile? =
+        suspendCancellableCoroutine { continuation ->
+            TdLibClient.client.send(
+                TdApi.GetMessage(chatId, messageId),
+                handler@{ response ->
+                    if (!continuation.isActive) return@handler
+                    val message = response as? TdApi.Message
+                    if (message == null) {
+                        continuation.resume(null)
+                        return@handler
+                    }
+                    val targetFileId = when (val content = message.content) {
+                        is TdApi.MessageVideo -> content.video?.video?.id
+                        is TdApi.MessageDocument -> content.document?.document?.id
+                        else -> null
+                    }
+                    if (targetFileId == null || targetFileId <= 0) {
+                        continuation.resume(null)
+                    } else {
+                        TdLibClient.client.send(
+                            TdApi.GetFile(targetFileId),
+                            fileHandler@{ fileResponse ->
+                                if (!continuation.isActive) return@fileHandler
+                                continuation.resume((fileResponse as? TdApi.File)?.toGatewayFile())
+                            }
+                        )
+                    }
+                }
+            )
+        }
+
+    internal fun TdApi.File.toGatewayFile(): TelegramGatewayFile =
         TelegramGatewayFile(
             fileId = id,
             localPath = local?.path.orEmpty(),

@@ -10,11 +10,11 @@ object SeriesMetadataParser {
 
     private val S_E_REGEX = Regex("""(?i)\bS(\d{1,3})\s*[._-]?\s*E(\d{1,4})\b""")
     private val X_REGEX = Regex("""(?i)\b(\d{1,2})x(\d{1,4})\b""")
-    private val SEASON_EPISODE_TEXT_REGEX = Regex("""(?i)\b(?:Season|Series)\s*(\d{1,3})\s*[-._]?\s*(?:Episode|Ep)\.?\s*(\d{1,4})\b""")
-    private val EPISODE_ONLY_REGEX = Regex("""(?i)\b(?:Episode|Ep)\.?\s*(\d{1,4})\b""")
-    private val SEASON_ONLY_REGEX = Regex("""(?i)\b(?:Season|Series)\s*(\d{1,3})\b""")
+    private val SEASON_EPISODE_TEXT_REGEX = Regex("""(?i)\b(?:Season|Series)[.\s_-]*(\d{1,3})[.\s_-]*(?:Episode|Ep)\.?[.\s_-]*(\d{1,4})\b""")
+    private val EPISODE_ONLY_REGEX = Regex("""(?i)\b(?:Episode|Ep)\.?[.\s_-]*(\d{1,4})\b""")
+    private val SEASON_ONLY_REGEX = Regex("""(?i)\b(?:Season|Series)[.\s_-]*(\d{1,3})\b""")
 
-    private val ANIME_EPISODE_REGEX = Regex("""(?i)^(?:\[[^]]+\]\s*)?(.+?)\s*-\s*(\d{1,4})(?:\s*\[[^]]+\]|\s*\([^)]+\))?$""")
+    private val ANIME_EPISODE_REGEX = Regex("""(?i)^(?:\[[^]]+\]\s*)?(.+?)\s*-\s*(\d{1,4})(?:\s*\[[^]]+\]|\s*\([^)]+\))*$""")
     private val PART_REGEX = Regex("""(?i)\b(?:Part|CD|Disk|Disc)\s*(\d{1,2})\b""")
 
     // Common junk tokens to trim from raw series titles

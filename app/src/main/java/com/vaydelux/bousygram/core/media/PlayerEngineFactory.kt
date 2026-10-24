@@ -7,8 +7,8 @@ import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 
 /**
- * Factory providing the active [PlayerEngine]. Defaults to [MpvPlayerEngine] (libmpv) for
- * comprehensive container/codec support, with graceful fallback to [ExoPlayerEngine].
+ * Factory providing the active [PlayerEngine]. Defaults to [SelectedPlayerEngine.AUTO] (ExoPlayer
+ * for progressive MP4/hardware decodable streams, falling back seamlessly to [MpvPlayerEngine]).
  */
 object PlayerEngineFactory {
     private const val TAG = "PlayerEngineFactory"
@@ -16,10 +16,13 @@ object PlayerEngineFactory {
     fun create(
         context: Context,
         preferredEngine: SelectedPlayerEngine = EnterprisePreferences.selectedPlayerEngine(),
-        preferredSpeed: Float = EnterprisePreferences.preferredSpeed()
+        preferredSpeed: Float = EnterprisePreferences.preferredSpeed(),
+        fileName: String? = null,
+        mimeType: String? = null
     ): PlayerEngine {
         val isCellular = NetworkConnectivityObserver.isCellular
-        return if (preferredEngine == SelectedPlayerEngine.MPV) {
+        val shouldUseMpv = preferredEngine == SelectedPlayerEngine.MPV
+        return if (shouldUseMpv) {
             try {
                 Log.i(TAG, "Creating MpvPlayerEngine (cellular=$isCellular)")
                 val engine = MpvPlayerEngine(context = context, initialIsCellular = isCellular).apply {
@@ -33,14 +36,14 @@ object PlayerEngineFactory {
                 ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed)
             }
         } else {
-            Log.i(TAG, "Creating ExoPlayerEngine")
+            Log.i(TAG, "Creating ExoPlayerEngine (default engine)")
             ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed)
         }
     }
 
     /**
-     * Gracefully transitions playback to ExoPlayerEngine when MpvPlayerEngine encounters an unrecoverable
-     * codec or hardware failure, preserving the current playback position.
+     * Gracefully transitions playback to MpvPlayerEngine when ExoPlayer encounters an unrecoverable
+     * codec or container failure, or to ExoPlayerEngine if MPV failed, preserving the current position.
      */
     fun createFallback(
         context: Context,
@@ -48,9 +51,21 @@ object PlayerEngineFactory {
         preferredSpeed: Float = EnterprisePreferences.preferredSpeed()
     ): Pair<PlayerEngine, Long> {
         val position = failedEngine.currentPositionMs
-        Log.w(TAG, "Initiating fallback engine transition from position $position ms")
+        Log.w(TAG, "Initiating fallback engine transition from position $position ms (failed: ${failedEngine::class.simpleName})")
         failedEngine.release()
-        val fallback = ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed)
+        val isCellular = NetworkConnectivityObserver.isCellular
+        val fallback = if (failedEngine is ExoPlayerEngine) {
+            try {
+                MpvPlayerEngine(context = context, initialIsCellular = isCellular).apply {
+                    setPlaybackSpeed(preferredSpeed)
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Fallback to MpvPlayerEngine failed, recreating ExoPlayerEngine", e)
+                ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed)
+            }
+        } else {
+            ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed)
+        }
         return Pair(fallback, position)
     }
 }

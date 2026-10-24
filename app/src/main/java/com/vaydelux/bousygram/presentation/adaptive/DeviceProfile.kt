@@ -17,6 +17,12 @@ enum class DeviceProfile {
     Tv
 }
 
+enum class WindowLayoutType {
+    TV,
+    Tablet,
+    Phone
+}
+
 data class AdaptiveMetrics(
     val profile: DeviceProfile,
     val widthDp: Dp,
@@ -25,6 +31,15 @@ data class AdaptiveMetrics(
     val isTv: Boolean = profile == DeviceProfile.Tv
     val isCompact: Boolean = profile == DeviceProfile.PhonePortrait || profile == DeviceProfile.PhoneLandscape
     val useTvChrome: Boolean = profile == DeviceProfile.Tv || (widthDp >= 900.dp && heightDp >= 520.dp)
+
+    val layoutType: WindowLayoutType = when {
+        isTv -> WindowLayoutType.TV
+        minOf(widthDp, heightDp) >= 600.dp -> WindowLayoutType.Tablet
+        else -> WindowLayoutType.Phone
+    }
+    val isTvLayout: Boolean = layoutType == WindowLayoutType.TV
+    val isTabletLayout: Boolean = layoutType == WindowLayoutType.Tablet
+    val isPhoneLayout: Boolean = layoutType == WindowLayoutType.Phone
 }
 
 @Composable
@@ -45,3 +60,4 @@ fun rememberAdaptiveMetrics(): AdaptiveMetrics {
     }
     return AdaptiveMetrics(profile, widthDp, heightDp)
 }
+

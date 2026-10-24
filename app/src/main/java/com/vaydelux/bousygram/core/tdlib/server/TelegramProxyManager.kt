@@ -96,8 +96,14 @@ object TelegramProxyManager {
             }.start(wait = false)
             server = nettyServer
             actualPort = kotlinx.coroutines.runBlocking {
-                runCatching { nettyServer.resolvedConnectors().firstOrNull()?.port }.getOrNull()
-            } ?: DEFAULT_PORT
+                var resolved: Int? = null
+                for (attempt in 0..30) {
+                    resolved = runCatching { nettyServer.resolvedConnectors().firstOrNull()?.port }.getOrNull()
+                    if (resolved != null && resolved > 0) break
+                    delay(20L)
+                }
+                checkNotNull(resolved) { "Ktor Netty failed to bind an ephemeral port" }
+            }
             val newUrl = "http://$HOST:$actualPort/stream"
             _proxyBaseUrlFlow.value = newUrl
             Log.i(TAG, "Ktor Telegram proxy started on $newUrl")

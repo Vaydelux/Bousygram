@@ -22,6 +22,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import android.view.KeyEvent
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -73,6 +79,7 @@ import com.vaydelux.bousygram.presentation.components.GlassPill
 import com.vaydelux.bousygram.presentation.components.ImagePlaceholderIcon
 import com.vaydelux.bousygram.presentation.components.ShimmerCard
 import com.vaydelux.bousygram.presentation.components.rememberMiniThumbnail
+import com.vaydelux.bousygram.presentation.components.TvFocusSurface
 import com.vaydelux.bousygram.presentation.media.mediaDisplayLabels
 import java.io.File
 
@@ -115,7 +122,8 @@ fun TvHybridHomeDashboard(
     onSelectSeries: (String?) -> Unit = {},
     onSelectTopic: (Int?) -> Unit = {},
     onOpenExternalPlayer: (MediaItem) -> Unit = {},
-    onDeleteMedia: (MediaItem) -> Unit = {}
+    onDeleteMedia: (MediaItem) -> Unit = {},
+    onBackToNavBar: () -> Unit = {}
 ) {
     val adaptive = rememberAdaptiveMetrics()
     val compact = adaptive.isCompact
@@ -152,11 +160,30 @@ fun TvHybridHomeDashboard(
     var showDetailsDialog by remember { mutableStateOf(false) }
     var detailMediaItem by remember { mutableStateOf<MediaItem?>(null) }
     var focusedMediaForBackdrop by remember { mutableStateOf<MediaItem?>(null) }
+    var focusedMediaForHero by remember { mutableStateOf<MediaItem?>(null) }
 
-    val backdropTarget = focusedMediaForBackdrop ?: continueItem
+    val activeHeroMedia = focusedMediaForHero ?: continueItem ?: featuredVideos.firstOrNull()
+    val isPhoneLayout = compact || adaptive.isPhoneLayout
+
+    val continueWatchingRowState = rememberLazyListState()
+    val newInChatsRowState = rememberLazyListState()
+    val chatRowStates = remember { mutableMapOf<Long, LazyListState>() }
+
+    val isHeroFavorite = remember(activeHeroMedia, favoriteKeys) {
+        if (activeHeroMedia == null) false
+        else favoriteKeys.contains("${activeHeroMedia.chatId}:${activeHeroMedia.messageId}")
+    }
+    val hasHeroResume = remember(activeHeroMedia, continueWatchingRail) {
+        if (activeHeroMedia == null) false
+        else PlaybackProgressTracker.hasResume(activeHeroMedia.chatId, activeHeroMedia.messageId, activeHeroMedia.fileId) ||
+                continueWatchingRail.any { it.chatId == activeHeroMedia.chatId && it.messageId == activeHeroMedia.messageId }
+    }
+
+    val backdropTarget = focusedMediaForHero ?: focusedMediaForBackdrop ?: continueItem
     val context = LocalContext.current
     val backdropMiniThumbnail = backdropTarget?.let { rememberMiniThumbnail(it.chatId, it.messageId, it.miniThumbnailBytes) }
-    val backdropImageData = backdropTarget?.thumbnailPath?.let { path ->
+    val preferredBackdrop = backdropTarget?.tmdbBackdropPath ?: backdropTarget?.tmdbPosterPath ?: backdropTarget?.thumbnailPath
+    val backdropImageData = preferredBackdrop?.let { path ->
         if (path.startsWith("http")) path else File(path)
     } ?: backdropMiniThumbnail
     val backdropImageRequest = remember(backdropImageData) {
@@ -202,6 +229,14 @@ fun TvHybridHomeDashboard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .onKeyEvent { event ->
+                    if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                        onBackToNavBar()
+                        true
+                    } else {
+                        false
+                    }
+                }
                 .verticalScroll(rememberScrollState())
                 .padding(
                     start = if (compact) 14.dp else 24.dp,
@@ -232,8 +267,8 @@ fun TvHybridHomeDashboard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "CHANNELS",
-                            color = Color(0xFF64748B),
+                            text = "TOPICS",
+                            color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.2.sp
@@ -241,7 +276,7 @@ fun TvHybridHomeDashboard(
                         )
                         Text(
                             text = "• ${availableTopics.size} topics",
-                            color = Color(0xFF475569),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -252,54 +287,36 @@ fun TvHybridHomeDashboard(
                     ) {
                         item {
                             val isSelected = selectedTopicId == null
-                            val shape = RoundedCornerShape(12.dp)
-                            Surface(
-                                shape = shape,
-                                color = if (isSelected) Color(0xFF5EE5BE) else Color(0xFF131D2E),
-                                modifier = Modifier
-                                    .clip(shape)
-                                    .clickable { onSelectTopic(null) }
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Color(0xFF5EE5BE) else Color(0xFF223249),
-                                        shape
-                                    )
-                            ) {
+                            TvFocusSurface(
+                                onClick = { onSelectTopic(null) },
+                                selected = isSelected
+                            ) { focused ->
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                 ) {
                                     Text(
                                         text = "#",
-                                        color = if (isSelected) Color(0xFF091418) else Color(0xFF64748B),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        text = "all-channels",
-                                        color = if (isSelected) Color(0xFF091418) else Color(0xFFCBD5E1),
+                                        text = "all-topics",
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
                                     )
                                 }
                             }
                         }
                         items(availableTopics, key = { it.id }) { topic ->
                             val isSelected = selectedTopicId == topic.id
-                            val shape = RoundedCornerShape(12.dp)
-                            Surface(
-                                shape = shape,
-                                color = if (isSelected) Color(0xFF5EE5BE) else Color(0xFF131D2E),
-                                modifier = Modifier
-                                    .clip(shape)
-                                    .clickable { onSelectTopic(topic.id) }
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Color(0xFF5EE5BE) else Color(0xFF223249),
-                                        shape
-                                    )
-                            ) {
+                            TvFocusSurface(
+                                onClick = { onSelectTopic(topic.id) },
+                                selected = isSelected
+                            ) { focused ->
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
@@ -307,28 +324,30 @@ fun TvHybridHomeDashboard(
                                     val icon = if (topic.isGeneral) "★" else "#"
                                     Text(
                                         text = icon,
-                                        color = if (isSelected) Color(0xFF091418) else Color(0xFF64748B),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
                                         text = topic.name.lowercase().replace(" ", "-"),
-                                        color = if (isSelected) Color(0xFF091418) else Color(0xFFCBD5E1),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
                                     )
-                                    val count = topicGroups[topic.name]?.size ?: 0
+                                    val count = topicGroups[topic.name]?.size
+                                        ?: topicGroups.entries.firstOrNull { it.key.equals(topic.name, ignoreCase = true) }?.value?.size
+                                        ?: 0
                                     if (count > 0) {
                                         Spacer(Modifier.width(6.dp))
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
-                                            color = if (isSelected) Color(0xFF091418).copy(alpha = 0.2f) else Color(0xFF1E2E48),
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
                                             modifier = Modifier.padding(vertical = 1.dp)
                                         ) {
                                             Text(
                                                 text = "$count",
-                                                color = if (isSelected) Color(0xFF091418) else Color(0xFF5EE5BE),
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
@@ -338,13 +357,13 @@ fun TvHybridHomeDashboard(
                                         Spacer(Modifier.width(6.dp))
                                         Surface(
                                             shape = CircleShape,
-                                            color = if (isSelected) Color(0xFF091418) else Color(0xFFEF4444),
+                                            color = MaterialTheme.colorScheme.error,
                                             modifier = Modifier.size(16.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Text(
                                                     text = "${topic.unreadCount.coerceAtMost(99)}",
-                                                    color = Color.White,
+                                                    color = MaterialTheme.colorScheme.onError,
                                                     fontSize = 9.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -365,28 +384,21 @@ fun TvHybridHomeDashboard(
             ) {
                 com.vaydelux.bousygram.domain.model.MediaCategoryTab.entries.forEach { tab ->
                     val isSelected = tab == selectedCategoryTab
-                    val shape = RoundedCornerShape(20.dp)
-                    Surface(
-                        shape = shape,
-                        color = if (isSelected) Color(0xFF5EE5BE) else Color(0xFF131D2E),
-                        modifier = Modifier
-                            .clip(shape)
-                            .clickable {
-                                onSelectCategoryTab(tab)
-                            }
-                            .border(
-                                1.dp,
-                                if (isSelected) Color(0xFF5EE5BE) else Color(0xFF223249),
-                                shape
-                            )
-                    ) {
-                        Text(
-                            text = tab.label,
-                            color = if (isSelected) Color(0xFF091418) else Color(0xFFCBD5E1),
-                            style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    TvFocusSurface(
+                        onClick = { onSelectCategoryTab(tab) },
+                        selected = isSelected
+                    ) { focused ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                        )
+                        ) {
+                            Text(
+                                text = tab.label,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                                fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -429,358 +441,358 @@ fun TvHybridHomeDashboard(
                     onAction = onOpenSearch,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp)
                 )
-            } else when (selectedCategoryTab) {
-                com.vaydelux.bousygram.domain.model.MediaCategoryTab.ALL -> {
-                    // Top Hero Card: "PICK UP WHERE YOU LEFT OFF"
-                    ModernHeroBanner(
-                        video = continueItem,
-                        lastPlayedTitle = lastPlayedTitle,
-                        onResume = {
-                            if (continueItem != null) onVideoSelected(continueItem) else onOpenLastPlayed()
-                        },
-                        onDetails = {
-                            detailMediaItem = continueItem
-                            showDetailsDialog = true
+            } else if (seriesGroups.firstOrNull { it.title == selectedSeriesTitle } != null) {
+                val activeSeries = seriesGroups.first { it.title == selectedSeriesTitle }
+                var selectedSeasonFilter by remember(selectedSeriesTitle) { mutableStateOf<Int?>(null) }
+                val seasons = remember(activeSeries) {
+                    activeSeries.episodes.mapNotNull { it.seasonNumber }.distinct().sorted()
+                }
+                val displayedEpisodes = remember(activeSeries, selectedSeasonFilter) {
+                    if (selectedSeasonFilter == null) activeSeries.episodes
+                    else activeSeries.episodes.filter { it.seasonNumber == selectedSeasonFilter }
+                }
+                // Series Episode View (Chat -> Topic -> Series -> Episodes)
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TvFocusSurface(
+                            onClick = { onSelectSeries(null) }
+                        ) { focused ->
+                            Text(
+                                text = "← Back to Shows",
+                                color = if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
                         }
-                    )
+                        Text(
+                            text = activeSeries.title,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "${activeSeries.totalSeasons} Season(s) • ${activeSeries.episodes.size} Episodes",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
 
-                    // Continue Watching Rail (Top 12 unfinished videos)
-                    if (continueWatchingRail.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = "Continue Watching",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF1E2E48)
-                                ) {
+                    // Season Filter Tabs if series has multiple seasons
+                    if (seasons.size > 1) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(vertical = 2.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            item {
+                                val isSelected = selectedSeasonFilter == null
+                                TvFocusSurface(
+                                    onClick = { selectedSeasonFilter = null },
+                                    selected = isSelected
+                                ) { focused ->
                                     Text(
-                                        text = "${continueWatchingRail.size}",
-                                        color = Color(0xFF5EE5BE),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        text = "All Seasons (${activeSeries.episodes.size})",
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                                     )
                                 }
                             }
+                            items(seasons) { seasonNum ->
+                                val isSelected = selectedSeasonFilter == seasonNum
+                                val count = activeSeries.episodes.count { it.seasonNumber == seasonNum }
+                                TvFocusSurface(
+                                    onClick = { selectedSeasonFilter = seasonNum },
+                                    selected = isSelected
+                                ) { focused ->
+                                    Text(
+                                        text = "Season $seasonNum ($count)",
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(end = 24.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        itemsIndexed(
+                            displayedEpisodes,
+                            key = { idx, ep -> "ep_${ep.chatId}_${ep.messageId}_$idx" }
+                        ) { index, episode ->
+                            ModernVideoCard(
+                                media = episode,
+                                index = index,
+                                isFavoriteSection = false,
+                                onClick = { onVideoSelected(episode) },
+                                cardWidth = cardWidth,
+                                onFocusChanged = { if (it) { focusedMediaForBackdrop = episode; onVideoFocused(episode) } },
+                                onOpenDetails = { detailMediaItem = episode; showDetailsDialog = true }
+                            )
+                        }
+                    }
+                }
+            } else when (selectedCategoryTab) {
+                com.vaydelux.bousygram.domain.model.MediaCategoryTab.ALL -> {
+                    val heroContent: @Composable () -> Unit = {
+                        ModernHeroBanner(
+                            video = activeHeroMedia,
+                            lastPlayedTitle = lastPlayedTitle,
+                            isFavorite = isHeroFavorite,
+                            hasResume = hasHeroResume,
+                            onPlayOrResume = {
+                                if (activeHeroMedia != null) onVideoSelected(activeHeroMedia) else onOpenLastPlayed()
+                            },
+                            onToggleMyList = {
+                                if (activeHeroMedia != null) onToggleFavorite(activeHeroMedia)
+                            },
+                            onDetails = {
+                                detailMediaItem = activeHeroMedia
+                                showDetailsDialog = true
+                            },
+                            isPhone = isPhoneLayout
+                        )
+                    }
+
+                    val continueWatchingContent: @Composable () -> Unit = {
+                        if (continueWatchingRail.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Continue Watching",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant
+                                    ) {
+                                        Text(
+                                            text = "${continueWatchingRail.size}",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                LazyRow(
+                                    state = continueWatchingRowState,
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    contentPadding = PaddingValues(end = 24.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    itemsIndexed(
+                                        continueWatchingRail,
+                                        key = { index, item -> "cw_${item.chatId}_${item.messageId}_$index" }
+                                    ) { index, item ->
+                                        val matchingMedia = featuredVideos.firstOrNull {
+                                            it.chatId == item.chatId && it.messageId == item.messageId
+                                        } ?: MediaItem(
+                                            chatId = item.chatId,
+                                            messageId = item.messageId,
+                                            date = (item.updatedAt / 1000).toInt(),
+                                            type = com.vaydelux.bousygram.domain.model.MediaType.Video,
+                                            title = item.title,
+                                            fileId = item.fileId,
+                                            durationSeconds = (item.durationMs / 1000).toInt(),
+                                            thumbnailPath = item.thumbnailPath
+                                        )
+                                        ContinueWatchingCard(
+                                            entry = item,
+                                            media = matchingMedia,
+                                            onClick = { onVideoSelected(matchingMedia) },
+                                            cardWidth = cardWidth,
+                                            onFocusChanged = {
+                                                if (it) {
+                                                    focusedMediaForBackdrop = matchingMedia
+                                                    focusedMediaForHero = matchingMedia
+                                                    onVideoFocused(matchingMedia)
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    val newInChatsContent: @Composable () -> Unit = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                text = "New in your chats",
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                                fontWeight = FontWeight.Bold
+                            )
                             LazyRow(
+                                state = newInChatsRowState,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 contentPadding = PaddingValues(end = 24.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 itemsIndexed(
-                                    continueWatchingRail,
-                                    key = { index, item -> "cw_${item.chatId}_${item.messageId}_$index" }
+                                    featuredVideos,
+                                    key = { index, item -> "recent_${item.chatId}_${item.messageId}_$index" }
                                 ) { index, item ->
-                                    val matchingMedia = featuredVideos.firstOrNull {
-                                        it.chatId == item.chatId && it.messageId == item.messageId
-                                    } ?: MediaItem(
-                                        chatId = item.chatId,
-                                        messageId = item.messageId,
-                                        date = (item.updatedAt / 1000).toInt(),
-                                        type = com.vaydelux.bousygram.domain.model.MediaType.Video,
-                                        title = item.title,
-                                        fileId = item.fileId,
-                                        durationSeconds = (item.durationMs / 1000).toInt(),
-                                        thumbnailPath = item.thumbnailPath
-                                    )
-                                    ContinueWatchingCard(
-                                        entry = item,
-                                        media = matchingMedia,
-                                        onClick = { onVideoSelected(matchingMedia) },
+                                    ModernVideoCard(
+                                        media = item,
+                                        index = index,
+                                        isFavoriteSection = false,
+                                        onClick = { onVideoSelected(item) },
                                         cardWidth = cardWidth,
-                                        onFocusChanged = { if (it) { focusedMediaForBackdrop = matchingMedia; onVideoFocused(matchingMedia) } }
+                                        onFocusChanged = {
+                                            if (it) {
+                                                focusedMediaForBackdrop = item
+                                                focusedMediaForHero = item
+                                                onVideoFocused(item)
+                                            }
+                                        },
+                                        onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
                                     )
                                 }
                             }
                         }
                     }
 
-                    // Section 1: "Recently added"
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = "Recently added",
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
-                            fontWeight = FontWeight.Bold
-                        )
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(end = 24.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            itemsIndexed(
-                                featuredVideos,
-                                key = { index, item -> "recent_${item.chatId}_${item.messageId}_$index" }
-                            ) { index, item ->
-                                ModernVideoCard(
-                                    media = item,
-                                    index = index,
-                                    isFavoriteSection = false,
-                                    onClick = { onVideoSelected(item) },
-                                    cardWidth = cardWidth,
-                                    onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
-                                    onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
-                                )
-                            }
+                    val groupRowsContent: @Composable () -> Unit = {
+                        val videosByChat = remember(featuredVideos) { featuredVideos.groupBy { it.chatId } }
+                        val displayedChats = remember(sourceChats, videosByChat) {
+                            val withVideos = sourceChats.filter { (videosByChat[it.chatId]?.size ?: 0) > 0 }
+                            if (withVideos.isNotEmpty()) withVideos else sourceChats.take(5)
                         }
-                    }
-
-                    // Section 2: "Your favorites"
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = "Your favorites",
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
-                            fontWeight = FontWeight.Bold
-                        )
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(end = 24.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            itemsIndexed(
-                                favoriteVideos,
-                                key = { index, item -> "fav_${item.chatId}_${item.messageId}_$index" }
-                            ) { index, item ->
-                                ModernVideoCard(
-                                    media = item,
-                                    index = index,
-                                    isFavoriteSection = true,
-                                    onClick = { onVideoSelected(item) },
-                                    cardWidth = cardWidth,
-                                    onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
-                                    onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
-                                )
-                            }
-                        }
-                    }
-
-                    // Section 3: "Channels & Sources" (Grouped by Source Overview inspired by telemedia-hub)
-                    if (sourceChats.size > 1) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = "Channels & Sources",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF1E2E48)
-                                ) {
-                                    Text(
-                                        text = "${sourceChats.size}",
-                                        color = Color(0xFF38BDF8),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                contentPadding = PaddingValues(end = 24.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                items(sourceChats, key = { it.chatId }) { chat ->
-                                    val isSelected = chat.chatId == selectedChatId
-                                    Surface(
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = if (isSelected) Color(0xFF162A45) else Color(0xFF111C2B),
-                                        modifier = Modifier
-                                            .width(220.dp)
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .clickable { onSelectChat(chat) }
-                                            .border(
-                                                1.dp,
-                                                if (isSelected) Color(0xFF38BDF8) else Color(0xFF1E2E48),
-                                                RoundedCornerShape(14.dp)
+                        if (displayedChats.isNotEmpty()) {
+                            displayedChats.forEach { chat ->
+                                val chatVideos = videosByChat[chat.chatId] ?: if (chat.chatId == selectedChatId) featuredVideos else emptyList()
+                                if (chatVideos.isNotEmpty()) {
+                                    val rowState = chatRowStates.getOrPut(chat.chatId) { LazyListState() }
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = chat.title,
+                                                color = Color.White,
+                                                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                                                fontWeight = FontWeight.Bold
                                             )
-                                    ) {
-                                        Column(modifier = Modifier.padding(14.dp)) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant
                                             ) {
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = Color(0xFF223654),
-                                                    modifier = Modifier.size(36.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Text(
-                                                            text = chat.title.take(1).uppercase(),
-                                                            color = Color(0xFF38BDF8),
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontSize = 16.sp
-                                                        )
-                                                    }
-                                                }
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = chat.title,
-                                                        color = Color.White,
-                                                        style = MaterialTheme.typography.labelLarge,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Text(
-                                                        text = if (chat.isForum) "${chat.topicsCount} topics" else chat.kind.label,
-                                                        color = if (chat.isForum) Color(0xFF5EE5BE) else Color(0xFF64748B),
-                                                        style = MaterialTheme.typography.labelSmall
-                                                    )
-                                                }
+                                                Text(
+                                                    text = "${chatVideos.size}",
+                                                    color = MaterialTheme.colorScheme.secondary,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        LazyRow(
+                                            state = rowState,
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                            contentPadding = PaddingValues(end = 24.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            itemsIndexed(
+                                                chatVideos,
+                                                key = { index, item -> "chat_${chat.chatId}_${item.messageId}_$index" }
+                                            ) { index, item ->
+                                                ModernVideoCard(
+                                                    media = item,
+                                                    index = index,
+                                                    isFavoriteSection = false,
+                                                    onClick = { onVideoSelected(item) },
+                                                    cardWidth = cardWidth,
+                                                    onFocusChanged = {
+                                                        if (it) {
+                                                            focusedMediaForBackdrop = item
+                                                            focusedMediaForHero = item
+                                                            onVideoFocused(item)
+                                                        }
+                                                    },
+                                                    onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                                )
                                             }
                                         }
                                     }
                                 }
                             }
+                        } else if (channelLabel.isNotBlank() && featuredVideos.isNotEmpty()) {
+                            val rowState = chatRowStates.getOrPut(-1L) { LazyListState() }
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    text = channelLabel,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                LazyRow(
+                                    state = rowState,
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    contentPadding = PaddingValues(end = 24.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    itemsIndexed(
+                                        featuredVideos,
+                                        key = { index, item -> "ch_${item.chatId}_${item.messageId}_$index" }
+                                    ) { index, item ->
+                                        ModernVideoCard(
+                                            media = item,
+                                            index = index,
+                                            isFavoriteSection = false,
+                                            onClick = { onVideoSelected(item) },
+                                            cardWidth = cardWidth,
+                                            onFocusChanged = {
+                                                if (it) {
+                                                    focusedMediaForBackdrop = item
+                                                    focusedMediaForHero = item
+                                                    onVideoFocused(item)
+                                                }
+                                            },
+                                            onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                        )
+                                    }
+                                }
+                            }
                         }
+                    }
+
+                    if (isPhoneLayout) {
+                        continueWatchingContent()
+                        heroContent()
+                        newInChatsContent()
+                        groupRowsContent()
+                    } else {
+                        heroContent()
+                        continueWatchingContent()
+                        newInChatsContent()
+                        groupRowsContent()
                     }
                 }
 
                 com.vaydelux.bousygram.domain.model.MediaCategoryTab.SERIES -> {
-                    val activeSeries = seriesGroups.firstOrNull { it.title == selectedSeriesTitle }
-                    if (activeSeries != null) {
-                        var selectedSeasonFilter by remember(selectedSeriesTitle) { mutableStateOf<Int?>(null) }
-                        val seasons = remember(activeSeries) {
-                            activeSeries.episodes.mapNotNull { it.seasonNumber }.distinct().sorted()
-                        }
-                        val displayedEpisodes = remember(activeSeries, selectedSeasonFilter) {
-                            if (selectedSeasonFilter == null) activeSeries.episodes
-                            else activeSeries.episodes.filter { it.seasonNumber == selectedSeasonFilter }
-                        }
-                        // Series Episode View
-                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFF1E2E48),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable { onSelectSeries(null) }
-                                ) {
-                                    Text(
-                                        text = "← All Shows",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                    )
-                                }
-                                Text(
-                                    text = activeSeries.title,
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFF5EE5BE).copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = "${activeSeries.totalSeasons} Season(s) • ${activeSeries.episodes.size} Episodes",
-                                        color = Color(0xFF5EE5BE),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                    )
-                                }
-                            }
-
-                            // Season Filter Tabs if series has multiple seasons
-                            if (seasons.size > 1) {
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    contentPadding = PaddingValues(vertical = 2.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    item {
-                                        val isSelected = selectedSeasonFilter == null
-                                        val shape = RoundedCornerShape(12.dp)
-                                        Surface(
-                                            shape = shape,
-                                            color = if (isSelected) Color(0xFF5EE5BE) else Color(0xFF131D2E),
-                                            modifier = Modifier
-                                                .clip(shape)
-                                                .clickable { selectedSeasonFilter = null }
-                                                .border(
-                                                    1.dp,
-                                                    if (isSelected) Color(0xFF5EE5BE) else Color(0xFF223249),
-                                                    shape
-                                                )
-                                        ) {
-                                            Text(
-                                                text = "All Seasons (${activeSeries.episodes.size})",
-                                                color = if (isSelected) Color(0xFF091418) else Color(0xFFCBD5E1),
-                                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                                            )
-                                        }
-                                    }
-                                    items(seasons) { seasonNum ->
-                                        val isSelected = selectedSeasonFilter == seasonNum
-                                        val count = activeSeries.episodes.count { it.seasonNumber == seasonNum }
-                                        val shape = RoundedCornerShape(12.dp)
-                                        Surface(
-                                            shape = shape,
-                                            color = if (isSelected) Color(0xFF5EE5BE) else Color(0xFF131D2E),
-                                            modifier = Modifier
-                                                .clip(shape)
-                                                .clickable { selectedSeasonFilter = seasonNum }
-                                                .border(
-                                                    1.dp,
-                                                    if (isSelected) Color(0xFF5EE5BE) else Color(0xFF223249),
-                                                    shape
-                                                )
-                                        ) {
-                                            Text(
-                                                text = "Season $seasonNum ($count)",
-                                                color = if (isSelected) Color(0xFF091418) else Color(0xFFCBD5E1),
-                                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                contentPadding = PaddingValues(end = 24.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                itemsIndexed(
-                                    displayedEpisodes,
-                                    key = { idx, ep -> "ep_${ep.chatId}_${ep.messageId}_$idx" }
-                                ) { index, episode ->
-                                    ModernVideoCard(
-                                        media = episode,
-                                        index = index,
-                                        isFavoriteSection = false,
-                                        onClick = { onVideoSelected(episode) },
-                                        cardWidth = cardWidth,
-                                        onFocusChanged = { if (it) { focusedMediaForBackdrop = episode; onVideoFocused(episode) } },
-                                        onOpenDetails = { detailMediaItem = episode; showDetailsDialog = true }
-                                    )
-                                }
-                            }
-                        }
-                    } else if (seriesGroups.isEmpty()) {
+                    if (seriesGroups.isEmpty()) {
                         EmptyStateView(
                             title = "No TV Series Detected",
                             message = "Videos with episode numbering (e.g. S01E01 or 1x01) will automatically appear grouped here.",
@@ -917,6 +929,9 @@ fun TvHybridHomeDashboard(
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                             topicGroups.forEach { (topicTitle, topicVideos) ->
+                                val topicSeries = remember(topicVideos, topicTitle) {
+                                    com.vaydelux.bousygram.domain.model.groupMediaIntoSeries(topicVideos, topicTitle)
+                                }
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -930,34 +945,53 @@ fun TvHybridHomeDashboard(
                                         )
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
-                                            color = Color(0xFF1E2E48)
+                                            color = MaterialTheme.colorScheme.surfaceVariant
                                         ) {
                                             Text(
-                                                text = "${topicVideos.size}",
-                                                color = Color(0xFFCBD5E1),
+                                                text = if (topicSeries.isNotEmpty()) "${topicSeries.size} series • ${topicVideos.size} videos" else "${topicVideos.size} videos",
+                                                color = MaterialTheme.colorScheme.primary,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
                                         }
                                     }
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        contentPadding = PaddingValues(end = 24.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        itemsIndexed(
-                                            topicVideos,
-                                            key = { idx, itm -> "topic_${topicTitle}_${itm.chatId}_${itm.messageId}_$idx" }
-                                        ) { index, item ->
-                                            ModernVideoCard(
-                                                media = item,
-                                                index = index,
-                                                isFavoriteSection = false,
-                                                onClick = { onVideoSelected(item) },
-                                                cardWidth = cardWidth,
-                                                onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
-                                                onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
-                                            )
+                                    if (topicSeries.isNotEmpty()) {
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                            contentPadding = PaddingValues(end = 24.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            itemsIndexed(
+                                                topicSeries,
+                                                key = { idx, s -> "topseries_${topicTitle}_${s.title}_$idx" }
+                                            ) { _, series ->
+                                                ModernSeriesCard(
+                                                    series = series,
+                                                    onClick = { onSelectSeries(series.title) },
+                                                    cardWidth = cardWidth
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                            contentPadding = PaddingValues(end = 24.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            itemsIndexed(
+                                                topicVideos,
+                                                key = { idx, itm -> "topic_${topicTitle}_${itm.chatId}_${itm.messageId}_$idx" }
+                                            ) { index, item ->
+                                                ModernVideoCard(
+                                                    media = item,
+                                                    index = index,
+                                                    isFavoriteSection = false,
+                                                    onClick = { onVideoSelected(item) },
+                                                    cardWidth = cardWidth,
+                                                    onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
+                                                    onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -1031,72 +1065,181 @@ fun TvHybridHomeDashboard(
 @Composable
 fun ModernHeroBanner(
     video: MediaItem?,
-    lastPlayedTitle: String?,
-    onResume: () -> Unit,
-    onDetails: () -> Unit,
+    lastPlayedTitle: String? = null,
+    isFavorite: Boolean = false,
+    hasResume: Boolean = false,
+    onPlayOrResume: () -> Unit,
+    onToggleMyList: () -> Unit,
+    onDetails: () -> Unit = {},
+    isPhone: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(20.dp)
-    val title = lastPlayedTitle?.takeIf { it.isNotBlank() }
-        ?: video?.title?.takeIf { it.isNotBlank() }
-        ?: "Continue watching"
+    val shape = RoundedCornerShape(if (isPhone) 16.dp else 22.dp)
+    val title = video?.title?.takeIf { it.isNotBlank() }
+        ?: lastPlayedTitle?.takeIf { it.isNotBlank() }
+        ?: "Featured Title"
+
+    val year = video?.releaseYear?.toString()
+        ?: video?.let { if (it.date > 0) (it.date / 31536000 + 1970).toString() else null }
+    val description = video?.tmdbOverview?.takeIf { it.isNotBlank() }
+        ?: "High quality streaming media from your Telegram chats."
+
+    val backdropPath = video?.tmdbBackdropPath ?: video?.tmdbPosterPath ?: video?.thumbnailPath
+    val backdropImageData = backdropPath?.let { path ->
+        if (path.startsWith("http")) path else File(path)
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .height(if (isPhone) 190.dp else 280.dp)
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Color(0xFF16253C),
-                        Color(0xFF131F33),
-                        Color(0xFF0F1829)
+            .background(Color(0xFF0F1829))
+            .border(1.dp, Color(0xFF1F304B), shape)
+    ) {
+        if (backdropImageData != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(backdropImageData)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 0.45f }
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF080D16).copy(alpha = 0.95f),
+                            Color(0xFF080D16).copy(alpha = 0.75f),
+                            Color(0xFF080D16).copy(alpha = 0.25f)
+                        )
                     )
                 )
-            )
-            .border(1.dp, Color(0xFF1F304B), shape)
-            .padding(horizontal = 24.dp, vertical = 22.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "PICK UP WHERE YOU LEFT OFF",
-                color = Color(0xFF5EE5BE),
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontSize = 12.sp,
-                    letterSpacing = 0.8.sp
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = if (isPhone) 16.dp else 28.dp,
+                    vertical = if (isPhone) 14.dp else 24.dp
                 ),
-                fontWeight = FontWeight.Bold
-            )
+            verticalArrangement = Arrangement.Center
+        ) {
+            if (year != null) {
+                Text(
+                    text = year,
+                    color = Color(0xFF5EE5BE),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = if (isPhone) 11.sp else 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                )
+                Spacer(Modifier.height(4.dp))
+            }
             Text(
-                text = if (title == "Continue watching") "Continue watching" else title,
+                text = title,
                 color = Color.White,
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontSize = 24.sp,
-                    letterSpacing = (-0.3).sp
+                style = if (isPhone) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium.copy(
+                    fontSize = 26.sp,
+                    letterSpacing = (-0.5).sp
                 ),
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = "Resume at your saved position",
+                text = description,
                 color = Color(0xFF94A3B8),
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)
+                style = if (isPhone) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(if (isPhone) 10.dp else 16.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ModernResumeButton(
-                    text = "Resume",
-                    onClick = onResume
+                    text = if (hasResume) "▶ Resume" else "▶ Play",
+                    onClick = onPlayOrResume
                 )
-                ModernDetailsButton(
-                    text = "Details",
-                    onClick = onDetails
+                ModernMyListButton(
+                    isFavorite = isFavorite,
+                    onClick = onToggleMyList
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun ModernHeroBanner(
+    video: MediaItem?,
+    lastPlayedTitle: String?,
+    onResume: () -> Unit,
+    onDetails: () -> Unit,
+    modifier: Modifier = Modifier
+) = ModernHeroBanner(
+    video = video,
+    lastPlayedTitle = lastPlayedTitle,
+    isFavorite = false,
+    hasResume = false,
+    onPlayOrResume = onResume,
+    onToggleMyList = {},
+    onDetails = onDetails,
+    isPhone = false,
+    modifier = modifier
+)
+
+@Composable
+private fun ModernMyListButton(
+    isFavorite: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val scale by animateFloatAsState(if (focused) 1.05f else 1f, label = "myListScale")
+    Surface(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(shape)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(color = Color.White),
+                onClick = onClick
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .focusable(),
+        shape = shape,
+        color = if (focused) Color(0xFF2B3D5E) else Color(0xFF16253C),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (focused) Color(0xFF5EE5BE) else Color(0xFF263A58))
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (isFavorite) "✓ In List" else "+ My List",
+                color = if (focused || isFavorite) Color(0xFF5EE5BE) else Color.White,
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp),
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }
@@ -1196,7 +1339,8 @@ fun ModernVideoCard(
     )
     val context = LocalContext.current
     val miniThumbnail = rememberMiniThumbnail(media.chatId, media.messageId, media.miniThumbnailBytes)
-    val imageData = media.thumbnailPath?.let { path ->
+    val preferredThumbnail = media.tmdbPosterPath ?: media.thumbnailPath
+    val imageData = preferredThumbnail?.let { path ->
         if (path.startsWith("http")) path else File(path)
     } ?: miniThumbnail
     val imageRequest = remember(imageData) {
@@ -1388,7 +1532,8 @@ private fun ContinueWatchingCard(
     )
     val context = LocalContext.current
     val miniThumbnail = rememberMiniThumbnail(entry.chatId, entry.messageId, media.miniThumbnailBytes)
-    val imageData = entry.thumbnailPath?.let { path ->
+    val preferredThumbnail = media.tmdbPosterPath ?: media.tmdbBackdropPath ?: entry.thumbnailPath
+    val imageData = preferredThumbnail?.let { path ->
         if (path.startsWith("http")) path else File(path)
     } ?: miniThumbnail
     val imageRequest = remember(imageData) {
@@ -1506,7 +1651,8 @@ private fun MediaDetailsDialog(
         val shape = RoundedCornerShape(24.dp)
         val context = LocalContext.current
         val miniThumbnail = video?.let { rememberMiniThumbnail(it.chatId, it.messageId, it.miniThumbnailBytes) }
-        val imageData = video?.thumbnailPath?.let { path ->
+        val preferredDetailsImage = video?.tmdbBackdropPath ?: video?.tmdbPosterPath ?: video?.thumbnailPath
+        val imageData = preferredDetailsImage?.let { path ->
             if (path.startsWith("http")) path else File(path)
         } ?: miniThumbnail
 
@@ -1610,6 +1756,34 @@ private fun MediaDetailsDialog(
                                     )
                                 }
                             }
+                            if (video.releaseYear != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFF59E0B)
+                                ) {
+                                    Text(
+                                        text = "${video.releaseYear}",
+                                        color = Color(0xFF091418),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                            if (video.tmdbRating != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFEAB308)
+                                ) {
+                                    Text(
+                                        text = "★ ${String.format(java.util.Locale.US, "%.1f", video.tmdbRating)}",
+                                        color = Color(0xFF091418),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1652,6 +1826,16 @@ private fun MediaDetailsDialog(
                             if (!ext.isNullOrBlank()) {
                                 SpecChip(label = "Format", value = ext)
                             }
+                        }
+
+                        if (!video.tmdbOverview.isNullOrBlank()) {
+                            Text(
+                                text = video.tmdbOverview,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFFCBD5E1),
+                                maxLines = 4,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
                         }
 
                         // Action Buttons Row
@@ -1956,7 +2140,8 @@ fun ModernSeriesCard(
     val context = LocalContext.current
     val firstEpisode = series.episodes.firstOrNull()
     val miniThumbnail = firstEpisode?.let { rememberMiniThumbnail(it.chatId, it.messageId, it.miniThumbnailBytes) }
-    val imageData = firstEpisode?.thumbnailPath?.let { path ->
+    val preferredSeriesImage = firstEpisode?.tmdbPosterPath ?: firstEpisode?.tmdbBackdropPath ?: firstEpisode?.thumbnailPath
+    val imageData = preferredSeriesImage?.let { path ->
         if (path.startsWith("http")) path else File(path)
     } ?: miniThumbnail
     val imageRequest = remember(imageData) {

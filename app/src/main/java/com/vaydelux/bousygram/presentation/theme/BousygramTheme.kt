@@ -15,7 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Dark-first visual presets designed for OLED displays and TV viewing distances. */
+/** Unified dark-first visual theme designed for OLED displays and TV viewing distances. */
 enum class BousygramThemePreset(
     val id: String,
     val displayName: String,
@@ -28,40 +28,15 @@ enum class BousygramThemePreset(
     val surfaceVariant: Color,
     val outline: Color
 ) {
-    MIDNIGHT(
-        "midnight", "Midnight", "Deep navy with vibrant mint and cyan highlights",
+    DARK(
+        "dark", "Dark", "Deep navy with vibrant mint and cyan highlights",
         Color(0xFF5EE5BE), Color(0xFF4AC4E2), Color(0xFFFFD98A),
         Color(0xFF0A0F1D), Color(0xFF111927), Color(0xFF16243A), Color(0xFF223249)
-    ),
-    AURORA(
-        "aurora", "Aurora", "Emerald and aqua on deep green",
-        Color(0xFF3EE8B8), Color(0xFFB6F7B0), Color(0xFFE8F7A0),
-        Color(0xFF04110E), Color(0xFF0C1C18), Color(0xFF163028), Color(0xFF2C564A)
-    ),
-    OCEAN(
-        "ocean", "Ocean", "Electric blue with calm cyan accents",
-        Color(0xFF4EC4FF), Color(0xFF4AE8DA), Color(0xFFB4E4FF),
-        Color(0xFF040C16), Color(0xFF0C192A), Color(0xFF162C44), Color(0xFF2E5274)
-    ),
-    SUNSET(
-        "sunset", "Sunset", "Warm coral and amber over plum",
-        Color(0xFFFF9A74), Color(0xFFFFC56E), Color(0xFFFFC0D2),
-        Color(0xFF100812), Color(0xFF1E121C), Color(0xFF342032), Color(0xFF5C3C54)
-    ),
-    AMOLED(
-        "amoled", "AMOLED Black", "True pure black with crimson highlights",
-        Color(0xFFFF3366), Color(0xFFFF7597), Color(0xFFFFD166),
-        Color(0xFF000000), Color(0xFF0A0A0A), Color(0xFF141414), Color(0xFF2A2A2A)
-    ),
-    CYBERPUNK(
-        "cyberpunk", "Cyberpunk", "Neon magenta and electric cyan on obsidian",
-        Color(0xFFFF007F), Color(0xFF00F0FF), Color(0xFFFFE600),
-        Color(0xFF08060E), Color(0xFF130E1F), Color(0xFF201633), Color(0xFF4A326F)
     );
 
     companion object {
-        fun fromId(id: String?): BousygramThemePreset =
-            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: MIDNIGHT
+        val MIDNIGHT = DARK
+        fun fromId(id: String?): BousygramThemePreset = DARK
     }
 }
 
