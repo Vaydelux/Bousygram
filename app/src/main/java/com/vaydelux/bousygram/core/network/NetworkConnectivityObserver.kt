@@ -81,7 +81,11 @@ object NetworkConnectivityObserver {
                 AppNetworkState.WiFi(isMetered)
             }
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
-                val isRoaming = !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)
+                val isRoaming = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)
+                } else {
+                    false
+                }
                 AppNetworkState.Cellular(isRoaming)
             }
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> {

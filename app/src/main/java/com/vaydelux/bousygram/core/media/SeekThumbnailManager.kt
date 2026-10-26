@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.core.media
 
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import android.os.Build
 import android.util.Log
 import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
@@ -69,14 +70,17 @@ object SeekThumbnailManager {
 
             for (i in 0 until SNAPSHOT_COUNT) {
                 val timeUs = (i * stepUs).coerceIn(0L, durationUs)
-                val rawFrame = runCatching {
-                    retriever.getScaledFrameAtTime(
-                        timeUs,
-                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                        TARGET_WIDTH,
-                        TARGET_HEIGHT
-                    )
-                }.getOrNull() ?: runCatching {
+                val scaledFrame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    runCatching {
+                        retriever.getScaledFrameAtTime(
+                            timeUs,
+                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                            TARGET_WIDTH,
+                            TARGET_HEIGHT
+                        )
+                    }.getOrNull()
+                } else null
+                val rawFrame = scaledFrame ?: runCatching {
                     retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                         ?.let { Bitmap.createScaledBitmap(it, TARGET_WIDTH, TARGET_HEIGHT, true) }
                 }.getOrNull()

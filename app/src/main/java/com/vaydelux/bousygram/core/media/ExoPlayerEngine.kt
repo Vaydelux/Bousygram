@@ -3,12 +3,14 @@ package com.vaydelux.bousygram.core.media
 import android.content.Context
 import android.net.Uri
 import android.view.Surface
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * ExoPlayer implementation of [PlayerEngine].
  * Wraps [ExoPlayer] created by [TelegramProxyPlayerFactory].
  */
+@OptIn(UnstableApi::class)
 class ExoPlayerEngine(
     val player: ExoPlayer,
     val bufferConfig: PlayerBufferConfig.ExoBufferConfig? = null

@@ -80,7 +80,10 @@ class SavedMessagesRepository {
         fetchThumbnailPathInternal(fileId, onResult)
 
     /** Prepare a local TDLib stream. Playback never forwards the message to a bot. */
-    suspend fun prepareStream(item: MediaItem): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun prepareStream(
+        item: MediaItem,
+        deadlineAtMs: Long = System.currentTimeMillis() + 4_000L
+    ): Result<String> = withContext(Dispatchers.IO) {
         val fileId = item.fileId ?: return@withContext Result.failure(IllegalArgumentException("No file is associated with this video"))
         val prepared = LocalStreamingServer.prepareStream(
             fileId = fileId,
@@ -89,7 +92,8 @@ class SavedMessagesRepository {
             mimeType = item.mimeType,
             fileName = item.fileName,
             chatId = item.chatId,
-            messageId = item.messageId
+            messageId = item.messageId,
+            deadlineAtMs = deadlineAtMs
         )
         if (prepared == null) Result.failure(IllegalStateException("File is not ready to stream yet"))
         else Result.success(prepared.url)

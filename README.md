@@ -4,7 +4,7 @@ Bousygram is a video-first Android TV application for browsing and streaming vid
 
 Normal local playback connects directly to Telegram on the device through TDLib (`libtdjni.so`) and does not require a Bousygram backend.
 
-> **Release status:** this repository archive is a source and mock-tested candidate. It does not contain a compiled APK. An Android Gradle build, instrumentation run, real Telegram playback, release signing, and device checks are still required before distribution. See `MOCK_TEST_REPORT.md`.
+> **Release status:** source-level checks and local Android builds are automated, but real Telegram playback, physical 32-bit/64-bit TV validation, and production-certificate verification are still required before distribution. See `RELEASE_STATUS.md`.
 
 ---
 
@@ -89,25 +89,26 @@ RELEASE_KEY_ALIAS=your_key_alias
 RELEASE_KEY_PASSWORD=your_key_password
 ```
 
-If signing values are missing, local release builds may fall back to debug signing for validation only. Do not distribute such an APK as a production release. The CI hardened-release workflow now requires the release keystore and credentials, plus `RELEASE_CERT_SHA256`, and fails if the built APK is not signed by that exact certificate. Configure GitHub Actions secrets `RELEASE_KEYSTORE_BASE64` (base64-encoded JKS/PKCS12), `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`, and `RELEASE_CERT_SHA256` (SHA-256 certificate digest; colons/spaces are optional).
+Release and hardened-release tasks fail closed when those signing values are missing; they never fall back to the debug certificate. The CI hardened-release job additionally requires `RELEASE_CERT_SHA256` and verifies every generated split/universal APK against that certificate. Configure GitHub Actions secrets `RELEASE_KEYSTORE_BASE64` (base64-encoded JKS/PKCS12), `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`, and `RELEASE_CERT_SHA256` (SHA-256 certificate digest; colons/spaces are optional).
 
 See `tools/mock-tests/README.md` for standalone Kotlin checks. Passing these tests does **not** replace the Android Gradle build or device playback tests.
 
-Optional Firebase Test Lab jobs are disabled unless the repository variable `FIREBASE_TEST_LAB_ENABLED` is set to `true`. When enabled, configure the `FIREBASE_SERVICE_ACCOUNT` and `FIREBASE_PROJECT_ID` Actions secrets. The CI job is restricted to pushes because pull requests from forks do not receive repository secrets.
+Firebase Test Lab smoke tests run when both `FIREBASE_SERVICE_ACCOUNT` and `FIREBASE_PROJECT_ID` Actions secrets are available. Secret-less and fork pull requests safely skip the protected device and release jobs.
 
 ### Build Commands
 
 ```powershell
 .\gradlew.bat :app:verifyTdlibAbiCoverage
+.\gradlew.bat :app:verifyTvHardeningContract
 .\gradlew.bat :app:compileDebugKotlin
 .\gradlew.bat :app:testDebugUnitTest
 .\gradlew.bat :app:assembleDebug
 ```
 
-Release build:
+Production-signed hardened release build:
 
 ```powershell
-.\gradlew.bat :app:assembleRelease
+.\gradlew.bat :app:assembleHardenedRelease
 ```
 
 APK files are named with the app version, variant, and ABI split, for example `Bousygram-v1.0-release-arm64-v8a.apk`.
@@ -118,7 +119,7 @@ APK files are named with the app version, variant, and ABI split, for example `B
 
 Before sharing an APK:
 
-1. Run `.\gradlew.bat :app:verifyTdlibAbiCoverage`.
+1. Run `.\gradlew.bat :app:verifyTdlibAbiCoverage :app:verifyTvHardeningContract`.
 2. Run `.\gradlew.bat :app:compileDebugKotlin`.
 3. Run `.\gradlew.bat :app:testDebugUnitTest`.
 4. Run `.\gradlew.bat :app:assembleDebug`.

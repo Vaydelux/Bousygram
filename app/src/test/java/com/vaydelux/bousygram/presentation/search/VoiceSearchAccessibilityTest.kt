@@ -40,7 +40,7 @@ class VoiceSearchAccessibilityTest {
     @Test
     fun testVoiceSearchPromptGeneration() {
         val globalPrompt = buildVoiceSearchPrompt(SearchMode.Global, "")
-        assertEquals("Speak movie, series, or video title", globalPrompt)
+        assertEquals("Speak a video or audio title", globalPrompt)
 
         val inChatPrompt = buildVoiceSearchPrompt(SearchMode.InChat, "SciFi Channel")
         assertEquals("Search in SciFi Channel", inChatPrompt)

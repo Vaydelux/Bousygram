@@ -4,7 +4,12 @@ import com.vaydelux.bousygram.core.observability.PlaybackRecoveryAction
 import com.vaydelux.bousygram.core.tdlib.server.VideoResolutionOption
 
 data class PlaybackRequest(
-    val url: String,
+    /**
+     * Loopback URL prepared during the bounded launch preflight, or null when preflight timed
+     * out / was skipped. ExoPlayer always uses the direct TDLib data source; mpv prepares a fresh
+     * loopback URL inside the player when this is null.
+     */
+    val initialStreamUrl: String?,
     val chatId: Long,
     val messageId: Long,
     val fileId: Int,

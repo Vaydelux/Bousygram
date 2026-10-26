@@ -26,8 +26,23 @@ enum class PlayerFocusTarget {
     BUTTON_SPEED,
     BUTTON_ASPECT,
     BUTTON_EPISODES,
+    BUTTON_RETRY,
     MENU_CONTENT,
     AUTO_NEXT_PLAY_NOW
+}
+
+enum class BackResult {
+    CANCELLED_AUTO_NEXT,
+    CANCELLED_SEEK_PREVIEW,
+    CLOSED_MENU,
+    HID_HUD,
+    EXITED_PLAYER
+}
+
+fun initialFocusTarget(hudVisible: Boolean, hasError: Boolean): PlayerFocusTarget = when {
+    hasError -> PlayerFocusTarget.BUTTON_RETRY
+    hudVisible -> PlayerFocusTarget.BUTTON_PLAY_PAUSE
+    else -> PlayerFocusTarget.SURFACE
 }
 
 interface PlayerInputActions {
@@ -37,6 +52,9 @@ interface PlayerInputActions {
     fun closeMenu()
     fun togglePlayPause()
     fun seekRelative(seconds: Int)
+    fun previewSeekRelative(seconds: Int)
+    fun confirmSeekPreview()
+    fun cancelSeekPreview()
     fun skipNext()
     fun skipPrevious()
     fun exitPlayer()
@@ -70,10 +88,13 @@ class PlayerInputController(
     var activeMenu: PlayerMenuType = PlayerMenuType.NONE
     val isMenuOpen: Boolean get() = activeMenu != PlayerMenuType.NONE
     var isAutoNextActive: Boolean = false
+    var isSeekPreviewActive: Boolean = false
+        internal set
     var currentFocusRow: Int = 1 // 0: Seek Bar, 1: Button Row
 
     private var lastKeyDownTimeMs: Long = -1_000L
     private var lastSeekKeyTimeMs: Long = -10_000L
+    private var lastSeekDirection: Int = 0
     private var seekStepIndex: Int = 0
 
     /**
@@ -126,10 +147,12 @@ class PlayerInputController(
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                cancelSeekPreview(actions)
                 actions.seekRelative(30)
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                cancelSeekPreview(actions)
                 actions.seekRelative(-30)
                 return true
             }
@@ -182,12 +205,18 @@ class PlayerInputController(
                 KeyEvent.KEYCODE_DPAD_CENTER,
                 KeyEvent.KEYCODE_ENTER,
                 KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                    // First press ONLY shows controls (does NOT toggle play/pause)
+                    if (isSeekPreviewActive) {
+                        resetSeekPreviewState()
+                        actions.confirmSeekPreview()
+                        return true
+                    }
+                    // First press only shows controls (does not toggle play/pause).
                     isHudVisible = true
                     actions.showHud(PlayerFocusTarget.BUTTON_PLAY_PAUSE)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_UP -> {
+                    cancelSeekPreview(actions)
                     // Show controls with focus on Seek Bar
                     isHudVisible = true
                     currentFocusRow = 0
@@ -195,6 +224,7 @@ class PlayerInputController(
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    cancelSeekPreview(actions)
                     // Show controls with focus on Button Row (never skip video!)
                     isHudVisible = true
                     currentFocusRow = 1
@@ -202,20 +232,21 @@ class PlayerInputController(
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    // Seek preview overlay with accelerating steps
+                    // Preview only. OK commits a single seek; Back cancels it.
                     val step = calculateAcceleratingSeekStep(isForward = false, now = now)
-                    actions.seekRelative(-step)
+                    isSeekPreviewActive = true
+                    actions.previewSeekRelative(-step)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    // Seek preview overlay with accelerating steps
+                    // Preview only. OK commits a single seek; Back cancels it.
                     val step = calculateAcceleratingSeekStep(isForward = true, now = now)
-                    actions.seekRelative(step)
+                    isSeekPreviewActive = true
+                    actions.previewSeekRelative(step)
                     return true
                 }
                 KeyEvent.KEYCODE_BACK -> {
-                    // Exit player to calling screen
-                    actions.exitPlayer()
+                    handleBack(actions)
                     return true
                 }
                 KeyEvent.KEYCODE_MENU,
@@ -233,9 +264,7 @@ class PlayerInputController(
         // 5. Controls Visible State
         when (nativeKeyCode) {
             KeyEvent.KEYCODE_BACK -> {
-                // Hide controls only
-                isHudVisible = false
-                actions.hideHud()
+                handleBack(actions)
                 return true
             }
             KeyEvent.KEYCODE_DPAD_UP -> {
@@ -264,12 +293,70 @@ class PlayerInputController(
         return false
     }
 
+    fun resetSeekPreviewState() {
+        isSeekPreviewActive = false
+        seekStepIndex = 0
+        lastSeekDirection = 0
+        lastSeekKeyTimeMs = -10_000L
+    }
+
+    private fun cancelSeekPreview(actions: PlayerInputActions) {
+        if (isSeekPreviewActive) {
+            resetSeekPreviewState()
+            actions.cancelSeekPreview()
+        }
+    }
+
+    fun handleBack(actions: PlayerInputActions): BackResult {
+        return when {
+            isAutoNextActive -> {
+                isAutoNextActive = false
+                actions.cancelAutoNext()
+                isHudVisible = true
+                actions.showHud(PlayerFocusTarget.BUTTON_PLAY_PAUSE)
+                BackResult.CANCELLED_AUTO_NEXT
+            }
+            isSeekPreviewActive -> {
+                cancelSeekPreview(actions)
+                BackResult.CANCELLED_SEEK_PREVIEW
+            }
+            isMenuOpen -> {
+                val previousMenu = activeMenu
+                activeMenu = PlayerMenuType.NONE
+                actions.closeMenu()
+                val returnTarget = when (previousMenu) {
+                    PlayerMenuType.TRACKS -> PlayerFocusTarget.BUTTON_SUBTITLES
+                    PlayerMenuType.SPEED -> PlayerFocusTarget.BUTTON_SPEED
+                    PlayerMenuType.EPISODES -> PlayerFocusTarget.BUTTON_EPISODES
+                    PlayerMenuType.ASPECT -> PlayerFocusTarget.BUTTON_ASPECT
+                    else -> PlayerFocusTarget.BUTTON_PLAY_PAUSE
+                }
+                actions.showHud(returnTarget)
+                BackResult.CLOSED_MENU
+            }
+            isHudVisible -> {
+                isHudVisible = false
+                actions.hideHud()
+                BackResult.HID_HUD
+            }
+            else -> {
+                actions.exitPlayer()
+                BackResult.EXITED_PLAYER
+            }
+        }
+    }
+
     private fun calculateAcceleratingSeekStep(isForward: Boolean, now: Long): Int {
-        if (lastSeekKeyTimeMs >= 0L && now - lastSeekKeyTimeMs < SEEK_ACCELERATION_WINDOW_MS) {
+        val direction = if (isForward) 1 else -1
+        if (lastSeekDirection == direction &&
+            lastSeekKeyTimeMs >= 0L &&
+            now - lastSeekKeyTimeMs < SEEK_ACCELERATION_WINDOW_MS
+        ) {
             seekStepIndex = (seekStepIndex + 1).coerceAtMost(SEEK_STEPS.lastIndex)
         } else {
             seekStepIndex = 0
         }
+        lastSeekDirection = direction
         lastSeekKeyTimeMs = now
         return SEEK_STEPS[seekStepIndex]
     }

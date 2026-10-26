@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.vaydelux.bousygram.app.BousygramApp
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Immutable playback telemetry snapshot recorded once per playback session.
@@ -27,7 +28,25 @@ data class PlaybackTelemetryRecord(
     val timeToTailChunkMs: Long? = null,
     val averageThroughputBytesPerSec: Long? = null,
     val bufferConfig: String? = null,
+    val cacheHitCount: Int = 0,
+    val cacheMissCount: Int = 0,
+    val reusedCacheBytes: Long = 0L,
+    val seekCount: Int = 0,
+    val averageSeekLatencyMs: Long? = null,
+    val droppedFrameCount: Int = 0,
+    val memoryPressure: String? = null,
     val timestampMs: Long = System.currentTimeMillis()
+)
+
+data class PlaybackCacheTelemetry(
+    val hitCount: Int,
+    val missCount: Int,
+    val reusedBytes: Long
+)
+
+data class PlaybackSeekTelemetry(
+    val count: Int,
+    val averageLatencyMs: Long?
 )
 
 /**
@@ -173,7 +192,10 @@ object PlaybackTelemetrySerializer {
         val throughputField = record.averageThroughputBytesPerSec?.toString() ?: "null"
         val escapedBufferConfig = record.bufferConfig?.let { escapeJson(it) }
         val bufferConfigField = if (escapedBufferConfig != null) "\"$escapedBufferConfig\"" else "null"
-        return """{"sessionId":"${escapeJson(record.sessionId)}","timeToFirstByteMs":${record.timeToFirstByteMs},"timeToFirstFrameMs":${record.timeToFirstFrameMs},"rebufferCount":${record.rebufferCount},"totalRebufferMs":${record.totalRebufferMs},"engine":"${escapeJson(record.engine)}","videoDecoderName":"${escapeJson(record.videoDecoderName)}","audioDecoderName":"${escapeJson(record.audioDecoderName)}","container":"${escapeJson(record.container)}","fileSize":${record.fileSize},"failureReason":$reasonField,"fallbackReason":$fallbackField,"isFullyCachedAtStart":${record.isFullyCachedAtStart},"timeToHeaderChunkMs":$timeToHeaderField,"timeToTailChunkMs":$timeToTailField,"averageThroughputBytesPerSec":$throughputField,"bufferConfig":$bufferConfigField,"timestampMs":${record.timestampMs}}"""
+        val escapedMemoryPressure = record.memoryPressure?.let { escapeJson(it) }
+        val memoryPressureField = if (escapedMemoryPressure != null) "\"$escapedMemoryPressure\"" else "null"
+        val seekLatencyField = record.averageSeekLatencyMs?.toString() ?: "null"
+        return """{"sessionId":"${escapeJson(record.sessionId)}","timeToFirstByteMs":${record.timeToFirstByteMs},"timeToFirstFrameMs":${record.timeToFirstFrameMs},"rebufferCount":${record.rebufferCount},"totalRebufferMs":${record.totalRebufferMs},"engine":"${escapeJson(record.engine)}","videoDecoderName":"${escapeJson(record.videoDecoderName)}","audioDecoderName":"${escapeJson(record.audioDecoderName)}","container":"${escapeJson(record.container)}","fileSize":${record.fileSize},"failureReason":$reasonField,"fallbackReason":$fallbackField,"isFullyCachedAtStart":${record.isFullyCachedAtStart},"timeToHeaderChunkMs":$timeToHeaderField,"timeToTailChunkMs":$timeToTailField,"averageThroughputBytesPerSec":$throughputField,"bufferConfig":$bufferConfigField,"cacheHitCount":${record.cacheHitCount},"cacheMissCount":${record.cacheMissCount},"reusedCacheBytes":${record.reusedCacheBytes},"seekCount":${record.seekCount},"averageSeekLatencyMs":$seekLatencyField,"droppedFrameCount":${record.droppedFrameCount},"memoryPressure":$memoryPressureField,"timestampMs":${record.timestampMs}}"""
     }
 
     fun recordsToJson(records: List<PlaybackTelemetryRecord>): String =
@@ -217,6 +239,8 @@ object PlaybackTelemetrySerializer {
         val averageThroughputBytesPerSec = extractNullableLong("averageThroughputBytesPerSec")
         val hasNullBufferConfig = Regex("\"bufferConfig\"\\s*:\\s*null").containsMatchIn(json)
         val bufferConfig = if (hasNullBufferConfig) null else extractString("bufferConfig")
+        val hasNullMemoryPressure = Regex("\"memoryPressure\"\\s*:\\s*null").containsMatchIn(json)
+        val memoryPressure = if (hasNullMemoryPressure) null else extractString("memoryPressure")
 
         return PlaybackTelemetryRecord(
             sessionId = sessionId,
@@ -236,6 +260,13 @@ object PlaybackTelemetrySerializer {
             timeToTailChunkMs = timeToTailChunkMs,
             averageThroughputBytesPerSec = averageThroughputBytesPerSec,
             bufferConfig = bufferConfig,
+            cacheHitCount = extractInt("cacheHitCount"),
+            cacheMissCount = extractInt("cacheMissCount"),
+            reusedCacheBytes = extractLong("reusedCacheBytes"),
+            seekCount = extractInt("seekCount"),
+            averageSeekLatencyMs = extractNullableLong("averageSeekLatencyMs"),
+            droppedFrameCount = extractInt("droppedFrameCount"),
+            memoryPressure = memoryPressure,
             timestampMs = extractLong("timestampMs", System.currentTimeMillis())
         )
     }
@@ -295,6 +326,11 @@ object PlaybackTelemetryRecorder {
     private val headerChunkTimes = ConcurrentHashMap<Int, Long>()
     private val tailChunkTimes = ConcurrentHashMap<Int, Long>()
     private val throughputSamples = ConcurrentHashMap<Int, Long>()
+    private val cacheHits = ConcurrentHashMap<Int, AtomicLong>()
+    private val cacheMisses = ConcurrentHashMap<Int, AtomicLong>()
+    private val reusedCacheBytes = ConcurrentHashMap<Int, AtomicLong>()
+    private val seekCounts = ConcurrentHashMap<Int, AtomicLong>()
+    private val totalSeekLatencyMs = ConcurrentHashMap<Int, AtomicLong>()
     private val sessions = mutableListOf<PlaybackTelemetryRecord>()
     private var isInitialized = false
 
@@ -363,6 +399,11 @@ object PlaybackTelemetryRecorder {
         headerChunkTimes.clear()
         tailChunkTimes.clear()
         throughputSamples.clear()
+        cacheHits.clear()
+        cacheMisses.clear()
+        reusedCacheBytes.clear()
+        seekCounts.clear()
+        totalSeekLatencyMs.clear()
         runCatching { storage.clear() }
         isInitialized = true
     }
@@ -414,6 +455,43 @@ object PlaybackTelemetryRecorder {
     fun consumeThroughput(fileId: Int): Long? =
         if (fileId > 0) throughputSamples.remove(fileId) else null
 
+    fun recordCacheHit(fileId: Int, reusedBytes: Int) {
+        if (fileId <= 0) return
+        cacheHits.computeIfAbsent(fileId) { AtomicLong() }.incrementAndGet()
+        if (reusedBytes > 0) {
+            this.reusedCacheBytes.computeIfAbsent(fileId) { AtomicLong() }.addAndGet(reusedBytes.toLong())
+        }
+    }
+
+    fun recordCacheMiss(fileId: Int) {
+        if (fileId > 0) cacheMisses.computeIfAbsent(fileId) { AtomicLong() }.incrementAndGet()
+    }
+
+    fun consumeCacheTelemetry(fileId: Int): PlaybackCacheTelemetry {
+        if (fileId <= 0) return PlaybackCacheTelemetry(0, 0, 0L)
+        return PlaybackCacheTelemetry(
+            hitCount = (cacheHits.remove(fileId)?.get() ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            missCount = (cacheMisses.remove(fileId)?.get() ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            reusedBytes = reusedCacheBytes.remove(fileId)?.get() ?: 0L
+        )
+    }
+
+    fun recordSeekLatency(fileId: Int, latencyMs: Long) {
+        if (fileId <= 0 || latencyMs < 0L) return
+        seekCounts.computeIfAbsent(fileId) { AtomicLong() }.incrementAndGet()
+        totalSeekLatencyMs.computeIfAbsent(fileId) { AtomicLong() }.addAndGet(latencyMs)
+    }
+
+    fun consumeSeekTelemetry(fileId: Int): PlaybackSeekTelemetry {
+        if (fileId <= 0) return PlaybackSeekTelemetry(0, null)
+        val count = seekCounts.remove(fileId)?.get() ?: 0L
+        val total = totalSeekLatencyMs.remove(fileId)?.get() ?: 0L
+        return PlaybackSeekTelemetry(
+            count = count.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            averageLatencyMs = if (count > 0L) total / count else null
+        )
+    }
+
     /**
      * Called by LocalStreamingServer or TelegramChunkScheduler when the first byte of [fileId] is delivered.
      */
@@ -432,6 +510,11 @@ object PlaybackTelemetryRecorder {
             headerChunkTimes.remove(fileId)
             tailChunkTimes.remove(fileId)
             throughputSamples.remove(fileId)
+            cacheHits.remove(fileId)
+            cacheMisses.remove(fileId)
+            reusedCacheBytes.remove(fileId)
+            seekCounts.remove(fileId)
+            totalSeekLatencyMs.remove(fileId)
         }
     }
 
@@ -475,7 +558,9 @@ object PlaybackTelemetryRecorder {
             sb.append("#${index + 1} [$dateStr] [${r.engine}] ${r.container.uppercase()} ($sizeMb) ")
             sb.append("TTFB=${r.timeToFirstByteMs}ms TTFF=${r.timeToFirstFrameMs}ms ")
             sb.append("rebuffers=${r.rebufferCount} (${r.totalRebufferMs}ms) ")
-            sb.append("cached=${r.isFullyCachedAtStart} header=${r.timeToHeaderChunkMs ?: -1}ms tail=${r.timeToTailChunkMs ?: -1}ms tp=$throughputStr ")
+            sb.append("cached=${r.isFullyCachedAtStart} hits=${r.cacheHitCount} misses=${r.cacheMissCount} reused=${r.reusedCacheBytes}B ")
+            sb.append("seeks=${r.seekCount} seekAvg=${r.averageSeekLatencyMs ?: -1}ms dropped=${r.droppedFrameCount} memory=${r.memoryPressure ?: "unknown"} ")
+            sb.append("header=${r.timeToHeaderChunkMs ?: -1}ms tail=${r.timeToTailChunkMs ?: -1}ms tp=$throughputStr ")
             sb.append("vDec=${r.videoDecoderName} aDec=${r.audioDecoderName}")
             if (r.bufferConfig != null) {
                 sb.append(" buf=[${r.bufferConfig}]")
@@ -528,6 +613,8 @@ object PlaybackTelemetryRecorder {
             val headerField = r.timeToHeaderChunkMs?.toString() ?: "null"
             val tailField = r.timeToTailChunkMs?.toString() ?: "null"
             val throughputField = r.averageThroughputBytesPerSec?.toString() ?: "null"
+            val seekLatencyField = r.averageSeekLatencyMs?.toString() ?: "null"
+            val memoryPressureField = r.memoryPressure?.let { "\"${PlaybackTelemetrySerializer.escapeJson(it)}\"" } ?: "null"
             sb.append("    {\n")
             sb.append("      \"sessionId\": \"${PlaybackTelemetrySerializer.escapeJson(r.sessionId)}\",\n")
             sb.append("      \"timeToFirstByteMs\": ${r.timeToFirstByteMs},\n")
@@ -546,6 +633,13 @@ object PlaybackTelemetryRecorder {
             sb.append("      \"timeToTailChunkMs\": $tailField,\n")
             sb.append("      \"averageThroughputBytesPerSec\": $throughputField,\n")
             sb.append("      \"bufferConfig\": $bufferConfigStr,\n")
+            sb.append("      \"cacheHitCount\": ${r.cacheHitCount},\n")
+            sb.append("      \"cacheMissCount\": ${r.cacheMissCount},\n")
+            sb.append("      \"reusedCacheBytes\": ${r.reusedCacheBytes},\n")
+            sb.append("      \"seekCount\": ${r.seekCount},\n")
+            sb.append("      \"averageSeekLatencyMs\": $seekLatencyField,\n")
+            sb.append("      \"droppedFrameCount\": ${r.droppedFrameCount},\n")
+            sb.append("      \"memoryPressure\": $memoryPressureField,\n")
             sb.append("      \"timestampMs\": ${r.timestampMs}\n")
             sb.append("    }${if (i < records.lastIndex) "," else ""}\n")
         }

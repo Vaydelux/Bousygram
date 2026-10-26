@@ -129,7 +129,7 @@ class PlaybackSessionEpisodeTransitionTest {
     @Test
     fun unwrapNonPlayerScreenExtractsHomeFromNestedPlayer() {
         val request = PlaybackRequest(
-            url = "http://127.0.0.1:8080/stream",
+            initialStreamUrl = "http://127.0.0.1:8080/stream",
             chatId = 777L,
             messageId = 1001L,
             fileId = 501,
@@ -156,7 +156,7 @@ class PlaybackSessionEpisodeTransitionTest {
     fun backPopsDirectlyToOriginatingScreenRegardlessOfEpisodesPlayed() {
         val router = BousygramRouter(initialScreen = AppScreen.Home)
         val request = PlaybackRequest(
-            url = "http://127.0.0.1:8080/stream",
+            initialStreamUrl = "http://127.0.0.1:8080/stream",
             chatId = 777L,
             messageId = 1001L,
             fileId = 501,

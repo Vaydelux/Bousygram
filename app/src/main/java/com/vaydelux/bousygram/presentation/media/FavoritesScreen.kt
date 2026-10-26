@@ -17,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +36,8 @@ import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
+import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
+import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
 import com.vaydelux.bousygram.presentation.media.vm.FavoritesViewModel
 import kotlinx.coroutines.launch
 
@@ -49,6 +52,11 @@ fun FavoritesScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val launcher = rememberMediaLauncher(
+        screenKey = "favorites",
+        onPlay = onPlay,
+        onError = { scope.launch { snackbarHost.showSnackbar(it) } }
+    )
     val safeMode = remember { EnterprisePreferences.safeMode() }
     val adaptive = rememberAdaptiveMetrics()
     val horizontalPadding = if (adaptive.isCompact) 16.dp else 28.dp
@@ -60,8 +68,9 @@ fun FavoritesScreen(
         containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { insets ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(insets).padding(horizontal = horizontalPadding, vertical = if (adaptive.isCompact) 12.dp else 20.dp),
+        Box(modifier = Modifier.fillMaxSize().padding(insets)) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(horizontal = horizontalPadding, vertical = if (adaptive.isCompact) 12.dp else 20.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
             Row(
@@ -94,10 +103,7 @@ fun FavoritesScreen(
                         text = "▶ Play All",
                         onClick = {
                             val first = state.items.firstOrNull() ?: return@BousygramButton
-                            viewModel.requestPlay(first) { request, error ->
-                                if (request != null) onPlay(request)
-                                else scope.launch { snackbarHost.showSnackbar(error ?: "Could not prepare playback") }
-                            }
+                            launcher.launch(first, state.items)
                         },
                         selected = true
                     )
@@ -138,10 +144,7 @@ fun FavoritesScreen(
                                 item = item,
                                 safeMode = safeMode,
                                 onPlay = {
-                                    viewModel.requestPlay(item) { request, error ->
-                                        if (request != null) onPlay(request)
-                                        else scope.launch { snackbarHost.showSnackbar(error ?: "Could not prepare this favorite") }
-                                    }
+                                    launcher.launch(item, state.items)
                                 },
                                 onRemove = { viewModel.removeFavorite(item) }
                             )
@@ -150,6 +153,15 @@ fun FavoritesScreen(
                 }
             }
         }
+        BackHandler(enabled = launcher.isPending) {
+            launcher.cancel()
+        }
+        LaunchOpeningIndicator(
+            launcher = launcher,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        )
         if (state.isLoading && state.items.isNotEmpty()) {
             LoadingOverlay(
                 text = "Refreshing favorites…",
@@ -157,6 +169,7 @@ fun FavoritesScreen(
             )
         }
     }
+}
 }
 
 @Composable

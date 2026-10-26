@@ -6,6 +6,7 @@ import android.content.Intent
 import android.speech.RecognizerIntent
 import android.view.KeyEvent
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.focusGroup
@@ -16,6 +17,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.layout.Arrangement
+import com.vaydelux.bousygram.presentation.media.playableVideos
+import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
+import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -100,7 +104,11 @@ fun TvVideoSearchScreen(
     val adaptive = rememberAdaptiveMetrics()
     val context = LocalContext.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var preparingKey by remember { mutableStateOf<String?>(null) }
+    val launcher = rememberMediaLauncher(
+        screenKey = "search",
+        onPlay = onPlaybackReady,
+        onError = onStreamError
+    )
     var privacyMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
     var isVoiceListening by remember { mutableStateOf(false) }
     val searchInputFocusRequester = remember { FocusRequester() }
@@ -145,6 +153,9 @@ fun TvVideoSearchScreen(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            // Prefer the device recognizer on TVs that provide one; the system recognizer
+            // remains responsible for its network fallback when offline recognition is absent.
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
         try {
             isVoiceListening = true
@@ -396,19 +407,8 @@ fun TvVideoSearchScreen(
                                     media = row.media,
                                     subtitle = row.channelLabel,
                                     onClick = {
-                                        val key = "${row.media.chatId}:${row.media.messageId}"
-                                        preparingKey = key
                                         val queue = playableVideos(videos)
-                                        onPlayRequest(row.media, queue) { url, subUrl, error ->
-                                            preparingKey = null
-                                            if (url.isNullOrBlank()) {
-                                                onStreamError(error ?: "Could not prepare stream")
-                                            } else {
-                                                onPlaybackReady(
-                                                    buildPlaybackRequest(row.media, url, queue, subUrl)
-                                                )
-                                            }
-                                        }
+                                        launcher.launch(row.media, queue)
                                     },
                                     cardWidth = null,
                                     privacyMode = privacyMode,
@@ -438,12 +438,15 @@ fun TvVideoSearchScreen(
         }
         }
     }
-        if (preparingKey != null) {
-            LoadingOverlay(
-                text = "Preparing video...",
-                modifier = Modifier.fillMaxSize()
-            )
+        BackHandler(enabled = launcher.isPending) {
+            launcher.cancel()
         }
+        LaunchOpeningIndicator(
+            launcher = launcher,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        )
     }
 }
 }

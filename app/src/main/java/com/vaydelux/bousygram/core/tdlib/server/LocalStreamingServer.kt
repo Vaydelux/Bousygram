@@ -122,6 +122,10 @@ object LocalStreamingServer {
         executor.shutdownNow()
     }
 
+    /** Remaining time until [deadlineAtMs], capped at [cap]; never negative. */
+    internal fun remainingWaitMs(deadlineAtMs: Long, cap: Long, nowMs: Long = System.currentTimeMillis()): Long =
+        min(cap, (deadlineAtMs - nowMs).coerceAtLeast(0L))
+
     private fun createExecutor(): ExecutorService =
         Executors.newFixedThreadPool(max(6, Runtime.getRuntime().availableProcessors() * 2))
 
@@ -153,12 +157,15 @@ object LocalStreamingServer {
         mimeType: String? = null,
         fileName: String? = null,
         chatId: Long = 0L,
-        messageId: Long = 0L
+        messageId: Long = 0L,
+        deadlineAtMs: Long = System.currentTimeMillis() + QUICK_SIZE_WAIT_MS
     ): StreamPreparation? {
         if (chatId != 0L && messageId != 0L) {
             TelegramChunkScheduler.noteFileContext(fileId, chatId, messageId)
         }
-        val size = resolveSizeWithWarmup(fileId, declaredSize) ?: return null
+        val size = resolveSizeWithWarmup(fileId, declaredSize, deadlineAtMs) ?: return null
+        // A launch that already timed out must not mint an access token nobody will use.
+        if (System.currentTimeMillis() >= deadlineAtMs) return null
         val contentType = VideoFormatSupport.httpContentType(mimeType, fileName, title)
         val isMp4 = contentType.contains("mp4") || fileName?.endsWith(".mp4", ignoreCase = true) == true
         TelegramChunkScheduler.openPlayback(fileId, size, isMp4 = isMp4)
@@ -177,12 +184,17 @@ object LocalStreamingServer {
         return fileSizeFromStatus(getFileStatus(fileId))
     }
 
-    private fun resolveFileSizeQuick(fileId: Int): Long {
+    /** Size lookup whose TDLib wait never exceeds [waitMs]; returns 0 when unknown. */
+    fun resolveFileSizeWithin(fileId: Int, waitMs: Long): Long {
         fileStatusCache[fileId]?.file?.let { cached ->
             fileSizeFromStatus(cached).takeIf { it > 0L }?.let { return it }
         }
-        return fileSizeFromStatus(getFileStatus(fileId, waitMs = 750L))
+        if (waitMs <= 0L) return 0L
+        return fileSizeFromStatus(getFileStatus(fileId, waitMs = waitMs))
     }
+
+    private fun resolveFileSizeQuick(fileId: Int, deadlineAtMs: Long = Long.MAX_VALUE): Long =
+        resolveFileSizeWithin(fileId, remainingWaitMs(deadlineAtMs, 750L))
 
     private fun fileSizeFromStatus(file: TdApi.File?): Long {
         file ?: return 0L
@@ -200,7 +212,7 @@ object LocalStreamingServer {
      * Starts a quick first-window warm-up and returns size without blocking for container probing.
      */
     fun ensurePlaybackReady(fileId: Int, declaredSize: Long): Long {
-        return resolveSizeWithWarmup(fileId, declaredSize) ?: 0L
+        return resolveSizeWithWarmup(fileId, declaredSize, System.currentTimeMillis() + QUICK_SIZE_WAIT_MS) ?: 0L
     }
 
     /**
@@ -209,15 +221,15 @@ object LocalStreamingServer {
      *
      * @return the resolved size in bytes, or null if no positive size could be determined.
      */
-    private fun resolveSizeWithWarmup(fileId: Int, declaredSize: Long): Long? {
+    private fun resolveSizeWithWarmup(fileId: Int, declaredSize: Long, deadlineAtMs: Long): Long? {
         if (!isRunning) start()
-        var size = declaredSize.takeIf { it > 0L } ?: resolveFileSizeQuick(fileId)
+        var size = declaredSize.takeIf { it > 0L } ?: resolveFileSizeQuick(fileId, deadlineAtMs)
         if (size <= 0L) {
+            // Always kick the first window so the player benefits even if this preflight times out.
             triggerDownload(fileId, 0L, INITIAL_WARMUP_BYTES)
-            val deadline = System.currentTimeMillis() + QUICK_SIZE_WAIT_MS
-            while (size <= 0L && System.currentTimeMillis() < deadline) {
-                Thread.sleep(QUICK_SIZE_POLL_MS)
-                size = resolveFileSizeQuick(fileId)
+            while (size <= 0L && System.currentTimeMillis() < deadlineAtMs) {
+                Thread.sleep(min(QUICK_SIZE_POLL_MS, remainingWaitMs(deadlineAtMs, QUICK_SIZE_POLL_MS)).coerceAtLeast(1L))
+                size = resolveFileSizeQuick(fileId, deadlineAtMs)
             }
         }
         if (size <= 0L) return null

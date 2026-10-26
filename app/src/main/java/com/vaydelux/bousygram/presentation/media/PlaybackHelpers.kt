@@ -28,14 +28,14 @@ fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
 
 fun buildPlaybackRequest(
     item: MediaItem,
-    streamUrl: String,
+    streamUrl: String?,
     queueVideos: List<MediaItem>,
     subtitleUrl: String? = null
 ): PlaybackRequest {
     val queue = buildPlaybackQueue(queueVideos)
     val fileId = item.fileId ?: 0
     return PlaybackRequest(
-        url = streamUrl,
+        initialStreamUrl = streamUrl?.takeIf { it.isNotBlank() },
         chatId = item.chatId,
         messageId = item.messageId,
         fileId = fileId,

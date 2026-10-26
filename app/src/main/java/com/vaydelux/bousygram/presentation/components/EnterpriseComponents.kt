@@ -454,9 +454,7 @@ fun TabletNavRail(
 ) {
     val colors = MaterialTheme.colorScheme
     NavigationRail(
-        modifier = modifier
-            .fillMaxHeight()
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+        modifier = modifier.fillMaxHeight(),
         containerColor = colors.surface,
         contentColor = colors.onSurface,
         header = {
@@ -502,6 +500,7 @@ fun TabletNavRail(
                 else -> destination == selected
             }
             NavigationRailItem(
+                modifier = if (isSelected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
                 selected = isSelected,
                 onClick = {
                     if (destination == ShellDestination.Search) onOpenSearch() else onSelect(destination)
@@ -545,7 +544,6 @@ fun TvTopNavBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .padding(horizontal = 28.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -607,6 +605,7 @@ fun TvTopNavBar(
                     val interaction = remember { MutableInteractionSource() }
                     Box(
                         modifier = Modifier
+                            .then(if (isSelected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
                                 when {

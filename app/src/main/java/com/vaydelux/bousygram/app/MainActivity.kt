@@ -1,11 +1,7 @@
 package com.vaydelux.bousygram.app
 
-import android.app.PictureInPictureParams
 import android.content.Intent
-import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
-import android.util.Rational
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -51,88 +47,6 @@ import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 
 class MainActivity : ComponentActivity() {
     private val authViewModel: AuthViewModel by viewModels()
-    var isPlayerActive by mutableStateOf(false)
-    var isInPipMode by mutableStateOf(false)
-    var currentPipAspectRatio by mutableStateOf(Rational(16, 9))
-    var currentPipSourceRect: android.graphics.Rect? = null
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        if (isPlayerActive) {
-            enterPipMode(currentPipAspectRatio, currentPipSourceRect)
-        }
-    }
-
-    override fun onPictureInPictureModeChanged(
-        isInPictureInPictureMode: Boolean,
-        newConfig: Configuration
-    ) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        isInPipMode = isInPictureInPictureMode
-    }
-
-    fun enterPipMode(
-        aspectRatio: Rational = currentPipAspectRatio,
-        sourceRect: android.graphics.Rect? = currentPipSourceRect
-    ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val clamped = clampAspectRatio(aspectRatio)
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(clamped)
-                    .apply {
-                        if (sourceRect != null && !sourceRect.isEmpty) {
-                            setSourceRectHint(sourceRect)
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            setAutoEnterEnabled(true)
-                            setSeamlessResizeEnabled(true)
-                        }
-                    }
-                    .build()
-                enterPictureInPictureMode(params)
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    fun updatePipAutoEnter(
-        enabled: Boolean,
-        aspectRatio: Rational = currentPipAspectRatio,
-        sourceRect: android.graphics.Rect? = currentPipSourceRect
-    ) {
-        currentPipAspectRatio = aspectRatio
-        if (sourceRect != null) {
-            currentPipSourceRect = sourceRect
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                val clamped = clampAspectRatio(aspectRatio)
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(clamped)
-                    .setAutoEnterEnabled(enabled)
-                    .setSeamlessResizeEnabled(true)
-                    .apply {
-                        val rect = sourceRect ?: currentPipSourceRect
-                        if (rect != null && !rect.isEmpty) {
-                            setSourceRectHint(rect)
-                        }
-                    }
-                    .build()
-                setPictureInPictureParams(params)
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    private fun clampAspectRatio(rational: Rational): Rational {
-        val floatVal = rational.toFloat()
-        return when {
-            floatVal < 0.41841f -> Rational(1000, 2390)
-            floatVal > 2.39f -> Rational(2390, 1000)
-            else -> rational
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -199,14 +113,12 @@ private fun BousygramAppRoot(
             chatId = payload.chatId,
             messageId = payload.messageId
         )
-        if (preparation != null) {
-            val req = CastReceiverManager.toPlaybackRequest(payload, preparation.url)
-            appScreen = AppScreen.Player(req, returnTo = AppScreen.Home)
-        }
+        val req = CastReceiverManager.toPlaybackRequest(payload, preparation?.url)
+        appScreen = AppScreen.Player(req, returnTo = AppScreen.Home)
         CastReceiverManager.clearPendingRequest()
     }
 
-    BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen !is AppScreen.Home) {
+    BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen !is AppScreen.Home && appScreen !is AppScreen.Player) {
         appScreen = when (val screen = appScreen) {
             is AppScreen.Player -> unwrapNonPlayerScreen(screen.returnTo)
             is AppScreen.Search -> screen.returnTo
@@ -222,25 +134,9 @@ private fun BousygramAppRoot(
         authState.step != AuthStep.Authorized -> AuthScreen(viewModel = authViewModel)
         appScreen is AppScreen.Player -> {
             val screen = appScreen as AppScreen.Player
-            val activity = LocalContext.current as? MainActivity
-            DisposableEffect(Unit) {
-                activity?.isPlayerActive = true
-                activity?.updatePipAutoEnter(enabled = true)
-                onDispose {
-                    activity?.isPlayerActive = false
-                    activity?.updatePipAutoEnter(enabled = false)
-                }
-            }
             PlayerScreen(
                 request = screen.request,
-                isInPipMode = activity?.isInPipMode ?: false,
-                onExit = { appScreen = unwrapNonPlayerScreen(screen.returnTo) },
-                onEnterPip = {
-                    val act = activity
-                    if (act != null) {
-                        act.enterPipMode(act.currentPipAspectRatio, act.currentPipSourceRect)
-                    }
-                }
+                onExit = { appScreen = unwrapNonPlayerScreen(screen.returnTo) }
             )
         }
         else -> {

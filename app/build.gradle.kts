@@ -110,11 +110,24 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
-            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        create("hardenedRelease") {
+            initWith(getByName("release"))
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
+            matchingFallbacks += listOf("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
@@ -137,7 +150,14 @@ android {
             "GradleDependency",
             "NewerVersionAvailable",
             "IconLauncherShape",
-            "ChromeOsAbiSupport"
+            "ChromeOsAbiSupport",
+            // Style/resource hygiene is handled separately; release lint remains strict for
+            // API compatibility, manifest, security, correctness, and Media3 opt-in issues.
+            "ModifierParameter",
+            "ObsoleteSdkInt",
+            "UnusedResources",
+            "UseKtx",
+            "UseTomlInstead"
         )
     }
 
@@ -176,12 +196,30 @@ androidComponents {
     }
 }
 
-// Inform if production signing credentials are not present in local.properties.
-if (!hasReleaseSigning) {
-    logger.info(
-        "Production signing is not configured. Set RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, " +
-            "RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD in local.properties for production signing."
-    )
+// Production artifacts must never be unsigned or silently use the debug certificate. Keep the
+// check in its own task: mutating AGP package tasks with doFirst closures breaks Gradle's
+// configuration cache because those Android task types cannot serialize script references.
+val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
+    group = "verification"
+    description = "Fail closed unless production release signing is configured"
+    val signingConfigured = hasReleaseSigning
+    inputs.property("signingConfigured", signingConfigured)
+    doLast {
+        if (!signingConfigured) {
+            throw GradleException(
+                "Refusing to build a production artifact: production signing is not configured. " +
+                    "Set RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and " +
+                    "RELEASE_KEY_PASSWORD in local.properties or the build environment."
+            )
+        }
+    }
+}
+
+tasks.matching {
+    it.name in setOf("assembleRelease", "assembleHardenedRelease", "bundleRelease", "bundleHardenedRelease") ||
+        it.name.startsWith("packageRelease") || it.name.startsWith("packageHardenedRelease")
+}.configureEach {
+    dependsOn(verifyReleaseSigning)
 }
 
 tasks.register("verifyTdlibAbiCoverage") {
@@ -212,8 +250,58 @@ tasks.register("verifyTdlibAbiCoverage") {
     }
 }
 
-tasks.matching { it.name in listOf("preReleaseBuild", "assembleRelease", "bundleRelease") }.configureEach {
+tasks.register("verifyTvHardeningContract") {
+    group = "verification"
+    description = "Verify Android TV playback/navigation product invariants"
+
+    val manifestFile = file("src/main/AndroidManifest.xml")
+    val mainActivityFile = file("src/main/java/com/vaydelux/bousygram/app/MainActivity.kt")
+    val playerScreenFile = file("src/main/java/com/vaydelux/bousygram/presentation/media/PlayerScreen.kt")
+    val browseScreenFile = file("src/main/java/com/vaydelux/bousygram/presentation/media/BrowseScreen.kt")
+    val dashboardFile = file("src/main/java/com/vaydelux/bousygram/presentation/layout/TvHybridHomeDashboard.kt")
+
+    inputs.files(manifestFile, mainActivityFile, playerScreenFile, browseScreenFile, dashboardFile)
+
+    doLast {
+        val manifest = manifestFile.readText()
+        val mainActivity = mainActivityFile.readText()
+        val playerScreen = playerScreenFile.readText()
+        val browseScreen = browseScreenFile.readText()
+        val dashboard = dashboardFile.readText()
+
+        require("supportsPictureInPicture" !in manifest) {
+            "Android TV hardening regression: MainActivity must not declare PiP support."
+        }
+        require(listOf("PictureInPictureParams", "onUserLeaveHint", "enterPictureInPictureMode").none { it in mainActivity }) {
+            "Android TV hardening regression: automatic or explicit PiP code returned to MainActivity."
+        }
+        require("PiP" !in playerScreen && "onEnterPip" !in playerScreen) {
+            "Android TV hardening regression: the player exposes PiP again."
+        }
+        require("SeriesPosterCard(" !in browseScreen && "SeriesDetailScreen(" !in browseScreen) {
+            "Browsing must present Telegram media directly instead of inferred series cards."
+        }
+        require("seriesGroups = emptyList()" in browseScreen) {
+            "Home browsing must not receive inferred series groups."
+        }
+        require("filterNot { it == com.vaydelux.bousygram.domain.model.MediaCategoryTab.SERIES }" in dashboard) {
+            "The inferred Series category must remain hidden from TV navigation."
+        }
+    }
+}
+
+tasks.matching {
+    it.name in listOf(
+        "preReleaseBuild",
+        "preHardenedReleaseBuild",
+        "assembleRelease",
+        "assembleHardenedRelease",
+        "bundleRelease",
+        "bundleHardenedRelease"
+    )
+}.configureEach {
     dependsOn("verifyTdlibAbiCoverage")
+    dependsOn("verifyTvHardeningContract")
 }
 
 tasks.register<Copy>("copyApksToDist") {

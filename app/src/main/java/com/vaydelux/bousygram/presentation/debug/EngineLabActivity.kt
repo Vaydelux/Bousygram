@@ -76,6 +76,7 @@ class EngineLabActivity : ComponentActivity() {
 }
 
 @Composable
+@OptIn(UnstableApi::class)
 fun EngineLabScreen(
     initialUrl: String,
     onExit: () -> Unit

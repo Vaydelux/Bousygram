@@ -17,6 +17,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
 
+data class BrowseRestoration(
+    val firstVisibleItemIndex: Int = 0,
+    val firstVisibleItemScrollOffset: Int = 0,
+    val focusedMediaKey: String? = null,
+    val sectionKey: String? = null
+)
+
 class MediaViewModel(
     private val repository: SavedMessagesRepository = SavedMessagesRepository()
 ) : ViewModel() {
@@ -26,6 +33,37 @@ class MediaViewModel(
     private var isInitialized = false
     private var hasLoadedVideoChats = false
     private var mediaRequestGeneration = 0L
+    private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
+
+    fun currentBrowseStateKey(): String {
+        val state = _uiState.value
+        val source = if (state.isSavedMessagesSelected) "saved" else "chat:${state.selectedChatId ?: 0L}"
+        return "$source:topic:${state.selectedTopicId ?: 0}"
+    }
+
+    fun browseRestoration(key: String = currentBrowseStateKey()): BrowseRestoration =
+        browseRestorations[key] ?: BrowseRestoration()
+
+    fun saveBrowseViewport(key: String, firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int) {
+        browseRestorations.compute(key) { _, current ->
+            (current ?: BrowseRestoration()).copy(
+                firstVisibleItemIndex = firstVisibleItemIndex.coerceAtLeast(0),
+                firstVisibleItemScrollOffset = firstVisibleItemScrollOffset.coerceAtLeast(0)
+            )
+        }
+    }
+
+    fun recordBrowseFocus(item: MediaItem, sectionKey: String? = null) {
+        val stateKey = currentBrowseStateKey()
+        val mediaKey = "${item.chatId}:${item.messageId}"
+        browseRestorations.compute(stateKey) { _, current ->
+            (current ?: BrowseRestoration()).copy(
+                focusedMediaKey = mediaKey,
+                sectionKey = sectionKey ?: current?.sectionKey
+            )
+        }
+    }
+
 
     private fun isMessageInSelectedChat(chatId: Long): Boolean {
         val state = _uiState.value
@@ -465,6 +503,7 @@ class MediaViewModel(
         }
     }
 
+    // Playback launch is managed via PlaybackLaunchCoordinator.
     fun preparePlayback(item: MediaItem, onResult: (String?, String?) -> Unit) {
         val fileId = item.fileId
         _uiState.update { it.copy(preparingFileId = fileId) }
@@ -500,11 +539,17 @@ class MediaViewModel(
     }
 
     fun setCategoryTab(tab: com.vaydelux.bousygram.domain.model.MediaCategoryTab) {
-        _uiState.update { it.copy(selectedCategoryTab = tab, selectedSeriesTitle = null) }
+        val presentationTab = if (tab == com.vaydelux.bousygram.domain.model.MediaCategoryTab.SERIES) {
+            com.vaydelux.bousygram.domain.model.MediaCategoryTab.ALL
+        } else {
+            tab
+        }
+        _uiState.update { it.copy(selectedCategoryTab = presentationTab, selectedSeriesTitle = null) }
     }
 
+    /** Kept for source/API compatibility; series drill-down is intentionally disabled. */
     fun selectSeries(seriesTitle: String?) {
-        _uiState.update { it.copy(selectedSeriesTitle = seriesTitle) }
+        _uiState.update { it.copy(selectedSeriesTitle = null) }
     }
 
     fun onItemFocused(item: MediaItem) {

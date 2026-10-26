@@ -17,15 +17,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.media.ExternalPlayerLauncher
@@ -58,7 +62,6 @@ import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.ChatSourceTabs
 import com.vaydelux.bousygram.presentation.components.AllChatsPickerDialog
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
-import com.vaydelux.bousygram.presentation.components.SeriesPosterCard
 import com.vaydelux.bousygram.presentation.layout.TvHybridHomeDashboard
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 
@@ -70,7 +73,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
-import com.vaydelux.bousygram.presentation.media.SeriesDetailScreen
+import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
+import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
 
 @Composable
 fun BrowseScreen(
@@ -108,18 +112,26 @@ fun BrowseScreen(
             playable
         }
     }
-    val standaloneVideos = remember(videos, state.seriesGroups) {
-        if (state.seriesGroups.isEmpty()) {
-            videos
-        } else {
-            videos.filter { v ->
-                state.seriesGroups.none { g ->
-                    g.episodes.any { ep -> ep.chatId == v.chatId && ep.messageId == v.messageId }
-                }
-            }
+    val browseStateKey = viewModel.currentBrowseStateKey()
+    val browseRestoration = remember(browseStateKey) { viewModel.browseRestoration(browseStateKey) }
+    val libraryGridState = remember(browseStateKey) {
+        LazyGridState(
+            firstVisibleItemIndex = browseRestoration.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = browseRestoration.firstVisibleItemScrollOffset
+        )
+    }
+    val restoreFocusRequester = remember(browseStateKey) { FocusRequester() }
+    var restorationApplied by remember(browseStateKey) { mutableStateOf(false) }
+
+    DisposableEffect(browseStateKey, libraryGridState) {
+        onDispose {
+            viewModel.saveBrowseViewport(
+                browseStateKey,
+                libraryGridState.firstVisibleItemIndex,
+                libraryGridState.firstVisibleItemScrollOffset
+            )
         }
     }
-    val libraryGridState = rememberLazyGridState()
 
     // The library fetches media metadata a page at a time from TDLib. Near the end of the
     // currently loaded grid, prefetch the next metadata page automatically, without downloading
@@ -129,6 +141,11 @@ fun BrowseScreen(
         snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .distinctUntilChanged()
             .collect { lastVisibleIndex ->
+                viewModel.saveBrowseViewport(
+                    browseStateKey,
+                    libraryGridState.firstVisibleItemIndex,
+                    libraryGridState.firstVisibleItemScrollOffset
+                )
                 val threshold = (videos.size - LIBRARY_PREFETCH_ITEMS_REMAINING).coerceAtLeast(0)
                 if (!state.isLoading && !state.isLoadingMore && state.hasMore &&
                     videos.isNotEmpty() && lastVisibleIndex >= threshold
@@ -142,36 +159,35 @@ fun BrowseScreen(
         viewModel.initialize()
     }
 
-    BackHandler(enabled = state.selectedSeriesTitle != null) {
-        viewModel.selectSeries(null)
+    LaunchedEffect(libraryMode, browseStateKey, videos.size, browseRestoration.focusedMediaKey) {
+        if (!libraryMode || restorationApplied || videos.isEmpty()) return@LaunchedEffect
+        val targetKey = browseRestoration.focusedMediaKey
+        if (targetKey == null) {
+            restorationApplied = true
+            return@LaunchedEffect
+        }
+        val targetIndex = videos.indexOfFirst { "${it.chatId}:${it.messageId}" == targetKey }
+        if (targetIndex >= 0) {
+            libraryGridState.scrollToItem(targetIndex)
+            delay(80L)
+            runCatching { restoreFocusRequester.requestFocus() }
+        }
+        restorationApplied = true
     }
 
-    BackHandler(enabled = state.selectedSeriesTitle == null && state.selectedTopicId != null) {
+    BackHandler(enabled = state.selectedTopicId != null) {
         viewModel.selectTopic(null)
     }
 
-    fun openVideo(item: MediaItem) {
-        val fileId = item.fileId ?: return
-        fun onUiThread(block: () -> Unit) {
-            val activity = context as? Activity
-            if (activity != null) activity.runOnUiThread(block) else block()
-        }
-        EnterprisePreferences.setLastPlayed(item.chatId, item.messageId, fileId, item.title)
-        OfflineCacheManager.markFileAccessed(fileId)
-        viewModel.preparePlayback(item) { url, error ->
-            onUiThread {
-                if (url.isNullOrBlank()) {
-                    onStreamError(error ?: "Could not prepare stream")
-                    return@onUiThread
-                }
-                val queueItems = if (videos.any { it.chatId == item.chatId && it.messageId == item.messageId }) {
-                    videos
-                } else {
-                    listOf(item) + videos
-                }
-                onPlay(buildPlaybackRequest(item, url, queueItems, null))
-            }
-        }
+    val launcher = rememberMediaLauncher(
+        screenKey = if (libraryMode) LAUNCH_SCREEN_LIBRARY else LAUNCH_SCREEN_HOME,
+        onPlay = onPlay,
+        onError = onStreamError
+    )
+
+    fun openVideo(item: MediaItem, sectionKey: String? = null) {
+        if (libraryMode) viewModel.recordBrowseFocus(item)
+        launcher.launch(item, videos, sectionKey)
     }
 
     fun openLastPlayed() {
@@ -210,17 +226,7 @@ fun BrowseScreen(
     val pagePadding = if (adaptive.isCompact) 12.dp else 28.dp
     val posterMin = if (adaptive.isCompact) 160.dp else 220.dp
     Box(modifier = modifier.fillMaxSize()) {
-        val activeSeries = state.seriesGroups.firstOrNull { it.title == state.selectedSeriesTitle }
-        if (activeSeries != null) {
-            SeriesDetailScreen(
-                series = activeSeries,
-                onPlayEpisode = ::openVideo,
-                onBack = { viewModel.selectSeries(null) },
-                isPhone = adaptive.isPhoneLayout,
-                privacyMode = safeMode,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else if (libraryMode) {
+        if (libraryMode) {
             if (adaptive.isPhoneLayout) {
                 // Phone Library: group list, then topic chips, then a 3-column poster grid.
                 Column(
@@ -335,26 +341,27 @@ fun BrowseScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
                             ) {
-                                if (state.seriesGroups.isNotEmpty()) {
-                                    items(state.seriesGroups, key = { "series_${it.title}" }) { series ->
-                                        SeriesPosterCard(
-                                            series = series,
-                                            onClick = { viewModel.selectSeries(series.title) },
-                                            cardWidth = null,
-                                            privacyMode = safeMode,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                }
-                                items(standaloneVideos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                    val mediaKey = "${item.chatId}:${item.messageId}"
                                     MediaPosterCard(
                                         media = item,
                                         subtitle = state.selectedChatTitle,
                                         onClick = { openVideo(item) },
                                         cardWidth = null,
                                         privacyMode = safeMode,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onFocusChanged = { focused -> if (focused) viewModel.onItemFocused(item) }
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .then(
+                                                if (mediaKey == browseRestoration.focusedMediaKey) {
+                                                    Modifier.focusRequester(restoreFocusRequester)
+                                                } else Modifier
+                                            ),
+                                        onFocusChanged = { focused ->
+                                            if (focused) {
+                                                viewModel.recordBrowseFocus(item)
+                                                viewModel.onItemFocused(item)
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -370,7 +377,8 @@ fun BrowseScreen(
                         .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
                         .onKeyEvent { event ->
                             if (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
-                                onBackToNavBar()
+                                // A pending launch owns Back: cancel it and keep focus on the card.
+                                if (!launcher.cancel()) onBackToNavBar()
                                 true
                             } else {
                                 false
@@ -520,26 +528,27 @@ fun BrowseScreen(
                                     verticalArrangement = Arrangement.spacedBy(14.dp),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
                                 ) {
-                                    if (state.seriesGroups.isNotEmpty()) {
-                                        items(state.seriesGroups, key = { "series_${it.title}" }) { series ->
-                                            SeriesPosterCard(
-                                                series = series,
-                                                onClick = { viewModel.selectSeries(series.title) },
-                                                cardWidth = null,
-                                                privacyMode = safeMode,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                    }
-                                    items(standaloneVideos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                    items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                        val mediaKey = "${item.chatId}:${item.messageId}"
                                         MediaPosterCard(
                                             media = item,
                                             subtitle = state.selectedChatTitle,
                                             onClick = { openVideo(item) },
                                             cardWidth = null,
                                             privacyMode = safeMode,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            onFocusChanged = { focused -> if (focused) viewModel.onItemFocused(item) }
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .then(
+                                                    if (mediaKey == browseRestoration.focusedMediaKey) {
+                                                        Modifier.focusRequester(restoreFocusRequester)
+                                                    } else Modifier
+                                                ),
+                                            onFocusChanged = { focused ->
+                                                if (focused) {
+                                                    viewModel.recordBrowseFocus(item)
+                                                    viewModel.onItemFocused(item)
+                                                }
+                                            }
                                         )
                                     }
                                 }
@@ -554,7 +563,7 @@ fun BrowseScreen(
                 channelLabel = state.selectedChatTitle,
                 isLoading = state.isLoading,
                 errorMessage = state.error,
-                onVideoSelected = ::openVideo,
+                onVideoSelected = { openVideo(it) },
                 onOpenSearch = {
                     val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
                     onOpenSearch(chatId, state.selectedChatTitle)
@@ -586,13 +595,13 @@ fun BrowseScreen(
                     .toSet(),
                 safeMode = safeMode,
                 selectedCategoryTab = state.selectedCategoryTab,
-                selectedSeriesTitle = state.selectedSeriesTitle,
-                seriesGroups = state.seriesGroups,
+                selectedSeriesTitle = null,
+                seriesGroups = emptyList(),
                 topicGroups = state.topicGroups,
                 availableTopics = state.availableTopics,
                 selectedTopicId = state.selectedTopicId,
                 onSelectCategoryTab = viewModel::setCategoryTab,
-                onSelectSeries = viewModel::selectSeries,
+                onSelectSeries = {},
                 onSelectTopic = viewModel::selectTopic,
                 onOpenExternalPlayer = { item ->
                     ExternalPlayerLauncher.launch(context, item)
@@ -624,14 +633,12 @@ fun BrowseScreen(
                 }
             )
         }
-        if (state.preparingFileId != null) {
-            LoadingOverlay(
-                text = "Preparing video...",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.58f))
-            )
-        }
+        LaunchOpeningIndicator(
+            launcher = launcher,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        )
     }
 }
 
@@ -702,3 +709,5 @@ private fun RefreshChip(text: String = "Refresh", onClick: () -> Unit) {
 }
 
 private const val LIBRARY_PREFETCH_ITEMS_REMAINING = 6
+const val LAUNCH_SCREEN_HOME = "home"
+const val LAUNCH_SCREEN_LIBRARY = "library"

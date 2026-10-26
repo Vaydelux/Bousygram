@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -473,13 +474,15 @@ fun TvHybridHomeDashboard(
                 }
             }
 
-            // Category filter chips: "All Videos" | "Series & Shows" | "Audio" | "Documents" | "Topics"
+            // Series inference is intentionally excluded: Telegram chats/topics are the hierarchy.
             if (selectedSeriesTitle == null) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    com.vaydelux.bousygram.domain.model.MediaCategoryTab.entries.forEach { tab ->
+                    com.vaydelux.bousygram.domain.model.MediaCategoryTab.entries
+                        .filterNot { it == com.vaydelux.bousygram.domain.model.MediaCategoryTab.SERIES }
+                        .forEach { tab ->
                         val isSelected = tab == selectedCategoryTab
                         TvFocusSurface(
                             onClick = { onSelectCategoryTab(tab) },
@@ -1762,6 +1765,11 @@ private fun MediaDetailsDialog(
     onDeleteMedia: (() -> Unit)? = null
 ) {
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    val resumeFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100L)
+        runCatching { resumeFocusRequester.requestFocus() }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         val shape = RoundedCornerShape(24.dp)
@@ -1965,87 +1973,69 @@ private fun MediaDetailsDialog(
                             ModernResumeButton(
                                 text = "▶ Resume",
                                 onClick = onPlay,
-                                modifier = Modifier.weight(1f)
+                                focusRequester = resumeFocusRequester,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 48.dp)
                             )
 
                             // Play from start button
+                            var startFocused by remember { mutableStateOf(false) }
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = colors.surfaceVariant,
+                                color = if (startFocused) colors.primary.copy(alpha = 0.25f) else colors.surfaceVariant,
                                 modifier = Modifier
+                                    .defaultMinSize(minHeight = 48.dp)
                                     .clip(RoundedCornerShape(10.dp))
+                                    .border(
+                                        if (startFocused) 2.dp else 1.dp,
+                                        if (startFocused) colors.primary else colors.outlineVariant,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .onFocusChanged { startFocused = it.isFocused }
+                                    .focusable()
                                     .clickable { onPlayFromStart() }
                             ) {
-                                Text(
-                                    text = "↺ Start",
-                                    color = colors.onSurface,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                                )
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                                    Text(
+                                        text = "↺ Start",
+                                        color = if (startFocused) colors.primary else colors.onSurface,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                                    )
+                                }
                             }
 
                             // Favorite Toggle Button
+                            var favFocused by remember { mutableStateOf(false) }
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = if (isFavorite) colors.error.copy(alpha = 0.2f) else colors.surfaceVariant,
+                                color = when {
+                                    favFocused -> (if (isFavorite) colors.error else colors.primary).copy(alpha = 0.25f)
+                                    isFavorite -> colors.error.copy(alpha = 0.2f)
+                                    else -> colors.surfaceVariant
+                                },
                                 modifier = Modifier
+                                    .defaultMinSize(minHeight = 48.dp)
                                     .clip(RoundedCornerShape(10.dp))
+                                    .border(
+                                        if (favFocused) 2.dp else 1.dp,
+                                        when {
+                                            favFocused -> if (isFavorite) colors.error else colors.primary
+                                            isFavorite -> colors.error
+                                            else -> colors.outlineVariant
+                                        },
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .onFocusChanged { favFocused = it.isFocused }
+                                    .focusable()
                                     .clickable { onToggleFavorite() }
-                                    .border(
-                                        1.dp,
-                                        if (isFavorite) colors.error else colors.outlineVariant,
-                                        RoundedCornerShape(10.dp)
-                                    )
                             ) {
-                                Text(
-                                    text = if (isFavorite) "♥ Saved" else "♡ Favorite",
-                                    color = if (isFavorite) colors.error else colors.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                                )
-                            }
-
-                            // Offline Pin Toggle Button
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isOffline) colors.primary.copy(alpha = 0.2f) else colors.surfaceVariant,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { onToggleOffline() }
-                                    .border(
-                                        1.dp,
-                                        if (isOffline) colors.primary else colors.outlineVariant,
-                                        RoundedCornerShape(10.dp)
-                                    )
-                            ) {
-                                Text(
-                                    text = if (isOffline) "✓ Pinned" else "📥 Pin",
-                                    color = if (isOffline) colors.primary else colors.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                                )
-                            }
-
-                            // External Player Button (VLC / MPV / MX Player)
-                            if (onOpenExternalPlayer != null) {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = colors.surfaceVariant,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { onOpenExternalPlayer() }
-                                        .border(
-                                            1.dp,
-                                            colors.outlineVariant,
-                                            RoundedCornerShape(10.dp)
-                                        )
-                                ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
                                     Text(
-                                        text = "⎘ External",
-                                        color = colors.secondary,
+                                        text = if (isFavorite) "♥ Saved" else "♡ Favorite",
+                                        color = if (isFavorite) colors.error else if (favFocused) colors.primary else colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
@@ -2053,27 +2043,95 @@ private fun MediaDetailsDialog(
                                 }
                             }
 
-                            // Delete from Telegram Button
-                            if (onDeleteMedia != null) {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = colors.error.copy(alpha = 0.15f),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { showDeleteConfirmDialog = true }
-                                        .border(
-                                            1.dp,
-                                            colors.error.copy(alpha = 0.5f),
-                                            RoundedCornerShape(10.dp)
-                                        )
-                                ) {
+                            // Offline Pin Toggle Button
+                            var pinFocused by remember { mutableStateOf(false) }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = when {
+                                    pinFocused -> colors.primary.copy(alpha = 0.3f)
+                                    isOffline -> colors.primary.copy(alpha = 0.2f)
+                                    else -> colors.surfaceVariant
+                                },
+                                modifier = Modifier
+                                    .defaultMinSize(minHeight = 48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .border(
+                                        if (pinFocused) 2.dp else 1.dp,
+                                        if (pinFocused || isOffline) colors.primary else colors.outlineVariant,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .onFocusChanged { pinFocused = it.isFocused }
+                                    .focusable()
+                                    .clickable { onToggleOffline() }
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
                                     Text(
-                                        text = "🗑 Delete",
-                                        color = colors.error,
+                                        text = if (isOffline) "✓ Pinned" else "📥 Pin",
+                                        color = if (isOffline || pinFocused) colors.primary else colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                                     )
+                                }
+                            }
+
+                            // External Player Button (VLC / MPV / MX Player)
+                            if (onOpenExternalPlayer != null) {
+                                var extFocused by remember { mutableStateOf(false) }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (extFocused) colors.secondary.copy(alpha = 0.25f) else colors.surfaceVariant,
+                                    modifier = Modifier
+                                        .defaultMinSize(minHeight = 48.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .border(
+                                            if (extFocused) 2.dp else 1.dp,
+                                            if (extFocused) colors.secondary else colors.outlineVariant,
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .onFocusChanged { extFocused = it.isFocused }
+                                        .focusable()
+                                        .clickable { onOpenExternalPlayer() }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                                        Text(
+                                            text = "⎘ External",
+                                            color = if (extFocused) colors.secondary else colors.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Delete from Telegram Button
+                            if (onDeleteMedia != null) {
+                                var delFocused by remember { mutableStateOf(false) }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (delFocused) colors.error.copy(alpha = 0.3f) else colors.error.copy(alpha = 0.15f),
+                                    modifier = Modifier
+                                        .defaultMinSize(minHeight = 48.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .border(
+                                            if (delFocused) 2.dp else 1.dp,
+                                            colors.error,
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .onFocusChanged { delFocused = it.isFocused }
+                                        .focusable()
+                                        .clickable { showDeleteConfirmDialog = true }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                                        Text(
+                                            text = "🗑 Delete",
+                                            color = colors.error,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

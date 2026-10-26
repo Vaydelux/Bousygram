@@ -807,9 +807,11 @@ internal object TelegramChunkScheduler {
 
         var file = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
         readReadyChunk(file, request)?.let { ready ->
+            PlaybackTelemetryRecorder.recordCacheHit(request.fileId, ready.bytes.size)
             recordChunkSample(request.fileId, ready.bytes.size, System.currentTimeMillis() - fetchStart)
             return ready
         }
+        PlaybackTelemetryRecorder.recordCacheMiss(request.fileId)
 
         // Wait via UpdateFile events for the requested prefix without polling
         val neededBytes = min(request.limit, MIN_PARTIAL_BYTES).coerceAtLeast(1)

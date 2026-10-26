@@ -46,7 +46,7 @@ fun buildVoiceSearchPrompt(searchMode: SearchMode, inChatTitle: String): String 
     return if (searchMode == SearchMode.InChat) {
         "Search in ${inChatTitle.ifBlank { "current source" }}"
     } else {
-        "Speak movie, series, or video title"
+        "Speak a video or audio title"
     }
 }
 
@@ -177,7 +177,7 @@ fun VoiceSearchButton(
     val description = if (isListening) {
         "Listening for voice query"
     } else {
-        "Voice search. Speak movie, series, or video title"
+        "Voice search. Speak a video or audio title"
     }
 
     TvFocusSurface(

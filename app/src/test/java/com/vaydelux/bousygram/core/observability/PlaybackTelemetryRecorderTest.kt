@@ -295,7 +295,14 @@ class PlaybackTelemetryRecorderTest {
             isFullyCachedAtStart = true,
             timeToHeaderChunkMs = 45L,
             timeToTailChunkMs = 120L,
-            averageThroughputBytesPerSec = 4_500_000L
+            averageThroughputBytesPerSec = 4_500_000L,
+            cacheHitCount = 8,
+            cacheMissCount = 2,
+            reusedCacheBytes = 2_097_152L,
+            seekCount = 3,
+            averageSeekLatencyMs = 420L,
+            droppedFrameCount = 4,
+            memoryPressure = "normal:768MB"
         )
 
         PlaybackTelemetryRecorder.record(record)
@@ -305,6 +312,13 @@ class PlaybackTelemetryRecorderTest {
         assertEquals(45L, retrieved.timeToHeaderChunkMs)
         assertEquals(120L, retrieved.timeToTailChunkMs)
         assertEquals(4_500_000L, retrieved.averageThroughputBytesPerSec)
+        assertEquals(8, retrieved.cacheHitCount)
+        assertEquals(2, retrieved.cacheMissCount)
+        assertEquals(2_097_152L, retrieved.reusedCacheBytes)
+        assertEquals(3, retrieved.seekCount)
+        assertEquals(420L, retrieved.averageSeekLatencyMs)
+        assertEquals(4, retrieved.droppedFrameCount)
+        assertEquals("normal:768MB", retrieved.memoryPressure)
 
         // Verify JSON serialization round-trip
         val json = PlaybackTelemetrySerializer.recordToJson(record)
@@ -314,6 +328,13 @@ class PlaybackTelemetryRecorderTest {
         assertEquals(45L, parsed.timeToHeaderChunkMs)
         assertEquals(120L, parsed.timeToTailChunkMs)
         assertEquals(4_500_000L, parsed.averageThroughputBytesPerSec)
+        assertEquals(8, parsed.cacheHitCount)
+        assertEquals(2, parsed.cacheMissCount)
+        assertEquals(2_097_152L, parsed.reusedCacheBytes)
+        assertEquals(3, parsed.seekCount)
+        assertEquals(420L, parsed.averageSeekLatencyMs)
+        assertEquals(4, parsed.droppedFrameCount)
+        assertEquals("normal:768MB", parsed.memoryPressure)
 
         val summary = PlaybackTelemetryRecorder.exportSummary()
         assertTrue(summary.contains("cached=true"))
@@ -325,6 +346,13 @@ class PlaybackTelemetryRecorderTest {
         assertTrue(exportJson.contains("\"timeToHeaderChunkMs\": 45"))
         assertTrue(exportJson.contains("\"timeToTailChunkMs\": 120"))
         assertTrue(exportJson.contains("\"averageThroughputBytesPerSec\": 4500000"))
+        assertTrue(exportJson.contains("\"cacheHitCount\": 8"))
+        assertTrue(exportJson.contains("\"cacheMissCount\": 2"))
+        assertTrue(exportJson.contains("\"reusedCacheBytes\": 2097152"))
+        assertTrue(exportJson.contains("\"seekCount\": 3"))
+        assertTrue(exportJson.contains("\"averageSeekLatencyMs\": 420"))
+        assertTrue(exportJson.contains("\"droppedFrameCount\": 4"))
+        assertTrue(exportJson.contains("\"memoryPressure\": \"normal:768MB\""))
     }
 
     @Test
@@ -334,6 +362,11 @@ class PlaybackTelemetryRecorderTest {
         PlaybackTelemetryRecorder.recordHeaderChunkTime(fileId, 55L)
         PlaybackTelemetryRecorder.recordTailChunkTime(fileId, 110L)
         PlaybackTelemetryRecorder.recordThroughput(fileId, 3_200_000L)
+        PlaybackTelemetryRecorder.recordCacheHit(fileId, 1_024)
+        PlaybackTelemetryRecorder.recordCacheHit(fileId, 2_048)
+        PlaybackTelemetryRecorder.recordCacheMiss(fileId)
+        PlaybackTelemetryRecorder.recordSeekLatency(fileId, 300L)
+        PlaybackTelemetryRecorder.recordSeekLatency(fileId, 500L)
 
         assertEquals(55L, PlaybackTelemetryRecorder.peekHeaderChunkTime(fileId))
         assertTrue(PlaybackTelemetryRecorder.consumeFullyCachedAtStart(fileId))
@@ -347,6 +380,17 @@ class PlaybackTelemetryRecorderTest {
 
         assertEquals(3_200_000L, PlaybackTelemetryRecorder.consumeThroughput(fileId))
         assertNull(PlaybackTelemetryRecorder.consumeThroughput(fileId))
+
+        val cache = PlaybackTelemetryRecorder.consumeCacheTelemetry(fileId)
+        assertEquals(2, cache.hitCount)
+        assertEquals(1, cache.missCount)
+        assertEquals(3_072L, cache.reusedBytes)
+        assertEquals(0, PlaybackTelemetryRecorder.consumeCacheTelemetry(fileId).hitCount)
+
+        val seeks = PlaybackTelemetryRecorder.consumeSeekTelemetry(fileId)
+        assertEquals(2, seeks.count)
+        assertEquals(400L, seeks.averageLatencyMs)
+        assertEquals(0, PlaybackTelemetryRecorder.consumeSeekTelemetry(fileId).count)
     }
 
     @Test

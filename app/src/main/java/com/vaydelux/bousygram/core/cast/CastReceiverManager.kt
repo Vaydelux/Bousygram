@@ -221,7 +221,7 @@ object CastReceiverManager {
         }
     }
 
-    fun toPlaybackRequest(payload: CastMediaPayload, streamUrl: String): PlaybackRequest {
+    fun toPlaybackRequest(payload: CastMediaPayload, streamUrl: String?): PlaybackRequest {
         val queueItem = PlaybackQueueItem(
             url = null,
             chatId = payload.chatId,
@@ -234,7 +234,7 @@ object CastReceiverManager {
             fileSizeBytes = 0L
         )
         return PlaybackRequest(
-            url = streamUrl,
+            initialStreamUrl = streamUrl?.takeIf { it.isNotBlank() },
             chatId = payload.chatId,
             messageId = payload.messageId,
             fileId = payload.fileId,

@@ -1,6 +1,6 @@
 # Bousygram implementation checklist
 
-Updated: 2026-10-21
+Updated: 2026-10-27
 
 Legend: `[x]` implemented and checked within the stated scope; `[~]` source work is present but requires Android/device validation; `[ ]` not completed.
 
@@ -15,7 +15,7 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 - [x] Add static checks for the signing-configuration scope and privacy-mode behavior.
 - [x] Move signing properties to project scope after source review found task guards reference them outside `android {}`.
 - [x] Run Gradle verification, Android lint, JUnit, and `assembleDebug` in a connected Android SDK environment.
-- [ ] Verify the release signing gate with an actual production keystore and resulting APK.
+- [x] Verify the release signing gate with a configured production keystore and all three resulting hardened APKs.
 
 ## Phase 2 — Security and data integrity
 
@@ -33,6 +33,8 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 - [x] Revoke local stream/subtitle capabilities when they are no longer needed.
 - [x] Debounce focus-triggered warm-up during rapid TV navigation.
 - [x] Make the loopback server stop/start lifecycle restart-safe at source level.
+- [x] Record cache hits, cache misses, reused bytes, seek latency, dropped frames, and memory pressure in local playback telemetry.
+- [x] Change hidden D-pad Left/Right to preview-only seeking; OK commits once and Back cancels.
 - [~] Validate local stream startup, seeking, retries, lifecycle pause/resume, queue switching, subtitles and audio tracks on devices.
 - [~] Verify cache eviction behavior while pinned downloads and active playback are running.
 
@@ -41,6 +43,9 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 - [x] Add the cinematic Home, dedicated Library/source selection, cross-source Favorites, and redesigned playback/track-selection surfaces in earlier source revisions.
 - [x] Add separate source paths for real-app and dashboard-preview instrumentation tests.
 - [x] Make privacy mode suppress poster loads, duration/file-size metadata, Home hero artwork/source details, and recent search-history chips.
+- [x] Remove PiP declaration, automatic entry, lifecycle exceptions, and player action.
+- [x] Present media directly in the fixed library grid instead of inferred series cards; retain old metadata only for data compatibility.
+- [x] Restore library viewport and focused media independently per Telegram source/topic when returning from playback.
 - [ ] Run UI instrumentation on an ARM64 phone and Android TV device.
 - [ ] Verify focus visibility, Back behavior, focus restoration, loading/error/empty states, accessibility and adaptive layouts with a real remote.
 
@@ -49,7 +54,7 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 - [x] Run pure Kotlin range/token/URL/database-key policy tests.
 - [ ] Run controlled Telegram-account integration tests and real CDN playback.
 - [ ] Complete crash-free long-session, background/resume and large-library tests.
-- [ ] Produce and verify a signed hardened release APK.
+- [x] Produce and verify signed hardened release APKs for `armeabi-v7a`, `arm64-v8a`, and universal packaging.
 
 ## Phase 6 — Product expansion
 
@@ -57,7 +62,7 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 
 ## Current local verification
 
-- Standalone Kotlin range/token/URL/database-key policy suite: 27/27 passed.
-- Selected Android XML parsing and source invariants passed, including the signing-gate scope, subtitle URL fail-closed check, and browsing privacy-mode checks.
-- Workflow YAML and all 12 embedded Bash snippets passed syntax validation.
-- Full Gradle build verified: `:app:verifyTdlibAbiCoverage` passed (ARM64-v8a + armeabi-v7a), `:app:testDebugUnitTest` passed (35/35 tests), `:app:lintDebug` passed, and `:app:assembleDebug` produced `Bousygram-v1.0-debug.apk` (62.29 MB). Physical device validation and production keystore signing remain pending.
+- Workflow YAML parses successfully; protected release and Firebase jobs are gated by secret availability.
+- Full Gradle verification passed: `:app:verifyTdlibAbiCoverage`, `:app:verifyTvHardeningContract`, 227/227 debug unit tests, `:app:lintDebug`, and `:app:assembleDebug`.
+- `:app:assembleHardenedRelease` passed with R8/resource shrinking and configuration-cache storage. All three generated APKs passed `apksigner` v2 verification with the same certificate digest.
+- Physical-device playback, controlled Telegram-account integration, and long-session testing remain pending.

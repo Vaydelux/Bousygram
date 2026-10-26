@@ -1,7 +1,7 @@
-# Release Status: Production Release Verified (v1.0)
+# Release Status: Build Verified; Device Validation Pending (v1.0)
 
-**Last Updated**: 2026-10-26  
-**Build Status**: GREEN (All 220 unit tests passed, R8 release assemble succeeded)  
+**Last Updated**: 2026-10-27
+**Build Status**: GREEN (All 227 unit tests passed, lint passed, R8 hardened release assemble succeeded)
 **Target Performance Floor**: Xiaomi TV A Pro 55 2026 (Quad Cortex-A55 @ 1.5 GHz, Mali-G52 MC1 GPU, 2 GB RAM, 8 GB eMMC flash, 32-bit Android 11 OS)
 
 ---
@@ -20,7 +20,7 @@ The following production artifacts have been compiled, optimized with R8, verifi
 
 ## 2. Test & Verification Matrix
 
-- **Unit Tests**: 220 / 220 passing (`:app:testDebugUnitTest`).
+- **Unit Tests**: 227 / 227 passing (`:app:testDebugUnitTest`).
   - `PlaybackCoreLifecycleTest`: Single active session lifecycle, background pause, clean release.
   - `PlayerInputControllerTest`: Remote key handling matrix (all 12 D-pad rows verified).
   - `BlackScreenDetectorTest`: Stuck decoder detection (>3.5s), tiered recovery (`TextureView` -> `MPV HW` -> `MPV SW`).
@@ -29,6 +29,10 @@ The following production artifacts have been compiled, optimized with R8, verifi
   - `SeriesMetadataParserTest`: TMDB and regex matching for multi-season/episode series.
 - **R8 Proguard & Resource Shrinking**: Passed without warnings (`minifyReleaseWithR8`, `optimizeReleaseResources`).
 - **TDLib Native Coverage**: Passed (`verifyTdlibAbiCoverage` confirmed non-empty `libtdjni.so` for `armeabi-v7a` and `arm64-v8a`).
+- **TV Hardening Contract**: Passed (`verifyTvHardeningContract` rejects PiP or inferred-series UI regressions).
+- **Signing**: All hardened ARM32, ARM64, and universal APKs passed APK Signature Scheme v2 verification with the same configured certificate.
+
+Physical 32-bit/64-bit TV playback, real Telegram CDN behavior, remote focus visibility, and long-session lifecycle tests are not proven by these local build results and remain release acceptance requirements.
 
 ---
 

@@ -115,7 +115,7 @@ class CastReceiverManagerTest {
         val streamUrl = "http://127.0.0.1:8080/stream/778899?token=xyz"
         val request = CastReceiverManager.toPlaybackRequest(payload, streamUrl)
 
-        assertEquals(streamUrl, request.url)
+        assertEquals(streamUrl, request.initialStreamUrl)
         assertEquals(payload.chatId, request.chatId)
         assertEquals(payload.messageId, request.messageId)
         assertEquals(payload.fileId, request.fileId)
@@ -123,6 +123,9 @@ class CastReceiverManagerTest {
         assertEquals(900, request.durationSeconds)
         assertEquals(1, request.queue.size)
         assertEquals(payload.fileId, request.queue.first().fileId)
+
+        val nullRequest = CastReceiverManager.toPlaybackRequest(payload, null)
+        assertNull(nullRequest.initialStreamUrl)
     }
 
     @Test
