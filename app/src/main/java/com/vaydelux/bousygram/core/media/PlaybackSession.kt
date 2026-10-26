@@ -78,6 +78,7 @@ class PlaybackSession(
     var lastStopReason: PlaybackCacheStopReason = PlaybackCacheStopReason.None
         internal set
     private val stopped = AtomicBoolean(false)
+    private val released = AtomicBoolean(false)
     private val transitionLock = Any()
     private val _isTransitioning = AtomicBoolean(false)
     val isTransitioning: Boolean get() = _isTransitioning.get()
@@ -223,7 +224,8 @@ class PlaybackSession(
     }
 
     fun release() {
-        if (markStoppedOnce()) {
+        markStoppedOnce()
+        if (released.compareAndSet(false, true)) {
             _isTransitioning.set(false)
             val activeId = fileId
             if (activeId > 0) {

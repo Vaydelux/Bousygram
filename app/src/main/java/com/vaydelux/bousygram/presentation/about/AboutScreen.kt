@@ -72,13 +72,13 @@ fun AboutScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         text = "About Bousygram",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = "System Information & Attribution",
-                        color = Color(0xFF94A3B8),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -126,7 +126,7 @@ private fun AppHeaderCard() {
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .border(1.dp, Color(0xFF23354E), shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
     ) {
         Row(
             modifier = Modifier
@@ -142,15 +142,18 @@ private fun AppHeaderCard() {
                     .clip(RoundedCornerShape(16.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(Color(0xFF0284C7), Color(0xFF0369A1), Color(0xFF075985))
+                            listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.secondary
+                            )
                         )
                     )
-                    .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "B",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.SansSerif
@@ -164,18 +167,18 @@ private fun AppHeaderCard() {
                 ) {
                     Text(
                         text = "Bousygram",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF1E293B),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Text(
                             text = "v${BuildConfig.VERSION_NAME}",
-                            color = Color(0xFF94A3B8),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
@@ -183,7 +186,7 @@ private fun AppHeaderCard() {
                 }
                 Text(
                     text = "Zero-Configuration Video-First Telegram Client for Android TV & Mobile",
-                    color = Color(0xFF94A3B8),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -204,7 +207,7 @@ private fun TmdbAttributionCard() {
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .border(1.dp, Color(0xFF0284C7).copy(alpha = 0.4f), shape)
+            .border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f), shape)
     ) {
         Column(
             modifier = Modifier
@@ -222,14 +225,14 @@ private fun TmdbAttributionCard() {
                         .clip(RoundedCornerShape(8.dp))
                         .background(
                             Brush.horizontalGradient(
-                                listOf(Color(0xFF01B4E4), Color(0xFF90CEA1))
+                                listOf(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary)
                             )
                         )
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = "TMDB",
-                        color = Color(0xFF0D253F),
+                        color = MaterialTheme.colorScheme.onPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 1.2.sp
@@ -238,7 +241,7 @@ private fun TmdbAttributionCard() {
 
                 Text(
                     text = "The Movie Database",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -247,8 +250,8 @@ private fun TmdbAttributionCard() {
             // Mandatory Legal Attribution Statement
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF0F172A),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -257,13 +260,13 @@ private fun TmdbAttributionCard() {
                 ) {
                     Text(
                         text = "This product uses the TMDB API but is not endorsed or certified by TMDB.",
-                        color = Color(0xFFF1F5F9),
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = "All film and television metadata, posters, backdrops, synopses, and ratings displayed within Bousygram are matched automatically against The Movie Database (TMDB).",
-                        color = Color(0xFF94A3B8),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -274,7 +277,7 @@ private fun TmdbAttributionCard() {
                 text = "• Zero-Configuration Matching: Filenames and captions are parsed on-device to resolve titles, years, seasons, and episodes without requiring user setup.\n" +
                     "• Offline Disk Cache: Metadata and high-definition posters/backdrops are cached locally to ensure instant rendering without network delays.\n" +
                     "• Seamless Fallback: When no TMDB match exists or while offline, Bousygram automatically falls back to Telegram thumbnails or embedded minithumbnails.",
-                color = Color(0xFF64748B),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp)
             )
         }
@@ -288,7 +291,7 @@ private fun ArchitectureDetailsCard() {
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .border(1.dp, Color(0xFF23354E), shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
     ) {
         Column(
             modifier = Modifier
@@ -298,7 +301,7 @@ private fun ArchitectureDetailsCard() {
         ) {
             Text(
                 text = "Engine & Platform Foundation",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -315,7 +318,7 @@ private fun ArchitectureDetailsCard() {
 
             Text(
                 text = "Protected by Android Keystore hardware-backed encryption. Streaming loopback tokens are scoped per-file with strict origin validation.",
-                color = Color(0xFF94A3B8),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -326,12 +329,12 @@ private fun ArchitectureDetailsCard() {
 private fun FoundationChip(title: String, value: String) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF131D2D),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF21324B))
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(title, color = Color(0xFF5EE5BE), style = MaterialTheme.typography.labelSmall)
-            Text(value, color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text(title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+            Text(value, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -343,7 +346,7 @@ private fun ZeroConfigCard() {
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .border(1.dp, Color(0xFF1E293B), shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
     ) {
         Column(
             modifier = Modifier
@@ -353,13 +356,13 @@ private fun ZeroConfigCard() {
         ) {
             Text(
                 text = "Zero-Configuration Philosophy",
-                color = Color(0xFF38BDF8),
+                color = MaterialTheme.colorScheme.secondary,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = "Bousygram makes automatic playback, caching, and enrichment decisions behind the scenes so viewers never have to configure codecs, network timeouts, or API settings. Everything is designed for an effortless leanback TV experience.",
-                color = Color(0xFF94A3B8),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp)
             )
         }

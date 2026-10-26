@@ -228,7 +228,7 @@ The auth system follows TDLib's authorization state machine:
 | `SavedMessagesChats.kt` | Loading chat list and Saved Messages chat resolution |
 | `SavedMessagesMediaSearch.kt` | Searching media within chats using filters |
 | `SavedMessagesThumbnail.kt` | Thumbnail downloading and path resolution |
-| `SavedMessagesFastLink.kt` | Fast download link generation via FileToLinkV5Bot |
+| `SavedMessagesPlayback.kt` | Local stream preparation helper |
 | `SavedMessagesUtils.kt` | Utility functions (delete, thumbnail) |
 
 ### Domain Layer (Models)
@@ -520,7 +520,7 @@ The released APK:
 │       │   │   │   ├── SavedMessagesChats.kt
 │       │   │   │   ├── SavedMessagesMediaSearch.kt
 │       │   │   │   ├── SavedMessagesThumbnail.kt
-│       │   │   │   ├── SavedMessagesFastLink.kt
+│       │   │   │   ├── SavedMessagesPlayback.kt
 │       │   │   │   └── SavedMessagesUtils.kt
 │       │   │   └── store/
 │       │   │       └── ApiCredentialsStore.kt  # SharedPreferences wrapper
@@ -579,7 +579,7 @@ The released APK:
 | **Are API keys included in the APK?** | **NO**. Release APKs contain no hardcoded API keys. Users enter their own. |
 | **What architecture pattern is used?** | Layered architecture: UI → Domain → Data → Core (TDLib). |
 | **How is media loaded?** | Paged loading from chat history via SavedMessagesRepository and TDLib. |
-| **What external services are used?** | Telegram (via TDLib), FileToLinkV5Bot for fast links, ProSearchM11Bot for search. |
+| **What external services are used?** | Telegram (via TDLib), ProSearchM11Bot for search. |
 | **How are releases made?** | GitHub Actions workflow triggered by git tags (v*). |
 | **What is the entry point?** | TeleApp.kt loads TDLib, MainActivity.kt hosts fragments. |
 | **How is data cached?** | LruCache for images, TDLib manages its own database. |

@@ -66,6 +66,38 @@ class ExoPlayerEngine(
     private val _videoDimensions = MutableStateFlow<Pair<Int, Int>>(Pair(0, 0))
     override val videoDimensions: StateFlow<Pair<Int, Int>> = _videoDimensions.asStateFlow()
 
+    override val renderedOutputBufferCount: Int
+        get() = player.videoDecoderCounters?.renderedOutputBufferCount ?: 0
+    override val droppedBufferCount: Int
+        get() = player.videoDecoderCounters?.droppedBufferCount ?: 0
+    override val skippedOutputBufferCount: Int
+        get() = player.videoDecoderCounters?.skippedOutputBufferCount ?: 0
+    override val inputBufferCount: Int
+        get() = player.videoDecoderCounters?.queuedInputBufferCount ?: 0
+    override val isVideoTrackSelected: Boolean
+        get() = player.currentTracks.groups.any { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
+    override val disabledTrackTypesDesc: String
+        get() = player.trackSelectionParameters.disabledTrackTypes.joinToString { type ->
+            when (type) {
+                C.TRACK_TYPE_VIDEO -> "VIDEO"
+                C.TRACK_TYPE_AUDIO -> "AUDIO"
+                C.TRACK_TYPE_TEXT -> "TEXT"
+                else -> type.toString()
+            }
+        }.ifBlank { "None" }
+    override val diagnosticDetails: Map<String, String>
+        get() = mapOf(
+            "hasSurface" to (player.videoSize.width > 0).toString(),
+            "playWhenReady" to player.playWhenReady.toString(),
+            "playbackState" to when (player.playbackState) {
+                Player.STATE_IDLE -> "IDLE"
+                Player.STATE_BUFFERING -> "BUFFERING"
+                Player.STATE_READY -> "READY"
+                Player.STATE_ENDED -> "ENDED"
+                else -> player.playbackState.toString()
+            }
+        )
+
     private val analyticsListener = object : AnalyticsListener {
         override fun onVideoDecoderInitialized(
             eventTime: AnalyticsListener.EventTime,
@@ -209,7 +241,6 @@ class ExoPlayerEngine(
     override fun stop() {
         player.stop()
         player.clearMediaItems()
-        player.clearVideoSurface()
         _playbackState.value = EnginePlaybackState.Idle
     }
 

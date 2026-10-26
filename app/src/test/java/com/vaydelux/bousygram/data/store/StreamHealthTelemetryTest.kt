@@ -50,4 +50,27 @@ class StreamHealthTelemetryTest {
         val records = StreamHealthTelemetry.getRecords()
         assertTrue("Ring buffer size should be <= 50, but was ${records.size}", records.size <= 50)
     }
+
+    @Test
+    fun `SessionHealthRecord carries buffer config used for the session`() {
+        val mpvTv = com.vaydelux.bousygram.core.media.PlayerBufferConfig
+            .resolveMpvConfig(isLowRam = false, isTv = true, isCellular = false)
+        val record = SessionHealthRecord(
+            sessionId = "buf_sess",
+            fileId = 7,
+            ttfbMs = 300L,
+            stallCount = 1,
+            totalPlayTimeMs = 30_000L,
+            totalRebufferTimeMs = 1_500L,
+            rebufferRatio = 0.05f,
+            networkType = "WiFi",
+            decoderName = "test",
+            engine = "libmpv",
+            bufferConfig = mpvTv.description
+        )
+        assertEquals("mpv:tv(cache=yes,max=150MB,readahead=60s,back=30MB)", record.bufferConfig)
+
+        val legacy = record.copy(bufferConfig = null)
+        assertEquals(null, legacy.bufferConfig)
+    }
 }

@@ -129,7 +129,7 @@ fun SeriesDetailScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color(0xFF131D2D))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
                     )
                 }
 
@@ -139,7 +139,7 @@ fun SeriesDetailScreen(
                         .background(
                             Brush.verticalGradient(
                                 listOf(
-                                    Color.Black.copy(alpha = 0.35f),
+                                    MaterialTheme.colorScheme.background.copy(alpha = 0.5f),
                                     Color.Transparent,
                                     MaterialTheme.colorScheme.background
                                 )
@@ -164,7 +164,7 @@ fun SeriesDetailScreen(
                 ) {
                     Text(
                         text = series.title,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -285,7 +285,7 @@ fun SeriesDetailScreen(
                 // Poster
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF131F33),
+                    color = MaterialTheme.colorScheme.surface,
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     shadowElevation = 8.dp,
                     modifier = Modifier
@@ -317,7 +317,7 @@ fun SeriesDetailScreen(
                 ) {
                     Text(
                         text = series.title,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -455,7 +455,7 @@ private fun EpisodeListRow(
             .clip(RoundedCornerShape(12.dp))
             .border(
                 width = if (focused) 2.dp else 1.dp,
-                color = if (focused) colors.primary else Color(0xFF1E2B3E),
+                color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(12.dp)
             )
             .clickable(
@@ -466,7 +466,7 @@ private fun EpisodeListRow(
             .onFocusChanged { focused = it.isFocused }
             .focusable(),
         shape = RoundedCornerShape(12.dp),
-        color = if (focused) Color(0xFF152238) else Color(0xFF0F1826)
+        color = if (focused) colors.surfaceVariant else colors.surface
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
@@ -479,7 +479,7 @@ private fun EpisodeListRow(
                     .width(100.dp)
                     .height(60.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0B111A))
+                    .background(colors.background)
             ) {
                 val thumb = episode.thumbnailPath
                 if (!privacyMode && thumb != null) {
@@ -504,7 +504,7 @@ private fun EpisodeListRow(
                             .height(4.dp)
                             .align(Alignment.BottomCenter),
                         color = colors.primary,
-                        trackColor = Color.Black.copy(alpha = 0.5f)
+                        trackColor = colors.surfaceVariant
                     )
                 }
             }
@@ -516,7 +516,7 @@ private fun EpisodeListRow(
             ) {
                 Text(
                     text = epTitle,
-                    color = if (focused) Color.White else Color(0xFFE2E8F0),
+                    color = if (focused) colors.primary else colors.onSurface,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 1,
@@ -524,7 +524,7 @@ private fun EpisodeListRow(
                 )
                 Text(
                     text = durationText,
-                    color = Color(0xFF94A3B8),
+                    color = colors.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -532,7 +532,7 @@ private fun EpisodeListRow(
             // Play icon indicator
             Text(
                 text = "▶",
-                color = if (focused) colors.primary else Color(0xFF64748B),
+                color = if (focused) colors.primary else colors.onSurfaceVariant,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(end = 8.dp)

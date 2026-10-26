@@ -14,6 +14,9 @@ import android.os.Build
 import android.util.Log
 import android.util.Rational
 import android.view.KeyEvent
+import com.vaydelux.bousygram.core.media.diagnostics.BlackScreenDetector
+import com.vaydelux.bousygram.core.media.diagnostics.BlackScreenRecoveryAction
+import com.vaydelux.bousygram.core.media.diagnostics.CapabilityProber
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
@@ -59,6 +62,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
@@ -132,7 +136,9 @@ import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.PlayerEngine
 import com.vaydelux.bousygram.core.media.PlayerEngineFactory
 import com.vaydelux.bousygram.core.media.StreamingSessionManager
+import com.vaydelux.bousygram.core.cache.CacheManager
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
+import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.core.network.AppNetworkState
 import com.vaydelux.bousygram.core.network.NetworkConnectivityObserver
 import com.vaydelux.bousygram.core.media.UniversalMediaSessionBridge
@@ -206,6 +212,12 @@ fun PlayerScreen(
     val sessionState by playbackSession.state.collectAsState()
     var hudVisible by remember { mutableStateOf(true) }
     var hudInteractionTick by remember { mutableIntStateOf(0) }
+    val playerInputController = remember { PlayerInputController() }
+    var autoNextCardVisible by remember { mutableStateOf(false) }
+    var autoNextCountdown by remember { mutableIntStateOf(5) }
+    val playNowFocusRequester = remember { FocusRequester() }
+    val seekBarFocusRequester = remember { FocusRequester() }
+    val playPauseFocusRequester = remember { FocusRequester() }
     var tracksPanelVisible by remember { mutableStateOf(false) }
     var episodesDrawerVisible by remember { mutableStateOf(false) }
     var showBrightnessHud by remember { mutableStateOf(false) }
@@ -219,7 +231,8 @@ fun PlayerScreen(
         mutableIntStateOf(currentAudioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 5)
     }
     var title by remember(request, queueIndex) {
-        mutableStateOf(queue.getOrElse(queueIndex) { queue.first() }.title)
+        val item = queue.getOrElse(queueIndex) { queue.first() }
+        mutableStateOf<String>(displayTitle(item))
     }
     var fileName by remember(request, queueIndex) {
         mutableStateOf(queue.getOrElse(queueIndex) { queue.first() }.fileName)
@@ -316,10 +329,37 @@ fun PlayerScreen(
         if (trusted > duration) duration = trusted
     }
 
+    val initialProbe = remember(queue, initialIndex) {
+        val firstItem = queue.getOrNull(initialIndex) ?: queue.firstOrNull()
+        if (firstItem != null) {
+            CapabilityProber.probe(
+                context = context,
+                mimeType = firstItem.mimeType,
+                fileName = firstItem.fileName,
+                title = firstItem.title
+            )
+        } else null
+    }
+
+    val prefSurface = remember { EnterprisePreferences.surfaceTypePreference() }
+    var useTextureView by remember {
+        mutableStateOf(
+            when (prefSurface) {
+                "textureview" -> true
+                "surfaceview" -> false
+                else -> initialProbe?.useTextureView ?: false
+            }
+        )
+    }
+    var surfaceDiagnostic by remember { mutableStateOf(SurfaceDiagnosticState()) }
+    var debugHudVisible by remember { mutableStateOf(EnterprisePreferences.videoDebugHudEnabled()) }
+    val blackScreenDetector = remember { BlackScreenDetector() }
+
     var playerEngine by remember {
         mutableStateOf(
             PlayerEngineFactory.create(
                 context = context,
+                preferredEngine = initialProbe?.recommendedEngine ?: EnterprisePreferences.selectedPlayerEngine(),
                 preferredSpeed = speed
             )
         )
@@ -664,13 +704,14 @@ fun PlayerScreen(
                     isPlaying = playerEngine.isPlaying
                     if (isPlaying) audioFocusController.request(playerEngine)
 
-                    if (!hadFirstFrame && playerStartedAtMs > 0L) {
+                    val effectiveStartMs = if (playerStartedAtMs > 0L) playerStartedAtMs else playerSessionStartMs
+                    if (!hadFirstFrame) {
                         hadFirstFrame = true
-                        firstFrameMs = System.currentTimeMillis() - playerStartedAtMs
+                        firstFrameMs = (System.currentTimeMillis() - effectiveStartMs).coerceAtLeast(1L)
                         decoderName = playerEngine.activeDecoder
                         if (timeToFirstByteMs == 0L) {
                             val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
-                            val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, playerStartedAtMs)
+                            val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, effectiveStartMs)
                             timeToFirstByteMs = if (ttfb > 0L) ttfb else firstFrameMs.coerceAtLeast(1L)
                         }
                         recordMetrics()
@@ -713,8 +754,10 @@ fun PlayerScreen(
                                 "bousy_${current.chatId}_${current.messageId}_${current.fileId}"
                             )
                         }
-                        if (EnterprisePreferences.autoPlayNext() && playbackSession.hasNext) {
-                            skipNext()
+                        if (playbackSession.hasNext) {
+                            autoNextCountdown = 5
+                            autoNextCardVisible = true
+                            playerInputController.isAutoNextActive = true
                         } else {
                             playbackSession.onEnded(current)
                             exitPlayback()
@@ -848,7 +891,8 @@ fun PlayerScreen(
                         rebufferRatio = rebufferRatio,
                         networkType = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) "Cellular" else "WiFi",
                         decoderName = decoderName,
-                        engine = if (playerEngine is ExoPlayerEngine) "ExoPlayer" else "libmpv"
+                        engine = if (playerEngine is ExoPlayerEngine) "ExoPlayer" else "libmpv",
+                        bufferConfig = playerEngine.bufferConfigDescription.takeIf { it.isNotBlank() }
                     )
                 )
             }
@@ -884,6 +928,10 @@ fun PlayerScreen(
             streamingSessionManager.releaseLocks()
             audioFocusController.abandon()
             mediaSessionBridge.release()
+            com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner.pruneCacheIfNecessary(
+                context = context,
+                tdLibCacheDir = java.io.File(context.filesDir, "tdlib_files")
+            )
         }
     }
 
@@ -916,7 +964,7 @@ fun PlayerScreen(
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
         val item = queue[queueIndex]
-        title = displayTitle(item.title)
+        title = displayTitle(item)
         fileName = item.fileName
         playbackError = null
         isOpening = true
@@ -1051,10 +1099,41 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(hudVisible, isPlaying, playbackError, tracksPanelVisible, queueIndex, hudInteractionTick) {
-        if (hudVisible && isPlaying && playbackError == null && !tracksPanelVisible) {
-            delay(3_000)
+    LaunchedEffect(hudVisible, tracksPanelVisible, episodesDrawerVisible, autoNextCardVisible) {
+        playerInputController.isHudVisible = hudVisible
+        playerInputController.activeMenu = when {
+            tracksPanelVisible -> PlayerMenuType.TRACKS
+            episodesDrawerVisible -> PlayerMenuType.EPISODES
+            else -> PlayerMenuType.NONE
+        }
+        playerInputController.isAutoNextActive = autoNextCardVisible
+    }
+
+    LaunchedEffect(autoNextCardVisible) {
+        if (autoNextCardVisible) {
+            autoNextCountdown = 5
+            playerInputController.isAutoNextActive = true
+            delay(150L)
+            runCatching { playNowFocusRequester.requestFocus() }
+            while (autoNextCountdown > 0) {
+                delay(1000L)
+                autoNextCountdown--
+            }
+            if (autoNextCardVisible) {
+                autoNextCardVisible = false
+                playerInputController.isAutoNextActive = false
+                if (!skipNext()) {
+                    exitPlayback()
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(hudVisible, isPlaying, isBuffering, playbackError, tracksPanelVisible, episodesDrawerVisible, autoNextCardVisible, queueIndex, hudInteractionTick) {
+        if (hudVisible && isPlaying && !isBuffering && playbackError == null && !tracksPanelVisible && !episodesDrawerVisible && !autoNextCardVisible) {
+            delay(4_000L)
             hudVisible = false
+            playerInputController.isHudVisible = false
         }
     }
 
@@ -1090,6 +1169,14 @@ fun PlayerScreen(
                 PlaybackSessionController.cacheAhead(playbackSession, fileSizeBytes, position, duration)
                 lastAheadPrefetchPosition = position
             }
+            val nextItem = queue.getOrNull(queueIndex + 1)
+            CacheManager.onPlaybackProgress(
+                currentFileId = current.fileId,
+                currentPositionMs = position,
+                durationMs = duration,
+                nextItemFileId = nextItem?.fileId,
+                nextItemTotalSize = nextItem?.fileSizeBytes ?: 0L
+            )
             if (position > 0 && position - lastSavedPosition >= 5_000L) {
                 PlaybackProgressTracker.saveMessagePosition(
                     current.chatId,
@@ -1101,6 +1188,42 @@ fun PlayerScreen(
                 )
                 lastSavedPosition = position
             }
+
+            val currentItem = queue.getOrNull(queueIndex)
+            val recoveryAction = blackScreenDetector.evaluate(
+                context = context,
+                currentEngine = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.ExoPlayer else SelectedPlayerEngine.MPV,
+                isPlaying = isPlaying,
+                isBuffering = isBuffering,
+                hasFirstFrame = firstFrameMs > 0L,
+                currentPositionMs = position,
+                videoWidth = videoDimensions.first,
+                videoHeight = videoDimensions.second,
+                decoderName = decoderName,
+                mediaKey = "${currentItem?.chatId}:${currentItem?.messageId}"
+            )
+            when (recoveryAction) {
+                BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW -> {
+                    useTextureView = true
+                    toastFeedbackText = "Optimizing display surface…"
+                    hudVisible = true
+                }
+                BlackScreenRecoveryAction.SWITCH_TO_MPV_HW,
+                BlackScreenRecoveryAction.SWITCH_TO_MPV_SW -> {
+                    toastFeedbackText = "Switching player engine for video compatibility…"
+                    hudVisible = true
+                    val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
+                    lastGoodPosition = retryPos
+                    pendingResumeMs = retryPos
+                    playerEngine.detachSurface()
+                    playerEngine.stop()
+                    playerEngine.release()
+                    playerEngine = PlayerEngineFactory.create(context, SelectedPlayerEngine.MPV, speed)
+                    reloadNonce++
+                }
+                else -> {}
+            }
+
             delay(500)
         }
     }
@@ -1134,11 +1257,106 @@ fun PlayerScreen(
             if (tracksPanelVisible || episodesDrawerVisible) {
                 tracksPanelVisible = false
                 episodesDrawerVisible = false
+            } else if (hudVisible) {
+                hudVisible = false
             } else {
                 exitPlayback()
             }
         } catch (e: CancellationException) {
             // gesture cancelled by user
+        }
+    }
+
+    val onSkipNextAction: () -> Boolean = { skipNext() }
+    val onSkipPreviousAction: () -> Boolean = { skipPrevious() }
+
+    val playerInputActions = remember(queue, queueIndex, duration, fileSizeBytes) {
+        object : PlayerInputActions {
+            override fun showHud(target: PlayerFocusTarget) {
+                hudVisible = true
+                hudInteractionTick++
+                scope.launch {
+                    delay(50L)
+                    when (target) {
+                        PlayerFocusTarget.SEEK_BAR -> runCatching { seekBarFocusRequester.requestFocus() }
+                        PlayerFocusTarget.BUTTON_PLAY_PAUSE -> runCatching { playPauseFocusRequester.requestFocus() }
+                        PlayerFocusTarget.AUTO_NEXT_PLAY_NOW -> runCatching { playNowFocusRequester.requestFocus() }
+                        else -> runCatching { playPauseFocusRequester.requestFocus() }
+                    }
+                }
+            }
+
+            override fun hideHud() {
+                hudVisible = false
+                hudInteractionTick++
+                runCatching { focusRequester.requestFocus() }
+            }
+
+            override fun openMenu(menu: PlayerMenuType) {
+                when (menu) {
+                    PlayerMenuType.TRACKS -> tracksPanelVisible = true
+                    PlayerMenuType.EPISODES -> episodesDrawerVisible = true
+                    else -> {}
+                }
+                hudVisible = true
+                hudInteractionTick++
+            }
+
+            override fun closeMenu() {
+                tracksPanelVisible = false
+                episodesDrawerVisible = false
+                hudInteractionTick++
+            }
+
+            override fun togglePlayPause() {
+                hudInteractionTick++
+                if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                hudVisible = true
+            }
+
+            override fun seekRelative(seconds: Int) {
+                hudInteractionTick++
+                val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
+                val deltaMs = seconds * 1000L
+                val newPos = (playerEngine.currentPositionMs + deltaMs).coerceIn(0L, max)
+                playerEngine.seekTo(newPos)
+                val currentItem = queue.getOrNull(queueIndex)
+                if (currentItem != null) {
+                    CacheManager.onSeek(currentItem.fileId, newPos, fileSizeBytes, duration)
+                }
+                seekFeedbackText = if (seconds > 0) "+${seconds}s" else "${seconds}s"
+                seekFeedbackSide = if (seconds > 0) 1 else -1
+            }
+
+            override fun skipNext() {
+                hudInteractionTick++
+                if (!onSkipNextAction()) exitPlayback()
+            }
+
+            override fun skipPrevious() {
+                hudInteractionTick++
+                onSkipPreviousAction()
+            }
+
+            override fun exitPlayer() {
+                exitPlayback()
+            }
+
+            override fun cancelAutoNext() {
+                autoNextCardVisible = false
+                playerInputController.isAutoNextActive = false
+                playerEngine.pause()
+                hudVisible = true
+                hudInteractionTick++
+            }
+
+            override fun playNextNow() {
+                autoNextCardVisible = false
+                playerInputController.isAutoNextActive = false
+                if (!onSkipNextAction()) {
+                    exitPlayback()
+                }
+            }
         }
     }
 
@@ -1153,7 +1371,7 @@ fun PlayerScreen(
                         val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
                         val newPos = (playerEngine.currentPositionMs + delta).coerceIn(0L, max)
                         playerEngine.seekTo(newPos)
-                        LocalStreamingServer.prefetchAtPosition(queue[queueIndex].fileId, fileSizeBytes, newPos, duration)
+                        CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
                         seekFeedbackText = if (delta < 0) "-10s" else "+10s"
                         seekFeedbackSide = if (delta < 0) -1 else 1
                         hudVisible = true
@@ -1204,138 +1422,47 @@ fun PlayerScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { event ->
-                if (tracksPanelVisible) {
-                    if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                        if (event.key == Key.Back || event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK) {
-                            exitPlayback()
-                            return@onKeyEvent true
-                        }
-                        if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU) {
-                            tracksPanelVisible = false
-                            return@onKeyEvent true
-                        }
-                    }
-                    // Let the focus system move between the controls in the track picker.
-                    return@onKeyEvent false
+                val handled = playerInputController.handleKeyEvent(event, playerInputActions)
+                if (handled) {
+                    hudInteractionTick++
+                    return@onKeyEvent true
                 }
-                if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
-                hudInteractionTick++
-                when (event.key) {
-                    Key.DirectionLeft -> {
-                        val newPos = (playerEngine.currentPositionMs - SEEK_INCREMENT_MS).coerceAtLeast(0L)
-                        playerEngine.seekTo(newPos)
-                        LocalStreamingServer.prefetchAtPosition(
-                            queue[queueIndex].fileId,
-                            fileSizeBytes,
-                            newPos,
-                            duration
-                        )
-                        seekFeedbackText = "-10s"
-                        seekFeedbackSide = -1
-                        true
-                    }
-                    Key.DirectionRight -> {
-                        val max = duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-                        val newPos = (playerEngine.currentPositionMs + SEEK_INCREMENT_MS).coerceAtMost(max)
-                        playerEngine.seekTo(newPos)
-                        LocalStreamingServer.prefetchAtPosition(
-                            queue[queueIndex].fileId,
-                            fileSizeBytes,
-                            newPos,
-                            duration
-                        )
-                        seekFeedbackText = "+10s"
-                        seekFeedbackSide = 1
-                        true
-                    }
-                    Key.DirectionUp -> {
-                        tracksPanelVisible = true
-                        true
-                    }
-                    Key.DirectionDown -> {
-                        if (queueIndex < queue.lastIndex || playbackSession.hasNext) {
-                            skipNext()
+                when (event.nativeKeyEvent.keyCode) {
+                    KeyEvent.KEYCODE_PROG_GREEN -> {
+                        val nextMode = when (effectiveResizeMode) {
+                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         }
-                        true
-                    }
-                    Key.Enter, Key.DirectionCenter -> {
-                        if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                        userSelectedResizeMode = nextMode
+                        toastFeedbackText = "Aspect: " + formatResizeMode(nextMode)
                         hudVisible = true
+                        hudInteractionTick++
                         true
                     }
-                    Key.Back -> {
-                        if (tracksPanelVisible || episodesDrawerVisible) {
-                            tracksPanelVisible = false
-                            episodesDrawerVisible = false
-                        } else {
-                            exitPlayback()
+                    KeyEvent.KEYCODE_INFO,
+                    KeyEvent.KEYCODE_PROG_YELLOW,
+                    KeyEvent.KEYCODE_D -> {
+                        if (event.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                            val next = !debugHudVisible
+                            debugHudVisible = next
+                            EnterprisePreferences.setVideoDebugHudEnabled(next)
+                            toastFeedbackText = if (next) "Video Debug HUD: ON" else "Video Debug HUD: OFF"
                         }
                         true
                     }
-                    else -> when (event.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_BACK -> {
-                            if (tracksPanelVisible || episodesDrawerVisible) {
-                                tracksPanelVisible = false
-                                episodesDrawerVisible = false
-                            } else {
-                                exitPlayback()
-                            }
-                            true
-                        }
-                        KeyEvent.KEYCODE_CHANNEL_DOWN,
-                        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                            skipPrevious()
-                            true
-                        }
-                        KeyEvent.KEYCODE_CHANNEL_UP,
-                        KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                            skipNext()
-                            true
-                        }
-                        KeyEvent.KEYCODE_DPAD_CENTER,
-                        KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                            if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
-                            true
-                        }
-                        KeyEvent.KEYCODE_MENU,
-                        KeyEvent.KEYCODE_INFO -> {
-                            if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU) {
-                                tracksPanelVisible = true
-                                hudVisible = true
-                            } else {
-                                speed = nextSpeed(speed)
-                                playerEngine.setPlaybackSpeed(speed)
-                                EnterprisePreferences.setPreferredSpeed(speed)
-                                toastFeedbackText = "Speed: ${speed}x"
-                                hudVisible = true
-                            }
-                            true
-                        }
-                        KeyEvent.KEYCODE_PROG_GREEN -> {
-                            val nextMode = when (effectiveResizeMode) {
-                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            }
-                            userSelectedResizeMode = nextMode
-                            toastFeedbackText = "Aspect: " + formatResizeMode(nextMode)
-                            hudVisible = true
-                            true
-                        }
-                        KeyEvent.KEYCODE_CAPTIONS -> {
-                            tracksPanelVisible = true
-                            hudVisible = true
-                            true
-                        }
-                        else -> false
-                    }
+                    else -> false
                 }
             }
     ) {
-        key(queueIndex) {
+        key(queueIndex, useTextureView) {
             VideoSurfaceView(
                 engine = playerEngine,
                 resizeMode = effectiveResizeMode,
+                useTextureView = useTextureView,
+                onSurfaceDiagnostic = { diag ->
+                    surfaceDiagnostic = diag
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .onGloballyPositioned { coordinates ->
@@ -1351,13 +1478,6 @@ fun PlayerScreen(
                             }
                         }
                     }
-            )
-        }
-        if (firstFrameMs == 0L || isOpening) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
             )
         }
         if (hudVisible && !isInPipMode) {
@@ -1401,14 +1521,14 @@ fun PlayerScreen(
                     val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
                     val newPos = (playerEngine.currentPositionMs + delta).coerceIn(0L, max)
                     playerEngine.seekTo(newPos)
-                    LocalStreamingServer.prefetchAtPosition(queue[queueIndex].fileId, fileSizeBytes, newPos, duration)
+                    CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
                 },
                 onSeekTo = { target ->
                     hudInteractionTick++
                     val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
                     val newPos = target.coerceIn(0L, max)
                     playerEngine.seekTo(newPos)
-                    LocalStreamingServer.prefetchAtPosition(queue[queueIndex].fileId, fileSizeBytes, newPos, duration)
+                    CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
                 },
                 onSkipPrevious = {
                     hudInteractionTick++
@@ -1451,6 +1571,21 @@ fun PlayerScreen(
                         onEnterPip()
                     }
                 },
+                onSwitchEngine = {
+                    val target = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.MPV else SelectedPlayerEngine.ExoPlayer
+                    toastFeedbackText = "Switching to ${target.name}…"
+                    hudVisible = true
+                    val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
+                    lastGoodPosition = retryPos
+                    pendingResumeMs = retryPos
+                    playerEngine.detachSurface()
+                    playerEngine.stop()
+                    playerEngine.release()
+                    playerEngine = PlayerEngineFactory.create(context, target, speed)
+                    reloadNonce++
+                },
+                playPauseFocusRequester = playPauseFocusRequester,
+                seekBarFocusRequester = seekBarFocusRequester,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
@@ -1496,75 +1631,86 @@ fun PlayerScreen(
             }
         }
 
-        // Next Episode Card in last 30s with Countdown
-        val hasNext = queueIndex < queue.lastIndex || playbackSession.hasNext
-        val remainingMs = duration - position
-        val showCountdownCard = duration > 30_000L && remainingMs in 1..30_000L && hasNext && !isInPipMode
-        val nextEpisodeItem = queue.getOrNull(queueIndex + 1)
-
+        // 5-Second Auto-Next Countdown Card Overlay
         AnimatedVisibility(
-            visible = showCountdownCard,
+            visible = autoNextCardVisible && !isInPipMode,
             enter = fadeIn() + slideInVertically { it / 2 },
             exit = fadeOut() + slideOutVertically { it / 2 },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 24.dp, bottom = if (hudVisible) 140.dp else 28.dp)
+                .padding(end = 36.dp, bottom = 36.dp)
         ) {
-            val countdownSecs = ((remainingMs + 999) / 1000).toInt().coerceAtLeast(1)
+            val nextEpisodeItem = queue.getOrNull(queueIndex + 1)
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF0F172A).copy(alpha = 0.95f),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
-                shadowElevation = 10.dp,
-                modifier = Modifier.widthIn(max = 320.dp)
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                tonalElevation = 12.dp,
+                modifier = Modifier.widthIn(min = 280.dp, max = 360.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primary),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "$countdownSecs",
-                                color = Color(0xFF071014),
-                                style = MaterialTheme.typography.labelSmall,
+                                text = "$autoNextCountdown",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Text(
-                            text = "Next Episode in ${countdownSecs}s",
+                            text = "Next Episode in ${autoNextCountdown}s",
                             color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
                     if (nextEpisodeItem != null) {
                         Text(
                             text = nextEpisodeItem.title,
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         BousygramButton(
+                            text = "Cancel",
+                            onClick = {
+                                autoNextCardVisible = false
+                                playerInputController.isAutoNextActive = false
+                                playerEngine.pause()
+                                hudVisible = true
+                                hudInteractionTick++
+                            }
+                        )
+                        BousygramButton(
                             text = "Play Now ▶",
-                            onClick = { skipNext() },
-                            selected = true
+                            onClick = {
+                                autoNextCardVisible = false
+                                playerInputController.isAutoNextActive = false
+                                if (!skipNext()) exitPlayback()
+                            },
+                            selected = true,
+                            modifier = Modifier.focusRequester(playNowFocusRequester)
                         )
                     }
                 }
@@ -1796,6 +1942,224 @@ fun PlayerScreen(
                 }
             }
         }
+
+        if (debugHudVisible && !isInPipMode) {
+            val display = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                runCatching { context.display }.getOrNull()
+            } else {
+                @Suppress("DEPRECATION")
+                (context.getSystemService(Context.WINDOW_SERVICE) as? android.view.WindowManager)?.defaultDisplay
+            }
+            val displayHz = display?.refreshRate?.toInt() ?: 60
+            val isHdr = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                display?.isHdr == true
+            } else false
+
+            val visibleOverlaysList = buildList {
+                if (hudVisible) add("HUD")
+                if (tracksPanelVisible) add("Tracks")
+                if (episodesDrawerVisible) add("Episodes")
+                if (isBuffering && playbackError == null) add("Buffering")
+                if (autoNextCardVisible) add("AutoNext")
+                if (showBrightnessHud) add("Brightness")
+                if (showVolumeHud) add("Volume")
+                if (seekFeedbackText != null) add("SeekFeedback")
+                if (toastFeedbackText != null) add("Toast")
+                if (showResumeRestartOption) add("StartOver")
+            }
+
+            VideoDebugHud(
+                engineName = playerEngine.engineName,
+                decoderName = playerEngine.videoDecoderName.ifBlank { "Unknown" },
+                surfaceType = surfaceDiagnostic.surfaceType,
+                surfaceValid = surfaceDiagnostic.isValid,
+                surfaceWidth = surfaceDiagnostic.width,
+                surfaceHeight = surfaceDiagnostic.height,
+                resizeModeDesc = formatResizeMode(effectiveResizeMode),
+                videoWidth = videoDimensions.first,
+                videoHeight = videoDimensions.second,
+                displayHz = displayHz,
+                hdrMode = if (isHdr) "HDR" else "SDR",
+                renderedBufferCount = playerEngine.renderedOutputBufferCount,
+                droppedBufferCount = playerEngine.droppedBufferCount,
+                skippedBufferCount = playerEngine.skippedOutputBufferCount,
+                inputBufferCount = playerEngine.inputBufferCount,
+                isVideoTrackSelected = playerEngine.isVideoTrackSelected,
+                disabledTracksDesc = playerEngine.disabledTrackTypesDesc,
+                timeSincePrepareMs = if (playerStartedAtMs > 0L) (System.currentTimeMillis() - playerStartedAtMs).coerceAtLeast(0L) else 0L,
+                timeToFirstFrameMs = firstFrameMs,
+                visibleOverlays = if (visibleOverlaysList.isEmpty()) "None (Video Visible)" else visibleOverlaysList.joinToString(", "),
+                onSwitchEngine = {
+                    val target = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.MPV else SelectedPlayerEngine.ExoPlayer
+                    toastFeedbackText = "Switching to ${target.name}…"
+                    hudVisible = true
+                    val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
+                    lastGoodPosition = retryPos
+                    pendingResumeMs = retryPos
+                    playerEngine.detachSurface()
+                    playerEngine.stop()
+                    playerEngine.release()
+                    playerEngine = PlayerEngineFactory.create(context, target, speed)
+                    reloadNonce++
+                },
+                onSwitchSurface = {
+                    val next = !useTextureView
+                    useTextureView = next
+                    EnterprisePreferences.setSurfaceTypePreference(if (next) "textureview" else "surfaceview")
+                    toastFeedbackText = if (next) "Surface: TextureView" else "Surface: SurfaceView"
+                },
+                onSwitchMpvMode = {
+                    val currentMode = EnterprisePreferences.mpvHwDecMode()
+                    val nextMode = when (currentMode) {
+                        "mediacodec-copy" -> "mediacodec"
+                        "mediacodec" -> "no"
+                        else -> "mediacodec-copy"
+                    }
+                    EnterprisePreferences.setMpvHwDecMode(nextMode)
+                    (playerEngine as? MpvPlayerEngine)?.setHwDecAndVoMode(nextMode)
+                    toastFeedbackText = "MPV mode: $nextMode"
+                },
+                onClose = {
+                    debugHudVisible = false
+                    EnterprisePreferences.setVideoDebugHudEnabled(false)
+                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 24.dp, start = 24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun VideoDebugHud(
+    engineName: String,
+    decoderName: String,
+    surfaceType: String,
+    surfaceValid: Boolean,
+    surfaceWidth: Int,
+    surfaceHeight: Int,
+    resizeModeDesc: String,
+    videoWidth: Int,
+    videoHeight: Int,
+    displayHz: Int,
+    hdrMode: String,
+    renderedBufferCount: Int,
+    droppedBufferCount: Int,
+    skippedBufferCount: Int,
+    inputBufferCount: Int,
+    isVideoTrackSelected: Boolean,
+    disabledTracksDesc: String,
+    timeSincePrepareMs: Long,
+    timeToFirstFrameMs: Long,
+    visibleOverlays: String,
+    onSwitchEngine: () -> Unit,
+    onSwitchSurface: () -> Unit,
+    onSwitchMpvMode: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .widthIn(min = 400.dp, max = 560.dp)
+            .clip(RoundedCornerShape(12.dp)),
+        color = Color(0xEE0B121C),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00E5FF)),
+        shadowElevation = 16.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "VIDEO DEBUG HUD (Remote: Yellow/Info)",
+                    color = Color(0xFF00E5FF),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = "✕",
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onClose)
+                        .padding(horizontal = 6.dp)
+                )
+            }
+            Text(
+                text = "Engine: $engineName | Decoder: $decoderName",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = "Surface: $surfaceType (valid=$surfaceValid) ${surfaceWidth}x${surfaceHeight} | $resizeModeDesc",
+                color = Color(0xFF76FF03),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = "Video: ${videoWidth}x${videoHeight} | Display: ${displayHz}Hz ($hdrMode)",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = "Buffers: rendered=$renderedBufferCount dropped=$droppedBufferCount skip=$skippedBufferCount in=$inputBufferCount",
+                color = Color(0xFFFFD700),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = "Track: videoSelected=$isVideoTrackSelected | disabled=[$disabledTracksDesc]",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = "Time: prep->now ${timeSincePrepareMs}ms | firstFrame: ${timeToFirstFrameMs}ms",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = "Overlays: $visibleOverlays",
+                color = if (visibleOverlays.startsWith("None")) Color(0xFF69F0AE) else Color(0xFFFF8A80),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                BousygramButton(
+                    text = "Switch Engine",
+                    onClick = onSwitchEngine,
+                    modifier = Modifier.weight(1f)
+                )
+                BousygramButton(
+                    text = "Switch Surface",
+                    onClick = onSwitchSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                BousygramButton(
+                    text = "MPV Mode",
+                    onClick = onSwitchMpvMode,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
     }
 }
 
@@ -1949,6 +2313,9 @@ private fun PlayerHud(
     onSpeed: () -> Unit,
     onEpisodes: (() -> Unit)? = null,
     onPip: () -> Unit = {},
+    onSwitchEngine: (() -> Unit)? = null,
+    playPauseFocusRequester: FocusRequester? = null,
+    seekBarFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     val edgePadding = if (compact) 12.dp else 32.dp
@@ -2056,7 +2423,8 @@ private fun PlayerHud(
                 bufferedPositionMs = state.bufferedPositionMs,
                 durationMs = state.durationMs,
                 enabled = state.durationTrusted && state.durationMs > 0L,
-                onSeekTo = onSeekTo
+                onSeekTo = onSeekTo,
+                modifier = if (seekBarFocusRequester != null) Modifier.focusRequester(seekBarFocusRequester) else Modifier
             )
             Spacer(Modifier.height(10.dp))
             Row(
@@ -2070,7 +2438,9 @@ private fun PlayerHud(
                     text = playPauseLabel,
                     onClick = onPlayPause,
                     selected = true,
-                    modifier = Modifier.widthIn(min = 76.dp)
+                    modifier = Modifier
+                        .widthIn(min = 76.dp)
+                        .then(if (playPauseFocusRequester != null) Modifier.focusRequester(playPauseFocusRequester) else Modifier)
                 )
                 BousygramButton("+10s", { onSeekBy(SEEK_INCREMENT_MS) })
                 BousygramButton("+30s", { onSeekBy(30_000L) })
@@ -2085,6 +2455,9 @@ private fun PlayerHud(
                 BousygramButton("${speedLabel(state.speed)}x", onSpeed)
                 if (onEpisodes != null) {
                     BousygramButton("Episodes ☰", onEpisodes)
+                }
+                if (onSwitchEngine != null) {
+                    BousygramButton("Engine ⚙", onSwitchEngine)
                 }
                 BousygramButton("PiP ⧉", onPip)
             }
@@ -2109,7 +2482,8 @@ private fun PlayerSeekBar(
     bufferedPositionMs: Long,
     durationMs: Long,
     enabled: Boolean,
-    onSeekTo: (Long) -> Unit
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var dragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableLongStateOf(positionMs) }
@@ -2161,7 +2535,7 @@ private fun PlayerSeekBar(
             }
         }
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
                 .height(34.dp)
                 .clip(RoundedCornerShape(12.dp))
@@ -2240,6 +2614,52 @@ private fun PlaybackCacheState.playerLabel(): String =
         PlaybackCacheState.Cached -> "Cached"
         PlaybackCacheState.Failed -> "Cache waiting"
     }
+
+private fun displayTitle(item: com.vaydelux.bousygram.domain.model.MediaItem): String {
+    val showOrMovie = item.tmdbTitle?.takeIf { it.isNotBlank() }
+        ?: item.seriesTitle?.takeIf { it.isNotBlank() }
+    val isSeries = item.seasonNumber != null || item.episodeNumber != null || !item.seriesTitle.isNullOrBlank()
+
+    if (!showOrMovie.isNullOrBlank()) {
+        return if (isSeries) {
+            val s = item.seasonNumber ?: 1
+            val e = item.episodeNumber ?: 1
+            val epTitle = item.episodeTitle?.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty()
+            "$showOrMovie • S${s}E${e}$epTitle"
+        } else {
+            val yr = item.releaseYear?.let { " ($it)" }.orEmpty()
+            "$showOrMovie$yr"
+        }
+    }
+
+    val parsed = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(item.title, item.fileName)
+    val clean = parsed.cleanTitle?.takeIf { it.isNotBlank() }
+    if (!clean.isNullOrBlank() && parsed.isSeries) {
+        val s = parsed.seasonNumber ?: 1
+        val e = parsed.episodeNumber ?: 1
+        return "$clean • S${s}E${e}"
+    } else if (!clean.isNullOrBlank()) {
+        val yr = parsed.year?.let { " ($it)" }.orEmpty()
+        return "$clean$yr"
+    }
+
+    return displayTitle(item.title)
+}
+
+private fun displayTitle(item: PlaybackQueueItem): String {
+    val parsed = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(item.title, item.fileName)
+    val clean = parsed.cleanTitle?.takeIf { it.isNotBlank() }
+    if (!clean.isNullOrBlank() && parsed.isSeries) {
+        val s = parsed.seasonNumber ?: 1
+        val e = parsed.episodeNumber ?: 1
+        return "$clean • S${s}E${e}"
+    } else if (!clean.isNullOrBlank()) {
+        val yr = parsed.year?.let { " ($it)" }.orEmpty()
+        return "$clean$yr"
+    }
+
+    return displayTitle(item.title)
+}
 
 private fun displayTitle(raw: String): String {
     val line = raw.lineSequence().firstOrNull().orEmpty().trim()

@@ -14,7 +14,6 @@
 
 ### Verification note (2026-10-22)
 
-- Fast-Link Python mock tests: 14 passed.
 - Source picker revision checks: 6 passed.
 - Media loading performance contract checks: 10 passed.
 - Static XML/source/workflow checks passed; Kotlin CLI helper checks were explicitly skipped in this restricted run, and no Android SDK/Gradle build or device test was performed here.
@@ -33,7 +32,6 @@
 
 ## Review and hardening pass (2026-10-20)
 
-- Added a suspendable stream-preparation API so Fast-Link playback waits for the bot response instead of reading a callback result synchronously.
 - Updated browse and search playback preparation to surface the actual stream-preparation error.
 - Disabled Android Auto Backup by default so local Telegram session and database data are not copied to device backups unintentionally.
 - Replaced raw deletion of TDLib-owned files with tracked-ID eviction via TDLib `GetFile` / `DeleteFile` confirmations. Pinned files, active playback, precache jobs, and active byte-chunk requests are protected. The cleanup status now compares against actual directory size, so it does not falsely claim the cache is within limits when untracked data remains.
@@ -43,15 +41,12 @@
 - Added short-lived, high-entropy capability tokens scoped to individual file IDs or playlist requests for the Ktor and fallback streaming endpoints.
 - Strictly reject malformed, multi-range, and unsatisfiable HTTP byte ranges with HTTP 416 responses.
 - Bounded the legacy loopback HTTP parser (request-line/header size, number of headers, socket timeout, GET-only, and duplicate Range rejection).
-- Tightened Fast-Link reply matching so a returned URL must be associated with the specific forwarded Telegram message.
 - Made Home a full-width cinematic dashboard, added a dedicated Library route with source selection and a responsive poster grid, and wired a real cross-source Favorites screen.
 - Improved poster sizing for adaptive grids and redesigned the player’s track picker with focused Subtitles/Audio choices, an explicit Off selection, and a close action.
 - Made D-pad arrows navigate visible player HUD controls; arrow-key seeking remains available while the HUD is hidden.
 - Preserved the correct return destination across Search, Favorites, Settings, Library, and Player navigation.
 - Updated the Android TV navigation smoke test to target the real dashboard preview and assert the main dashboard/favorites controls instead of opening a static placeholder.
 - Updated CI to install the configured Android compile SDK, resolve versioned APK names before Firebase Test Lab, and require/check the exact release signing certificate on push builds. Pull requests retain debug/unit checks without needing production signing secrets.
-- Hardened the optional Fast-Link VPS proxy: strict closed/open/suffix range parsing and 416 handling, validated upstream `Content-Range`, bounded network timeouts, a 10,000-token ceiling, and fail-closed secrets/HTTPS/Telegram-user allow-list validation. Unknown bot users and group chats are ignored. Added Python unit tests for ranges and token lifecycle.
-- Documented the Fast-Link privacy trade-off, local build signing caveats, and migration behavior for new versus existing TDLib databases.
 
 ### Verification note (2026-10-20)
 
@@ -61,7 +56,6 @@
 
 ## Mock test and CI reliability follow-up (2026-10-21)
 
-- Added reproducible Fast-Link route tests using a fake Telegram CDN for missing tokens, invalid ranges, valid partial content, and upstream range mismatch behavior; added fail-closed configuration tests.
 - Added a single-command test runner so the Python mock suite can be started from any working directory.
 - Added standalone Kotlin checks for HTTP range parsing and resource-scoped local stream tokens.
 - Fixed the Firebase Test Lab job gate to use a repository variable instead of a secrets context in a job-level `if`, which GitHub Actions does not permit.
@@ -80,7 +74,6 @@
 - Changed playback queues to retain media metadata only. Stream capability URLs are now issued when an item actually becomes active instead of pre-issuing URLs for every item in the queue.
 - Removed the stream registry's behavior of evicting still-valid grants when the table reaches capacity. Expired grants are purged; if the hard ceiling is reached, new grants fail closed rather than randomly breaking existing playback.
 - Added local-URL capability revocation helpers and wired the player to revoke local stream/subtitle capabilities when playback is exited or a local URL is replaced. Backgrounding the app does not revoke a URL that may be needed after resume.
-- Fixed Fast-Link cleanup so retry and ordinary background/foreground transitions do not revoke the URL the player is about to continue using.
 - Added unit coverage for queue URL laziness and capability revocation, plus a single-command offline test runner.
 - Expanded pure Kotlin policy checks for encrypted database-key loss and conflicting redundant mode markers.
 - Extended the offline source-sanity runner to check credential migration and local-server restart protections, alongside source-level signing, ABI, playback URL and URL-validation invariants.
@@ -88,7 +81,6 @@
 
 ### Verification note (2026-10-21)
 
-- Fast-Link Python mock suite: 14/14 passed.
 - Standalone Kotlin range/token/database-key policy checks: 27/27 passed.
 - Selected Android XML, release-signing/ABI source invariants and workflow YAML parse passed.
 - Full Gradle build/lint/JUnit/instrumentation remain blocked here because Gradle 9.4.1 cannot be downloaded (`services.gradle.org` DNS failure) and no Android SDK/emulator is installed. These changes have not yet been confirmed by the Android compiler or device tests.
@@ -123,7 +115,7 @@
 - Loads TDLib chat lists in batches until the list is exhausted, merges main and archived sources without duplicates, and fetches chat details in bounded batches to avoid a large burst of requests.
 - Improved the Library visual hierarchy by moving source selection to a horizontal source-tab row, leaving more width for the poster grid.
 - Added the `.fmp4` and `.ogg` filename extensions to the existing progressive-video format recognition; the player/source architecture was otherwise left unchanged.
-- Playback, authentication, cache, and Fast-Link business logic were intentionally not redesigned in this UI-focused revision.
+- Playback, authentication, and cache business logic were intentionally not redesigned in this UI-focused revision.
 
 Verification note: source-level checks and archive integrity can be run here, but the complete Android/Compose Gradle build must still be executed in Android Studio with the project's configured Android SDK and Gradle distribution.
 

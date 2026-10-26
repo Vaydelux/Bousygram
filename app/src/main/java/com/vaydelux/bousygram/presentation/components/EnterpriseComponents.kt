@@ -42,6 +42,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -83,6 +86,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.domain.model.MediaItem
+import com.vaydelux.bousygram.domain.model.SeriesGroup
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.media.mediaDisplayLabels
 import java.io.File
@@ -239,11 +243,13 @@ fun ShellNavIcon(
 fun CenteredPlayBadge(
     modifier: Modifier = Modifier
 ) {
+    val playBg = MaterialTheme.colorScheme.onPrimary
+    val playIcon = MaterialTheme.colorScheme.primary
     Box(
         modifier = modifier
             .size(34.dp)
             .clip(CircleShape)
-            .background(Color.White),
+            .background(playBg),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.size(13.dp)) {
@@ -255,7 +261,7 @@ fun CenteredPlayBadge(
                 lineTo(w * 0.28f, h * 0.82f)
                 close()
             }
-            drawPath(path, color = Color(0xFF0F172A))
+            drawPath(path, color = playIcon)
         }
     }
 }
@@ -293,59 +299,234 @@ fun ImagePlaceholderIcon(
 }
 
 @Composable
+fun CastIcon(
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.size(24.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+
+        // Screen outline: top, right, partial bottom, partial left
+        val screenPath = Path().apply {
+            moveTo(w * 0.12f, h * 0.46f)
+            lineTo(w * 0.12f, h * 0.24f)
+            quadraticTo(w * 0.12f, h * 0.18f, w * 0.18f, h * 0.18f)
+            lineTo(w * 0.82f, h * 0.18f)
+            quadraticTo(w * 0.88f, h * 0.18f, w * 0.88f, h * 0.24f)
+            lineTo(w * 0.88f, h * 0.74f)
+            quadraticTo(w * 0.88f, h * 0.80f, w * 0.82f, h * 0.80f)
+            lineTo(w * 0.58f, h * 0.80f)
+        }
+        drawPath(screenPath, color = tint, style = stroke)
+
+        // Cast waves from bottom-left corner
+        drawCircle(
+            color = tint,
+            radius = w * 0.05f,
+            center = Offset(w * 0.14f, h * 0.80f)
+        )
+
+        val r1 = w * 0.20f
+        drawArc(
+            color = tint,
+            startAngle = 270f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(w * 0.14f - r1, h * 0.80f - r1),
+            size = Size(r1 * 2f, r1 * 2f),
+            style = stroke
+        )
+
+        val r2 = w * 0.35f
+        drawArc(
+            color = tint,
+            startAngle = 270f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(w * 0.14f - r2, h * 0.80f - r2),
+            size = Size(r2 * 2f, r2 * 2f),
+            style = stroke
+        )
+    }
+}
+
+@Composable
 fun BousygramAdaptiveShell(
     selected: ShellDestination,
     onSelect: (ShellDestination) -> Unit,
     modifier: Modifier = Modifier,
     onOpenSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenCast: (() -> Unit)? = null,
     showResume: Boolean = false,
     onResume: () -> Unit = {},
     navFocusRequester: FocusRequester? = null,
     content: @Composable () -> Unit
 ) {
     val adaptive = rememberAdaptiveMetrics()
-    val isPhone = adaptive.isPhoneLayout
 
-    Column(
+    when {
+        adaptive.isTvLayout -> {
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                TvTopNavBar(
+                    selected = selected,
+                    onSelect = onSelect,
+                    onOpenSearch = onOpenSearch,
+                    onOpenProfile = onOpenSettings,
+                    focusRequester = navFocusRequester
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    content()
+                }
+            }
+        }
+        adaptive.isTabletLayout -> {
+            Row(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding()
+            ) {
+                TabletNavRail(
+                    selected = selected,
+                    onSelect = onSelect,
+                    onOpenSearch = onOpenSearch,
+                    onOpenProfile = onOpenSettings,
+                    focusRequester = navFocusRequester
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    content()
+                }
+            }
+        }
+        else -> {
+            // Phone layout: clean header, content, bottom navigation
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding()
+            ) {
+                PhoneTopBar(
+                    onOpenSearch = onOpenSearch,
+                    onOpenProfile = onOpenSettings,
+                    onOpenCast = onOpenCast
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    content()
+                }
+                GlassBottomBar(
+                    selected = selected,
+                    onSelect = onSelect,
+                    modifier = Modifier.navigationBarsPadding()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TabletNavRail(
+    selected: ShellDestination,
+    onSelect: (ShellDestination) -> Unit,
+    onOpenSearch: () -> Unit,
+    onOpenProfile: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
+) {
+    val colors = MaterialTheme.colorScheme
+    NavigationRail(
         modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
+            .fillMaxHeight()
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+        containerColor = colors.surface,
+        contentColor = colors.onSurface,
+        header = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.primary.copy(alpha = 0.16f))
+                        .border(1.dp, colors.primary.copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .border(1.5.dp, colors.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "▶",
+                            color = colors.primary,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 1.dp)
+                        )
+                    }
+                }
+            }
+        }
     ) {
-        if (!isPhone) {
-            // TV and Tablet: Top nav bar, not a side drawer
-            TvTopNavBar(
-                selected = selected,
-                onSelect = onSelect,
-                onOpenSearch = onOpenSearch,
-                onOpenProfile = onOpenSettings,
-                focusRequester = navFocusRequester
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                content()
+        Spacer(Modifier.height(12.dp))
+        ShellDestination.navItems.forEach { destination ->
+            val isSelected = when (destination) {
+                ShellDestination.Home -> selected == ShellDestination.Home
+                ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
+                ShellDestination.Search -> selected == ShellDestination.Search
+                ShellDestination.Me -> selected == ShellDestination.Me || selected == ShellDestination.Settings
+                else -> destination == selected
             }
-        } else {
-            // Phone: Clean header, Content, Bottom Navigation (Home, Library, Search, Me)
-            PhoneTopBar(
-                onOpenSearch = onOpenSearch,
-                onOpenProfile = onOpenSettings
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                content()
-            }
-            GlassBottomBar(
-                selected = selected,
-                onSelect = onSelect,
-                modifier = Modifier.navigationBarsPadding()
+            NavigationRailItem(
+                selected = isSelected,
+                onClick = {
+                    if (destination == ShellDestination.Search) onOpenSearch() else onSelect(destination)
+                },
+                icon = {
+                    ShellNavIcon(
+                        destination = destination,
+                        tint = if (isSelected) colors.primary else colors.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        destination.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    )
+                },
+                colors = NavigationRailItemDefaults.colors(
+                    selectedIconColor = colors.primary,
+                    selectedTextColor = colors.primary,
+                    indicatorColor = colors.primary.copy(alpha = 0.20f),
+                    unselectedIconColor = colors.onSurfaceVariant,
+                    unselectedTextColor = colors.onSurfaceVariant
+                )
             )
         }
     }
@@ -382,7 +563,7 @@ fun TvTopNavBar(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF132832))
+                        .background(colors.surfaceVariant)
                         .border(1.dp, colors.primary.copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -404,7 +585,7 @@ fun TvTopNavBar(
                 }
                 Text(
                     text = "Bousygram",
-                    color = Color.White,
+                    color = colors.onSurface,
                     style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
                     fontWeight = FontWeight.Bold
                 )
@@ -430,7 +611,7 @@ fun TvTopNavBar(
                             .background(
                                 when {
                                     focused -> colors.primary.copy(alpha = 0.22f)
-                                    isSelected -> Color.White.copy(alpha = 0.08f)
+                                    isSelected -> colors.onSurface.copy(alpha = 0.08f)
                                     else -> Color.Transparent
                                 }
                             )
@@ -455,8 +636,8 @@ fun TvTopNavBar(
                             text = dest.label,
                             color = when {
                                 isSelected -> colors.primary
-                                focused -> Color.White
-                                else -> Color(0xFF94A3B8)
+                                focused -> colors.onSurface
+                                else -> colors.onSurfaceVariant
                             },
                             style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp),
                             fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
@@ -477,13 +658,13 @@ fun TvTopNavBar(
                 .background(
                     when {
                         profileFocused -> colors.primary.copy(alpha = 0.22f)
-                        isProfileSelected -> Color.White.copy(alpha = 0.08f)
-                        else -> Color(0xFF131F33)
+                        isProfileSelected -> colors.onSurface.copy(alpha = 0.08f)
+                        else -> colors.surfaceVariant
                     }
                 )
                 .border(
                     width = if (profileFocused) 1.5.dp else 1.dp,
-                    color = if (profileFocused) colors.primary else Color(0xFF1E2D44),
+                    color = if (profileFocused) colors.primary else colors.outlineVariant,
                     shape = CircleShape
                 )
                 .clickable(
@@ -497,7 +678,7 @@ fun TvTopNavBar(
         ) {
             ShellNavIcon(
                 destination = ShellDestination.Me,
-                tint = if (profileFocused || isProfileSelected) colors.primary else Color(0xFF94A3B8),
+                tint = if (profileFocused || isProfileSelected) colors.primary else colors.onSurfaceVariant,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -508,7 +689,8 @@ fun TvTopNavBar(
 fun PhoneTopBar(
     onOpenSearch: () -> Unit,
     onOpenProfile: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenCast: (() -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
@@ -526,7 +708,7 @@ fun PhoneTopBar(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF132832))
+                    .background(colors.surfaceVariant)
                     .border(1.dp, colors.primary.copy(alpha = 0.42f), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
@@ -539,7 +721,7 @@ fun PhoneTopBar(
             }
             Text(
                 text = "Bousygram",
-                color = Color.White,
+                color = colors.onSurface,
                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                 fontWeight = FontWeight.Bold
             )
@@ -548,6 +730,11 @@ fun PhoneTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (onOpenCast != null) {
+                TopBarIconButton(onClick = onOpenCast, contentDescription = "Cast Receiver Info") { tint ->
+                    CastIcon(tint = tint)
+                }
+            }
             TopBarIconButton(onClick = onOpenSearch, contentDescription = "Search") { tint ->
                 ShellNavIcon(destination = ShellDestination.Search, tint = tint)
             }
@@ -568,7 +755,7 @@ fun TopBarIconButton(
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
-    val tint = if (focused) colors.primary else Color(0xFF94A3B8)
+    val tint = if (focused) colors.primary else colors.onSurfaceVariant
     Box(
         modifier = modifier
             .size(38.dp)
@@ -608,7 +795,7 @@ private fun GlassBottomBar(
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
             )
             .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-        color = Color(0xFF111927),
+        color = colors.surface,
         tonalElevation = 4.dp
     ) {
         NavigationBar(
@@ -687,7 +874,7 @@ fun TvFocusSurface(
     val shape = RoundedCornerShape(18.dp)
     val interaction = remember { MutableInteractionSource() }
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.035f else 1f,
+        targetValue = if (focused) 1.05f else 1f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "focusScale"
     )
@@ -695,15 +882,15 @@ fun TvFocusSurface(
         targetValue = when {
             focused -> colors.primary
             selected -> colors.secondary
-            else -> colors.outlineVariant
+            else -> colors.outlineVariant.copy(alpha = 0.5f)
         },
         label = "focusBorder"
     )
     val surface = when {
-        selected && focused -> colors.primary.copy(alpha = 0.34f)
+        selected && focused -> colors.primary.copy(alpha = 0.38f)
         selected -> colors.primary.copy(alpha = 0.24f)
-        focused -> colors.surfaceVariant.copy(alpha = 0.94f)
-        else -> colors.surface.copy(alpha = 0.80f)
+        focused -> colors.surfaceVariant.copy(alpha = 0.98f)
+        else -> colors.surface.copy(alpha = 0.82f)
     }
     Surface(
         modifier = modifier
@@ -712,14 +899,11 @@ fun TvFocusSurface(
                 scaleX = scale
                 scaleY = scale
             }
-            .shadow(
-                elevation = if (focused) 18.dp else 0.dp,
-                shape = shape,
-                ambientColor = colors.primary.copy(alpha = 0.45f),
-                spotColor = colors.primary.copy(alpha = 0.35f),
-                clip = false
+            .border(
+                width = if (focused) 3.5.dp else if (selected) 2.dp else 1.dp,
+                color = border,
+                shape = shape
             )
-            .border(if (focused || selected) 1.5.dp else 1.dp, border, shape)
             .clip(shape)
             .clickable(
                 interactionSource = interaction,
@@ -933,7 +1117,7 @@ fun MediaPosterCard(
                             .size(40.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.88f))
-                            .border(1.5.dp, Color.White.copy(alpha = 0.75f), CircleShape),
+                            .border(1.5.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -984,7 +1168,7 @@ fun MediaPosterCard(
                             .fillMaxWidth()
                             .height(3.5.dp),
                         color = MaterialTheme.colorScheme.secondary,
-                        trackColor = Color.Black.copy(alpha = 0.45f)
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
                     )
                 }
             }
@@ -1021,6 +1205,103 @@ fun MediaPosterCard(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SeriesPosterCard(
+    series: SeriesGroup,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    privacyMode: Boolean = false,
+    cardWidth: Dp? = 260.dp,
+    onFocusChanged: (Boolean) -> Unit = {}
+) {
+    var focused by remember { mutableStateOf(false) }
+    val firstEpisode = series.episodes.firstOrNull()
+    val miniThumbnail = firstEpisode?.let {
+        rememberMiniThumbnail(
+            it.chatId,
+            it.messageId,
+            if (privacyMode) null else it.miniThumbnailBytes
+        )
+    }
+    val preferredThumbnail = firstEpisode?.tmdbPosterPath ?: firstEpisode?.tmdbBackdropPath ?: firstEpisode?.thumbnailPath
+    val imageData = if (privacyMode) null else preferredThumbnail?.let { path ->
+        if (path.startsWith("http")) path else File(path)
+    } ?: miniThumbnail
+    val context = LocalContext.current
+    val imageRequest = remember(imageData) {
+        ImageRequest.Builder(context)
+            .data(imageData)
+            .crossfade(false)
+            .size(640, 360)
+            .build()
+    }
+    TvFocusSurface(
+        onClick = onClick,
+        modifier = modifier
+            .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
+            .onFocusChanged {
+                focused = it.isFocused
+                onFocusChanged(it.isFocused)
+            }
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(MaterialTheme.colorScheme.background),
+                contentAlignment = Alignment.Center
+            ) {
+                if (imageData != null) {
+                    AsyncImage(
+                        model = imageRequest,
+                        contentDescription = if (privacyMode) "Private series artwork" else series.title,
+                        contentScale = ContentScale.Crop,
+                        placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
+                        error = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(76.dp)
+                            .align(Alignment.BottomCenter)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.90f))
+                                )
+                            )
+                    )
+                } else {
+                    PosterFallback(privacyMode = privacyMode)
+                }
+                GlassPill(
+                    text = "${series.episodes.size} Episodes",
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                    accent = true
+                )
+            }
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Text(
+                    text = if (privacyMode) "Private series" else series.title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "${series.totalSeasons} Season(s)",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1
+                )
             }
         }
     }

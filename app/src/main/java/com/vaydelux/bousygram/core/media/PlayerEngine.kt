@@ -35,6 +35,13 @@ interface PlayerEngine {
     val tracks: StateFlow<List<MediaTrackInfo>>
     val videoDimensions: StateFlow<Pair<Int, Int>>
     val bufferConfigDescription: String get() = ""
+    val renderedOutputBufferCount: Int get() = 0
+    val droppedBufferCount: Int get() = 0
+    val skippedOutputBufferCount: Int get() = 0
+    val inputBufferCount: Int get() = 0
+    val isVideoTrackSelected: Boolean get() = true
+    val disabledTrackTypesDesc: String get() = "None"
+    val diagnosticDetails: Map<String, String> get() = emptyMap()
 
     fun attachSurface(surface: Surface)
     fun detachSurface()

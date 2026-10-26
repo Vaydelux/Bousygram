@@ -132,6 +132,20 @@ object TelegramPreCacheEngine {
         Log.d(TAG, "Full-video background caching disabled; using active stream cache-ahead only fileId=$fileId")
     }
 
+    fun onSeek(fileId: Int, newOffset: Long, windowBytes: Long = CACHE_AHEAD_BYTES) {
+        if (fileId <= 0) return
+        val active = activeCacheAheadJobs[fileId]
+        if (active != null) {
+            val validStart = (newOffset - 2L * 1024L * 1024L).coerceAtLeast(0L)
+            val validEnd = newOffset + windowBytes
+            if (active.endExclusive < validStart || active.offset > validEnd) {
+                active.job.cancel()
+                activeCacheAheadJobs.remove(fileId, active)
+            }
+        }
+        TelegramChunkScheduler.cancelOutOfWindowChunks(fileId, newOffset, windowBytes)
+    }
+
     fun stopCaching(fileId: Int, cancelTdLibDownload: Boolean = true) {
         if (fileId <= 0) return
         activePrimeJobs.remove(fileId)?.forEach { it.cancel() }

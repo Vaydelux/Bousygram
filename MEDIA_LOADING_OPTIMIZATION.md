@@ -32,7 +32,6 @@ This intentionally does **not** download every video file in a Telegram account 
 Run from the project root:
 
 ```bash
-python3 server/fastlink-proxy/run_mock_tests.py
 python3 tools/mock-tests/test_chat_source_picker_revision.py
 python3 tools/mock-tests/test_media_loading_performance.py
 ```

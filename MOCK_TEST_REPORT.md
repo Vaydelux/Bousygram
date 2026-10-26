@@ -4,9 +4,7 @@
 
 | Check | Result | Scope |
 |---|---|---|
-| Fast-Link Python mock/unit tests | PASS — 14/14 | Configuration fail-closed behavior, byte-range parser, token lifecycle, mocked FastAPI stream route, invalid range response, valid partial content, unknown token, upstream range mismatch |
-| Kotlin helper/policy smoke tests | PASS — 27/27 | `HttpRangeParser`, `StreamAccessRegistry`, Fast-Link URL validation, and pure database-key policy compiled with `kotlinc` and exercised without Android runtime |
-| Python compilation | PASS | `python -m compileall -q server/fastlink-proxy` |
+| Kotlin helper/policy smoke tests | PASS — 27/27 | `HttpRangeParser`, `StreamAccessRegistry`, URL validation, and pure database-key policy compiled with `kotlinc` and exercised without Android runtime |
 | Workflow YAML parse | PASS | `.github/workflows/android-enterprise.yml` parsed locally |
 | Embedded Bash syntax | PASS — 12 blocks | Every `run:` shell block in the workflow checked with `bash -n` |
 | Full Android Gradle tests/build | BLOCKED | Gradle wrapper failed before Gradle startup because `services.gradle.org` could not be resolved; no Android SDK is installed in this environment |
@@ -15,17 +13,11 @@
 
 ## Reproduce mock checks
 
-From the repository root:
-
-```bash
-python server/fastlink-proxy/run_mock_tests.py
-```
-
 For the Android pure-helper checks, use the commands in `tools/mock-tests/README.md` if a standalone `kotlinc` is installed.
 
 ## What the mock tests prove — and do not prove
 
-The passed mock checks validate selected range-parsing, token-scope, and Fast-Link HTTP route behaviors with fake upstream responses. They do not prove the Android UI launches, Compose compiles, TDLib authenticates, actual Telegram media streams correctly, encrypted storage works on-device, or an APK is ready to distribute. The Android build and device-level checks remain release blockers.
+The passed mock checks validate selected range-parsing and token-scope behaviors with fake upstream responses. They do not prove the Android UI launches, Compose compiles, TDLib authenticates, actual Telegram media streams correctly, encrypted storage works on-device, or an APK is ready to distribute. The Android build and device-level checks remain release blockers.
 
 ## Implementation checklist follow-up (2026-10-21)
 
@@ -35,7 +27,7 @@ The v4 implementation pass also:
 - Removed silent debug-signing fallbacks from production variants and added a release-task guard.
 - Required a present, non-empty ARM64 TDLib JNI library in ABI verification.
 - Avoided pre-issuing local stream capabilities for every queued media item; a URL is prepared when the current item actually plays.
-- Avoided revoking still-valid grants to make room under token-table pressure, added explicit local-URL token revocation, and avoided Fast-Link revocation on ordinary backgrounding/retry.
+- Avoided revoking still-valid grants to make room under token-table pressure and added explicit local-URL token revocation.
 - Added a combined offline test script at `tools/mock-tests/run_all.sh`.
 
 The combined runner passes the Python suite (14/14), Kotlin pure-helper suite (27/27), selected XML parsing, and source-level release/ABI/lazy-queue invariants. The full Gradle invocation was attempted again in this environment and failed before Gradle started because DNS could not resolve `services.gradle.org`. The Android application and instrumentation test sources have therefore not yet been compiler-verified.

@@ -31,6 +31,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
         LocalStreamingServer.start()
         TelegramProxyManager.startProxy()
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+        TelegramCachePruner.pruneCacheIfNecessary(this, File(filesDir, "tdlib_files"))
     }
 
     override fun onStart(owner: LifecycleOwner) {

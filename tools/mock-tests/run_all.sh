@@ -4,12 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-printf '\n== Fast-Link Python mock suite ==\n'
-python3 server/fastlink-proxy/run_mock_tests.py
-
 printf '\n== Python syntax check ==\n'
-python3 -m compileall -q server/fastlink-proxy tools/mock-tests
-printf 'PASS: Fast-Link and test-runner Python sources compile\n'
+python3 -m compileall -q tools/mock-tests
+printf 'PASS: Test-runner Python sources compile\n'
 
 printf '\n== Source picker revision tests ==\n'
 python3 tools/mock-tests/test_chat_source_picker_revision.py

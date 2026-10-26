@@ -79,6 +79,32 @@ class MpvPlayerEngine(
     private val _videoDimensions = MutableStateFlow<Pair<Int, Int>>(Pair(0, 0))
     override val videoDimensions: StateFlow<Pair<Int, Int>> = _videoDimensions.asStateFlow()
 
+    override val renderedOutputBufferCount: Int
+        get() = (runCatching { mpv.getPropertyInt("frame-count") }.getOrNull() ?: 0)
+    override val droppedBufferCount: Int
+        get() = (runCatching { mpv.getPropertyInt("frame-drop-count") }.getOrNull() ?: 0)
+    override val isVideoTrackSelected: Boolean
+        get() = runCatching { mpv.getPropertyString("vid") }.getOrNull()?.let { it != "no" && it.isNotBlank() } ?: true
+    override val diagnosticDetails: Map<String, String>
+        get() = mapOf(
+            "vo" to (runCatching { mpv.getPropertyString("vo") }.getOrNull() ?: "unknown"),
+            "gpu-context" to (runCatching { mpv.getPropertyString("gpu-context") }.getOrNull() ?: "unknown"),
+            "hwdec" to (runCatching { mpv.getPropertyString("hwdec") }.getOrNull() ?: "unknown"),
+            "hwdec-current" to (runCatching { mpv.getPropertyString("hwdec-current") }.getOrNull() ?: "unknown"),
+            "vo-configured" to (runCatching { mpv.getPropertyBoolean("vo-configured") }.getOrNull()?.toString() ?: "unknown"),
+            "dwidth" to (runCatching { mpv.getPropertyInt("dwidth") }.getOrNull()?.toString() ?: "0"),
+            "dheight" to (runCatching { mpv.getPropertyInt("dheight") }.getOrNull()?.toString() ?: "0"),
+            "video-params" to (runCatching { mpv.getPropertyString("video-params/pixelformat") }.getOrNull() ?: "unknown")
+        )
+
+    fun setHwDecAndVoMode(hwdec: String, vo: String) {
+        runCatching {
+            mpv.setPropertyString("vo", vo)
+            mpv.setPropertyString("hwdec", hwdec)
+            Log.i(TAG, "Switched MPV hwdec=$hwdec vo=$vo")
+        }
+    }
+
     private var currentResizeMode: Int = 0
 
     private val eventObserver = object : MPVLib.EventObserver {
@@ -191,21 +217,31 @@ class MpvPlayerEngine(
 
     init {
         try {
-            val isTv = context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-
-            // Core options before init
-            mpv.setOptionString("vo", "gpu")
-            mpv.setOptionString("gpu-context", "android")
-            mpv.setOptionString("hwdec", "mediacodec,mediacodec-copy")
+            val hwdecPreference = com.vaydelux.bousygram.data.store.EnterprisePreferences.mpvHwDecMode()
+            when (hwdecPreference) {
+                "mediacodec_embed" -> {
+                    mpv.setOptionString("vo", "mediacodec_embed")
+                    mpv.setOptionString("hwdec", "mediacodec")
+                }
+                "software" -> {
+                    mpv.setOptionString("vo", "gpu")
+                    mpv.setOptionString("gpu-context", "android")
+                    mpv.setOptionString("hwdec", "no")
+                }
+                else -> {
+                    // Safe default for Mali-G52: vo=gpu with mediacodec-copy
+                    mpv.setOptionString("vo", "gpu")
+                    mpv.setOptionString("gpu-context", "android")
+                    mpv.setOptionString("hwdec", "mediacodec-copy")
+                }
+            }
             mpv.setOptionString("hwdec-codecs", "all")
             mpv.setOptionString("ao", "audiotrack,opensles")
             mpv.setOptionString("tls-verify", "no")
             mpv.setOptionString("audio-pitch-correction", "yes")
 
-            // Android TV frame rate display sync
-            if (isTv) {
-                mpv.setOptionString("video-sync", "display-resample")
-            }
+            // On Android TV, display-resample drops frames without Choreographer VSync; use audio sync
+            mpv.setOptionString("video-sync", "audio")
 
             // Demuxer adaptive buffer configuration
             mpv.setOptionString("cache", bufferConfig.cacheEnabled)
@@ -450,6 +486,25 @@ class MpvPlayerEngine(
             runCatching { mpv.getPropertyString("audio-codec") }.getOrNull()?.takeIf { it.isNotBlank() }?.let { _audioCodec.value = it }
         } catch (e: Throwable) {
             Log.e(TAG, "Error refreshing mpv tracks", e)
+        }
+    }
+
+    fun setHwDecAndVoMode(mode: String) {
+        if (isDestroyed.get()) return
+        try {
+            when (mode) {
+                "mediacodec_embed", "mediacodec" -> {
+                    mpv.setPropertyString("hwdec", "mediacodec")
+                }
+                "no", "software" -> {
+                    mpv.setPropertyString("hwdec", "no")
+                }
+                else -> {
+                    mpv.setPropertyString("hwdec", "mediacodec-copy")
+                }
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error switching mpv hwdec mode to $mode", e)
         }
     }
 }

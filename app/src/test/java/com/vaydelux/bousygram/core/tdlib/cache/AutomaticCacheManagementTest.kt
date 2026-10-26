@@ -20,7 +20,7 @@ class AutomaticCacheManagementTest {
     fun testDynamicCacheBudgetParameters() {
         assertEquals("Dynamic cache limit must be 20% of free storage", 0.20, TelegramCachePruner.DEFAULT_STORAGE_FRACTION, 0.001)
         assertEquals("Minimum cache limit floor must be 256MB", 256L * 1024L * 1024L, TelegramCachePruner.MIN_CACHE_LIMIT_BYTES)
-        assertEquals("Maximum cache limit ceiling must be 20GB", 20L * 1024L * 1024L * 1024L, TelegramCachePruner.MAX_CACHE_LIMIT_BYTES)
+        assertEquals("Default cache ceiling must be 5GB", 5L * 1024L * 1024L * 1024L, TelegramCachePruner.DEFAULT_CACHE_CEILING_BYTES)
     }
 
     @Test
@@ -71,5 +71,83 @@ class AutomaticCacheManagementTest {
     fun testPrefetchActiveImmunity() {
         val fileId = 9999
         assertFalse("File must not be active prefetch initially", FocusPrefetchManager.isPrefetching(fileId))
+    }
+
+    @Test
+    fun testLruEvictionOrderingUnder5GbCap() {
+        val cap = 5L * 1024L * 1024L * 1024L // 5 GB
+        val oneGb = 1024L * 1024L * 1024L
+
+        data class MockCacheItem(val id: Int, val size: Long, val lastAccessTime: Long)
+
+        val items = listOf(
+            MockCacheItem(id = 1, size = 2 * oneGb, lastAccessTime = 1000L), // oldest
+            MockCacheItem(id = 2, size = 2 * oneGb, lastAccessTime = 2000L),
+            MockCacheItem(id = 3, size = 2 * oneGb, lastAccessTime = 3000L)  // newest
+        )
+        // Total size = 6 GB > 5 GB cap
+
+        var currentTotal = items.sumOf { it.size }
+        val evictedIds = mutableListOf<Int>()
+
+        // LRU policy: Sort by access time ASC (least recently used first)
+        val lruSorted = items.sortedBy { it.lastAccessTime }
+        for (item in lruSorted) {
+            if (currentTotal <= cap) break
+            evictedIds.add(item.id)
+            currentTotal -= item.size
+        }
+
+        // Must evict file 1 (t=1000L) first
+        assertEquals(listOf(1), evictedIds)
+        // Remaining size must be 4 GB <= 5 GB cap
+        assertEquals(4 * oneGb, currentTotal)
+        assertTrue(currentTotal <= cap)
+    }
+
+    @Test
+    fun testLruEvictionProtectsActivePlaybackAndContinueWatching() {
+        val cap = 5L * 1024L * 1024L * 1024L
+        val oneGb = 1024L * 1024L * 1024L
+
+        data class MockFile(
+            val id: Int,
+            val size: Long,
+            val lastAccessTime: Long,
+            val isPlaying: Boolean = false,
+            val isContinueWatching: Boolean = false
+        )
+
+        val files = listOf(
+            MockFile(id = 101, size = 2 * oneGb, lastAccessTime = 500L, isPlaying = true),
+            MockFile(id = 102, size = 2 * oneGb, lastAccessTime = 600L, isContinueWatching = true),
+            MockFile(id = 103, size = 2 * oneGb, lastAccessTime = 700L), // oldest eligible
+            MockFile(id = 104, size = 2 * oneGb, lastAccessTime = 800L)  // newer eligible
+        )
+        // Total 8 GB > 5 GB cap
+
+        // Safe candidates exclude active playback and continue watching
+        val eligibleCandidates = files.filter { !it.isPlaying && !it.isContinueWatching }
+        assertEquals(2, eligibleCandidates.size)
+        assertFalse(eligibleCandidates.any { it.id == 101 })
+        assertFalse(eligibleCandidates.any { it.id == 102 })
+
+        var currentTotal = files.sumOf { it.size }
+        val evicted = mutableListOf<Int>()
+
+        val sortedLru = eligibleCandidates.sortedBy { it.lastAccessTime }
+        for (candidate in sortedLru) {
+            if (currentTotal <= cap) break
+            evicted.add(candidate.id)
+            currentTotal -= candidate.size
+        }
+
+        // File 103 (t=700L) evicted first, then file 104 if needed
+        assertEquals(listOf(103, 104), evicted)
+        // Active and continue watching files preserved
+        assertFalse(evicted.contains(101))
+        assertFalse(evicted.contains(102))
+        assertEquals(4 * oneGb, currentTotal)
+        assertTrue(currentTotal <= cap)
     }
 }

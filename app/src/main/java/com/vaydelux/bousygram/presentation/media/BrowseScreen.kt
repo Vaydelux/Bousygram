@@ -58,6 +58,7 @@ import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.ChatSourceTabs
 import com.vaydelux.bousygram.presentation.components.AllChatsPickerDialog
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
+import com.vaydelux.bousygram.presentation.components.SeriesPosterCard
 import com.vaydelux.bousygram.presentation.layout.TvHybridHomeDashboard
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 
@@ -105,6 +106,17 @@ fun BrowseScreen(
             if (continueOnlyItems.isEmpty()) playable else continueOnlyItems
         } else {
             playable
+        }
+    }
+    val standaloneVideos = remember(videos, state.seriesGroups) {
+        if (state.seriesGroups.isEmpty()) {
+            videos
+        } else {
+            videos.filter { v ->
+                state.seriesGroups.none { g ->
+                    g.episodes.any { ep -> ep.chatId == v.chatId && ep.messageId == v.messageId }
+                }
+            }
         }
     }
     val libraryGridState = rememberLazyGridState()
@@ -277,7 +289,7 @@ fun BrowseScreen(
                                     selected = isSelected
                                 ) { focused ->
                                     Text(
-                                        text = "All",
+                                        text = "# all-channels",
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
@@ -323,17 +335,22 @@ fun BrowseScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
                             ) {
-                                items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                if (state.seriesGroups.isNotEmpty()) {
+                                    items(state.seriesGroups, key = { "series_${it.title}" }) { series ->
+                                        SeriesPosterCard(
+                                            series = series,
+                                            onClick = { viewModel.selectSeries(series.title) },
+                                            cardWidth = null,
+                                            privacyMode = safeMode,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                                items(standaloneVideos, key = { "${it.chatId}:${it.messageId}" }) { item ->
                                     MediaPosterCard(
                                         media = item,
                                         subtitle = state.selectedChatTitle,
-                                        onClick = {
-                                            if (item.seriesTitle != null) {
-                                                viewModel.selectSeries(item.seriesTitle)
-                                            } else {
-                                                openVideo(item)
-                                            }
-                                        },
+                                        onClick = { openVideo(item) },
                                         cardWidth = null,
                                         privacyMode = safeMode,
                                         modifier = Modifier.fillMaxWidth(),
@@ -453,7 +470,7 @@ fun BrowseScreen(
                                     selected = isSelected
                                 ) { focused ->
                                     Text(
-                                        text = "All",
+                                        text = "# all-channels",
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
@@ -478,7 +495,7 @@ fun BrowseScreen(
                             }
                         }
 
-                        // Grid of posters
+                        // Grid of posters: touch-friendly on tablets/phones, TV-friendly on TV
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                             if (state.isLoading && videos.isEmpty()) {
                                 CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -491,24 +508,34 @@ fun BrowseScreen(
                                     modifier = Modifier.align(Alignment.Center)
                                 )
                             } else {
+                                val gridColumns = when {
+                                    adaptive.isTv -> GridCells.Adaptive(200.dp)
+                                    adaptive.isTabletLayout -> GridCells.Adaptive(170.dp)
+                                    else -> GridCells.Adaptive(140.dp)
+                                }
                                 LazyVerticalGrid(
                                     state = libraryGridState,
-                                    columns = GridCells.Adaptive(if (adaptive.isTv) 200.dp else 160.dp),
+                                    columns = gridColumns,
                                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
                                 ) {
-                                    items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
+                                    if (state.seriesGroups.isNotEmpty()) {
+                                        items(state.seriesGroups, key = { "series_${it.title}" }) { series ->
+                                            SeriesPosterCard(
+                                                series = series,
+                                                onClick = { viewModel.selectSeries(series.title) },
+                                                cardWidth = null,
+                                                privacyMode = safeMode,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    }
+                                    items(standaloneVideos, key = { "${it.chatId}:${it.messageId}" }) { item ->
                                         MediaPosterCard(
                                             media = item,
                                             subtitle = state.selectedChatTitle,
-                                            onClick = {
-                                                if (item.seriesTitle != null) {
-                                                    viewModel.selectSeries(item.seriesTitle)
-                                                } else {
-                                                    openVideo(item)
-                                                }
-                                            },
+                                            onClick = { openVideo(item) },
                                             cardWidth = null,
                                             privacyMode = safeMode,
                                             modifier = Modifier.fillMaxWidth(),

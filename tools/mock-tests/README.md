@@ -1,16 +1,6 @@
 # Bousygram offline mock tests
 
-These checks do not authenticate with Telegram and do not start a real Fast-Link bot.
-
-## Fast-Link proxy tests (Python)
-
-From any working directory:
-
-```bash
-python server/fastlink-proxy/run_mock_tests.py
-```
-
-They exercise range parsing, token lifecycle, and the real FastAPI `/stream/{token}` route against a mocked Telegram CDN response. If `python-telegram-bot` is not installed, the route test stubs only that package's import-time symbols; no bot is started.
+These checks do not require authenticating with Telegram.
 
 ## Android stream helper tests (Kotlin CLI)
 

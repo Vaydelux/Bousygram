@@ -88,6 +88,14 @@ object PlaybackSessionController {
         onCancelDownloads: ((fileId: Int) -> Unit)? = null
     ): PlaybackSession {
         FocusPrefetchManager.cancelAll()
+        // Enforce strictly one active playback session across the entire app
+        val lingering = activeSessions.toList()
+        lingering.forEach { existing ->
+            if (!existing.isStopped()) {
+                stop(existing, PlaybackCacheStopReason.TrackSwitch, cancelTdLibDownload = true)
+            }
+        }
+        activeSessions.clear()
         val session = PlaybackSession(
             queue = queue,
             initialIndex = startIndex,
@@ -108,6 +116,14 @@ object PlaybackSessionController {
 
     fun start(fileId: Int, startPositionMs: Long = 0L): PlaybackSession {
         FocusPrefetchManager.cancelAll()
+        // Enforce strictly one active playback session across the entire app
+        val lingering = activeSessions.toList()
+        lingering.forEach { existing ->
+            if (!existing.isStopped()) {
+                stop(existing, PlaybackCacheStopReason.TrackSwitch, cancelTdLibDownload = true)
+            }
+        }
+        activeSessions.clear()
         val session = PlaybackSession(
             sessionId = "pb-${System.currentTimeMillis()}-${nextSessionNumber.getAndIncrement()}",
             fileId = fileId,

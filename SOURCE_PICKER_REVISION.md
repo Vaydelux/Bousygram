@@ -4,7 +4,7 @@ Date: 2026-10-22
 
 ## Scope
 
-This revision intentionally focuses on source selection and browse-screen presentation. Existing Telegram authentication, player construction, streaming/cache internals, Fast-Link service, and playback navigation were not redesigned.
+This revision intentionally focuses on source selection and browse-screen presentation. Existing Telegram authentication, player construction, streaming/cache internals, and playback navigation were not redesigned.
 
 ## What's changed
 
@@ -25,7 +25,6 @@ This revision does not change the playback source architecture. Progressive vide
 
 ## Verification performed
 
-- Fast-Link Python mock suite: **14/14 passed**.
 - Kotlin streaming/security helper suite: **27/27 passed**.
 - Source-picker contract tests: **6/6 passed**.
 - Static project checks and workflow YAML / embedded Bash syntax checks passed.

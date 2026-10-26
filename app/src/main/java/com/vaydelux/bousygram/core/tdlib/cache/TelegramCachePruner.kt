@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.core.tdlib.cache
 
 import android.content.Context
 import android.util.Log
+import com.vaydelux.bousygram.core.cache.CacheManager
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -9,26 +10,20 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
 
+/**
+ * Backward compatibility facade delegating to unified [CacheManager].
+ */
 object TelegramCachePruner {
     private const val TAG = "TelegramCachePruner"
-    const val DEFAULT_CACHE_CEILING_BYTES = 2L * 1024L * 1024L * 1024L
+    const val DEFAULT_CACHE_CEILING_BYTES = 5L * 1024L * 1024L * 1024L // 5 GB cap
     const val DEFAULT_STORAGE_FRACTION = 0.20 // 20% of free storage
     const val MIN_CACHE_LIMIT_BYTES = 256L * 1024L * 1024L // 256 MB minimum floor
-    const val MAX_CACHE_LIMIT_BYTES = 20L * 1024L * 1024L * 1024L // 20 GB ceiling
+    const val MAX_CACHE_LIMIT_BYTES = 5L * 1024L * 1024L * 1024L // 5 GB cap
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /**
-     * Dynamically calculates cache ceiling capped to a fraction (20%) of available free storage.
-     */
-    fun calculateDynamicCacheLimit(context: Context? = null): Long {
-        return runCatching {
-            val ctx = context ?: com.vaydelux.bousygram.app.BousygramApp.instance
-            val stat = android.os.StatFs(ctx.cacheDir.absolutePath)
-            val availableBytes = stat.availableBytes
-            val budget = (availableBytes * DEFAULT_STORAGE_FRACTION).toLong()
-            budget.coerceIn(MIN_CACHE_LIMIT_BYTES, MAX_CACHE_LIMIT_BYTES)
-        }.getOrDefault(DEFAULT_CACHE_CEILING_BYTES)
-    }
+    fun calculateDynamicCacheLimit(context: Context? = null): Long =
+        CacheManager.calculateDynamicQuota(context)
 
     fun pruneCacheIfNecessary(context: Context, tdLibCacheDir: File) {
         val appContext = context.applicationContext
@@ -45,19 +40,17 @@ object TelegramCachePruner {
     }
 
     fun storageStats(context: Context, tdLibCacheDir: File): TelegramCacheStorageStats {
-        val appCacheBytes = directorySize(context.cacheDir)
-        val tdLibBytes = directorySizeOrZero(tdLibCacheDir)
-        val appFilesBytes = (directorySize(context.filesDir) - tdLibBytes).coerceAtLeast(0L)
+        val stats = CacheManager.storageStats(context, tdLibCacheDir)
         return TelegramCacheStorageStats(
-            appCacheBytes = appCacheBytes,
-            appFilesBytes = appFilesBytes,
-            tdLibCacheBytes = tdLibBytes,
-            cacheLimitBytes = EnterprisePreferences.cacheLimitBytes()
+            appCacheBytes = stats.appCacheBytes,
+            appFilesBytes = stats.appFilesBytes,
+            tdLibCacheBytes = stats.tdLibCacheBytes,
+            cacheLimitBytes = stats.cacheLimitBytes
         )
     }
 
     fun pruneCacheNow(context: Context, tdLibCacheDir: File): TelegramCachePruneResult {
-        val cacheLimitBytes = EnterprisePreferences.cacheLimitBytes()
+        val cacheLimitBytes = CacheManager.calculateDynamicQuota(context)
         val root = runCatching { tdLibCacheDir.canonicalFile }.getOrElse { tdLibCacheDir }
         if (!root.exists() || !root.isDirectory) {
             val stats = storageStats(context, tdLibCacheDir)
@@ -70,10 +63,8 @@ object TelegramCachePruner {
             )
         }
 
-        // Only evict tracked TDLib file IDs through TDLib itself. Never delete raw files under
-        // TDLib's managed directory; active sessions and offline-pinned IDs are protected.
         val beforeStats = storageStats(context, tdLibCacheDir)
-        val result = OfflineCacheManager.pruneTrackedCacheNow()
+        val result = CacheManager.pruneTrackedCacheNow()
         val stats = storageStats(context, tdLibCacheDir)
         val remainsOverLimit = stats.tdLibCacheBytes > cacheLimitBytes
         return TelegramCachePruneResult(
@@ -82,39 +73,14 @@ object TelegramCachePruner {
             remainingBytes = stats.tdLibCacheBytes,
             limitBytes = cacheLimitBytes,
             note = when {
-                remainsOverLimit -> "Cache is still above the configured limit. Only known tracked files can be safely evicted; pinned, recent, active, and untracked data was preserved."
+                remainsOverLimit -> "Cache is still above the configured limit. Pinned, recent, active, and untracked data was preserved."
                 result.deletedFiles > 0 -> "Pinned and actively playing media were preserved."
                 beforeStats.tdLibCacheBytes > cacheLimitBytes -> "The cache is now within the configured limit."
                 else -> "TDLib cache is within the configured limit."
             }
         )
     }
-
-    private fun directorySizeOrZero(file: File): Long =
-        runCatching { directorySize(file) }.getOrDefault(0L)
-
-    private fun directorySize(file: File?): Long {
-        if (file == null || !file.exists()) return 0L
-        if (file.isFile) return file.length()
-        return file.listFiles()?.sumOf { directorySize(it) } ?: 0L
-    }
-
-
 }
 
-data class TelegramCacheStorageStats(
-    val appCacheBytes: Long,
-    val appFilesBytes: Long,
-    val tdLibCacheBytes: Long,
-    val cacheLimitBytes: Long
-) {
-    val totalBytes: Long = appCacheBytes + appFilesBytes + tdLibCacheBytes
-}
-
-data class TelegramCachePruneResult(
-    val deletedFiles: Int,
-    val freedBytes: Long,
-    val remainingBytes: Long,
-    val limitBytes: Long,
-    val note: String = ""
-)
+typealias TelegramCacheStorageStats = com.vaydelux.bousygram.core.cache.TelegramCacheStorageStats
+typealias TelegramCachePruneResult = com.vaydelux.bousygram.core.cache.TelegramCachePruneResult

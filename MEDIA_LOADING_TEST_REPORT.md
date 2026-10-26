@@ -5,10 +5,9 @@
 
 ## Checks passed
 
-- Fast-Link Python mock suite: **14/14 passed**.
 - Channel/source picker revision suite: **6/6 passed**.
 - Media-loading performance contract suite: **10/10 passed**.
-- Python syntax compilation for Fast-Link and test-runner modules passed.
+- Python syntax compilation for test-runner modules passed.
 - Project static checks passed for XML parsing, release-signing guards, ABI checks, stream URL validation, metadata-first progressive search, low-priority thumbnail work, no focus-triggered video-byte warmup, key recovery, credential migration, local-server lifecycle, privacy masking, and player stream preparation.
 - GitHub workflow YAML parsing and syntax checks for all 6 embedded Bash scripts passed.
 - The pure Kotlin `MediaSearchPlan.kt` helper was compiled independently and its 3 smoke assertions passed.

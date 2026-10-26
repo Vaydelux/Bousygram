@@ -18,8 +18,16 @@ import org.drinkless.tdlib.TdApi
 import java.io.File
 
 class TelegramAuthManager(private val context: Context) {
-    private companion object {
-        const val TAG = "TelegramAuthManager"
+    companion object {
+        private const val TAG = "TelegramAuthManager"
+
+        /**
+         * Standard public Telegram application client credentials.
+         * Used for zero-config onboarding on TV and mobile so users are never forced
+         * to register developer apps on my.telegram.org just to log in.
+         */
+        const val DEFAULT_API_ID = 2040
+        const val DEFAULT_API_HASH = "b18441a1ff607e10a989891a5462e627"
     }
     private val isTelevision: Boolean =
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
@@ -359,17 +367,22 @@ class TelegramAuthManager(private val context: Context) {
         }
     }
 
+    fun resolveApiCredentials(): Pair<Int, String> {
+        val storedApiId = credentialsStore.getApiId()?.toIntOrNull()?.takeIf { it != 0 }
+        val storedApiHash = credentialsStore.getApiHash()?.takeIf { it.isNotBlank() }
+        val buildApiId = BuildConfig.TELEGRAM_API_ID.toIntOrNull()?.takeIf { it != 0 }
+        val buildApiHash = BuildConfig.TELEGRAM_API_HASH.takeIf { it.isNotBlank() }
+
+        val apiId = storedApiId ?: buildApiId ?: DEFAULT_API_ID
+        val apiHash = storedApiHash ?: buildApiHash ?: DEFAULT_API_HASH
+        return Pair(apiId, apiHash)
+    }
+
     private fun setTdlibParameters() {
-        val storedApiId = credentialsStore.getApiId()
-        val storedApiHash = credentialsStore.getApiHash()
-        val buildApiId = BuildConfig.TELEGRAM_API_ID.toIntOrNull() ?: 0
-        val buildApiHash = BuildConfig.TELEGRAM_API_HASH
-        val apiId = when {
-            !storedApiId.isNullOrBlank() -> storedApiId.toIntOrNull() ?: 0
-            else -> buildApiId
-        }
-        val apiHash = if (!storedApiHash.isNullOrBlank()) storedApiHash else buildApiHash
+        val (apiId, apiHash) = resolveApiCredentials()
         if (apiId == 0 || apiHash.isBlank()) {
+            val storedApiId = credentialsStore.getApiId()
+            val storedApiHash = credentialsStore.getApiHash()
             tdlibParametersSent = false
             _uiState.update {
                 it.copy(

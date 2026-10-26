@@ -2,9 +2,9 @@
 
 Bousygram is a video-first Android TV application for browsing and streaming videos from Telegram chats and Saved Messages. It is built with **Jetpack Compose**, **Media3 ExoPlayer**, TDLib, and a loopback streaming server.
 
-Normal local playback connects directly to Telegram on the device through TDLib (`libtdjni.so`) and does not require a Bousygram backend. An optional **Fast-Link** mode can forward the selected Telegram message to a user-configured bot/service to obtain an HTTPS link; this is a separate media-delivery path and should be enabled only when the user trusts that bot/service. Link revocation is best-effort and cannot guarantee deletion of every remote copy.
+Normal local playback connects directly to Telegram on the device through TDLib (`libtdjni.so`) and does not require a Bousygram backend.
 
-> **Release status:** this repository archive is a source and mock-tested candidate. It does not contain a compiled APK. The Fast-Link and pure Kotlin mock tests are passing, but an Android Gradle build, instrumentation run, real Telegram playback, release signing, and device checks are still required before distribution. See `MOCK_TEST_REPORT.md`.
+> **Release status:** this repository archive is a source and mock-tested candidate. It does not contain a compiled APK. An Android Gradle build, instrumentation run, real Telegram playback, release signing, and device checks are still required before distribution. See `MOCK_TEST_REPORT.md`.
 
 ---
 
@@ -17,7 +17,6 @@ Normal local playback connects directly to Telegram on the device through TDLib 
 - **Direct local mode**: Direct MTProto connection between the TV client and Telegram for normal local streaming.
 - **Library navigation**: Dedicated Home, Library, Favorites, Search, and Settings destinations, with return navigation preserved when moving between them.
 - **Protected local stream URLs**: Short-lived, unpredictable URL tokens scoped to a specific TDLib file or generated playlist.
-- **Fast-Link server safety**: The optional proxy requires trusted Telegram user IDs, a stable signing secret, and HTTPS outside localhost; it validates HTTP ranges and bounds upstream requests.
 - **Protected credential storage**: Telegram API credentials are encrypted using an AES-GCM key held by Android Keystore; new TDLib databases receive a persisted encryption key when the installation is initialized fresh.
 
 ---
@@ -92,15 +91,7 @@ RELEASE_KEY_PASSWORD=your_key_password
 
 If signing values are missing, local release builds may fall back to debug signing for validation only. Do not distribute such an APK as a production release. The CI hardened-release workflow now requires the release keystore and credentials, plus `RELEASE_CERT_SHA256`, and fails if the built APK is not signed by that exact certificate. Configure GitHub Actions secrets `RELEASE_KEYSTORE_BASE64` (base64-encoded JKS/PKCS12), `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`, and `RELEASE_CERT_SHA256` (SHA-256 certificate digest; colons/spaces are optional).
 
-### Offline/mock checks
-
-The repository includes mock tests that do not sign in to Telegram or contact a real bot:
-
-```powershell
-python .\server\fastlink-proxy\run_mock_tests.py
-```
-
-The proxy route tests use a mocked upstream CDN, and the suite covers range parsing and expiring/scoped token behavior. See `tools/mock-tests/README.md` for standalone Kotlin checks. Passing these tests does **not** replace the Android Gradle build or device playback tests.
+See `tools/mock-tests/README.md` for standalone Kotlin checks. Passing these tests does **not** replace the Android Gradle build or device playback tests.
 
 Optional Firebase Test Lab jobs are disabled unless the repository variable `FIREBASE_TEST_LAB_ENABLED` is set to `true`. When enabled, configure the `FIREBASE_SERVICE_ACCOUNT` and `FIREBASE_PROJECT_ID` Actions secrets. The CI job is restricted to pushes because pull requests from forks do not receive repository secrets.
 

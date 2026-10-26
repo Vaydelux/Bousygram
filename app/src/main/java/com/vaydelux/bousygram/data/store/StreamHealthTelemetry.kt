@@ -25,6 +25,8 @@ data class SessionHealthRecord(
     val networkType: String,
     val decoderName: String,
     val engine: String,
+    /** Buffer configuration the engine used for this session (see PlayerBufferConfig descriptions). */
+    val bufferConfig: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -51,7 +53,7 @@ object StreamHealthTelemetry {
         while (ringBuffer.size > MAX_RING_BUFFER_SIZE) {
             ringBuffer.poll()
         }
-        Log.i(TAG, "Recorded session telemetry: ${record.sessionId}, ttfb=${record.ttfbMs}ms, stalls=${record.stallCount}, rebufferRatio=${"%.2f".format(record.rebufferRatio)}")
+        Log.i(TAG, "Recorded session telemetry: ${record.sessionId}, ttfb=${record.ttfbMs}ms, stalls=${record.stallCount}, rebufferRatio=${"%.2f".format(record.rebufferRatio)}, buf=${record.bufferConfig}")
     }
 
     fun getRecords(): List<SessionHealthRecord> = ringBuffer.toList()
@@ -96,6 +98,7 @@ object StreamHealthTelemetry {
                 put("networkType", item.networkType)
                 put("decoderName", item.decoderName)
                 put("engine", item.engine)
+                put("bufferConfig", item.bufferConfig ?: JSONObject.NULL)
                 put("time", dateFormat.format(Date(item.timestamp)))
             }
             sessionsArray.put(sObj)

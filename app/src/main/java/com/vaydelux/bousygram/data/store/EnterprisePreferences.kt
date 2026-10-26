@@ -25,11 +25,6 @@ enum class CacheLimitOption(val label: String, val bytes: Long) {
     TenGb("10 GB", 10L * 1024L * 1024L * 1024L)
 }
 
-enum class PlaybackMode(val label: String) {
-    TDLibLocal("TDLib Local Direct"),
-    FastLink("Fast-Link VPS Proxy"),
-    Auto("Auto Failover")
-}
 
 object EnterprisePreferences {
     private const val PREFS_NAME = "enterprise_ui_prefs"
@@ -48,9 +43,9 @@ object EnterprisePreferences {
     private const val KEY_LAST_ERROR = "last_error"
     private const val KEY_VISUAL_THEME = "visual_theme"
     private const val KEY_PLAYER_ENGINE = "player_engine"
-    private const val KEY_PLAYBACK_MODE = "playback_mode"
-    private const val KEY_FASTLINK_URL = "fastlink_url"
-    private const val KEY_FASTLINK_BOT = "fastlink_bot"
+    private const val KEY_VIDEO_DEBUG_HUD = "video_debug_hud"
+    private const val KEY_SURFACE_TYPE = "surface_type"
+    private const val KEY_MPV_HWDEC_MODE = "mpv_hwdec_mode"
 
 
     private val prefs by lazy {
@@ -153,10 +148,10 @@ object EnterprisePreferences {
 
     fun selectedPlayerEngine(): SelectedPlayerEngine = runCatching {
         SelectedPlayerEngine.valueOf(
-            prefs.getString(KEY_PLAYER_ENGINE, SelectedPlayerEngine.ExoPlayer.name)
-                ?: SelectedPlayerEngine.ExoPlayer.name
+            prefs.getString(KEY_PLAYER_ENGINE, SelectedPlayerEngine.AUTO.name)
+                ?: SelectedPlayerEngine.AUTO.name
         )
-    }.getOrDefault(SelectedPlayerEngine.ExoPlayer)
+    }.getOrDefault(SelectedPlayerEngine.AUTO)
 
     fun setSelectedPlayerEngine(engine: SelectedPlayerEngine) = prefs.edit {
         putString(KEY_PLAYER_ENGINE, engine.name)
@@ -181,17 +176,15 @@ object EnterprisePreferences {
     fun setLastError(message: String) = prefs.edit { putString(KEY_LAST_ERROR, message.take(400)) }
     fun lastError(): String = prefs.getString(KEY_LAST_ERROR, "None").orEmpty()
 
-    fun playbackMode(): PlaybackMode = runCatching {
-        PlaybackMode.valueOf(prefs.getString(KEY_PLAYBACK_MODE, PlaybackMode.TDLibLocal.name) ?: PlaybackMode.TDLibLocal.name)
-    }.getOrDefault(PlaybackMode.TDLibLocal)
+    fun videoDebugHudEnabled(): Boolean = prefs.getBoolean(KEY_VIDEO_DEBUG_HUD, false)
+    fun setVideoDebugHudEnabled(enabled: Boolean) = prefs.edit { putBoolean(KEY_VIDEO_DEBUG_HUD, enabled) }
 
-    fun setPlaybackMode(value: PlaybackMode) = prefs.edit { putString(KEY_PLAYBACK_MODE, value.name) }
+    fun surfaceTypePreference(): String = prefs.getString(KEY_SURFACE_TYPE, "auto") ?: "auto"
+    fun setSurfaceTypePreference(type: String) = prefs.edit { putString(KEY_SURFACE_TYPE, type) }
 
-    fun fastLinkServerUrl(): String = prefs.getString(KEY_FASTLINK_URL, "").orEmpty()
-    fun setFastLinkServerUrl(url: String) = prefs.edit { putString(KEY_FASTLINK_URL, url.trim()) }
+    fun mpvHwDecMode(): String = prefs.getString(KEY_MPV_HWDEC_MODE, "mediacodec-copy") ?: "mediacodec-copy"
+    fun setMpvHwDecMode(mode: String) = prefs.edit { putString(KEY_MPV_HWDEC_MODE, mode) }
 
-    fun fastLinkBotUsername(): String = prefs.getString(KEY_FASTLINK_BOT, "").orEmpty()
-    fun setFastLinkBotUsername(username: String) = prefs.edit { putString(KEY_FASTLINK_BOT, username.trim().removePrefix("@")) }
 
     fun diagnosticsText(cacheSizeBytes: Long, appVersion: String): String = buildString {
         appendLine("Bousygram diagnostics")

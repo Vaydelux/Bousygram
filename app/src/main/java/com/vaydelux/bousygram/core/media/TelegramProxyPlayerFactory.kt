@@ -29,12 +29,15 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 
 object TelegramProxyPlayerFactory {
-    private const val ALLOCATOR_BLOCK_SIZE_BYTES = 128 * 1024
 
     @OptIn(UnstableApi::class)
     fun customAllocator(): DefaultAllocator =
-        DefaultAllocator(true, ALLOCATOR_BLOCK_SIZE_BYTES)
+        DefaultAllocator(true, PlayerBufferConfig.ALLOCATOR_BLOCK_SIZE_BYTES)
 
+    /**
+     * Builds the ExoPlayer load control. All buffer values come from [PlayerBufferConfig];
+     * [mode] and [isCellular] are retained for API compatibility only.
+     */
     @OptIn(UnstableApi::class)
     fun customLoadControl(
         mode: BufferMode = BufferMode.FastStart,
@@ -42,17 +45,9 @@ object TelegramProxyPlayerFactory {
         context: Context? = null,
         bufferConfig: PlayerBufferConfig.ExoBufferConfig? = null
     ): DefaultLoadControl {
-        val config = bufferConfig ?: context?.let { PlayerBufferConfig.resolveExoConfig(it) }
-            ?: PlayerBufferConfig.ExoBufferConfig(
-                minBufferMs = PlayerBufferConfig.EXO_DEFAULT_MIN_BUFFER_MS,
-                maxBufferMs = PlayerBufferConfig.EXO_DEFAULT_MAX_BUFFER_MS,
-                bufferForPlaybackMs = PlayerBufferConfig.EXO_DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                bufferForPlaybackAfterRebufferMs = PlayerBufferConfig.EXO_DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
-                backBufferMs = PlayerBufferConfig.EXO_DEFAULT_BACK_BUFFER_MS,
-                retainBackBufferFromKeyframe = PlayerBufferConfig.EXO_RETAIN_BACK_BUFFER_FROM_KEYFRAME,
-                isLowRam = false,
-                description = "exo:normal"
-            )
+        val config = bufferConfig
+            ?: context?.let { PlayerBufferConfig.resolveExoConfig(it) }
+            ?: PlayerBufferConfig.resolveExoConfig(isLowRam = false)
         return PlayerBufferConfig.buildLoadControl(config)
     }
 
@@ -156,10 +151,3 @@ object TelegramProxyPlayerFactory {
             }
     }
 }
-
-private data class BufferWindow(
-    val minBufferMs: Int,
-    val maxBufferMs: Int,
-    val startBufferMs: Int,
-    val rebufferMs: Int
-)

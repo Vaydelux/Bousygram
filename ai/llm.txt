@@ -166,7 +166,7 @@ SavedMessagesRepository is split into extension files:
 - SavedMessagesChats.kt: Loading chat list
 - SavedMessagesMediaSearch.kt: Searching media within chats
 - SavedMessagesThumbnail.kt: Thumbnail downloading
-- SavedMessagesFastLink.kt: Fast download link generation
+- SavedMessagesPlayback.kt: Local stream preparation helper
 - SavedMessagesUtils.kt: Utility functions (delete, thumbnail)
 
 DOMAIN MODELS:
@@ -444,7 +444,7 @@ FILE STRUCTURE
 │       │   │   │   ├── SavedMessagesChats.kt
 │       │   │   │   ├── SavedMessagesMediaSearch.kt
 │       │   │   │   ├── SavedMessagesThumbnail.kt
-│       │   │   │   ├── SavedMessagesFastLink.kt
+│       │   │   │   ├── SavedMessagesPlayback.kt
 │       │   │   │   └── SavedMessagesUtils.kt
 │       │   │   └── store/
 │       │   │       └── ApiCredentialsStore.kt  # SharedPreferences wrapper
@@ -512,7 +512,7 @@ Q: How is media loaded?
 A: Paged loading from chat history via SavedMessagesRepository and TDLib.
 
 Q: What external services are used?
-A: Telegram (via TDLib), FileToLinkV5Bot for fast links, ProSearchM11Bot for search.
+A: Telegram (via TDLib), ProSearchM11Bot for search.
 
 Q: How are releases made?
 A: GitHub Actions workflow triggered by git tags (v*).

@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +51,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -196,10 +199,18 @@ fun TvHybridHomeDashboard(
         }
     }
 
+    val heroFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        try {
+            heroFocusRequester.requestFocus()
+        } catch (_: Exception) {}
+    }
+
+    val colors = MaterialTheme.colorScheme
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF070D14))
+            .background(colors.background)
     ) {
         // Ambient dynamic backdrop sampling focused card poster
         if (backdropImageRequest != null) {
@@ -219,9 +230,9 @@ fun TvHybridHomeDashboard(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color(0xFF070D14).copy(alpha = 0.35f),
-                            Color(0xFF070D14).copy(alpha = 0.85f),
-                            Color(0xFF070D14)
+                            colors.background.copy(alpha = 0.35f),
+                            colors.background.copy(alpha = 0.85f),
+                            colors.background
                         )
                     )
                 )
@@ -246,7 +257,27 @@ fun TvHybridHomeDashboard(
                 ),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-            // Source selector tabs if multiple Telegram sources are available
+            // 1. Hero banner at top
+            ModernHeroBanner(
+                video = activeHeroMedia,
+                lastPlayedTitle = lastPlayedTitle,
+                isFavorite = isHeroFavorite,
+                hasResume = hasHeroResume,
+                onPlayOrResume = {
+                    if (activeHeroMedia != null) onVideoSelected(activeHeroMedia) else onOpenLastPlayed()
+                },
+                onToggleMyList = {
+                    if (activeHeroMedia != null) onToggleFavorite(activeHeroMedia)
+                },
+                onDetails = {
+                    detailMediaItem = activeHeroMedia
+                    showDetailsDialog = true
+                },
+                isPhone = isPhoneLayout,
+                focusRequester = heroFocusRequester
+            )
+
+            // 2. Row of chat sources
             if (sourceChats.isNotEmpty()) {
                 ChatSourceTabs(
                     chats = sourceChats,
@@ -259,7 +290,7 @@ fun TvHybridHomeDashboard(
                 )
             }
 
-            // Forum Topics Channel Rail (Discord / Slack style)
+            // Forum Topics Channel Rail (with # all-channels as first item)
             if (availableTopics.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -268,7 +299,7 @@ fun TvHybridHomeDashboard(
                     ) {
                         Text(
                             text = "TOPICS",
-                            color = MaterialTheme.colorScheme.primary,
+                            color = colors.primary,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.2.sp
@@ -276,7 +307,7 @@ fun TvHybridHomeDashboard(
                         )
                         Text(
                             text = "• ${availableTopics.size} topics",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -297,14 +328,14 @@ fun TvHybridHomeDashboard(
                                 ) {
                                     Text(
                                         text = "#",
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        text = "all-topics",
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        text = "all-channels",
+                                        color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
                                         fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
                                     )
@@ -324,14 +355,14 @@ fun TvHybridHomeDashboard(
                                     val icon = if (topic.isGeneral) "★" else "#"
                                     Text(
                                         text = icon,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
                                         text = topic.name.lowercase().replace(" ", "-"),
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
                                         fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
                                     )
@@ -342,12 +373,12 @@ fun TvHybridHomeDashboard(
                                         Spacer(Modifier.width(6.dp))
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
+                                            color = if (isSelected) colors.primary.copy(alpha = 0.25f) else colors.surfaceVariant,
                                             modifier = Modifier.padding(vertical = 1.dp)
                                         ) {
                                             Text(
                                                 text = "$count",
-                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = if (isSelected) colors.primary else colors.onSurfaceVariant,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
@@ -357,13 +388,13 @@ fun TvHybridHomeDashboard(
                                         Spacer(Modifier.width(6.dp))
                                         Surface(
                                             shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.error,
+                                            color = colors.error,
                                             modifier = Modifier.size(16.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Text(
                                                     text = "${topic.unreadCount.coerceAtMost(99)}",
-                                                    color = MaterialTheme.colorScheme.onError,
+                                                    color = colors.onError,
                                                     fontSize = 9.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -377,27 +408,94 @@ fun TvHybridHomeDashboard(
                 }
             }
 
-            // Category filter chips: "All Videos" | "Series & Shows" | "Topics"
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                com.vaydelux.bousygram.domain.model.MediaCategoryTab.entries.forEach { tab ->
-                    val isSelected = tab == selectedCategoryTab
-                    TvFocusSurface(
-                        onClick = { onSelectCategoryTab(tab) },
-                        selected = isSelected
-                    ) { focused ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+            // 3. Rows: Continue Watching first (if available and no series detail opened)
+            if (continueWatchingRail.isNotEmpty() && selectedSeriesTitle == null) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Continue Watching",
+                            color = colors.onBackground,
+                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                            fontWeight = FontWeight.Bold
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = colors.surfaceVariant
                         ) {
                             Text(
-                                text = tab.label,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
+                                text = "${continueWatchingRail.size}",
+                                color = colors.primary,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
+                        }
+                    }
+                    LazyRow(
+                        state = continueWatchingRowState,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(end = 24.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        itemsIndexed(
+                            continueWatchingRail,
+                            key = { index, item -> "cw_${item.chatId}_${item.messageId}_$index" }
+                        ) { index, item ->
+                            val matchingMedia = featuredVideos.firstOrNull {
+                                it.chatId == item.chatId && it.messageId == item.messageId
+                            } ?: MediaItem(
+                                chatId = item.chatId,
+                                messageId = item.messageId,
+                                date = (item.updatedAt / 1000).toInt(),
+                                type = com.vaydelux.bousygram.domain.model.MediaType.Video,
+                                title = item.title,
+                                fileId = item.fileId,
+                                durationSeconds = (item.durationMs / 1000).toInt(),
+                                thumbnailPath = item.thumbnailPath
+                            )
+                            ContinueWatchingCard(
+                                entry = item,
+                                media = matchingMedia,
+                                onClick = { onVideoSelected(matchingMedia) },
+                                cardWidth = cardWidth,
+                                onFocusChanged = {
+                                    if (it) {
+                                        focusedMediaForBackdrop = matchingMedia
+                                        focusedMediaForHero = matchingMedia
+                                        onVideoFocused(matchingMedia)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Category filter chips: "All Videos" | "Series & Shows" | "Audio" | "Documents" | "Topics"
+            if (selectedSeriesTitle == null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    com.vaydelux.bousygram.domain.model.MediaCategoryTab.entries.forEach { tab ->
+                        val isSelected = tab == selectedCategoryTab
+                        TvFocusSurface(
+                            onClick = { onSelectCategoryTab(tab) },
+                            selected = isSelected
+                        ) { focused ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                            ) {
+                                Text(
+                                    text = tab.label,
+                                    color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                                    fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
@@ -407,12 +505,12 @@ fun TvHybridHomeDashboard(
             if (!errorMessage.isNullOrBlank()) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+                    color = colors.errorContainer.copy(alpha = 0.85f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
                         errorMessage,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        color = colors.onErrorContainer,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
@@ -424,7 +522,7 @@ fun TvHybridHomeDashboard(
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
                         text = "Loading media…",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.titleMedium
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -462,24 +560,24 @@ fun TvHybridHomeDashboard(
                         ) { focused ->
                             Text(
                                 text = "← Back to Shows",
-                                color = if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                color = if (focused) colors.primary else colors.onSurface,
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                             )
                         }
                         Text(
                             text = activeSeries.title,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = colors.onSurface,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                            color = colors.primary.copy(alpha = 0.2f)
                         ) {
                             Text(
                                 text = "${activeSeries.totalSeasons} Season(s) • ${activeSeries.episodes.size} Episodes",
-                                color = MaterialTheme.colorScheme.primary,
+                                color = colors.primary,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
@@ -501,7 +599,7 @@ fun TvHybridHomeDashboard(
                                 ) { focused ->
                                     Text(
                                         text = "All Seasons (${activeSeries.episodes.size})",
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
                                         fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
@@ -517,7 +615,7 @@ fun TvHybridHomeDashboard(
                                 ) { focused ->
                                     Text(
                                         text = "Season $seasonNum ($count)",
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
                                         fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
@@ -550,97 +648,111 @@ fun TvHybridHomeDashboard(
                 }
             } else when (selectedCategoryTab) {
                 com.vaydelux.bousygram.domain.model.MediaCategoryTab.ALL -> {
-                    val heroContent: @Composable () -> Unit = {
-                        ModernHeroBanner(
-                            video = activeHeroMedia,
-                            lastPlayedTitle = lastPlayedTitle,
-                            isFavorite = isHeroFavorite,
-                            hasResume = hasHeroResume,
-                            onPlayOrResume = {
-                                if (activeHeroMedia != null) onVideoSelected(activeHeroMedia) else onOpenLastPlayed()
-                            },
-                            onToggleMyList = {
-                                if (activeHeroMedia != null) onToggleFavorite(activeHeroMedia)
-                            },
-                            onDetails = {
-                                detailMediaItem = activeHeroMedia
-                                showDetailsDialog = true
-                            },
-                            isPhone = isPhoneLayout
-                        )
-                    }
-
-                    val continueWatchingContent: @Composable () -> Unit = {
-                        if (continueWatchingRail.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        text = "Continue Watching",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant
-                                    ) {
-                                        Text(
-                                            text = "${continueWatchingRail.size}",
-                                            color = MaterialTheme.colorScheme.primary,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
+                    // When a topic is selected, group media into posters by series using TMDB metadata
+                    if (selectedTopicId != null) {
+                        val topicName = availableTopics.firstOrNull { it.id == selectedTopicId }?.name ?: "Topic Series"
+                        if (seriesGroups.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Text(
+                                    text = "$topicName Series (${seriesGroups.size})",
+                                    color = colors.onBackground,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                                    fontWeight = FontWeight.Bold
+                                )
                                 LazyRow(
-                                    state = continueWatchingRowState,
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     contentPadding = PaddingValues(end = 24.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     itemsIndexed(
-                                        continueWatchingRail,
-                                        key = { index, item -> "cw_${item.chatId}_${item.messageId}_$index" }
-                                    ) { index, item ->
-                                        val matchingMedia = featuredVideos.firstOrNull {
-                                            it.chatId == item.chatId && it.messageId == item.messageId
-                                        } ?: MediaItem(
-                                            chatId = item.chatId,
-                                            messageId = item.messageId,
-                                            date = (item.updatedAt / 1000).toInt(),
-                                            type = com.vaydelux.bousygram.domain.model.MediaType.Video,
-                                            title = item.title,
-                                            fileId = item.fileId,
-                                            durationSeconds = (item.durationMs / 1000).toInt(),
-                                            thumbnailPath = item.thumbnailPath
-                                        )
-                                        ContinueWatchingCard(
-                                            entry = item,
-                                            media = matchingMedia,
-                                            onClick = { onVideoSelected(matchingMedia) },
-                                            cardWidth = cardWidth,
-                                            onFocusChanged = {
-                                                if (it) {
-                                                    focusedMediaForBackdrop = matchingMedia
-                                                    focusedMediaForHero = matchingMedia
-                                                    onVideoFocused(matchingMedia)
-                                                }
-                                            }
+                                        seriesGroups,
+                                        key = { idx, s -> "topic_series_${s.title}_$idx" }
+                                    ) { _, series ->
+                                        ModernSeriesCard(
+                                            series = series,
+                                            onClick = { onSelectSeries(series.title) },
+                                            cardWidth = cardWidth
                                         )
                                     }
                                 }
                             }
                         }
-                    }
+                        val standaloneVideos = remember(featuredVideos, seriesGroups) {
+                            featuredVideos.filter { v ->
+                                seriesGroups.none { g -> g.episodes.any { ep -> ep.chatId == v.chatId && ep.messageId == v.messageId } }
+                            }
+                        }
+                        if (standaloneVideos.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    text = if (seriesGroups.isNotEmpty()) "Other Videos (${standaloneVideos.size})" else "$topicName Videos (${standaloneVideos.size})",
+                                    color = colors.onBackground,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    contentPadding = PaddingValues(end = 24.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    itemsIndexed(
+                                        standaloneVideos,
+                                        key = { index, item -> "topic_standalone_${item.chatId}_${item.messageId}_$index" }
+                                    ) { index, item ->
+                                        ModernVideoCard(
+                                            media = item,
+                                            index = index,
+                                            isFavoriteSection = false,
+                                            onClick = { onVideoSelected(item) },
+                                            cardWidth = cardWidth,
+                                            onFocusChanged = {
+                                                if (it) {
+                                                    focusedMediaForBackdrop = item
+                                                    focusedMediaForHero = item
+                                                    onVideoFocused(item)
+                                                }
+                                            },
+                                            onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // # all-channels: shows everything
+                        // If series detected across all channels, show series posters row
+                        if (seriesGroups.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Text(
+                                    text = "TV Shows & Series (${seriesGroups.size})",
+                                    color = colors.onBackground,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    contentPadding = PaddingValues(end = 24.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    itemsIndexed(
+                                        seriesGroups,
+                                        key = { idx, s -> "all_series_${s.title}_$idx" }
+                                    ) { _, series ->
+                                        ModernSeriesCard(
+                                            series = series,
+                                            onClick = { onSelectSeries(series.title) },
+                                            cardWidth = cardWidth
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
-                    val newInChatsContent: @Composable () -> Unit = {
+                        // New in your chats row
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
                                 text = "New in your chats",
-                                color = Color.White,
+                                color = colors.onBackground,
                                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                                 fontWeight = FontWeight.Bold
                             )
@@ -672,9 +784,8 @@ fun TvHybridHomeDashboard(
                                 }
                             }
                         }
-                    }
 
-                    val groupRowsContent: @Composable () -> Unit = {
+                        // Chat source rows
                         val videosByChat = remember(featuredVideos) { featuredVideos.groupBy { it.chatId } }
                         val displayedChats = remember(sourceChats, videosByChat) {
                             val withVideos = sourceChats.filter { (videosByChat[it.chatId]?.size ?: 0) > 0 }
@@ -692,17 +803,17 @@ fun TvHybridHomeDashboard(
                                         ) {
                                             Text(
                                                 text = chat.title,
-                                                color = Color.White,
+                                                color = colors.onBackground,
                                                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Surface(
                                                 shape = RoundedCornerShape(4.dp),
-                                                color = MaterialTheme.colorScheme.surfaceVariant
+                                                color = colors.surfaceVariant
                                             ) {
                                                 Text(
                                                     text = "${chatVideos.size}",
-                                                    color = MaterialTheme.colorScheme.secondary,
+                                                    color = colors.secondary,
                                                     style = MaterialTheme.typography.labelSmall,
                                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                 )
@@ -743,7 +854,7 @@ fun TvHybridHomeDashboard(
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(
                                     text = channelLabel,
-                                    color = Color.White,
+                                    color = colors.onBackground,
                                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                                     fontWeight = FontWeight.Bold
                                 )
@@ -776,18 +887,6 @@ fun TvHybridHomeDashboard(
                                 }
                             }
                         }
-                    }
-
-                    if (isPhoneLayout) {
-                        continueWatchingContent()
-                        heroContent()
-                        newInChatsContent()
-                        groupRowsContent()
-                    } else {
-                        heroContent()
-                        continueWatchingContent()
-                        newInChatsContent()
-                        groupRowsContent()
                     }
                 }
 
@@ -1072,15 +1171,26 @@ fun ModernHeroBanner(
     onToggleMyList: () -> Unit,
     onDetails: () -> Unit = {},
     isPhone: Boolean = false,
+    focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
+    val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(if (isPhone) 16.dp else 22.dp)
-    val title = video?.title?.takeIf { it.isNotBlank() }
+    val title = video?.tmdbTitle?.takeIf { it.isNotBlank() }
+        ?: video?.seriesTitle?.takeIf { it.isNotBlank() }
+        ?: video?.title?.takeIf { it.isNotBlank() }
         ?: lastPlayedTitle?.takeIf { it.isNotBlank() }
         ?: "Featured Title"
 
     val year = video?.releaseYear?.toString()
         ?: video?.let { if (it.date > 0) (it.date / 31536000 + 1970).toString() else null }
+    val rating = video?.tmdbRating?.takeIf { it > 0f }?.let { "★ %.1f".format(it) }
+    val episodeTag = if (video?.seasonNumber != null || video?.episodeNumber != null) {
+        val s = video.seasonNumber ?: 1
+        val e = video.episodeNumber ?: 1
+        val ep = video.episodeTitle?.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty()
+        "S$s:E$e$ep"
+    } else null
     val description = video?.tmdbOverview?.takeIf { it.isNotBlank() }
         ?: "High quality streaming media from your Telegram chats."
 
@@ -1094,8 +1204,8 @@ fun ModernHeroBanner(
             .fillMaxWidth()
             .height(if (isPhone) 190.dp else 280.dp)
             .clip(shape)
-            .background(Color(0xFF0F1829))
-            .border(1.dp, Color(0xFF1F304B), shape)
+            .background(colors.surface)
+            .border(1.dp, colors.outlineVariant.copy(alpha = 0.5f), shape)
     ) {
         if (backdropImageData != null) {
             AsyncImage(
@@ -1117,9 +1227,9 @@ fun ModernHeroBanner(
                 .background(
                     Brush.horizontalGradient(
                         listOf(
-                            Color(0xFF080D16).copy(alpha = 0.95f),
-                            Color(0xFF080D16).copy(alpha = 0.75f),
-                            Color(0xFF080D16).copy(alpha = 0.25f)
+                            colors.background.copy(alpha = 0.95f),
+                            colors.background.copy(alpha = 0.75f),
+                            colors.background.copy(alpha = 0.25f)
                         )
                     )
                 )
@@ -1134,21 +1244,29 @@ fun ModernHeroBanner(
                 ),
             verticalArrangement = Arrangement.Center
         ) {
-            if (year != null) {
-                Text(
-                    text = year,
-                    color = Color(0xFF5EE5BE),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = if (isPhone) 11.sp else 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                )
+            val metaBadges = listOfNotNull(year, rating, episodeTag)
+            if (metaBadges.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    metaBadges.forEachIndexed { idx, badge ->
+                        Text(
+                            text = if (idx == 0) badge else "•  $badge",
+                            color = if (badge.startsWith("★")) colors.tertiary else colors.primary,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = if (isPhone) 11.sp else 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        )
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
             }
             Text(
                 text = title,
-                color = Color.White,
+                color = colors.onSurface,
                 style = if (isPhone) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium.copy(
                     fontSize = 26.sp,
                     letterSpacing = (-0.5).sp
@@ -1160,7 +1278,7 @@ fun ModernHeroBanner(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = description,
-                color = Color(0xFF94A3B8),
+                color = colors.onSurfaceVariant,
                 style = if (isPhone) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1172,7 +1290,8 @@ fun ModernHeroBanner(
             ) {
                 ModernResumeButton(
                     text = if (hasResume) "▶ Resume" else "▶ Play",
-                    onClick = onPlayOrResume
+                    onClick = onPlayOrResume,
+                    focusRequester = focusRequester
                 )
                 ModernMyListButton(
                     isFavorite = isFavorite,
@@ -1189,6 +1308,7 @@ fun ModernHeroBanner(
     lastPlayedTitle: String?,
     onResume: () -> Unit,
     onDetails: () -> Unit,
+    focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) = ModernHeroBanner(
     video = video,
@@ -1199,6 +1319,7 @@ fun ModernHeroBanner(
     onToggleMyList = {},
     onDetails = onDetails,
     isPhone = false,
+    focusRequester = focusRequester,
     modifier = modifier
 )
 
@@ -1209,6 +1330,7 @@ private fun ModernMyListButton(
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
     val interaction = remember { MutableInteractionSource() }
     val scale by animateFloatAsState(if (focused) 1.05f else 1f, label = "myListScale")
@@ -1221,14 +1343,14 @@ private fun ModernMyListButton(
             .clip(shape)
             .clickable(
                 interactionSource = interaction,
-                indication = ripple(color = Color.White),
+                indication = ripple(color = colors.primary),
                 onClick = onClick
             )
             .onFocusChanged { focused = it.isFocused }
             .focusable(),
         shape = shape,
-        color = if (focused) Color(0xFF2B3D5E) else Color(0xFF16253C),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (focused) Color(0xFF5EE5BE) else Color(0xFF263A58))
+        color = if (focused) colors.surfaceVariant else colors.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (focused) colors.primary else colors.outlineVariant)
     ) {
         Box(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
@@ -1236,7 +1358,7 @@ private fun ModernMyListButton(
         ) {
             Text(
                 text = if (isFavorite) "✓ In List" else "+ My List",
-                color = if (focused || isFavorite) Color(0xFF5EE5BE) else Color.White,
+                color = if (focused || isFavorite) colors.primary else colors.onSurface,
                 style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp),
                 fontWeight = FontWeight.SemiBold
             )
@@ -1248,14 +1370,17 @@ private fun ModernMyListButton(
 private fun ModernResumeButton(
     text: String,
     onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
     val interaction = remember { MutableInteractionSource() }
     val scale by animateFloatAsState(if (focused) 1.05f else 1f, label = "resumeScale")
     Surface(
         modifier = modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -1263,13 +1388,13 @@ private fun ModernResumeButton(
             .clip(shape)
             .clickable(
                 interactionSource = interaction,
-                indication = ripple(color = Color.White),
+                indication = ripple(color = colors.onPrimary),
                 onClick = onClick
             )
             .onFocusChanged { focused = it.isFocused }
             .focusable(),
         shape = shape,
-        color = if (focused) Color(0xFF75F0CC) else Color(0xFF5EE5BE)
+        color = if (focused) colors.primary.copy(alpha = 0.85f) else colors.primary
     ) {
         Box(
             modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
@@ -1277,7 +1402,7 @@ private fun ModernResumeButton(
         ) {
             Text(
                 text = text,
-                color = Color(0xFF091418),
+                color = colors.onPrimary,
                 style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp),
                 fontWeight = FontWeight.Bold
             )
@@ -1292,15 +1417,16 @@ private fun ModernDetailsButton(
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .clip(shape)
-            .background(if (focused) Color(0xFF1E2E48) else Color.Transparent)
+            .background(if (focused) colors.surfaceVariant else Color.Transparent)
             .clickable(
                 interactionSource = interaction,
-                indication = ripple(color = Color.White),
+                indication = ripple(color = colors.primary),
                 onClick = onClick
             )
             .onFocusChanged { focused = it.isFocused }
@@ -1310,7 +1436,7 @@ private fun ModernDetailsButton(
     ) {
         Text(
             text = text,
-            color = if (focused) Color.White else Color(0xFFCBD5E1),
+            color = if (focused) colors.onSurface else colors.onSurfaceVariant,
             style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp),
             fontWeight = FontWeight.SemiBold
         )
@@ -1351,20 +1477,10 @@ fun ModernVideoCard(
             .build()
     }
 
-    val defaultGradient = remember(index, isFavoriteSection) {
-        if (!isFavoriteSection) {
-            when (index % 3) {
-                0 -> listOf(Color(0xFF3B4B5E), Color(0xFF2C3949))
-                1 -> listOf(Color(0xFF294144), Color(0xFF1E3134))
-                else -> listOf(Color(0xFF45384E), Color(0xFF33293A))
-            }
-        } else {
-            when (index % 3) {
-                0 -> listOf(Color(0xFF3F3546), Color(0xFF2F2734))
-                1 -> listOf(Color(0xFF2C3843), Color(0xFF1E2831))
-                else -> listOf(Color(0xFF434534), Color(0xFF323425))
-            }
-        }
+    val defaultGradient = remember(index, isFavoriteSection, colors) {
+        val s = colors.surface
+        val sv = colors.surfaceVariant
+        listOf(sv, s)
     }
 
     val durationMs = remember(media.trustedDurationMs, media.durationSeconds) {
@@ -1396,7 +1512,7 @@ fun ModernVideoCard(
                 .clip(shape)
                 .border(
                     width = if (focused) 2.dp else 1.dp,
-                    color = if (focused) colors.primary else Color(0xFF1F2E45),
+                    color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
                     shape = shape
                 )
                 .clickable(
@@ -1410,7 +1526,7 @@ fun ModernVideoCard(
                 }
                 .focusable(),
             shape = shape,
-            color = Color(0xFF16243A)
+            color = colors.surface
         ) {
             Box(
                 modifier = Modifier
@@ -1436,7 +1552,7 @@ fun ModernVideoCard(
                     CenteredPlayBadge()
                 } else {
                     ImagePlaceholderIcon(
-                        tint = Color.White.copy(alpha = 0.78f),
+                        tint = colors.onSurface.copy(alpha = 0.78f),
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -1475,15 +1591,15 @@ fun ModernVideoCard(
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
                             .height(3.5.dp),
-                        color = Color(0xFF5EE5BE),
-                        trackColor = Color.Black.copy(alpha = 0.45f)
+                        color = colors.primary,
+                        trackColor = colors.surfaceVariant
                     )
                 }
 
                 if (onOpenDetails != null) {
                     Surface(
                         shape = CircleShape,
-                        color = Color.Black.copy(alpha = 0.65f),
+                        color = colors.surface.copy(alpha = 0.85f),
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(6.dp)
@@ -1492,7 +1608,7 @@ fun ModernVideoCard(
                             .clickable { onOpenDetails() }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("ⓘ", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("ⓘ", color = colors.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1503,7 +1619,7 @@ fun ModernVideoCard(
 
         Text(
             text = media.title.ifBlank { if (!isFavoriteSection) "Video ${index + 1}" else "Favorite ${index + 1}" },
-            color = if (focused) colors.primary else Color.White,
+            color = if (focused) colors.primary else colors.onSurface,
             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
             fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1,
@@ -1561,12 +1677,12 @@ private fun ContinueWatchingCard(
                 .clip(shape)
                 .border(
                     width = if (focused) 2.dp else 1.dp,
-                    color = if (focused) Color(0xFF5EE5BE) else Color(0xFF1F2E45),
+                    color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
                     shape = shape
                 )
                 .clickable(
                     interactionSource = interaction,
-                    indication = ripple(color = Color(0xFF5EE5BE)),
+                    indication = ripple(color = colors.primary),
                     onClick = onClick
                 )
                 .onFocusChanged {
@@ -1575,12 +1691,12 @@ private fun ContinueWatchingCard(
                 }
                 .focusable(),
             shape = shape,
-            color = Color(0xFF16243A)
+            color = colors.surface
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Brush.linearGradient(listOf(Color(0xFF243B55), Color(0xFF141E30)))),
+                    .background(Brush.linearGradient(listOf(colors.surfaceVariant, colors.surface))),
                 contentAlignment = Alignment.Center
             ) {
                 if (imageData != null) {
@@ -1610,8 +1726,8 @@ private fun ContinueWatchingCard(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(4.dp),
-                    color = Color(0xFF5EE5BE),
-                    trackColor = Color.Black.copy(alpha = 0.50f)
+                    color = colors.primary,
+                    trackColor = colors.surfaceVariant
                 )
             }
         }
@@ -1620,7 +1736,7 @@ private fun ContinueWatchingCard(
 
         Text(
             text = entry.title,
-            color = if (focused) Color(0xFF5EE5BE) else Color.White,
+            color = if (focused) colors.primary else colors.onSurface,
             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
             fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1,
@@ -1664,12 +1780,13 @@ private fun MediaDetailsDialog(
                 .build()
         }
 
+        val colors = MaterialTheme.colorScheme
         Surface(
             shape = shape,
-            color = Color(0xFF0F172A),
+            color = colors.surface,
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .border(1.dp, Color(0xFF223249), shape)
+                .border(1.dp, colors.outlineVariant.copy(alpha = 0.5f), shape)
         ) {
             Column(
                 modifier = Modifier
@@ -1681,7 +1798,7 @@ private fun MediaDetailsDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
-                        .background(Brush.linearGradient(listOf(Color(0xFF1E2E48), Color(0xFF101B2B))))
+                        .background(Brush.linearGradient(listOf(colors.surfaceVariant, colors.surface)))
                 ) {
                     if (imageData != null) {
                         AsyncImage(
@@ -1697,8 +1814,8 @@ private fun MediaDetailsDialog(
                                     Brush.verticalGradient(
                                         listOf(
                                             Color.Transparent,
-                                            Color(0xFF0F172A).copy(alpha = 0.5f),
-                                            Color(0xFF0F172A)
+                                            colors.surface.copy(alpha = 0.5f),
+                                            colors.surface
                                         )
                                     )
                                 )
@@ -1708,7 +1825,7 @@ private fun MediaDetailsDialog(
                     // Top Close Button
                     Surface(
                         shape = CircleShape,
-                        color = Color.Black.copy(alpha = 0.6f),
+                        color = colors.surface.copy(alpha = 0.75f),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(12.dp)
@@ -1717,7 +1834,7 @@ private fun MediaDetailsDialog(
                             .clickable { onDismiss() }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("✕", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("✕", color = colors.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -1732,11 +1849,11 @@ private fun MediaDetailsDialog(
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = Color(0xFF5EE5BE)
+                                color = colors.primary
                             ) {
                                 Text(
                                     text = detectResolutionBadge(video),
-                                    color = Color(0xFF091418),
+                                    color = colors.onPrimary,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -1745,11 +1862,11 @@ private fun MediaDetailsDialog(
                             if (video.seasonNumber != null && video.episodeNumber != null) {
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFF38BDF8)
+                                    color = colors.secondary
                                 ) {
                                     Text(
                                         text = "S${video.seasonNumber}:E${video.episodeNumber}",
-                                        color = Color(0xFF091418),
+                                        color = colors.onSecondary,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -1759,11 +1876,11 @@ private fun MediaDetailsDialog(
                             if (video.releaseYear != null) {
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFF59E0B)
+                                    color = colors.tertiary
                                 ) {
                                     Text(
                                         text = "${video.releaseYear}",
-                                        color = Color(0xFF091418),
+                                        color = colors.onTertiary,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -1773,11 +1890,11 @@ private fun MediaDetailsDialog(
                             if (video.tmdbRating != null) {
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFEAB308)
+                                    color = colors.tertiary
                                 ) {
                                     Text(
                                         text = "★ ${String.format(java.util.Locale.US, "%.1f", video.tmdbRating)}",
-                                        color = Color(0xFF091418),
+                                        color = colors.onTertiary,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -1798,14 +1915,14 @@ private fun MediaDetailsDialog(
                         Text(
                             text = labels.title,
                             style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-                            color = Color.White,
+                            color = colors.onSurface,
                             fontWeight = FontWeight.Bold
                         )
 
                         Text(
                             text = labels.subtitle,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF94A3B8)
+                            color = colors.onSurfaceVariant
                         )
 
                         // Specs Grid
@@ -1832,7 +1949,7 @@ private fun MediaDetailsDialog(
                             Text(
                                 text = video.tmdbOverview,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFCBD5E1),
+                                color = colors.onSurfaceVariant,
                                 maxLines = 4,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
@@ -1854,14 +1971,14 @@ private fun MediaDetailsDialog(
                             // Play from start button
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF1E2E48),
+                                color = colors.surfaceVariant,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
                                     .clickable { onPlayFromStart() }
                             ) {
                                 Text(
                                     text = "↺ Start",
-                                    color = Color.White,
+                                    color = colors.onSurface,
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
@@ -1871,19 +1988,19 @@ private fun MediaDetailsDialog(
                             // Favorite Toggle Button
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = if (isFavorite) Color(0xFFEF4444).copy(alpha = 0.2f) else Color(0xFF1E2E48),
+                                color = if (isFavorite) colors.error.copy(alpha = 0.2f) else colors.surfaceVariant,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
                                     .clickable { onToggleFavorite() }
                                     .border(
                                         1.dp,
-                                        if (isFavorite) Color(0xFFEF4444) else Color(0xFF2B3D59),
+                                        if (isFavorite) colors.error else colors.outlineVariant,
                                         RoundedCornerShape(10.dp)
                                     )
                             ) {
                                 Text(
                                     text = if (isFavorite) "♥ Saved" else "♡ Favorite",
-                                    color = if (isFavorite) Color(0xFFF87171) else Color(0xFFCBD5E1),
+                                    color = if (isFavorite) colors.error else colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
@@ -1893,19 +2010,19 @@ private fun MediaDetailsDialog(
                             // Offline Pin Toggle Button
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = if (isOffline) Color(0xFF5EE5BE).copy(alpha = 0.2f) else Color(0xFF1E2E48),
+                                color = if (isOffline) colors.primary.copy(alpha = 0.2f) else colors.surfaceVariant,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
                                     .clickable { onToggleOffline() }
                                     .border(
                                         1.dp,
-                                        if (isOffline) Color(0xFF5EE5BE) else Color(0xFF2B3D59),
+                                        if (isOffline) colors.primary else colors.outlineVariant,
                                         RoundedCornerShape(10.dp)
                                     )
                             ) {
                                 Text(
                                     text = if (isOffline) "✓ Pinned" else "📥 Pin",
-                                    color = if (isOffline) Color(0xFF5EE5BE) else Color(0xFFCBD5E1),
+                                    color = if (isOffline) colors.primary else colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
@@ -1916,19 +2033,19 @@ private fun MediaDetailsDialog(
                             if (onOpenExternalPlayer != null) {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFF1E2E48),
+                                    color = colors.surfaceVariant,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable { onOpenExternalPlayer() }
                                         .border(
                                             1.dp,
-                                            Color(0xFF2B3D59),
+                                            colors.outlineVariant,
                                             RoundedCornerShape(10.dp)
                                         )
                                 ) {
                                     Text(
                                         text = "⎘ External",
-                                        color = Color(0xFF38BDF8),
+                                        color = colors.secondary,
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
@@ -1940,19 +2057,19 @@ private fun MediaDetailsDialog(
                             if (onDeleteMedia != null) {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFF2D151F),
+                                    color = colors.error.copy(alpha = 0.15f),
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable { showDeleteConfirmDialog = true }
                                         .border(
                                             1.dp,
-                                            Color(0xFF5A2232),
+                                            colors.error.copy(alpha = 0.5f),
                                             RoundedCornerShape(10.dp)
                                         )
                                 ) {
                                     Text(
                                         text = "🗑 Delete",
-                                        color = Color(0xFFF87171),
+                                        color = colors.error,
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
@@ -1966,7 +2083,7 @@ private fun MediaDetailsDialog(
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 text = "More from ${video.seriesTitle ?: "this show"} (${relatedEpisodes.size})",
-                                color = Color.White,
+                                color = colors.onSurface,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -1981,28 +2098,28 @@ private fun MediaDetailsDialog(
                                     val isCurrent = ep.chatId == video.chatId && ep.messageId == video.messageId
                                     Surface(
                                         shape = RoundedCornerShape(10.dp),
-                                        color = if (isCurrent) Color(0xFF1E3A5F) else Color(0xFF141F30),
+                                        color = if (isCurrent) colors.primary.copy(alpha = 0.2f) else colors.surfaceVariant,
                                         modifier = Modifier
                                             .width(130.dp)
                                             .clip(RoundedCornerShape(10.dp))
                                             .clickable { onSelectRelatedEpisode(ep) }
                                             .border(
                                                 1.dp,
-                                                if (isCurrent) Color(0xFF5EE5BE) else Color(0xFF223249),
+                                                if (isCurrent) colors.primary else colors.outlineVariant,
                                                 RoundedCornerShape(10.dp)
                                             )
                                     ) {
                                         Column(modifier = Modifier.padding(8.dp)) {
                                             Text(
                                                 text = ep.episodeNumber?.let { "Episode $it" } ?: "Part ${idx + 1}",
-                                                color = if (isCurrent) Color(0xFF5EE5BE) else Color(0xFF38BDF8),
+                                                color = if (isCurrent) colors.primary else colors.secondary,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Spacer(Modifier.height(2.dp))
                                             Text(
                                                 text = ep.title.ifBlank { "Episode ${idx + 1}" },
-                                                color = Color.White,
+                                                color = colors.onSurface,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
@@ -2015,7 +2132,7 @@ private fun MediaDetailsDialog(
                     } else {
                         Text(
                             text = "Ready to stream directly from Telegram high-speed servers.",
-                            color = Color(0xFF94A3B8),
+                            color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium
                         )
                         ModernResumeButton(text = "Play Now", onClick = onPlay)
@@ -2026,19 +2143,20 @@ private fun MediaDetailsDialog(
     }
 
     if (showDeleteConfirmDialog) {
+        val dialogColors = MaterialTheme.colorScheme
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
             title = {
                 Text(
                     text = "Delete from Telegram?",
-                    color = Color.White,
+                    color = dialogColors.onSurface,
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
                     text = "This will permanently delete this media message from Telegram. This action cannot be undone.",
-                    color = Color(0xFFCBD5E1),
+                    color = dialogColors.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -2049,17 +2167,17 @@ private fun MediaDetailsDialog(
                         onDeleteMedia?.invoke()
                     }
                 ) {
-                    Text("Delete", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text("Delete", color = dialogColors.error, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = { showDeleteConfirmDialog = false }
                 ) {
-                    Text("Cancel", color = Color(0xFF94A3B8))
+                    Text("Cancel", color = dialogColors.onSurfaceVariant)
                 }
             },
-            containerColor = Color(0xFF131D2E),
+            containerColor = dialogColors.surface,
             shape = RoundedCornerShape(16.dp)
         )
     }
@@ -2067,16 +2185,17 @@ private fun MediaDetailsDialog(
 
 @Composable
 private fun SpecChip(label: String, value: String) {
+    val colors = MaterialTheme.colorScheme
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF182335)
+        color = colors.surfaceVariant
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(text = "$label:", color = Color(0xFF64748B), style = MaterialTheme.typography.labelSmall)
-            Text(text = value, color = Color(0xFFCBD5E1), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            Text(text = "$label:", color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            Text(text = value, color = colors.onSurface, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -2099,19 +2218,20 @@ private fun detectResolutionBadge(media: MediaItem): String {
 
 @Composable
 private fun DetailRow(label: String, value: String) {
+    val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
             text = label,
-            color = Color(0xFF94A3B8),
+            color = colors.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium
         )
         Text(
             text = value,
-            color = Color.White,
+            color = colors.onSurface,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
@@ -2167,7 +2287,7 @@ fun ModernSeriesCard(
                 .clip(shape)
                 .border(
                     width = if (focused) 2.dp else 1.dp,
-                    color = if (focused) colors.primary else Color(0xFF1F2E45),
+                    color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
                     shape = shape
                 )
                 .clickable(
@@ -2178,12 +2298,12 @@ fun ModernSeriesCard(
                 .onFocusChanged { focused = it.isFocused }
                 .focusable(),
             shape = shape,
-            color = Color(0xFF16243A)
+            color = colors.surface
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Brush.linearGradient(listOf(Color(0xFF2B3A4F), Color(0xFF182333)))),
+                    .background(Brush.linearGradient(listOf(colors.surfaceVariant, colors.surface))),
                 contentAlignment = Alignment.Center
             ) {
                 if (imageData != null) {
@@ -2202,12 +2322,12 @@ fun ModernSeriesCard(
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color.Black.copy(alpha = 0.75f),
+                    color = colors.surface.copy(alpha = 0.85f),
                     modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
                 ) {
                     Text(
                         text = "${series.episodes.size} Episodes",
-                        color = Color.White,
+                        color = colors.onSurface,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
@@ -2219,7 +2339,7 @@ fun ModernSeriesCard(
 
         Text(
             text = series.title,
-            color = if (focused) colors.primary else Color.White,
+            color = if (focused) colors.primary else colors.onSurface,
             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
             fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1,
@@ -2227,7 +2347,7 @@ fun ModernSeriesCard(
         )
         Text(
             text = "${series.totalSeasons} Season(s)",
-            color = Color(0xFF94A3B8),
+            color = colors.onSurfaceVariant,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1
         )

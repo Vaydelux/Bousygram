@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.app
 
 import android.app.PictureInPictureParams
+import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
@@ -12,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,6 +44,8 @@ import com.vaydelux.bousygram.presentation.search.SearchViewModel
 import com.vaydelux.bousygram.presentation.settings.SettingsScreen
 import com.vaydelux.bousygram.presentation.search.TvVideoSearchScreen
 import com.vaydelux.bousygram.presentation.about.AboutScreen
+import com.vaydelux.bousygram.core.cast.CastReceiverManager
+import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 
@@ -132,6 +136,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIncomingIntent(intent)
         setContent {
             var themePreset by remember {
                 mutableStateOf(BousygramThemePreset.fromId(EnterprisePreferences.visualThemeId()))
@@ -153,6 +158,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        val payload = CastReceiverManager.parseIntent(intent)
+        if (payload != null) {
+            CastReceiverManager.emitCastRequest(payload)
+        }
+    }
+
     companion object {
         const val EXTRA_UI_PREVIEW = "ui_preview"
     }
@@ -170,6 +188,23 @@ private fun BousygramAppRoot(
         mutableStateOf(SearchFocusState())
     }
     var resumeSignal by remember { mutableIntStateOf(0) }
+
+    val pendingCast by CastReceiverManager.pendingCastRequest.collectAsState()
+    LaunchedEffect(pendingCast) {
+        val payload = pendingCast ?: return@LaunchedEffect
+        val preparation = LocalStreamingServer.prepareStream(
+            fileId = payload.fileId,
+            declaredSize = 0L,
+            title = payload.title,
+            chatId = payload.chatId,
+            messageId = payload.messageId
+        )
+        if (preparation != null) {
+            val req = CastReceiverManager.toPlaybackRequest(payload, preparation.url)
+            appScreen = AppScreen.Player(req, returnTo = AppScreen.Home)
+        }
+        CastReceiverManager.clearPendingRequest()
+    }
 
     BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen !is AppScreen.Home) {
         appScreen = when (val screen = appScreen) {
@@ -218,6 +253,7 @@ private fun BousygramAppRoot(
                 else -> ShellDestination.Home
             }
             val lastPlayed = EnterprisePreferences.lastPlayed()
+            val context = LocalContext.current
             val navFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
             BousygramAdaptiveShell(
                 selected = destination,
@@ -231,6 +267,13 @@ private fun BousygramAppRoot(
                 },
                 onOpenSettings = {
                     appScreen = AppScreen.Settings(appScreen)
+                },
+                onOpenCast = {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Cast Receiver Ready (bousygram://cast/load)",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
                 },
                 navFocusRequester = navFocusRequester,
                 onSelect = { target ->

@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import android.util.LruCache
 import com.vaydelux.bousygram.BuildConfig
-import com.vaydelux.bousygram.core.media.MediaMetadataParser
+import com.vaydelux.bousygram.core.media.SeriesMetadataParser
 import com.vaydelux.bousygram.domain.model.MediaItem
 import java.io.File
 import java.io.FileOutputStream
@@ -32,6 +32,7 @@ data class TmdbMetadata(
     val backdropPath: String? = null,
     val localPosterPath: String? = null,
     val localBackdropPath: String? = null,
+    val episodeTitle: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -52,8 +53,10 @@ object TmdbRepository {
     // In-memory cache to avoid disk reads during fast TV list scrolling
     private val memoryCache = LruCache<String, TmdbMetadata>(200)
 
+    // Positive match cache TTL: 30 days
+    const val POSITIVE_CACHE_TTL_MS = 30L * 24 * 60 * 60 * 1000
     // Negative match cache TTL: 7 days
-    private const val NEGATIVE_CACHE_TTL_MS = 7L * 24 * 60 * 60 * 1000
+    const val NEGATIVE_CACHE_TTL_MS = 7L * 24 * 60 * 60 * 1000
 
     /**
      * Matches a single MediaItem against TMDB, returning an enriched copy if matched,
@@ -66,13 +69,13 @@ object TmdbRepository {
             return@withContext item
         }
 
-        val parsed = MediaMetadataParser.parse(
+        val parsed = SeriesMetadataParser.parse(
             title = item.title,
-            caption = null,
-            fileName = item.fileName
+            fileName = item.fileName,
+            caption = null
         )
 
-        val queryTitle = parsed.title.trim()
+        val queryTitle = parsed.cleanTitle?.trim() ?: item.title.trim()
         if (queryTitle.isBlank()) {
             return@withContext item.copy(
                 releaseYear = parsed.year ?: item.releaseYear,
@@ -81,10 +84,16 @@ object TmdbRepository {
             )
         }
 
+        val isSeries = parsed.isSeries || item.seasonNumber != null || item.episodeNumber != null
+        val seasonNum = parsed.seasonNumber ?: item.seasonNumber
+        val episodeNum = parsed.episodeNumber ?: item.episodeNumber
+
         val meta = resolveMetadata(
             title = queryTitle,
             year = parsed.year ?: item.releaseYear,
-            isSeries = parsed.isSeries || item.seasonNumber != null || item.episodeNumber != null,
+            isSeries = isSeries,
+            seasonNumber = seasonNum,
+            episodeNumber = episodeNum,
             context = context
         )
 
@@ -96,20 +105,21 @@ object TmdbRepository {
 
             item.copy(
                 releaseYear = meta.year ?: parsed.year ?: item.releaseYear,
-                seasonNumber = parsed.seasonNumber ?: item.seasonNumber,
-                episodeNumber = parsed.episodeNumber ?: item.episodeNumber,
+                seasonNumber = seasonNum,
+                episodeNumber = episodeNum,
                 tmdbTitle = meta.title,
                 tmdbOverview = meta.overview,
                 tmdbRating = meta.rating,
                 tmdbPosterPath = localPoster ?: meta.posterPath?.let { "$TMDB_IMAGE_BASE_POSTER$it" },
                 tmdbBackdropPath = localBackdrop ?: meta.backdropPath?.let { "$TMDB_IMAGE_BASE_BACKDROP$it" },
-                seriesTitle = if (parsed.isSeries) meta.title else item.seriesTitle
+                seriesTitle = if (isSeries) meta.title else item.seriesTitle,
+                episodeTitle = meta.episodeTitle
             )
         } else {
             item.copy(
                 releaseYear = parsed.year ?: item.releaseYear,
-                seasonNumber = parsed.seasonNumber ?: item.seasonNumber,
-                episodeNumber = parsed.episodeNumber ?: item.episodeNumber
+                seasonNumber = seasonNum,
+                episodeNumber = episodeNum
             )
         }
     }
@@ -130,6 +140,8 @@ object TmdbRepository {
         title: String,
         year: Int?,
         isSeries: Boolean,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null,
         context: Context? = null
     ): TmdbMetadata? = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.TMDB_API_KEY
@@ -137,7 +149,7 @@ object TmdbRepository {
             return@withContext null
         }
 
-        val cacheKey = generateCacheKey(title, year, isSeries)
+        val cacheKey = generateCacheKey(title, year, isSeries, seasonNumber, episodeNumber)
 
         // 1. Check in-memory cache
         val memCached = memoryCache.get(cacheKey)
@@ -148,17 +160,15 @@ object TmdbRepository {
         // 2. Check disk cache
         val diskCached = readDiskCache(cacheKey, context)
         if (diskCached != null) {
-            // Verify negative cache TTL
-            if (!diskCached.matched && System.currentTimeMillis() - diskCached.timestamp > NEGATIVE_CACHE_TTL_MS) {
-                // Expired negative cache, re-query
-            } else {
+            val ttl = if (diskCached.matched) POSITIVE_CACHE_TTL_MS else NEGATIVE_CACHE_TTL_MS
+            if (System.currentTimeMillis() - diskCached.timestamp <= ttl) {
                 memoryCache.put(cacheKey, diskCached)
                 return@withContext diskCached
             }
         }
 
         // 3. Query TMDB API
-        val result = queryTmdb(title, year, isSeries, apiKey)
+        val result = queryTmdb(title, year, isSeries, seasonNumber, episodeNumber, apiKey)
         val metadataToStore = if (result != null) {
             // Download images to disk cache
             val localPoster = result.posterPath?.let { downloadImageToDisk(it, isPoster = true, context = context) }
@@ -179,41 +189,44 @@ object TmdbRepository {
     }
 
     /**
-     * Queries TMDB v3 API for movie or TV show.
+     * Queries TMDB v3 API for movie or TV show, calling search and details endpoints.
      */
     private fun queryTmdb(
         title: String,
         year: Int?,
         isSeries: Boolean,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
         apiKey: String
     ): TmdbMetadata? {
         try {
             if (isSeries) {
                 // 1. Search TV with year
-                val tvWithYear = searchTv(title, year, apiKey)
+                val tvWithYear = searchAndDetailTv(title, year, seasonNumber, episodeNumber, apiKey)
                 if (tvWithYear != null) return tvWithYear
 
                 // 2. Search TV without year if year was provided
                 if (year != null) {
-                    val tvWithoutYear = searchTv(title, null, apiKey)
+                    val tvWithoutYear = searchAndDetailTv(title, null, seasonNumber, episodeNumber, apiKey)
                     if (tvWithoutYear != null) return tvWithoutYear
                 }
 
                 // 3. Fallback to Movie search in case it was a movie named like a series
-                return searchMovie(title, year, apiKey) ?: searchMovie(title, null, apiKey)
+                return searchAndDetailMovie(title, year, apiKey) ?: searchAndDetailMovie(title, null, apiKey)
             } else {
                 // 1. Search Movie with year
-                val movieWithYear = searchMovie(title, year, apiKey)
+                val movieWithYear = searchAndDetailMovie(title, year, apiKey)
                 if (movieWithYear != null) return movieWithYear
 
                 // 2. Search Movie without year if year was provided
                 if (year != null) {
-                    val movieWithoutYear = searchMovie(title, null, apiKey)
+                    val movieWithoutYear = searchAndDetailMovie(title, null, apiKey)
                     if (movieWithoutYear != null) return movieWithoutYear
                 }
 
                 // 3. Fallback to TV search in case it was a TV show without SxxExx
-                return searchTv(title, year, apiKey) ?: searchTv(title, null, apiKey)
+                return searchAndDetailTv(title, year, seasonNumber, episodeNumber, apiKey)
+                    ?: searchAndDetailTv(title, null, seasonNumber, episodeNumber, apiKey)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to query TMDB for '$title': ${e.message}")
@@ -221,9 +234,9 @@ object TmdbRepository {
         }
     }
 
-    private fun searchMovie(title: String, year: Int?, apiKey: String): TmdbMetadata? {
+    private fun searchAndDetailMovie(title: String, year: Int?, apiKey: String): TmdbMetadata? {
         val encodedQuery = URLEncoder.encode(title, StandardCharsets.UTF_8.name())
-        val urlString = buildString {
+        val searchUrl = buildString {
             append("$TMDB_BASE_URL/search/movie?")
             append("api_key=").append(apiKey)
             append("&query=").append(encodedQuery)
@@ -233,13 +246,34 @@ object TmdbRepository {
             }
         }
 
-        val json = executeGet(urlString) ?: return null
-        return parseMovieResponse(json)
+        val searchJson = executeGet(searchUrl) ?: return null
+        val root = JSONObject(searchJson)
+        val results = root.optJSONArray("results") ?: return null
+        if (results.length() == 0) return null
+
+        val top = results.getJSONObject(0)
+        val id = top.optInt("id", 0)
+        if (id <= 0) return parseMovieResponse(searchJson)
+
+        // Query movie details endpoint for complete metadata
+        val detailsUrl = "$TMDB_BASE_URL/movie/$id?api_key=$apiKey"
+        val detailsJson = executeGet(detailsUrl)
+        return if (detailsJson != null) {
+            parseMovieDetailsResponse(detailsJson)
+        } else {
+            parseMovieResponse(searchJson)
+        }
     }
 
-    private fun searchTv(title: String, year: Int?, apiKey: String): TmdbMetadata? {
+    private fun searchAndDetailTv(
+        title: String,
+        year: Int?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+        apiKey: String
+    ): TmdbMetadata? {
         val encodedQuery = URLEncoder.encode(title, StandardCharsets.UTF_8.name())
-        val urlString = buildString {
+        val searchUrl = buildString {
             append("$TMDB_BASE_URL/search/tv?")
             append("api_key=").append(apiKey)
             append("&query=").append(encodedQuery)
@@ -249,8 +283,86 @@ object TmdbRepository {
             }
         }
 
-        val json = executeGet(urlString) ?: return null
-        return parseTvResponse(json)
+        val searchJson = executeGet(searchUrl) ?: return null
+        val root = JSONObject(searchJson)
+        val results = root.optJSONArray("results") ?: return null
+        if (results.length() == 0) return null
+
+        val top = results.getJSONObject(0)
+        val id = top.optInt("id", 0)
+        if (id <= 0) return parseTvResponse(searchJson)
+
+        // Query TV show details endpoint
+        val detailsUrl = "$TMDB_BASE_URL/tv/$id?api_key=$apiKey"
+        val detailsJson = executeGet(detailsUrl)
+        val showMeta = if (detailsJson != null) {
+            parseTvDetailsResponse(detailsJson)
+        } else {
+            parseTvResponse(searchJson)
+        } ?: return null
+
+        // If season and episode are specified, query episode details endpoint for episode title
+        if (seasonNumber != null && episodeNumber != null) {
+            val epUrl = "$TMDB_BASE_URL/tv/$id/season/$seasonNumber/episode/$episodeNumber?api_key=$apiKey"
+            val epJson = executeGet(epUrl)
+            if (epJson != null) {
+                val epObj = JSONObject(epJson)
+                val epTitle = epObj.optString("name", "").takeIf { it.isNotBlank() }
+                val epOverview = epObj.optString("overview", "").takeIf { it.isNotBlank() }
+                return showMeta.copy(
+                    episodeTitle = epTitle,
+                    overview = epOverview ?: showMeta.overview
+                )
+            }
+        }
+
+        return showMeta
+    }
+
+    private fun parseMovieDetailsResponse(jsonStr: String): TmdbMetadata? {
+        val top = JSONObject(jsonStr)
+        val id = top.optInt("id", 0)
+        val title = top.optString("title", "").ifBlank { top.optString("original_title", "") }
+        val overview = top.optString("overview", "").takeIf { it.isNotBlank() }
+        val posterPath = top.optString("poster_path", "").takeIf { it.isNotBlank() && it != "null" }
+        val backdropPath = top.optString("backdrop_path", "").takeIf { it.isNotBlank() && it != "null" }
+        val voteAverage = top.optDouble("vote_average", 0.0).toFloat().takeIf { it > 0f }
+        val releaseDate = top.optString("release_date", "")
+        val year = releaseDate.take(4).toIntOrNull()
+
+        return TmdbMetadata(
+            matched = true,
+            tmdbId = id,
+            title = title,
+            year = year,
+            overview = overview,
+            rating = voteAverage,
+            posterPath = posterPath,
+            backdropPath = backdropPath
+        )
+    }
+
+    private fun parseTvDetailsResponse(jsonStr: String): TmdbMetadata? {
+        val top = JSONObject(jsonStr)
+        val id = top.optInt("id", 0)
+        val title = top.optString("name", "").ifBlank { top.optString("original_name", "") }
+        val overview = top.optString("overview", "").takeIf { it.isNotBlank() }
+        val posterPath = top.optString("poster_path", "").takeIf { it.isNotBlank() && it != "null" }
+        val backdropPath = top.optString("backdrop_path", "").takeIf { it.isNotBlank() && it != "null" }
+        val voteAverage = top.optDouble("vote_average", 0.0).toFloat().takeIf { it > 0f }
+        val firstAirDate = top.optString("first_air_date", "")
+        val year = firstAirDate.take(4).toIntOrNull()
+
+        return TmdbMetadata(
+            matched = true,
+            tmdbId = id,
+            title = title,
+            year = year,
+            overview = overview,
+            rating = voteAverage,
+            posterPath = posterPath,
+            backdropPath = backdropPath
+        )
     }
 
     private fun parseMovieResponse(jsonStr: String): TmdbMetadata? {
@@ -398,7 +510,7 @@ object TmdbRepository {
         }
     }
 
-    // Disk Cache Implementation (JSON metadata)
+    // Disk Cache Implementation (JSON metadata with TTL)
 
     private fun getMetadataCacheDir(context: Context?): File {
         val base = testCacheDir ?: context?.cacheDir ?: File(System.getProperty("java.io.tmpdir"), "tmdb_test")
@@ -414,12 +526,18 @@ object TmdbRepository {
             val text = file.readText(StandardCharsets.UTF_8)
             val json = JSONObject(text)
             val matched = json.optBoolean("matched", false)
+            val timestamp = json.optLong("timestamp", System.currentTimeMillis())
+            val ttl = if (matched) POSITIVE_CACHE_TTL_MS else NEGATIVE_CACHE_TTL_MS
+            if (System.currentTimeMillis() - timestamp > ttl) {
+                file.delete()
+                return null
+            }
             if (!matched) {
                 TmdbMetadata(
                     matched = false,
                     title = json.optString("title", ""),
                     year = json.optInt("year", 0).takeIf { it > 0 },
-                    timestamp = json.optLong("timestamp", System.currentTimeMillis())
+                    timestamp = timestamp
                 )
             } else {
                 TmdbMetadata(
@@ -437,7 +555,8 @@ object TmdbRepository {
                     localBackdropPath = json.optString("localBackdropPath", "").takeIf {
                         it.isNotBlank() && File(it).exists()
                     },
-                    timestamp = json.optLong("timestamp", System.currentTimeMillis())
+                    episodeTitle = json.optString("episodeTitle", "").takeIf { it.isNotBlank() },
+                    timestamp = timestamp
                 )
             }
         } catch (e: Exception) {
@@ -461,6 +580,7 @@ object TmdbRepository {
                 metadata.backdropPath?.let { put("backdropPath", it) }
                 metadata.localPosterPath?.let { put("localPosterPath", it) }
                 metadata.localBackdropPath?.let { put("localBackdropPath", it) }
+                metadata.episodeTitle?.let { put("episodeTitle", it) }
                 put("timestamp", metadata.timestamp)
             }
             tempFile.writeText(json.toString(), StandardCharsets.UTF_8)
@@ -472,8 +592,14 @@ object TmdbRepository {
         }
     }
 
-    fun generateCacheKey(title: String, year: Int?, isSeries: Boolean): String {
-        val normalized = "${title.trim().lowercase()}_${year ?: ""}_${if (isSeries) "tv" else "movie"}"
+    fun generateCacheKey(
+        title: String,
+        year: Int?,
+        isSeries: Boolean,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null
+    ): String {
+        val normalized = "${title.trim().lowercase()}_${year ?: ""}_${if (isSeries) "tv" else "movie"}${if (seasonNumber != null) "_s$seasonNumber" else ""}${if (episodeNumber != null) "_e$episodeNumber" else ""}"
         return md5(normalized)
     }
 

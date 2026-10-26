@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.androidx.baselineprofile)
 }
 
-val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a")
 val tdLibJniDir = project.layout.projectDirectory.dir("src/main/jniLibs").asFile
 val tdLibAvailableAbis = supportedTdLibAbis.filter { abi ->
     val nativeLibrary = File(tdLibJniDir, "$abi/libtdjni.so")
@@ -48,6 +48,8 @@ android {
         version = release(37)
     }
 
+    val devAbi = project.findProperty("devAbi") as? String
+
     signingConfigs {
         create("release") {
             if (releaseStoreFile.isNotBlank()) {
@@ -67,10 +69,10 @@ android {
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        ndk {
-            // Phase 2 readiness: package only ABIs where TDLib native binary is present.
-            // This keeps phone/tablet/TV installs aligned and avoids startup UnsatisfiedLinkError.
-            abiFilters += tdLibAvailableAbis
+        if (!devAbi.isNullOrBlank()) {
+            ndk {
+                abiFilters += listOf(devAbi)
+            }
         }
 
         val apiId = properties.getProperty("TELEGRAM_API_ID") ?: ""
@@ -80,13 +82,16 @@ android {
         buildConfigField("String", "TELEGRAM_API_HASH", "\"$apiHash\"")
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "true")
+    }
 
+    androidResources {
+        localeFilters += listOf("en")
     }
 
     val isBuildingBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
     splits {
         abi {
-            isEnable = !isBuildingBundle
+            isEnable = devAbi.isNullOrBlank() && !isBuildingBundle
             reset()
             include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = true
@@ -105,7 +110,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -141,6 +146,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
         resources {
             excludes += setOf(
                 "META-INF/INDEX.LIST",
@@ -193,7 +201,71 @@ tasks.register("verifyTdlibAbiCoverage") {
                     "Available ABIs: $abis"
             )
         }
+        if (!abis.contains("armeabi-v7a")) {
+            throw GradleException(
+                "Missing required armeabi-v7a/libtdjni.so. Bousygram targets 32-bit budget Android TVs; " +
+                    "an APK without the 32-bit ARM TDLib runtime is not eligible for release. " +
+                    "Available ABIs: $abis"
+            )
+        }
         logger.lifecycle("Verified non-empty TDLib native binaries for ABIs: $abis")
+    }
+}
+
+tasks.matching { it.name in listOf("preReleaseBuild", "assembleRelease", "bundleRelease") }.configureEach {
+    dependsOn("verifyTdlibAbiCoverage")
+}
+
+tasks.register<Copy>("copyApksToDist") {
+    group = "distribution"
+    description = "Copies generated APKs to root dist/ directory and creates README.txt"
+    dependsOn(tasks.matching { it.name in listOf("packageDebug", "packageRelease") })
+    mustRunAfter(tasks.matching { it.name.startsWith("package") })
+    val distDir = rootProject.file("dist")
+    from(layout.buildDirectory.dir("outputs/apk")) {
+        include("**/*.apk")
+        eachFile {
+            path = name
+        }
+    }
+    into(distDir)
+    includeEmptyDirs = false
+
+    doLast {
+        val readmeFile = File(distDir, "README.txt")
+        distDir.mkdirs()
+        readmeFile.writeText(
+            """
+            ================================================================================
+            Bousygram APK Distribution Guide
+            ================================================================================
+
+            This directory contains APK builds optimized for Android TV and mobile devices.
+
+            1. Bousygram-v<version>-<variant>-arm64-v8a.apk
+               - Target Devices: Modern 64-bit Android TVs (Chromecast with Google TV 4K,
+                 Nvidia Shield TV, high-end Sony Bravia / Philips TVs) and modern 64-bit Android phones/tablets.
+               - Characteristics: Highest performance, lowest memory usage, 64-bit native code.
+
+            2. Bousygram-v<version>-<variant>-armeabi-v7a.apk
+               - Target Devices: Budget 32-bit Android TVs and streaming sticks (e.g., Xiaomi TV A Pro,
+                 Mi Box / Mi TV Stick, Realme Smart TV Stick, Fire TV Stick HD / Lite / 4K 1st Gen,
+                 Chromecast with Google TV HD, and low-RAM 1GB/2GB TVs running 32-bit Android).
+               - Characteristics: Fully compatible with 32-bit-only kernels. Includes full TDLib
+                 and libmpv/FFmpeg native libraries compiled for 32-bit ARM.
+
+            3. Bousygram-v<version>-<variant>-universal.apk
+               - Target Devices: Any ARM-based Android device (contains both arm64-v8a and armeabi-v7a).
+               - Characteristics: Larger file size because it bundles all native architectures.
+                 Use when device architecture is unknown or for general distribution.
+
+            --------------------------------------------------------------------------------
+            Installation on Android TV via ADB:
+               PowerShell: .\scripts\install-tv.ps1 -TvIp <TV_IP_ADDRESS>
+            ================================================================================
+            """.trimIndent()
+        )
+        logger.lifecycle("APKs and README.txt successfully copied to: ${distDir.absolutePath}")
     }
 }
 
@@ -225,7 +297,6 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
-    implementation(libs.androidx.media3.exoplayer.hls)
 
     // libmpv core engine
     implementation(libs.mpv)

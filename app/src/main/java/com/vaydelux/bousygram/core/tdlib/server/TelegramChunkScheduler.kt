@@ -171,6 +171,7 @@ internal object TelegramChunkScheduler {
     private val latestFiles = ConcurrentHashMap<Int, TelegramGatewayFile>()
     private val updateListeners = ConcurrentHashMap<Int, MutableSet<(TelegramGatewayFile) -> Unit>>()
     private val prefetchJobs = ConcurrentHashMap<Int, Job>()
+    private val activePrefetchRanges = ConcurrentHashMap<Int, MutableList<Pair<LongRange, Job>>>()
 
     init {
         TdLibClient.addUpdateHandler { update ->
@@ -263,6 +264,7 @@ internal object TelegramChunkScheduler {
         updateListeners.clear()
         prefetchJobs.values.forEach { it.cancel() }
         prefetchJobs.clear()
+        activePrefetchRanges.clear()
         permitsByFile.clear()
         activeCounts.clear()
     }
@@ -561,7 +563,36 @@ internal object TelegramChunkScheduler {
             }
         }
         prefetchJobs[effectiveId] = job
+        val range = offset.coerceAtLeast(0L)..(offset.coerceAtLeast(0L) + length)
+        val rangeList = activePrefetchRanges.computeIfAbsent(effectiveId) { java.util.Collections.synchronizedList(mutableListOf()) }
+        val rangePair = range to job
+        rangeList.add(rangePair)
+        job.invokeOnCompletion {
+            rangeList.remove(rangePair)
+        }
         return job
+    }
+
+    /**
+     * Cancels active prefetch chunks outside the [targetOffset - 2MB, targetOffset + windowBytes] range.
+     */
+    fun cancelOutOfWindowChunks(fileId: Int, targetOffset: Long, windowBytes: Long = 32L * 1024L * 1024L) {
+        val effectiveId = resolveEffectiveFileId(fileId)
+        val validStart = (targetOffset - 2L * 1024L * 1024L).coerceAtLeast(0L)
+        val validEnd = targetOffset + windowBytes
+
+        activePrefetchRanges[effectiveId]?.let { list ->
+            synchronized(list) {
+                val it = list.iterator()
+                while (it.hasNext()) {
+                    val (range, job) = it.next()
+                    if (range.last < validStart || range.first > validEnd) {
+                        job.cancel()
+                        it.remove()
+                    }
+                }
+            }
+        }
     }
 
     private fun prefetchAhead(fileId: Int, offset: Long, length: Int) {

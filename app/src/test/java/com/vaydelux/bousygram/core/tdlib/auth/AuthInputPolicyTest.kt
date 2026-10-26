@@ -41,4 +41,14 @@ class AuthInputPolicyTest {
             AuthInputPolicy.friendlyMessage("FLOOD_WAIT_42")
         )
     }
+
+    @Test
+    fun defaultApiCredentialsAreValid() {
+        assertNull(
+            AuthInputPolicy.apiCredentialsError(
+                TelegramAuthManager.DEFAULT_API_ID.toString(),
+                TelegramAuthManager.DEFAULT_API_HASH
+            )
+        )
+    }
 }

@@ -152,6 +152,34 @@ object ContinueWatchingRepository {
         return false
     }
 
+    /** Returns true if this fileId has an active, unfinished resume point in Continue Watching. */
+    fun isContinueWatching(fileId: Int): Boolean {
+        if (fileId <= 0) return false
+        return synchronized(entries) {
+            entries.values.any { entry ->
+                entry.fileId == fileId &&
+                    !entry.completed &&
+                    entry.positionMs >= MIN_RESUME_MS &&
+                    (entry.durationMs <= 0L || entry.positionMs < (entry.durationMs * COMPLETED_THRESHOLD_RATIO).toLong())
+            }
+        }
+    }
+
+    /** Returns set of fileIds currently active in Continue Watching. */
+    fun getContinueWatchingFileIds(): Set<Int> {
+        return synchronized(entries) {
+            entries.values
+                .filter { entry ->
+                    !entry.completed &&
+                        entry.positionMs >= MIN_RESUME_MS &&
+                        (entry.durationMs <= 0L || entry.positionMs < (entry.durationMs * COMPLETED_THRESHOLD_RATIO).toLong())
+                }
+                .map { it.fileId }
+                .filter { it > 0 }
+                .toSet()
+        }
+    }
+
     private fun evictExpiredLocked() {
         val now = System.currentTimeMillis()
         val iterator = entries.entries.iterator()

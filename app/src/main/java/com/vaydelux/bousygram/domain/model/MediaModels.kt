@@ -66,7 +66,9 @@ data class MediaItem(
     /** Vote average / rating from TMDB. */
     val tmdbRating: Float? = null,
     /** Matched official title from TMDB. */
-    val tmdbTitle: String? = null
+    val tmdbTitle: String? = null,
+    /** Matched episode title from TMDB if TV series episode. */
+    val episodeTitle: String? = null
 ) : Serializable
 
 data class SeriesGroup(
@@ -205,8 +207,10 @@ fun groupMediaIntoSeries(
     return items
         .filter { it.type == MediaType.Video || it.fileId != null }
         .mapNotNull { item ->
-            val parsedTitle = item.seriesTitle?.trim()?.takeIf { it.isNotBlank() }
             val hasEpisodeInfo = item.seasonNumber != null || item.episodeNumber != null
+            val isKnownSeries = hasEpisodeInfo || !item.seriesTitle.isNullOrBlank()
+            val parsedTitle = (if (isKnownSeries) item.tmdbTitle?.trim()?.takeIf { it.isNotBlank() } else null)
+                ?: item.seriesTitle?.trim()?.takeIf { it.isNotBlank() }
             val series = when {
                 parsedTitle != null -> parsedTitle
                 hasEpisodeInfo -> {

@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.tdlib.cache
 
 import android.util.Log
+import com.vaydelux.bousygram.core.cache.CacheManager
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import kotlinx.coroutines.CoroutineScope
@@ -61,50 +62,10 @@ object TelegramNativeFileGc {
     }
 
     fun optimizeStorage(
-        targetSizeBytes: Long = EnterprisePreferences.cacheLimitBytes().coerceAtLeast(1024L * 1024L * 500L),
+        targetSizeBytes: Long = CacheManager.calculateDynamicQuota(),
         onComplete: ((Boolean, String) -> Unit)? = null
     ) {
-        val fileTypes = arrayOf<TdApi.FileType>(
-            TdApi.FileTypeVideo(),
-            TdApi.FileTypeDocument()
-        )
-        val request = TdApi.OptimizeStorage(
-            /* size = */ targetSizeBytes,
-            /* ttl = */ -1, // pure LRU by size
-            /* count = */ -1,
-            /* immunityDelay = */ IMMUNITY_DELAY_SECONDS,
-            /* fileTypes = */ fileTypes,
-            /* chatIds = */ longArrayOf(),
-            /* excludeChatIds = */ longArrayOf(),
-            /* returnDeletedFileStatistics = */ false,
-            /* chatLimit = */ 0
-        )
-
-        try {
-            TdLibClient.client.send(request) { result ->
-                when (result) {
-                    is TdApi.StorageStatistics -> {
-                        val msg = "TDLib native file GC completed target=${targetSizeBytes / (1024 * 1024)}MB"
-                        Log.i(TAG, msg)
-                        onComplete?.invoke(true, msg)
-                    }
-                    is TdApi.Error -> {
-                        val msg = "TDLib OptimizeStorage error: ${result.message}"
-                        Log.w(TAG, msg)
-                        onComplete?.invoke(false, msg)
-                    }
-                    else -> {
-                        val msg = "TDLib OptimizeStorage returned ${result.javaClass.simpleName}"
-                        Log.d(TAG, msg)
-                        onComplete?.invoke(true, msg)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            val msg = "Exception triggering TDLib OptimizeStorage: ${e.message}"
-            Log.e(TAG, msg, e)
-            onComplete?.invoke(false, msg)
-        }
+        CacheManager.optimizeStorageNative(targetSizeBytes, onComplete)
     }
 }
 

@@ -12,7 +12,7 @@
 
 **Bousygram** is a specialized, video-first Android application optimized for **Android TV (Leanback / D-pad)** with adaptive layouts for phones and tablets. It connects directly to Telegram via native **TDLib (Telegram Database Library)** to index, stream, and play video content stored in chats, channels, groups, and Saved Messages.
 
-The application operates primarily through a **direct local loopback architecture**: an on-device local HTTP streaming server bridges Telegram's MTProto chunk downloads to **AndroidX Media3 ExoPlayer** and **libmpv**, enabling seamless HTTP byte-range seeking, partial caching, and privacy-preserving playback without an intermediate proxy server. A secondary, optional **Fast-Link VPS proxy** is also provided for hosted HTTPS delivery via Telegram Bot API forwarding.
+The application operates exclusively through a **direct local loopback architecture**: an on-device local HTTP streaming server bridges Telegram's MTProto chunk downloads to **AndroidX Media3 ExoPlayer** and **libmpv**, enabling seamless HTTP byte-range seeking, partial caching, and privacy-preserving playback without an intermediate proxy server.
 
 ---
 
@@ -54,7 +54,6 @@ graph TD
     StreamSvr --> ChunkSched[TelegramChunkScheduler]
     ChunkSched --> TDLib
     Player[Media3 ExoPlayer / libmpv] -->|HTTP Range Requests| StreamSvr
-    FastLink[Fast-Link Proxy Service] -.->|Optional HTTPS Delivery| Player
 ```
 
 ### 3.1 Frameworks & Libraries
@@ -125,14 +124,7 @@ The project follows a modular Clean Architecture under package `com.vaydelux.bou
 - **`theme`**: `BousygramTheme.kt` — Four dynamic color presets (`Midnight`, `Aurora`, `Ocean`, `Sunset`) backed by semantic Material 3 color tokens.
 - **`components`**: `ChatSourcePicker.kt`, `MediaPosterCard.kt`, `TvGlowMediaCard.kt`, `EnterpriseComponents.kt` (`TvFocusSurface`), `BousygramAdaptiveShell.kt`.
 
-### 4.5 `server/fastlink-proxy` (Optional VPS Backend)
-A standalone Python FastAPI service for users deploying a personal proxy bot:
-- `server.py`: FastAPI server streaming files via Telegram Bot API with token-based authorization.
-- `bot.py`: Telegram Bot handler forwarding video messages and replying with signed streaming links.
-- `tokens.py` / `streaming.py`: Byte-range validation, upstream chunk verification, and expiring token cache.
-- `nginx.conf` & `bousygram-proxy.service`: Deployment configurations for production VPS.
-
-### 4.6 Telegram Forum Topics & Thread Media Isolation Architecture
+### 4.5 Telegram Forum Topics & Thread Media Isolation Architecture
 In forum-enabled Telegram supergroups, media is organized into distinct message threads (forum topics). The application implements an end-to-end multi-layer filtering and isolation pipeline:
 1. **Interactive Channel Rail**: Top horizontal rail displaying available forum topics loaded via `TdApi.GetForumTopics` alongside an `# all-channels` aggregate chip with unread badges and topic media counters.
 2. **Deterministic UI State Filter (`MediaUiState.filteredAndSortedItems`)**: Guarantees that in-memory collections (`featuredVideos`, `seriesGroups`, category views) immediately re-filter upon topic selection:
@@ -145,7 +137,7 @@ In forum-enabled Telegram supergroups, media is organized into distinct message 
 4. **Contextual Thread ID Mapping (`SavedMessagesMediaMapper.kt`)**: Injects `fallbackTopicId` when mapping TDLib message objects, ensuring thread ID preservation even when Telegram servers omit explicit topic identifiers on individual message payloads.
 5. **Dynamic Topic Name Resolution**: Resolves human-readable topic names from `availableTopics` into `MediaItem.topicName` and `MediaUiState.topicGroups`, replacing cryptic numeric IDs with clear labels (e.g. "Action Movies", "Anime").
 
-### 4.7 Unified Android TV Design System
+### 4.6 Unified Android TV Design System
 The interface enforces a unified design system tailored specifically for 10-foot TV viewing and directional pad (D-pad) navigation:
 - **`TvFocusSurface` Foundation**: Standardizes all interactive elements (forum topic chips, category filter tabs, season selector chips, "← All Shows" back button, and chat source cards).
 - **Physical D-pad Affordance**: Features a 1.035x spring-animated scale curve (`Spring.StiffnessMediumLow`), dynamic high-contrast glow elevation (`18.dp`), and animated border transitions.
@@ -201,7 +193,6 @@ During this repository audit, the build system, compilers, and test suites were 
 | **Kotlin / Compose Compilation** | `.\gradlew.bat :app:compileDebugKotlin` | **PASSED** | 1m 39s. All Jetpack Compose TV screens, ViewModels, and data layers compiled cleanly with 4GB heap. |
 | **Android Unit Tests** | `.\gradlew.bat :app:testDebugUnitTest` | **PASSED** | All 154 unit tests (including `TelegramChunkSchedulerTest`, `PlaybackTelemetryRecorderTest`, `MediaTopicFilteringTest`, `PlaybackHelpersTest`, `SeriesMetadataParserTest`, `VoiceSearchAccessibilityTest`, etc.) passed with 100% success. |
 | **Release Minified APK Assembly** | `.\gradlew.bat assembleRelease` | **PASSED** | 15m 55s. Full R8 code minification, resource shrinking, LintVital verification, ART profile compilation, and split APK packaging completed cleanly. |
-| **Fast-Link Mock Tests** | `python .\server\fastlink-proxy\run_mock_tests.py` | **PASSED** | 14/14 tests passed in 0.282s (range parsing, token lifecycle, routes). |
 
 ### Generated Release Artifacts
 - **Directory**: `app/build/outputs/apk/release/`
@@ -234,8 +225,6 @@ Tele-main--1/
 │       │   ├── jniLibs/                # Native libraries (libtdjni.so for arm64-v8a & armeabi-v7a)
 │       │   └── res/                    # Drawables, Leanback banners, XML configs, theme values
 │       └── test/                       # Unit tests (MediaTopicFiltering, RangeParser, TokenRegistry, Scheduler, Policies)
-├── server/
-│   └── fastlink-proxy/                 # Python FastAPI proxy server & Telegram bot service
 ├── tools/
 │   ├── mock-tests/                     # Offline test suites & verification runners
 │   └── tdlib/                          # TDLib compilation automation scripts for Android
@@ -259,29 +248,30 @@ $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 
 ### 9.2 Common Gradle Commands
 ```powershell
-# 1. Verify TDLib native library presence
+# 1. Verify TDLib native library presence for both 32-bit and 64-bit ABIs
 .\gradlew.bat :app:verifyTdlibAbiCoverage
 
-# 2. Compile Kotlin & Compose TV code
-.\gradlew.bat :app:compileDebugKotlin
-
-# 3. Execute unit test suite
+# 2. Execute unit test suite (190 passing unit tests)
 .\gradlew.bat :app:testDebugUnitTest
 
-# 4. Assemble debug split APKs
-.\gradlew.bat :app:assembleDebug
+# 3. Fast iteration single-split dev build (targeting 32-bit Xiaomi TV A Pro in ~5 minutes)
+.\gradlew.bat :app:assembleRelease -PdevAbi=armeabi-v7a
 
-# 5. Assemble production release with R8 minification (requires signing credentials in local.properties)
+# 4. Assemble full release with all splits (arm64-v8a, armeabi-v7a, universal)
 .\gradlew.bat :app:assembleRelease
 ```
 
 ### 9.3 Installing to Android TV Device
+Generated release artifacts reside in `app/build/outputs/apk/release/`:
+- **32-Bit Android TV (Xiaomi TV A Pro, Mi Box / TV Stick, Fire TV Stick)**:
+  `app/build/outputs/apk/release/Bousygram-v1.0-release-universal.apk` (or `armeabi-v7a` split).
+- **64-Bit Modern Android TV (Chromecast with Google TV 4K, Nvidia Shield TV)**:
+  `arm64-v8a` split or `universal.apk`.
+
+Transfer via USB drive, local network share, or package installer:
 ```powershell
-adb connect <tv-ip-address>:5555
-# For modern 64-bit Android TV:
-adb install -r app/build/outputs/apk/debug/Bousygram-v1.0-debug-arm64-v8a.apk
-# For legacy 32-bit Android TV:
-adb install -r app/build/outputs/apk/debug/Bousygram-v1.0-debug-armeabi-v7a.apk
+# Copy to local flash drive or install via local network tool
+Copy-Item app/build/outputs/apk/release/*.apk E:\AndroidTV\
 ```
 
 ---

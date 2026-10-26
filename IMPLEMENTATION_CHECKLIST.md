@@ -19,7 +19,6 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 
 ## Phase 2 — Security and data integrity
 
-- [x] Validate Fast-Link bot URLs as HTTPS URLs without credentials, unexpected ports, fragments, or malformed URI structure.
 - [x] Protect loopback stream URLs with scoped high-entropy capability tokens and explicit revocation.
 - [x] Stop evicting valid tokens arbitrarily when the registry reaches capacity.
 - [x] Record TDLib database-key mode in preferences and a separate no-backup marker; fail closed for a missing encrypted key or conflicting markers.
@@ -30,12 +29,11 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 
 ## Phase 3 — Playback and cache reliability
 
-- [x] Fix asynchronous Fast-Link preparation to wait for the bot response.
 - [x] Generate queue stream URLs lazily rather than minting capabilities for inactive queue entries.
 - [x] Revoke local stream/subtitle capabilities when they are no longer needed.
 - [x] Debounce focus-triggered warm-up during rapid TV navigation.
 - [x] Make the loopback server stop/start lifecycle restart-safe at source level.
-- [~] Validate local/Fast-Link startup, seeking, retries, lifecycle pause/resume, queue switching, subtitles and audio tracks on devices.
+- [~] Validate local stream startup, seeking, retries, lifecycle pause/resume, queue switching, subtitles and audio tracks on devices.
 - [~] Verify cache eviction behavior while pinned downloads and active playback are running.
 
 ## Phase 4 — UI and TV navigation
@@ -48,7 +46,6 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 
 ## Phase 5 — End-to-end release validation
 
-- [x] Mock Fast-Link routes with fake upstream responses.
 - [x] Run pure Kotlin range/token/URL/database-key policy tests.
 - [ ] Run controlled Telegram-account integration tests and real CDN playback.
 - [ ] Complete crash-free long-session, background/resume and large-library tests.
@@ -60,7 +57,6 @@ Legend: `[x]` implemented and checked within the stated scope; `[~]` source work
 
 ## Current local verification
 
-- Fast-Link Python mock suite: 14/14 passed.
 - Standalone Kotlin range/token/URL/database-key policy suite: 27/27 passed.
 - Selected Android XML parsing and source invariants passed, including the signing-gate scope, subtitle URL fail-closed check, and browsing privacy-mode checks.
 - Workflow YAML and all 12 embedded Bash snippets passed syntax validation.
