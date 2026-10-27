@@ -439,6 +439,31 @@ class TelegramChunkSchedulerTest {
         assertEquals(TelegramChunkScheduler.PLAYBACK_PRIORITY, medTail.priority)
     }
 
+    @Test
+    fun releasingOneLeaseDoesNotCancelWorkNeededByAnotherConsumer() = runBlocking {
+        val gateway = FakeTelegramFileGateway(ByteArray(32 * 1024) { 1 })
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        val exoLease = TelegramChunkScheduler.acquireLease(
+            501, 0L, 4096L, TelegramStreamConsumer.ExoPlayer, TelegramChunkScheduler.PLAYBACK_PRIORITY
+        )
+        val httpLease = TelegramChunkScheduler.acquireLease(
+            501, 0L, 4096L, TelegramStreamConsumer.LocalHttp, TelegramChunkScheduler.PLAYBACK_PRIORITY
+        )
+
+        TelegramChunkScheduler.releaseLease(exoLease)
+        kotlinx.coroutines.delay(50L)
+        assertEquals(1, TelegramChunkScheduler.activeLeaseCount(501))
+        assertEquals(0, gateway.cancelCalls.get())
+
+        TelegramChunkScheduler.releaseLease(httpLease)
+        val deadline = System.currentTimeMillis() + 2_000L
+        while (gateway.cancelCalls.get() == 0 && System.currentTimeMillis() < deadline) {
+            kotlinx.coroutines.delay(10L)
+        }
+        assertEquals(0, TelegramChunkScheduler.activeLeaseCount(501))
+        assertEquals(1, gateway.cancelCalls.get())
+    }
+
     private class FakeTelegramFileGateway(
         private val bytes: ByteArray,
         private val completed: Boolean = true,

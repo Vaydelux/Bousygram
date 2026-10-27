@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.core.tdlib.server
 import android.util.Log
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
+import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
 import com.vaydelux.bousygram.core.tdlib.server.TdLibTelegramFileGateway.toGatewayFile
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import kotlinx.coroutines.CompletableDeferred
@@ -28,6 +29,7 @@ import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
 import kotlin.math.max
 import kotlin.math.min
@@ -71,6 +73,31 @@ internal data class TelegramChunkRequest(
     val limit: Int,
     val priority: Int,
     val purpose: TelegramChunkPurpose
+)
+
+internal enum class TelegramStreamConsumer {
+    ExoPlayer,
+    LocalHttp,
+    Prefetch,
+    Offline
+}
+
+internal enum class TelegramLeaseReleaseReason {
+    Completed,
+    ConsumerClosed,
+    SeekSuperseded,
+    TimedOut,
+    Failed
+}
+
+internal data class TelegramRangeLease(
+    internal val leaseId: Long,
+    val fileId: Int,
+    val offset: Long,
+    val length: Long,
+    val consumer: TelegramStreamConsumer,
+    val priority: Int,
+    val deadlineAtMs: Long?
 )
 
 internal sealed class TelegramChunkResult {
@@ -152,6 +179,10 @@ internal object TelegramChunkScheduler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val permitsByFile = ConcurrentHashMap<Int, Semaphore>()
     private val activeRequests = ConcurrentHashMap<ChunkKey, kotlinx.coroutines.Deferred<TelegramChunkResult>>()
+    private val nextLeaseId = AtomicLong(1L)
+    private val leaseLock = Any()
+    private val activeLeases = ConcurrentHashMap<Long, TelegramRangeLease>()
+    private val leaseCountsByFile = ConcurrentHashMap<Int, Int>()
     private val activeCounts = ConcurrentHashMap<Int, AtomicInteger>()
     private val playbackBusyUntilMs = ConcurrentHashMap<Int, Long>()
     private val downloadWindows = ConcurrentHashMap<Int, DownloadWindow>()
@@ -160,6 +191,7 @@ internal object TelegramChunkScheduler {
     private val savedTails = ConcurrentHashMap<Int, SavedTail>()
     private val playbackReady = ConcurrentHashMap.newKeySet<Int>()
     private val prepareLocks = ConcurrentHashMap<Int, Mutex>()
+    private val downloadCommandLocks = ConcurrentHashMap<Int, Mutex>()
     private val cacheStates = ConcurrentHashMap<Int, PlaybackCacheState>()
     private val backgroundPaused = AtomicBoolean(false)
     private val coldStartFiles = ConcurrentHashMap.newKeySet<Int>()
@@ -254,6 +286,7 @@ internal object TelegramChunkScheduler {
         savedTails.clear()
         playbackReady.clear()
         prepareLocks.clear()
+        downloadCommandLocks.clear()
         activeRequests.clear()
         cacheStates.clear()
         coldStartFiles.clear()
@@ -267,6 +300,79 @@ internal object TelegramChunkScheduler {
         activePrefetchRanges.clear()
         permitsByFile.clear()
         activeCounts.clear()
+        activeLeases.clear()
+        leaseCountsByFile.clear()
+    }
+
+    fun acquireLease(
+        fileId: Int,
+        offset: Long,
+        length: Long,
+        consumer: TelegramStreamConsumer,
+        priority: Int,
+        deadlineAtMs: Long? = null
+    ): TelegramRangeLease {
+        require(fileId > 0) { "fileId must be positive" }
+        require(offset >= 0L) { "offset must not be negative" }
+        require(length >= 0L) { "length must not be negative" }
+        val effectiveId = resolveEffectiveFileId(fileId)
+        val lease = TelegramRangeLease(
+            leaseId = nextLeaseId.getAndIncrement(),
+            fileId = effectiveId,
+            offset = offset,
+            length = length,
+            consumer = consumer,
+            priority = priority.coerceIn(1, PLAYBACK_PRIORITY),
+            deadlineAtMs = deadlineAtMs
+        )
+        synchronized(leaseLock) {
+            activeLeases[lease.leaseId] = lease
+            leaseCountsByFile[effectiveId] = (leaseCountsByFile[effectiveId] ?: 0) + 1
+        }
+        return lease
+    }
+
+    fun releaseLease(
+        lease: TelegramRangeLease?,
+        reason: TelegramLeaseReleaseReason = TelegramLeaseReleaseReason.ConsumerClosed,
+        lastOffset: Long = -1L
+    ) {
+        lease ?: return
+        val shouldCancel = synchronized(leaseLock) {
+            val removed = activeLeases.remove(lease.leaseId) ?: return@synchronized false
+            val remaining = ((leaseCountsByFile[removed.fileId] ?: 1) - 1).coerceAtLeast(0)
+            if (remaining == 0) leaseCountsByFile.remove(removed.fileId) else leaseCountsByFile[removed.fileId] = remaining
+            remaining == 0 && removed.consumer != TelegramStreamConsumer.Offline
+        }
+        if (reason != TelegramLeaseReleaseReason.Completed) {
+            PlaybackTelemetryRecorder.recordCancellation(lease.fileId, reason.name)
+        }
+        if (shouldCancel) cancelFileIfUnused(lease.fileId, lastOffset)
+    }
+
+    internal fun activeLeaseCount(fileId: Int): Int =
+        synchronized(leaseLock) { leaseCountsByFile[resolveEffectiveFileId(fileId)] ?: 0 }
+
+    private fun cancelFileIfUnused(fileId: Int, offset: Long) {
+        val effectiveId = resolveEffectiveFileId(fileId)
+        if (activeLeaseCount(effectiveId) > 0 || OfflineCacheManager.isPinned(effectiveId)) return
+        Log.i(TAG, "Last transient consumer released fileId=$effectiveId offset=$offset")
+        cancelPrefetch(effectiveId)
+        activeRequests.entries.removeIf { (key, deferred) ->
+            if (key.fileId == effectiveId) {
+                deferred.cancel()
+                true
+            } else {
+                false
+            }
+        }
+        downloadWindows.remove(effectiveId)
+        playbackBusyUntilMs.remove(effectiveId)
+        playbackReady.remove(effectiveId)
+        coldStartFiles.remove(effectiveId)
+        scope.launch {
+            TelegramFileGatewayRegistry.current.cancelDownloadFile(effectiveId, onlyIfPending = true)
+        }
     }
 
     private fun recordChunkSample(fileId: Int, bytes: Int, durationMs: Long) {
@@ -373,32 +479,28 @@ internal object TelegramChunkScheduler {
             }
         }
 
-        val headJob = launch {
-            val startMs = System.currentTimeMillis()
-            rememberWindow(effectiveId, 0L, headLimit.toLong(), TelegramChunkPurpose.Streaming)
-            startChunkDownload(effectiveId, offset = 0L, limit = headLimit, priority = PLAYBACK_PRIORITY)
-            awaitPrefixReady(effectiveId, 0L, min(headLimit, MIN_PARTIAL_BYTES), timeoutMs = 15_000L)
-            val elapsed = if (isFullyCached) 0L else (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
-            PlaybackTelemetryRecorder.recordHeaderChunkTime(effectiveId, elapsed)
-        }
+        val headStartMs = System.currentTimeMillis()
+        rememberWindow(effectiveId, 0L, headLimit.toLong(), TelegramChunkPurpose.Streaming)
+        startChunkDownload(effectiveId, offset = 0L, limit = headLimit, priority = PLAYBACK_PRIORITY)
+        awaitPrefixReady(effectiveId, 0L, min(headLimit, MIN_PARTIAL_BYTES), timeoutMs = 15_000L)
+        val headElapsed = if (isFullyCached) 0L else (System.currentTimeMillis() - headStartMs).coerceAtLeast(1L)
+        PlaybackTelemetryRecorder.recordHeaderChunkTime(effectiveId, headElapsed)
 
         if (tailLimit > 0 && tailOffset >= 0L) {
-            launch {
-                val startMs = System.currentTimeMillis()
-                startChunkDownload(effectiveId, offset = tailOffset, limit = tailLimit, priority = PLAYBACK_PRIORITY)
-                awaitPrefixReady(effectiveId, tailOffset, min(tailLimit, MIN_PARTIAL_BYTES), timeoutMs = TAIL_MAX_WAIT_MS)
-                val elapsed = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
-                PlaybackTelemetryRecorder.recordTailChunkTime(effectiveId, elapsed)
-                readRange(effectiveId, tailOffset, min(tailLimit, CHUNK_SIZE_BYTES))?.let { bytes ->
-                    savedTails[effectiveId] = SavedTail(tailOffset, bytes)
-                }
+            val startMs = System.currentTimeMillis()
+            rememberWindow(effectiveId, tailOffset, tailOffset + tailLimit, TelegramChunkPurpose.Streaming)
+            PlaybackTelemetryRecorder.recordSupersededWindow(effectiveId)
+            startChunkDownload(effectiveId, offset = tailOffset, limit = tailLimit, priority = PLAYBACK_PRIORITY)
+            awaitPrefixReady(effectiveId, tailOffset, min(tailLimit, MIN_PARTIAL_BYTES), timeoutMs = TAIL_MAX_WAIT_MS)
+            PlaybackTelemetryRecorder.recordTailChunkTime(
+                effectiveId,
+                (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+            )
+            readRange(effectiveId, tailOffset, min(tailLimit, CHUNK_SIZE_BYTES))?.let { bytes ->
+                savedTails[effectiveId] = SavedTail(tailOffset, bytes)
             }
         } else {
-            launch {
-                headJob.join()
-                val headTime = if (isFullyCached) 0L else (PlaybackTelemetryRecorder.peekHeaderChunkTime(effectiveId) ?: 1L)
-                PlaybackTelemetryRecorder.recordTailChunkTime(effectiveId, headTime)
-            }
+            PlaybackTelemetryRecorder.recordTailChunkTime(effectiveId, headElapsed)
         }
         if (isFullyCached) {
             markState(effectiveId, PlaybackCacheState.Cached)
@@ -414,23 +516,7 @@ internal object TelegramChunkScheduler {
     fun onClientDisconnected(fileId: Int, offset: Long = -1L) {
         if (fileId <= 0) return
         val effectiveId = resolveEffectiveFileId(fileId)
-        Log.i(TAG, "Client disconnected mid-range fileId=$effectiveId (requested=$fileId) offset=$offset; cancelling pending work")
-        cancelPrefetch(effectiveId)
-        activeRequests.entries.removeIf { (key, deferred) ->
-            if (key.fileId == effectiveId) {
-                deferred.cancel()
-                true
-            } else {
-                false
-            }
-        }
-        downloadWindows.remove(effectiveId)
-        playbackBusyUntilMs.remove(effectiveId)
-        playbackReady.remove(effectiveId)
-        coldStartFiles.remove(effectiveId)
-        scope.launch {
-            TelegramFileGatewayRegistry.current.cancelDownloadFile(effectiveId, onlyIfPending = false)
-        }
+        if (activeLeaseCount(effectiveId) == 0) cancelFileIfUnused(effectiveId, offset)
     }
 
     suspend fun fetchChunk(request: TelegramChunkRequest): TelegramChunkResult {
@@ -445,6 +531,7 @@ internal object TelegramChunkScheduler {
 
         sliceSavedTail(effectiveRequest.fileId, effectiveRequest.offset, effectiveRequest.limit)?.let { bytes ->
             if (isPlaybackPurpose(effectiveRequest.purpose)) touchPlayback(effectiveRequest.fileId)
+            PlaybackTelemetryRecorder.recordLocalBytesServed(effectiveRequest.fileId, bytes.size)
             return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.DirectDisk, retryCount = 0)
         }
 
@@ -457,6 +544,23 @@ internal object TelegramChunkScheduler {
 
         val key = ChunkKey(effectiveRequest.fileId, effectiveRequest.offset.coerceAtLeast(0L), effectiveRequest.limit)
         return coroutineScope {
+            val covering = activeRequests.entries.firstOrNull { (activeKey, _) ->
+                activeKey.fileId == key.fileId &&
+                    activeKey.offset <= key.offset &&
+                    activeKey.offset + activeKey.limit >= key.offset + key.limit
+            }
+            if (covering != null) {
+                PlaybackTelemetryRecorder.recordDeduplicatedRequest(key.fileId)
+                val shared = covering.value.await()
+                if (shared is TelegramChunkResult.Ready) {
+                    val relativeStart = (key.offset - covering.key.offset).toInt()
+                    val relativeEnd = relativeStart + key.limit
+                    if (relativeStart >= 0 && relativeEnd <= shared.bytes.size) {
+                        return@coroutineScope shared.copy(bytes = shared.bytes.copyOfRange(relativeStart, relativeEnd))
+                    }
+                }
+                return@coroutineScope shared
+            }
             val candidate = async(Dispatchers.IO, start = CoroutineStart.LAZY) {
                 val semaphore = semaphoreForFile(effectiveRequest.fileId)
                 semaphore.withPermit {
@@ -480,6 +584,7 @@ internal object TelegramChunkScheduler {
             val existing = activeRequests.putIfAbsent(key, candidate)
             if (existing != null) {
                 candidate.cancel()
+                PlaybackTelemetryRecorder.recordDeduplicatedRequest(key.fileId)
                 existing.await()
             } else {
                 candidate.start()
@@ -780,6 +885,7 @@ internal object TelegramChunkScheduler {
         val isOutside = window == null || request.offset < window.offset || request.offset >= contiguousEnd
         if (isOutside) {
             Log.d(TAG, "Seek detected fileId=${request.fileId} offset=${request.offset}; cancelling stale in-flight downloads")
+            PlaybackTelemetryRecorder.recordSupersededWindow(request.fileId)
             cancelPrefetch(request.fileId)
             TelegramFileGatewayRegistry.current.cancelDownloadFile(request.fileId, onlyIfPending = false)
 
@@ -982,6 +1088,7 @@ internal object TelegramChunkScheduler {
         if (file != null) {
             val diskBytes = readExactChunkFromDisk(file, request.offset, take)
             if (diskBytes != null && diskBytes.size >= take) {
+                PlaybackTelemetryRecorder.recordLocalBytesServed(request.fileId, diskBytes.size)
                 return TelegramChunkResult.Ready(
                     bytes = diskBytes,
                     source = TelegramChunkReadSource.DirectDisk,
@@ -990,6 +1097,7 @@ internal object TelegramChunkScheduler {
             }
         }
         readChunkViaTdLib(request.fileId, request.offset, take)?.let { bytes ->
+            PlaybackTelemetryRecorder.recordLocalBytesServed(request.fileId, bytes.size)
             return TelegramChunkResult.Ready(
                 bytes = bytes,
                 source = TelegramChunkReadSource.ReadFilePart,
@@ -998,6 +1106,7 @@ internal object TelegramChunkScheduler {
         }
         if (file != null) {
             readExactChunkFromDisk(file, request.offset, take)?.let { bytes ->
+                PlaybackTelemetryRecorder.recordLocalBytesServed(request.fileId, bytes.size)
                 return TelegramChunkResult.Ready(
                     bytes = bytes,
                     source = TelegramChunkReadSource.DirectDisk,
@@ -1048,6 +1157,58 @@ internal object TelegramChunkScheduler {
         limit: Int,
         priority: Int,
         synchronous: Boolean = false
+    ): DownloadStart = downloadCommandLocks.getOrPut(resolveEffectiveFileId(fileId)) { Mutex() }.withLock {
+        startChunkDownloadSerialized(fileId, offset, limit, priority, synchronous)
+    }
+
+    internal suspend fun awaitFileState(
+        fileId: Int,
+        timeoutMs: Long,
+        predicate: (TelegramGatewayFile) -> Boolean
+    ): TelegramGatewayFile? {
+        val effectiveId = resolveEffectiveFileId(fileId)
+        val initial = latestFiles[effectiveId] ?: getFileStatus(effectiveId)
+        if (initial != null && predicate(initial)) return initial
+
+        val deferred = CompletableDeferred<TelegramGatewayFile>()
+        val listener: (TelegramGatewayFile) -> Unit = { updated ->
+            if (predicate(updated)) deferred.complete(updated)
+        }
+        val listeners = updateListeners.computeIfAbsent(effectiveId) { ConcurrentHashMap.newKeySet() }
+        listeners.add(listener)
+        return try {
+            val fresh = latestFiles[effectiveId] ?: getFileStatus(effectiveId)
+            if (fresh != null && predicate(fresh)) fresh
+            else withTimeoutOrNull(timeoutMs) { deferred.await() }
+        } finally {
+            listeners.remove(listener)
+        }
+    }
+
+    internal suspend fun downloadEntireFile(fileId: Int, timeoutMs: Long): TelegramGatewayFile? {
+        if (fileId <= 0) return null
+        val lease = acquireLease(fileId, 0L, 0L, TelegramStreamConsumer.LocalHttp, PLAYBACK_PRIORITY)
+        var reason = TelegramLeaseReleaseReason.Completed
+        return try {
+            val started = startChunkDownload(fileId, 0L, 0, PLAYBACK_PRIORITY)
+            if (started.failure != null) {
+                reason = TelegramLeaseReleaseReason.Failed
+                null
+            } else {
+                awaitFileState(fileId, timeoutMs) { it.isDownloadingCompleted }
+                    ?: run { reason = TelegramLeaseReleaseReason.TimedOut; null }
+            }
+        } finally {
+            releaseLease(lease, reason)
+        }
+    }
+
+    private suspend fun startChunkDownloadSerialized(
+        fileId: Int,
+        offset: Long,
+        limit: Int,
+        priority: Int,
+        synchronous: Boolean
     ): DownloadStart {
         val effectiveId = resolveEffectiveFileId(fileId)
         val response = TelegramFileGatewayRegistry.current.downloadFile(
@@ -1057,6 +1218,7 @@ internal object TelegramChunkScheduler {
             limit,
             synchronous
         )
+        if (limit > 0) PlaybackTelemetryRecorder.recordTelegramBytesRequested(effectiveId, limit.toLong())
         when (response) {
             is TelegramGatewayResult.Success -> {
                 response.value?.let { latestFiles[effectiveId] = it }

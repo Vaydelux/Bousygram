@@ -40,18 +40,9 @@ object LocalStreamingServer {
     private const val TAG = "LocalStreamingServer"
     private const val VERBOSE_STREAM_LOGS = false
     private const val QUICK_SIZE_WAIT_MS = 4_000L
-    private const val QUICK_SIZE_POLL_MS = 60L
     private const val INITIAL_WARMUP_BYTES = 2L * 1024L * 1024L
-    private const val STREAM_CHUNK_BYTES = 8L * 1024L * 1024L
-    private const val PREFETCH_CHUNK_BYTES = 4L * 1024L * 1024L
     private const val STREAM_READ_BUFFER_BYTES = 256 * 1024
-    private const val DOWNLOAD_HINT_BUCKET_BYTES = 512L * 1024L
-    private const val DOWNLOAD_HINT_TTL_MS = 1_000L
-    private const val STREAM_BYTE_WAIT_RETRIES = 1_200
-    private const val STREAM_SAFE_FALLBACK_AFTER_MS = 3_000L
-    private const val STREAM_STATUS_REFRESH_MS = 500L
     private const val STREAM_FAST_PRIORITY = 32
-    private const val STREAM_SAFE_PRIORITY = 1
     private const val MAX_HTTP_LINE_CHARS = 8 * 1024
     private const val MAX_HTTP_HEADER_CHARS = 32 * 1024
     private const val MAX_HTTP_HEADERS = 64
@@ -63,7 +54,6 @@ object LocalStreamingServer {
     @Volatile
     private var executor: ExecutorService = createExecutor()
     private val fileStatusCache = ConcurrentHashMap<Int, CachedFileStatus>()
-    private val recentDownloadHints = ConcurrentHashMap<String, Long>()
     private val recentWarmups = ConcurrentHashMap<Int, Long>()
     @Volatile
     private var isRunning = false
@@ -225,12 +215,18 @@ object LocalStreamingServer {
         if (!isRunning) start()
         var size = declaredSize.takeIf { it > 0L } ?: resolveFileSizeQuick(fileId, deadlineAtMs)
         if (size <= 0L) {
-            // Always kick the first window so the player benefits even if this preflight times out.
-            triggerDownload(fileId, 0L, INITIAL_WARMUP_BYTES)
-            while (size <= 0L && System.currentTimeMillis() < deadlineAtMs) {
-                Thread.sleep(min(QUICK_SIZE_POLL_MS, remainingWaitMs(deadlineAtMs, QUICK_SIZE_POLL_MS)).coerceAtLeast(1L))
-                size = resolveFileSizeQuick(fileId, deadlineAtMs)
+            TelegramChunkScheduler.prefetchRange(
+                fileId = fileId,
+                offset = 0L,
+                length = INITIAL_WARMUP_BYTES,
+                purpose = TelegramChunkPurpose.Preflight,
+                priority = STREAM_FAST_PRIORITY
+            )
+            val waitMs = remainingWaitMs(deadlineAtMs, QUICK_SIZE_WAIT_MS)
+            val metadata = kotlinx.coroutines.runBlocking {
+                TelegramChunkScheduler.awaitFileState(fileId, waitMs) { it.size > 0L || it.expectedSize > 0L }
             }
+            size = metadata?.let { if (it.size > 0L) it.size else it.expectedSize } ?: 0L
         }
         if (size <= 0L) return null
         TelegramChunkScheduler.noteFileSize(fileId, size)
@@ -247,31 +243,7 @@ object LocalStreamingServer {
 
         var file = getFileStatus(fileId)
         val local = file?.local
-        val needsPrefetch = local == null ||
-            (!local.isDownloadingCompleted &&
-                local.downloadedPrefixSize < min(8L * 1024 * 1024, size))
-
-        if (needsPrefetch) {
-            val head = min(24L * 1024 * 1024, size)
-            triggerDownload(fileId, 0L, head)
-            val tailChunk = min(24L * 1024 * 1024, size)
-            val tailStart = max(0L, size - tailChunk)
-            if (tailStart > 0L) {
-                triggerDownload(fileId, tailStart, size - tailStart)
-            }
-            repeat(120) {
-                file = getFileStatus(fileId)
-                val current = file?.local ?: return@repeat
-                if (current.isDownloadingCompleted) return@repeat
-                if (current.downloadOffset == 0L &&
-                    current.downloadedPrefixSize >= min(2L * 1024 * 1024, size)
-                ) {
-                    return@repeat
-                }
-                Thread.sleep(200)
-            }
-        }
-
+        if (local?.isDownloadingCompleted != true) return 0L
         file = getFileStatus(fileId) ?: return 0L
         val path = file.local.path
         if (path.isNullOrBlank()) return 0L
@@ -332,10 +304,11 @@ object LocalStreamingServer {
         if (lastWarmup != null && now - lastWarmup < 15_000L) return
         if (recentWarmups.size > 512) recentWarmups.clear()
         recentWarmups[fileId] = now
-        triggerDownload(
+        TelegramChunkScheduler.prefetchRange(
             fileId = fileId,
             offset = 0L,
-            limit = min(INITIAL_WARMUP_BYTES, totalSize),
+            length = min(INITIAL_WARMUP_BYTES, totalSize),
+            purpose = TelegramChunkPurpose.Preflight,
             priority = STREAM_FAST_PRIORITY
         )
     }
@@ -632,141 +605,63 @@ object LocalStreamingServer {
         clientOpen: () -> Boolean = { true }
     ) {
         var currentOffset = startPos
-        val initialFile = getFileStatus(fileId)
-        val initialPath = initialFile?.local?.path.orEmpty()
-        if (initialPath.isNotBlank()) {
-            val requestedLength = endPos - startPos + 1
-            val completeOnDisk = initialFile?.local?.isDownloadingCompleted == true
-            if (completeOnDisk) {
-                if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Direct disk streaming fileId=$fileId path=$initialPath range=$startPos-$endPos")
-                streamDiskRangeToOutput(initialPath, 0L, startPos, requestedLength, out, clientOpen, fileId = fileId)
-                return
-            }
-        }
-
-        val buffer = ByteArray(STREAM_READ_BUFFER_BYTES)
-        var lastTriggeredOffset = -1L
-        var lastTriggeredLimit = -1L
-        var knownPath = initialPath
-        var knownDownloadOffset = initialFile?.local?.downloadOffset ?: 0L
-        var lastStatusCheckMs = 0L
-        var lastProgressMs = System.currentTimeMillis()
-        var fallbackIssuedAtOffset = -1L
-
-        var diskReader: RandomAccessFile? = null
-        var diskReaderPath: String? = null
+        val lease = TelegramChunkScheduler.acquireLease(
+            fileId = fileId,
+            offset = startPos,
+            length = (endPos - startPos + 1L).coerceAtLeast(0L),
+            consumer = TelegramStreamConsumer.LocalHttp,
+            priority = TelegramChunkScheduler.PLAYBACK_PRIORITY
+        )
+        var releaseReason = TelegramLeaseReleaseReason.Completed
         try {
             while (currentOffset <= endPos && clientOpen()) {
-                val needTrigger = lastTriggeredOffset == -1L ||
-                    currentOffset < lastTriggeredOffset ||
-                    currentOffset >= (lastTriggeredOffset + lastTriggeredLimit) ||
-                    (lastTriggeredOffset + lastTriggeredLimit - currentOffset) < 2L * 1024L * 1024L
-
-                if (needTrigger) {
-                    val remainingBytes = totalSize - currentOffset
-                    val chunkSize = min(STREAM_CHUNK_BYTES, remainingBytes)
-                    if (chunkSize > 0L) {
-                        triggerDownload(fileId, currentOffset, chunkSize)
-                        lastTriggeredOffset = currentOffset
-                        lastTriggeredLimit = chunkSize
-                        fallbackIssuedAtOffset = -1L
-                        lastProgressMs = System.currentTimeMillis()
-                        if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Triggered TDLib download for fileId=$fileId at offset=$currentOffset limit=$chunkSize")
-                    }
-                }
-
-                var retryCount = 0
-                while (retryCount < STREAM_BYTE_WAIT_RETRIES && clientOpen()) {
-                    val now = System.currentTimeMillis()
-                    if (knownPath.isBlank() || now - lastStatusCheckMs > STREAM_STATUS_REFRESH_MS) {
-                        val file = getFileStatus(fileId, waitMs = 750L)
-                        lastStatusCheckMs = now
-                        if (file != null && !file.local.path.isNullOrEmpty()) {
-                            knownPath = file.local.path
-                            knownDownloadOffset = file.local.downloadOffset
-                            if (file.local.isDownloadingCompleted) {
-                                val remaining = endPos - currentOffset + 1
-                                streamDiskRangeToOutput(knownPath, 0L, currentOffset, remaining, out, clientOpen)
-                                return
-                            }
-                        }
-                    }
-
-                    if (now - lastProgressMs >= STREAM_SAFE_FALLBACK_AFTER_MS &&
-                        fallbackIssuedAtOffset != currentOffset
-                    ) {
-                        val fallbackLimit = min(PREFETCH_CHUNK_BYTES, totalSize - currentOffset)
-                        if (fallbackLimit > 0L) {
-                            Log.w(TAG, "Fast Telegram range stalled; retrying safe priority fileId=$fileId offset=$currentOffset")
-                            triggerDownload(
-                                fileId = fileId,
-                                offset = currentOffset,
-                                limit = fallbackLimit,
-                                priority = STREAM_SAFE_PRIORITY,
-                                force = true
-                            )
-                            fallbackIssuedAtOffset = currentOffset
-                        }
-                    }
-
-                    val readWindow = resolveLocalReadWindow(
-                        fileId = fileId,
-                        path = knownPath,
-                        remoteOffset = currentOffset,
-                        downloadOffset = knownDownloadOffset
+                val readSize = min(
+                    STREAM_READ_BUFFER_BYTES.toLong(),
+                    min(endPos - currentOffset + 1L, totalSize - currentOffset)
+                ).toInt()
+                if (readSize <= 0) break
+                val result = kotlinx.coroutines.runBlocking {
+                    TelegramChunkScheduler.fetchChunk(
+                        TelegramChunkRequest(
+                            fileId = fileId,
+                            offset = currentOffset,
+                            limit = readSize,
+                            priority = TelegramChunkScheduler.PLAYBACK_PRIORITY,
+                            purpose = TelegramChunkPurpose.Streaming
+                        )
                     )
-                    if (readWindow != null) {
-                        if (diskReaderPath != readWindow.path) {
-                            diskReader?.close()
-                            diskReader = RandomAccessFile(readWindow.path, "r")
-                            diskReaderPath = readWindow.path
-                        }
-                        val bytesToRead = min(
-                            min(readWindow.availableBytes, endPos - currentOffset + 1),
-                            buffer.size.toLong()
-                        ).toInt()
-                        if (bytesToRead > 0) {
-                            val reader = diskReader ?: return
-                            val bytesRead = readBytesFromDisk(
-                                reader,
-                                readWindow.localOffset,
-                                buffer,
-                                bytesToRead
-                            )
-                            if (bytesRead > 0) {
-                                try {
-                                    PlaybackTelemetryRecorder.notifyFirstByte(fileId)
-                                    out.write(buffer, 0, bytesRead)
-                                    currentOffset += bytesRead
-                                    lastProgressMs = System.currentTimeMillis()
-                                    break
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "Socket write error (client closed)", e)
-                                    TelegramChunkScheduler.onClientDisconnected(fileId, currentOffset)
-                                    return
-                                }
-                            }
-                        }
-                    }
-                    kotlinx.coroutines.runBlocking {
-                        TelegramChunkScheduler.awaitPrefixReady(fileId, currentOffset, 1, timeoutMs = 750L)
-                    }
-                    retryCount++
                 }
-
-                if (retryCount >= STREAM_BYTE_WAIT_RETRIES) {
-                    val message = "Telegram stream stalled while caching fileId=$fileId at offset=$currentOffset"
-                    Log.e(TAG, message)
-                    EnterprisePreferences.setLastError(message)
-                    PlaybackDiagnostics.recordStreamError(message)
-                    return
+                when (result) {
+                    is TelegramChunkResult.Ready -> {
+                        if (result.bytes.isEmpty()) break
+                        try {
+                            PlaybackTelemetryRecorder.notifyFirstByte(fileId)
+                            out.write(result.bytes)
+                            currentOffset += result.bytes.size
+                        } catch (e: Exception) {
+                            releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
+                            Log.w(TAG, "Socket write error (client closed): ${e.message}")
+                            return
+                        }
+                    }
+                    is TelegramChunkResult.FatalFailure -> {
+                        releaseReason = TelegramLeaseReleaseReason.Failed
+                        PlaybackDiagnostics.recordStreamError(result.message)
+                        return
+                    }
+                    is TelegramChunkResult.RetryableFailure,
+                    TelegramChunkResult.Pending -> {
+                        releaseReason = TelegramLeaseReleaseReason.TimedOut
+                        val message = "Telegram stream stalled while caching fileId=$fileId at offset=$currentOffset"
+                        EnterprisePreferences.setLastError(message)
+                        PlaybackDiagnostics.recordStreamError(message)
+                        return
+                    }
                 }
             }
         } finally {
-            try { diskReader?.close() } catch (_: Exception) {}
-            if (!clientOpen()) {
-                TelegramChunkScheduler.onClientDisconnected(fileId, currentOffset)
-            }
+            if (!clientOpen()) releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
+            TelegramChunkScheduler.releaseLease(lease, releaseReason, currentOffset)
         }
     }
 
@@ -888,47 +783,6 @@ object LocalStreamingServer {
         }
     }
 
-    private fun triggerDownload(
-        fileId: Int,
-        offset: Long,
-        limit: Long,
-        priority: Int = STREAM_FAST_PRIORITY,
-        force: Boolean = false
-    ) {
-        if (fileId <= 0 || limit <= 0L) return
-        val safeOffset = offset.coerceAtLeast(0L)
-        val bucket = safeOffset / DOWNLOAD_HINT_BUCKET_BYTES
-        val limitBucket = max(1L, limit / DOWNLOAD_HINT_BUCKET_BYTES)
-        val key = "$fileId:$bucket:$limitBucket:$priority"
-        val now = System.currentTimeMillis()
-        val last = recentDownloadHints[key]
-        if (!force && last != null && now - last < DOWNLOAD_HINT_TTL_MS) return
-        val downloadLimit = limit.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
-        if (TelegramChunkScheduler.prepareDownload(
-                fileId = fileId,
-                offset = safeOffset,
-                readLimit = downloadLimit,
-                downloadLimit = downloadLimit,
-                priority = priority,
-                purpose = TelegramChunkPurpose.Metadata
-            ) == null
-        ) {
-            return
-        }
-        if (recentDownloadHints.size > 2048) recentDownloadHints.clear()
-        recentDownloadHints[key] = now
-        TdLibClient.client.send(
-            TdApi.DownloadFile(fileId, priority, safeOffset, downloadLimit.toLong(), false),
-            { response ->
-                if (response is TdApi.Error) {
-                    val message = "DownloadFile failed fileId=$fileId offset=$safeOffset limit=$downloadLimit priority=$priority code=${response.code} message=${response.message}"
-                    Log.w(TAG, message)
-                    PlaybackDiagnostics.recordStreamError(message)
-                }
-            }
-        )
-    }
-
     private fun getFileStatus(fileId: Int, waitMs: Long = 2_500L): TdApi.File? {
         fileStatusCache[fileId]
             ?.takeIf { System.currentTimeMillis() - it.updatedAtMs < 1_500L }
@@ -955,21 +809,10 @@ object LocalStreamingServer {
             return file
         }
 
-        TdLibClient.client.send(
-            TdApi.DownloadFile(fileId, 32, 0, 0, false),
-            { }
-        )
-
-        var retryCount = 0
-        while (retryCount < 300) { // 30 seconds max timeout
-            file = getFileStatus(fileId)
-            if (file != null && file.local.isDownloadingCompleted) {
-                return file
-            }
-            Thread.sleep(100)
-            retryCount++
-        }
-        return file
+        val completed = kotlinx.coroutines.runBlocking {
+            TelegramChunkScheduler.downloadEntireFile(fileId, timeoutMs = 30_000L)
+        } ?: return file
+        return getFileStatus(completed.fileId)
     }
 
     private fun readBytesFromDisk(file: RandomAccessFile, offset: Long, buffer: ByteArray, length: Int): Int {

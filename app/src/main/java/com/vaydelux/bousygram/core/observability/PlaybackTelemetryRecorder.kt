@@ -35,6 +35,13 @@ data class PlaybackTelemetryRecord(
     val averageSeekLatencyMs: Long? = null,
     val droppedFrameCount: Int = 0,
     val memoryPressure: String? = null,
+    val telegramBytesRequested: Long = 0L,
+    val localBytesServed: Long = 0L,
+    val deduplicatedRequestCount: Int = 0,
+    val supersededWindowCount: Int = 0,
+    val playerInitializationMs: Long? = null,
+    val playerReleaseMs: Long? = null,
+    val cancellationReason: String? = null,
     val timestampMs: Long = System.currentTimeMillis()
 )
 
@@ -47,6 +54,14 @@ data class PlaybackCacheTelemetry(
 data class PlaybackSeekTelemetry(
     val count: Int,
     val averageLatencyMs: Long?
+)
+
+data class PlaybackStreamingTelemetry(
+    val telegramBytesRequested: Long,
+    val localBytesServed: Long,
+    val deduplicatedRequestCount: Int,
+    val supersededWindowCount: Int,
+    val cancellationReason: String?
 )
 
 /**
@@ -195,7 +210,10 @@ object PlaybackTelemetrySerializer {
         val escapedMemoryPressure = record.memoryPressure?.let { escapeJson(it) }
         val memoryPressureField = if (escapedMemoryPressure != null) "\"$escapedMemoryPressure\"" else "null"
         val seekLatencyField = record.averageSeekLatencyMs?.toString() ?: "null"
-        return """{"sessionId":"${escapeJson(record.sessionId)}","timeToFirstByteMs":${record.timeToFirstByteMs},"timeToFirstFrameMs":${record.timeToFirstFrameMs},"rebufferCount":${record.rebufferCount},"totalRebufferMs":${record.totalRebufferMs},"engine":"${escapeJson(record.engine)}","videoDecoderName":"${escapeJson(record.videoDecoderName)}","audioDecoderName":"${escapeJson(record.audioDecoderName)}","container":"${escapeJson(record.container)}","fileSize":${record.fileSize},"failureReason":$reasonField,"fallbackReason":$fallbackField,"isFullyCachedAtStart":${record.isFullyCachedAtStart},"timeToHeaderChunkMs":$timeToHeaderField,"timeToTailChunkMs":$timeToTailField,"averageThroughputBytesPerSec":$throughputField,"bufferConfig":$bufferConfigField,"cacheHitCount":${record.cacheHitCount},"cacheMissCount":${record.cacheMissCount},"reusedCacheBytes":${record.reusedCacheBytes},"seekCount":${record.seekCount},"averageSeekLatencyMs":$seekLatencyField,"droppedFrameCount":${record.droppedFrameCount},"memoryPressure":$memoryPressureField,"timestampMs":${record.timestampMs}}"""
+        val initField = record.playerInitializationMs?.toString() ?: "null"
+        val releaseField = record.playerReleaseMs?.toString() ?: "null"
+        val cancellationField = record.cancellationReason?.let { "\"${escapeJson(it)}\"" } ?: "null"
+        return """{"sessionId":"${escapeJson(record.sessionId)}","timeToFirstByteMs":${record.timeToFirstByteMs},"timeToFirstFrameMs":${record.timeToFirstFrameMs},"rebufferCount":${record.rebufferCount},"totalRebufferMs":${record.totalRebufferMs},"engine":"${escapeJson(record.engine)}","videoDecoderName":"${escapeJson(record.videoDecoderName)}","audioDecoderName":"${escapeJson(record.audioDecoderName)}","container":"${escapeJson(record.container)}","fileSize":${record.fileSize},"failureReason":$reasonField,"fallbackReason":$fallbackField,"isFullyCachedAtStart":${record.isFullyCachedAtStart},"timeToHeaderChunkMs":$timeToHeaderField,"timeToTailChunkMs":$timeToTailField,"averageThroughputBytesPerSec":$throughputField,"bufferConfig":$bufferConfigField,"cacheHitCount":${record.cacheHitCount},"cacheMissCount":${record.cacheMissCount},"reusedCacheBytes":${record.reusedCacheBytes},"seekCount":${record.seekCount},"averageSeekLatencyMs":$seekLatencyField,"droppedFrameCount":${record.droppedFrameCount},"memoryPressure":$memoryPressureField,"telegramBytesRequested":${record.telegramBytesRequested},"localBytesServed":${record.localBytesServed},"deduplicatedRequestCount":${record.deduplicatedRequestCount},"supersededWindowCount":${record.supersededWindowCount},"playerInitializationMs":$initField,"playerReleaseMs":$releaseField,"cancellationReason":$cancellationField,"timestampMs":${record.timestampMs}}"""
     }
 
     fun recordsToJson(records: List<PlaybackTelemetryRecord>): String =
@@ -267,6 +285,13 @@ object PlaybackTelemetrySerializer {
             averageSeekLatencyMs = extractNullableLong("averageSeekLatencyMs"),
             droppedFrameCount = extractInt("droppedFrameCount"),
             memoryPressure = memoryPressure,
+            telegramBytesRequested = extractLong("telegramBytesRequested"),
+            localBytesServed = extractLong("localBytesServed"),
+            deduplicatedRequestCount = extractInt("deduplicatedRequestCount"),
+            supersededWindowCount = extractInt("supersededWindowCount"),
+            playerInitializationMs = extractNullableLong("playerInitializationMs"),
+            playerReleaseMs = extractNullableLong("playerReleaseMs"),
+            cancellationReason = if (Regex("\"cancellationReason\"\\s*:\\s*null").containsMatchIn(json)) null else extractString("cancellationReason"),
             timestampMs = extractLong("timestampMs", System.currentTimeMillis())
         )
     }
@@ -331,6 +356,13 @@ object PlaybackTelemetryRecorder {
     private val reusedCacheBytes = ConcurrentHashMap<Int, AtomicLong>()
     private val seekCounts = ConcurrentHashMap<Int, AtomicLong>()
     private val totalSeekLatencyMs = ConcurrentHashMap<Int, AtomicLong>()
+    private val telegramBytesRequested = ConcurrentHashMap<Int, AtomicLong>()
+    private val localBytesServed = ConcurrentHashMap<Int, AtomicLong>()
+    private val deduplicatedRequests = ConcurrentHashMap<Int, AtomicLong>()
+    private val supersededWindows = ConcurrentHashMap<Int, AtomicLong>()
+    private val cancellationReasons = ConcurrentHashMap<Int, String>()
+    private val pendingInitializationMs = ConcurrentHashMap<String, Long>()
+    private val pendingReleaseMs = ConcurrentHashMap<String, Long>()
     private val sessions = mutableListOf<PlaybackTelemetryRecord>()
     private var isInitialized = false
 
@@ -366,7 +398,11 @@ object PlaybackTelemetryRecorder {
     @Synchronized
     fun record(record: PlaybackTelemetryRecord) {
         ensureLoaded()
-        sessions.add(record)
+        val enriched = record.copy(
+            playerInitializationMs = record.playerInitializationMs ?: pendingInitializationMs.remove(record.sessionId),
+            playerReleaseMs = record.playerReleaseMs ?: pendingReleaseMs.remove(record.sessionId)
+        )
+        sessions.add(enriched)
         while (sessions.size > MAX_SESSIONS) {
             sessions.removeAt(0)
         }
@@ -404,6 +440,13 @@ object PlaybackTelemetryRecorder {
         reusedCacheBytes.clear()
         seekCounts.clear()
         totalSeekLatencyMs.clear()
+        telegramBytesRequested.clear()
+        localBytesServed.clear()
+        deduplicatedRequests.clear()
+        supersededWindows.clear()
+        cancellationReasons.clear()
+        pendingInitializationMs.clear()
+        pendingReleaseMs.clear()
         runCatching { storage.clear() }
         isInitialized = true
     }
@@ -492,6 +535,54 @@ object PlaybackTelemetryRecorder {
         )
     }
 
+    fun recordTelegramBytesRequested(fileId: Int, bytes: Long) {
+        if (fileId > 0 && bytes > 0L) telegramBytesRequested.computeIfAbsent(fileId) { AtomicLong() }.addAndGet(bytes)
+    }
+
+    fun recordLocalBytesServed(fileId: Int, bytes: Int) {
+        if (fileId > 0 && bytes > 0) localBytesServed.computeIfAbsent(fileId) { AtomicLong() }.addAndGet(bytes.toLong())
+    }
+
+    fun recordDeduplicatedRequest(fileId: Int) {
+        if (fileId > 0) deduplicatedRequests.computeIfAbsent(fileId) { AtomicLong() }.incrementAndGet()
+    }
+
+    fun recordSupersededWindow(fileId: Int) {
+        if (fileId > 0) supersededWindows.computeIfAbsent(fileId) { AtomicLong() }.incrementAndGet()
+    }
+
+    fun recordCancellation(fileId: Int, reason: String) {
+        if (fileId > 0 && reason.isNotBlank()) cancellationReasons[fileId] = reason.take(64)
+    }
+
+    fun consumeStreamingTelemetry(fileId: Int): PlaybackStreamingTelemetry {
+        if (fileId <= 0) return PlaybackStreamingTelemetry(0L, 0L, 0, 0, null)
+        return PlaybackStreamingTelemetry(
+            telegramBytesRequested = telegramBytesRequested.remove(fileId)?.get() ?: 0L,
+            localBytesServed = localBytesServed.remove(fileId)?.get() ?: 0L,
+            deduplicatedRequestCount = (deduplicatedRequests.remove(fileId)?.get() ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            supersededWindowCount = (supersededWindows.remove(fileId)?.get() ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            cancellationReason = cancellationReasons.remove(fileId)
+        )
+    }
+
+    fun recordPlayerInitialization(sessionId: String, durationMs: Long) {
+        if (sessionId.isNotBlank() && durationMs >= 0L) pendingInitializationMs[sessionId] = durationMs
+    }
+
+    @Synchronized
+    fun recordPlayerRelease(sessionId: String, durationMs: Long) {
+        if (sessionId.isBlank() || durationMs < 0L) return
+        ensureLoaded()
+        val index = sessions.indexOfLast { it.sessionId == sessionId }
+        if (index >= 0) {
+            sessions[index] = sessions[index].copy(playerReleaseMs = durationMs)
+            runCatching { storage.saveSessions(sessions) }
+        } else {
+            pendingReleaseMs[sessionId] = durationMs
+        }
+    }
+
     /**
      * Called by LocalStreamingServer or TelegramChunkScheduler when the first byte of [fileId] is delivered.
      */
@@ -515,6 +606,11 @@ object PlaybackTelemetryRecorder {
             reusedCacheBytes.remove(fileId)
             seekCounts.remove(fileId)
             totalSeekLatencyMs.remove(fileId)
+            telegramBytesRequested.remove(fileId)
+            localBytesServed.remove(fileId)
+            deduplicatedRequests.remove(fileId)
+            supersededWindows.remove(fileId)
+            cancellationReasons.remove(fileId)
         }
     }
 
@@ -560,6 +656,7 @@ object PlaybackTelemetryRecorder {
             sb.append("rebuffers=${r.rebufferCount} (${r.totalRebufferMs}ms) ")
             sb.append("cached=${r.isFullyCachedAtStart} hits=${r.cacheHitCount} misses=${r.cacheMissCount} reused=${r.reusedCacheBytes}B ")
             sb.append("seeks=${r.seekCount} seekAvg=${r.averageSeekLatencyMs ?: -1}ms dropped=${r.droppedFrameCount} memory=${r.memoryPressure ?: "unknown"} ")
+            sb.append("telegramRequested=${r.telegramBytesRequested}B localServed=${r.localBytesServed}B dedup=${r.deduplicatedRequestCount} superseded=${r.supersededWindowCount} ")
             sb.append("header=${r.timeToHeaderChunkMs ?: -1}ms tail=${r.timeToTailChunkMs ?: -1}ms tp=$throughputStr ")
             sb.append("vDec=${r.videoDecoderName} aDec=${r.audioDecoderName}")
             if (r.bufferConfig != null) {

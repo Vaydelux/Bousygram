@@ -14,8 +14,15 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkPurpose
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkRequest
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkResult
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
+import com.vaydelux.bousygram.core.tdlib.server.TelegramLeaseReleaseReason
+import com.vaydelux.bousygram.core.tdlib.server.TelegramRangeLease
+import com.vaydelux.bousygram.core.tdlib.server.TelegramStreamConsumer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.min
 
 /**
@@ -38,6 +45,8 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
     private var totalSize: Long = 0L
     private var bytesRemaining: Long = 0L
     private var currentPosition: Long = 0L
+    private var rangeLease: TelegramRangeLease? = null
+    private val activeReadJob = AtomicReference<Job?>(null)
 
     @Volatile
     private var opened: Boolean = false
@@ -80,6 +89,13 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         } else {
             C.LENGTH_UNSET.toLong()
         }
+        rangeLease = TelegramChunkScheduler.acquireLease(
+            fileId = fileId,
+            offset = currentPosition,
+            length = bytesRemaining.takeIf { it != C.LENGTH_UNSET.toLong() } ?: 0L,
+            consumer = TelegramStreamConsumer.ExoPlayer,
+            priority = STREAM_PRIORITY
+        )
 
         // Notify scheduler of streaming start with the same priority as the HTTP path
         TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
@@ -102,57 +118,38 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         }
         if (bytesToRead <= 0) return C.RESULT_END_OF_INPUT
 
-        var attempt = 0
-        val maxAttempts = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) 90 else 75
-        var readyBytes: ByteArray? = null
-
-        while (attempt < maxAttempts && opened && !isClosed) {
-            val chunk = runBlocking {
-                TelegramChunkScheduler.fetchChunk(
-                    TelegramChunkRequest(
-                        fileId = fileId,
-                        offset = currentPosition,
-                        limit = bytesToRead,
-                        priority = STREAM_PRIORITY, // 32 = TDLib maximum streaming priority (same as HTTP path)
-                        purpose = TelegramChunkPurpose.Streaming
+        val readJob = Job()
+        activeReadJob.getAndSet(readJob)?.cancel()
+        val chunk = try {
+            runBlocking(readJob) {
+                withTimeout(DIRECT_READ_TIMEOUT_MS) {
+                    TelegramChunkScheduler.fetchChunk(
+                        TelegramChunkRequest(
+                            fileId = fileId,
+                            offset = currentPosition,
+                            limit = bytesToRead,
+                            priority = STREAM_PRIORITY,
+                            purpose = TelegramChunkPurpose.Streaming
+                        )
                     )
-                )
-            }
-
-            when (chunk) {
-                is TelegramChunkResult.Ready -> {
-                    readyBytes = chunk.bytes
-                    break
-                }
-                is TelegramChunkResult.FatalFailure -> {
-                    throw IOException("TDLib direct read fatal failure: ${chunk.message}")
-                }
-                is TelegramChunkResult.RetryableFailure -> {
-                    // Retry with backoff
-                }
-                TelegramChunkResult.Pending -> {
-                    // Range pending; retry with backoff
                 }
             }
-
-            if (attempt == 0) {
-                TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
-            }
-            attempt++
-            try {
-                Thread.sleep(if (attempt < 5) 150L else 350L)
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                throw IOException("TDLib direct read interrupted", e)
-            }
+        } catch (e: CancellationException) {
+            throw IOException("TDLib direct read cancelled", e)
+        } finally {
+            activeReadJob.compareAndSet(readJob, null)
         }
 
         if (isClosed || !opened) {
             throw IOException("TDLib direct read aborted")
         }
 
-        val bytes = readyBytes
-            ?: throw IOException("Timed out waiting for TDLib chunk at offset $currentPosition (fileId=$fileId)")
+        val bytes = when (chunk) {
+            is TelegramChunkResult.Ready -> chunk.bytes
+            is TelegramChunkResult.FatalFailure -> throw IOException("TDLib direct read fatal failure: ${chunk.message}")
+            is TelegramChunkResult.RetryableFailure -> throw IOException("TDLib direct read retryable failure: ${chunk.message}")
+            TelegramChunkResult.Pending -> throw IOException("Timed out waiting for TDLib chunk at offset $currentPosition (fileId=$fileId)")
+        }
 
         if (bytes.isEmpty()) {
             return if (bytesRemaining == C.LENGTH_UNSET.toLong() || bytesRemaining == 0L) {
@@ -183,9 +180,14 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         if (opened) {
             opened = false
             isClosed = true
+            activeReadJob.getAndSet(null)?.cancel()
             currentDataSpec = null
-            // Seek-cancel behavior: cancel active downloads/prefetch at the abandoned offset
-            TelegramChunkScheduler.onClientDisconnected(fileId, currentPosition)
+            TelegramChunkScheduler.releaseLease(
+                lease = rangeLease,
+                reason = TelegramLeaseReleaseReason.ConsumerClosed,
+                lastOffset = currentPosition
+            )
+            rangeLease = null
             transferEnded()
         }
     }
@@ -193,6 +195,7 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
     companion object {
         const val SCHEME = "tdlib"
         const val STREAM_PRIORITY = 32
+        private const val DIRECT_READ_TIMEOUT_MS = 12_000L
 
         fun isTdLibUri(uri: Uri?): Boolean =
             uri?.scheme.equals(SCHEME, ignoreCase = true)

@@ -4,10 +4,14 @@ import android.util.Log
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
-import com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry
-import com.vaydelux.bousygram.core.tdlib.server.TelegramGatewayResult
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkPurpose
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkRequest
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkResult
+import com.vaydelux.bousygram.core.tdlib.server.TelegramLeaseReleaseReason
+import com.vaydelux.bousygram.core.tdlib.server.TelegramStreamConsumer
 import com.vaydelux.bousygram.domain.model.MediaItem
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -111,13 +115,7 @@ object FocusPrefetchManager {
             job.cancel()
             Log.d(TAG, "Cancelled focus prefetch job for fileId=$fileId")
         }
-        scope.launch {
-            try {
-                TelegramFileGatewayRegistry.current.cancelDownloadFile(fileId, onlyIfPending = false)
-            } catch (e: Exception) {
-                Log.w(TAG, "Error cancelling TDLib download for fileId=$fileId", e)
-            }
-        }
+        TelegramChunkScheduler.cancelPrefetch(fileId)
     }
 
     private fun cancelCurrentDebounce() {
@@ -130,6 +128,14 @@ object FocusPrefetchManager {
         if (activePrefetchJobs.containsKey(fileId)) return
 
         val job = scope.launch {
+            val lease = TelegramChunkScheduler.acquireLease(
+                fileId = fileId,
+                offset = 0L,
+                length = item.fileSizeBytes.coerceAtLeast(PREFETCH_CHUNK_BYTES),
+                consumer = TelegramStreamConsumer.Prefetch,
+                priority = LOW_PRIORITY
+            )
+            var releaseReason = TelegramLeaseReleaseReason.Completed
             try {
                 semaphore.withPermit {
                     if (!isActive || PlaybackSessionController.isVideoPlaying()) return@withPermit
@@ -142,7 +148,7 @@ object FocusPrefetchManager {
                     val fileSize = if (item.fileSizeBytes > 0L) {
                         item.fileSizeBytes
                     } else {
-                        runCatching { TelegramFileGatewayRegistry.current.getFile(fileId)?.size }.getOrNull() ?: 0L
+                        TelegramChunkScheduler.fileSize(fileId)
                     }
 
                     // 1. Download first ~2 MB at low priority (priority 1)
@@ -157,10 +163,15 @@ object FocusPrefetchManager {
                     }
                     Log.i(TAG, "Completed focus prefetch for fileId=$fileId")
                 }
+            } catch (e: CancellationException) {
+                releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
+                throw e
             } catch (e: Exception) {
+                releaseReason = TelegramLeaseReleaseReason.Failed
                 Log.d(TAG, "Focus prefetch interrupted for fileId=$fileId: ${e.message}")
             } finally {
                 activePrefetchJobs.remove(fileId)
+                TelegramChunkScheduler.releaseLease(lease, releaseReason)
             }
         }
         activePrefetchJobs[fileId] = job
@@ -168,20 +179,19 @@ object FocusPrefetchManager {
 
     private suspend fun downloadSegment(fileId: Int, offset: Long, limit: Int) {
         if (limit <= 0) return
-        val result = TelegramFileGatewayRegistry.current.downloadFile(
-            fileId = fileId,
-            priority = LOW_PRIORITY,
-            offset = offset,
-            limit = limit,
-            synchronous = false
-        )
-        if (result is TelegramGatewayResult.Success) {
-            TelegramChunkScheduler.awaitPrefixReady(
-                fileId = fileId,
-                offset = offset,
-                minNeededBytes = min(limit, 256 * 1024),
-                timeoutMs = 15_000L
+        when (
+            TelegramChunkScheduler.fetchChunk(
+                TelegramChunkRequest(
+                    fileId = fileId,
+                    offset = offset,
+                    limit = limit,
+                    priority = LOW_PRIORITY,
+                    purpose = TelegramChunkPurpose.CacheAhead
+                )
             )
+        ) {
+            is TelegramChunkResult.FatalFailure -> Log.w(TAG, "Focus prefetch failed for fileId=$fileId")
+            else -> Unit
         }
     }
 

@@ -110,12 +110,17 @@ object PlaybackCore {
 
             // 4. Instantiate designated PlayerEngine
             val item = queue.getOrNull(startIndex)
+            val initializationStartedNs = System.nanoTime()
             val engine = PlayerEngineFactory.create(
                 context = context,
                 preferredEngine = preferredEngine,
                 preferredSpeed = preferredSpeed,
                 fileName = item?.fileName,
                 mimeType = item?.mimeType
+            )
+            PlaybackTelemetryRecorder.recordPlayerInitialization(
+                session.sessionId,
+                (System.nanoTime() - initializationStartedNs) / 1_000_000L
             )
             _currentEngine.value = engine
 
@@ -260,11 +265,18 @@ object PlaybackCore {
 
             // Step 4: Stop and release player engine
             _currentEngine.value?.let { engine ->
+                val releaseStartedNs = System.nanoTime()
                 runCatching {
                     engine.stop()
                     engine.release()
                 }.onFailure { err ->
                     Log.w(TAG, "Error releasing engine in teardown", err)
+                }
+                session?.let {
+                    PlaybackTelemetryRecorder.recordPlayerRelease(
+                        it.sessionId,
+                        (System.nanoTime() - releaseStartedNs) / 1_000_000L
+                    )
                 }
             }
             _currentEngine.value = null

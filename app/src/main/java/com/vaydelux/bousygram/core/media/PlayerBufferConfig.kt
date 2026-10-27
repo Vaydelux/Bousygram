@@ -36,6 +36,14 @@ object PlayerBufferConfig {
     const val EXO_LOW_RAM_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5_000
     const val EXO_LOW_RAM_BACK_BUFFER_MS = 10_000
 
+    // Higher-memory devices get a larger back buffer for cache-first rewinds without unbounded growth.
+    const val EXO_HIGH_MEMORY_MIN_BUFFER_MS = 35_000
+    const val EXO_HIGH_MEMORY_MAX_BUFFER_MS = 120_000
+    const val EXO_HIGH_MEMORY_BACK_BUFFER_MS = 45_000
+    const val HIGH_MEMORY_CLASS_MB = 512
+
+    enum class ExoMemoryProfile { LowRam, Standard, HighMemory }
+
     // --- MPV Demuxer Constants ---
     const val MPV_CACHE_ENABLED = "yes"
     const val MPV_TV_DEMUXER_MAX_BYTES = 150L * 1024L * 1024L       // ~150 MB on TV
@@ -60,6 +68,7 @@ object PlayerBufferConfig {
         val backBufferMs: Int,
         val retainBackBufferFromKeyframe: Boolean,
         val isLowRam: Boolean,
+        val profile: ExoMemoryProfile = if (isLowRam) ExoMemoryProfile.LowRam else ExoMemoryProfile.Standard,
         val description: String
     )
 
@@ -97,6 +106,7 @@ object PlayerBufferConfig {
                 backBufferMs = EXO_LOW_RAM_BACK_BUFFER_MS,
                 retainBackBufferFromKeyframe = EXO_RETAIN_BACK_BUFFER_FROM_KEYFRAME,
                 isLowRam = true,
+                profile = ExoMemoryProfile.LowRam,
                 description = "exo:low_ram(min=${EXO_LOW_RAM_MIN_BUFFER_MS}ms,max=${EXO_LOW_RAM_MAX_BUFFER_MS}ms,play=${EXO_LOW_RAM_BUFFER_FOR_PLAYBACK_MS}ms,rebuf=${EXO_LOW_RAM_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS}ms,back=${EXO_LOW_RAM_BACK_BUFFER_MS}ms)"
             )
         } else {
@@ -108,13 +118,35 @@ object PlayerBufferConfig {
                 backBufferMs = EXO_DEFAULT_BACK_BUFFER_MS,
                 retainBackBufferFromKeyframe = EXO_RETAIN_BACK_BUFFER_FROM_KEYFRAME,
                 isLowRam = false,
+                profile = ExoMemoryProfile.Standard,
                 description = "exo:normal(min=${EXO_DEFAULT_MIN_BUFFER_MS}ms,max=${EXO_DEFAULT_MAX_BUFFER_MS}ms,play=${EXO_DEFAULT_BUFFER_FOR_PLAYBACK_MS}ms,rebuf=${EXO_DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS}ms,back=${EXO_DEFAULT_BACK_BUFFER_MS}ms)"
             )
         }
     }
 
-    fun resolveExoConfig(context: Context): ExoBufferConfig =
-        resolveExoConfig(isLowRamDevice(context))
+    fun resolveExoConfig(isLowRamDevice: Boolean, memoryClass: Int): ExoBufferConfig {
+        if (isLowRam(isLowRamDevice, memoryClass)) return resolveExoConfig(isLowRam = true)
+        if (memoryClass < HIGH_MEMORY_CLASS_MB) return resolveExoConfig(isLowRam = false)
+        return ExoBufferConfig(
+            minBufferMs = EXO_HIGH_MEMORY_MIN_BUFFER_MS,
+            maxBufferMs = EXO_HIGH_MEMORY_MAX_BUFFER_MS,
+            bufferForPlaybackMs = EXO_DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+            bufferForPlaybackAfterRebufferMs = EXO_DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+            backBufferMs = EXO_HIGH_MEMORY_BACK_BUFFER_MS,
+            retainBackBufferFromKeyframe = EXO_RETAIN_BACK_BUFFER_FROM_KEYFRAME,
+            isLowRam = false,
+            profile = ExoMemoryProfile.HighMemory,
+            description = "exo:high_memory(min=${EXO_HIGH_MEMORY_MIN_BUFFER_MS}ms,max=${EXO_HIGH_MEMORY_MAX_BUFFER_MS}ms,play=${EXO_DEFAULT_BUFFER_FOR_PLAYBACK_MS}ms,rebuf=${EXO_DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS}ms,back=${EXO_HIGH_MEMORY_BACK_BUFFER_MS}ms)"
+        )
+    }
+
+    fun resolveExoConfig(context: Context): ExoBufferConfig = runCatching {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        resolveExoConfig(
+            isLowRamDevice = am?.isLowRamDevice == true,
+            memoryClass = am?.memoryClass ?: 256
+        )
+    }.getOrElse { resolveExoConfig(isLowRam = false) }
 
     @OptIn(UnstableApi::class)
     fun buildLoadControl(config: ExoBufferConfig): DefaultLoadControl {

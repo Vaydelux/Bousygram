@@ -90,6 +90,19 @@ class PlayerBufferConfigTest {
     }
 
     @Test
+    fun resolveExoConfigSelectsHighMemoryTierWithoutUnboundedBuffers() {
+        val high = PlayerBufferConfig.resolveExoConfig(isLowRamDevice = false, memoryClass = 512)
+        assertEquals(PlayerBufferConfig.ExoMemoryProfile.HighMemory, high.profile)
+        assertEquals(PlayerBufferConfig.EXO_HIGH_MEMORY_MIN_BUFFER_MS, high.minBufferMs)
+        assertEquals(PlayerBufferConfig.EXO_HIGH_MEMORY_MAX_BUFFER_MS, high.maxBufferMs)
+        assertEquals(PlayerBufferConfig.EXO_HIGH_MEMORY_BACK_BUFFER_MS, high.backBufferMs)
+        assertTrue(high.maxBufferMs <= PlayerBufferConfig.EXO_DEFAULT_MAX_BUFFER_MS)
+
+        val forcedLow = PlayerBufferConfig.resolveExoConfig(isLowRamDevice = true, memoryClass = 1024)
+        assertEquals(PlayerBufferConfig.ExoMemoryProfile.LowRam, forcedLow.profile)
+    }
+
+    @Test
     fun resolveMpvConfigSelectsSensibleDemuxerCacheForEachFormFactor() {
         // 1. Android TV (normal RAM)
         val tvConfig = PlayerBufferConfig.resolveMpvConfig(isLowRam = false, isTv = true, isCellular = false)

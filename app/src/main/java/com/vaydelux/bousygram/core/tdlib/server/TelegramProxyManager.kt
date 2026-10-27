@@ -378,11 +378,22 @@ object TelegramProxyManager {
     ) = coroutineScope {
         channel.flush()
         var expectedOffset = range.start
+        val lease = TelegramChunkScheduler.acquireLease(
+            fileId = fileId,
+            offset = range.start,
+            length = range.end - range.start + 1L,
+            consumer = TelegramStreamConsumer.LocalHttp,
+            priority = STREAM_PRIORITY
+        )
+        var releaseReason = TelegramLeaseReleaseReason.Completed
         if (firstChunk != null) {
             channel.writeFully(firstChunk, 0, firstChunk.size)
             channel.flush()
             expectedOffset += firstChunk.size
-            if (expectedOffset > range.end) return@coroutineScope
+            if (expectedOffset > range.end) {
+                TelegramChunkScheduler.releaseLease(lease, TelegramLeaseReleaseReason.Completed, expectedOffset)
+                return@coroutineScope
+            }
         }
 
         try {
@@ -407,9 +418,11 @@ object TelegramProxyManager {
         } catch (e: Throwable) {
             if (expectedOffset <= range.end) {
                 Log.d(TAG, "Client cancelled mid-range fileId=$fileId offset=$expectedOffset: ${e.message}")
-                TelegramChunkScheduler.onClientDisconnected(fileId, expectedOffset)
+                releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
             }
             throw e
+        } finally {
+            TelegramChunkScheduler.releaseLease(lease, releaseReason, expectedOffset)
         }
     }
 
@@ -419,52 +432,34 @@ object TelegramProxyManager {
         limit: Int,
         purpose: TelegramChunkPurpose
     ): ByteArray? {
-        var lastMessage = ""
-        var attempt = 0
-        val maxAttempts = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) 90 else 75
-        while (coroutineContext.isActive && attempt < maxAttempts) {
-            val result = TelegramChunkScheduler.fetchChunk(
-                TelegramChunkRequest(
-                    fileId = fileId,
-                    offset = offset,
-                    limit = limit,
-                    priority = STREAM_PRIORITY,
-                    purpose = purpose
+        val result = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(fileId, offset, limit, STREAM_PRIORITY, purpose)
+        )
+        return when (result) {
+            is TelegramChunkResult.Ready -> {
+                PlaybackDiagnostics.recordProxyState(
+                    lastStalledOffset = offset,
+                    chunkRetryCount = result.retryCount,
+                    cacheAheadBytes = 0L,
+                    activeChunkCount = TelegramChunkScheduler.activeChunkCount(fileId),
+                    proxyStatus = purpose.name,
+                    readSource = result.source.name
                 )
-            )
-            when (result) {
-                is TelegramChunkResult.Ready -> {
-                    PlaybackDiagnostics.recordProxyState(
-                        lastStalledOffset = offset,
-                        chunkRetryCount = result.retryCount + attempt,
-                        cacheAheadBytes = 0L,
-                        activeChunkCount = TelegramChunkScheduler.activeChunkCount(fileId),
-                        proxyStatus = purpose.name,
-                        readSource = result.source.name
-                    )
-                    return result.bytes
-                }
-                is TelegramChunkResult.FatalFailure -> {
-                    PlaybackDiagnostics.recordStreamError(result.message)
-                    return null
-                }
-                is TelegramChunkResult.RetryableFailure -> {
-                    lastMessage = result.message
-                }
-                TelegramChunkResult.Pending -> {
-                    lastMessage = "Telegram range pending fileId=$fileId offset=$offset"
-                }
+                result.bytes
             }
-            if (attempt == 0) {
-                TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
+            is TelegramChunkResult.FatalFailure -> {
+                PlaybackDiagnostics.recordStreamError(result.message)
+                null
             }
-            attempt++
-            delay(400L)
+            is TelegramChunkResult.RetryableFailure -> {
+                PlaybackDiagnostics.recordStreamError(result.message)
+                null
+            }
+            TelegramChunkResult.Pending -> {
+                PlaybackDiagnostics.recordStreamError("Telegram range pending fileId=$fileId offset=$offset")
+                null
+            }
         }
-        val message = lastMessage.ifBlank { "Telegram is still caching range fileId=$fileId offset=$offset" }
-        Log.w(TAG, message)
-        PlaybackDiagnostics.recordStreamError(message)
-        return null
     }
 
     private suspend fun respondRangeNotReady(call: ApplicationCall, fileId: Int, offset: Long) {

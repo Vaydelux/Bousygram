@@ -396,6 +396,7 @@ fun PlayerScreen(
             ?: com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.getAverageThroughput().takeIf { it > 0 }
         val cacheTelemetry = PlaybackTelemetryRecorder.consumeCacheTelemetry(fid)
         val seekTelemetry = PlaybackTelemetryRecorder.consumeSeekTelemetry(fid)
+        val streamingTelemetry = PlaybackTelemetryRecorder.consumeStreamingTelemetry(fid)
         val memoryPressure = runCatching {
             val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
             val info = android.app.ActivityManager.MemoryInfo()
@@ -432,7 +433,12 @@ fun PlayerScreen(
                 seekCount = seekTelemetry.count,
                 averageSeekLatencyMs = seekTelemetry.averageLatencyMs,
                 droppedFrameCount = maxOf(droppedFrames, playerEngine.droppedBufferCount),
-                memoryPressure = memoryPressure
+                memoryPressure = memoryPressure,
+                telegramBytesRequested = streamingTelemetry.telegramBytesRequested,
+                localBytesServed = streamingTelemetry.localBytesServed,
+                deduplicatedRequestCount = streamingTelemetry.deduplicatedRequestCount,
+                supersededWindowCount = streamingTelemetry.supersededWindowCount,
+                cancellationReason = streamingTelemetry.cancellationReason
             )
         )
     }

@@ -209,8 +209,8 @@ object ContinueWatchingRepository {
         _railItems.value = unfinished
     }
 
-    private fun storageFile(): File {
-        val dir = BousygramApp.instance.filesDir
+    private fun storageFile(): File? {
+        val dir = runCatching { BousygramApp.instance.filesDir }.getOrNull() ?: return null
         return File(dir, FILE_NAME)
     }
 
@@ -231,7 +231,7 @@ object ContinueWatchingRepository {
                 }
                 jsonArray.put(obj)
             }
-            val file = storageFile()
+            val file = storageFile() ?: return
             val temp = File(file.parentFile, "$FILE_NAME.tmp")
             temp.writeText(jsonArray.toString())
             if (!temp.renameTo(file)) {
@@ -244,7 +244,7 @@ object ContinueWatchingRepository {
     }
 
     private fun loadFromDisk() {
-        val file = storageFile()
+        val file = storageFile() ?: return
         if (!file.exists()) return
         try {
             val content = file.readText()

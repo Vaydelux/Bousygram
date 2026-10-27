@@ -14,17 +14,10 @@ internal object HttpRangeParser {
         data object Unsatisfiable : Result
     }
 
-    fun parse(header: String?, fileSize: Long, clampOversizedRange: Boolean = true): Result {
+    fun parse(header: String?, fileSize: Long, clampOversizedRange: Boolean = false): Result {
         if (fileSize <= 0L) return Result.Unsatisfiable
         if (header == null) {
-            // Anti-buffer exhaustion safeguard: if no range header is supplied for large media,
-            // return an initial 8 MiB chunk as partial content to avoid reading gigabytes into one socket.
-            return if (clampOversizedRange && fileSize > LARGE_MEDIA_THRESHOLD_BYTES) {
-                val clampedEnd = min(fileSize - 1L, MAX_STREAM_RANGE_BYTES - 1L)
-                Result.Valid(Range(0L, clampedEnd, isPartial = true))
-            } else {
-                Result.Valid(Range(0L, fileSize - 1L, isPartial = false))
-            }
+            return Result.Valid(Range(0L, fileSize - 1L, isPartial = false))
         }
         val value = header.trim()
         if (!value.startsWith("bytes=", ignoreCase = true)) return Result.Unsatisfiable
