@@ -153,6 +153,8 @@ fun TvVideoSearchScreen(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, voiceSearchLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, voiceSearchLanguageTag())
             // Prefer the device recognizer on TVs that provide one; the system recognizer
             // remains responsible for its network fallback when offline recognition is absent.
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)

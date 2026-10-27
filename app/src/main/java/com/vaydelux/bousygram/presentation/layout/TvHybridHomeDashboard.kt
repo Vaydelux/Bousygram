@@ -1031,9 +1031,9 @@ fun TvHybridHomeDashboard(
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                             topicGroups.forEach { (topicTitle, topicVideos) ->
-                                val topicSeries = remember(topicVideos, topicTitle) {
-                                    com.vaydelux.bousygram.domain.model.groupMediaIntoSeries(topicVideos, topicTitle)
-                                }
+                                // Telegram topics are the presentation hierarchy. Do not infer TV series
+                                // from filenames inside a topic; doing so can mix otherwise unrelated media.
+                                val topicSeries = emptyList<com.vaydelux.bousygram.domain.model.SeriesGroup>()
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -2411,4 +2411,3 @@ fun ModernSeriesCard(
         )
     }
 }
-

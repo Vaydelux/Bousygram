@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.data.store
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.core.content.edit
 
@@ -23,6 +24,7 @@ class ApiCredentialsStore(context: Context) {
         }
     }
 
+    @SuppressLint("ApplySharedPref") // Credential migration must be durable before plaintext is returned or removed.
     private fun readAndMigrate(key: String): String? {
         val stored = prefs.getString(key, null) ?: return null
         if (stored.startsWith(ENCRYPTED_PREFIX)) {

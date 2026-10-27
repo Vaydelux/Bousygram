@@ -7,6 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 class VoiceSearchAccessibilityTest {
 
@@ -60,5 +61,13 @@ class VoiceSearchAccessibilityTest {
         val emptyResults = arrayListOf("   ", "")
         val emptySelected = emptyResults.firstOrNull()?.trim()
         assertTrue(emptySelected.isNullOrEmpty())
+    }
+
+    @Test
+    fun voiceSearchUsesSupportedEnglishAndFilipinoLanguageTags() {
+        assertEquals("fil-PH", voiceSearchLanguageTag(Locale.forLanguageTag("fil-PH")))
+        assertEquals("fil-PH", voiceSearchLanguageTag(Locale.forLanguageTag("tl-PH")))
+        assertEquals("en-PH", voiceSearchLanguageTag(Locale.forLanguageTag("en-PH")))
+        assertEquals("en-US", voiceSearchLanguageTag(Locale.forLanguageTag("de-DE")))
     }
 }

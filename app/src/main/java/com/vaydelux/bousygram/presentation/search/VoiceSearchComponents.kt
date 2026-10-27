@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
+import java.util.Locale
 
 fun buildVoiceSearchPrompt(searchMode: SearchMode, inChatTitle: String): String {
     return if (searchMode == SearchMode.InChat) {
@@ -49,6 +50,13 @@ fun buildVoiceSearchPrompt(searchMode: SearchMode, inChatTitle: String): String 
         "Speak a video or audio title"
     }
 }
+
+/** Maps device language to recognizer tags explicitly supported by Bousygram search. */
+fun voiceSearchLanguageTag(locale: Locale = Locale.getDefault()): String =
+    when (locale.language.lowercase(Locale.ROOT)) {
+        "fil", "tl" -> "fil-PH"
+        else -> if (locale.country.equals("PH", ignoreCase = true)) "en-PH" else "en-US"
+    }
 
 /**
  * Checks whether speech recognition services or voice-search handlers
