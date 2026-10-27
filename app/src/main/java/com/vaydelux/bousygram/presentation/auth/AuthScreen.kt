@@ -78,6 +78,7 @@ import com.vaydelux.bousygram.R
 import com.vaydelux.bousygram.domain.model.AuthMode
 import com.vaydelux.bousygram.domain.model.AuthStep
 import com.vaydelux.bousygram.domain.model.AuthUiState
+import org.drinkless.tdlib.Client
 import com.vaydelux.bousygram.presentation.auth.vm.AuthViewModel
 
 /**
@@ -159,14 +160,21 @@ fun AuthScreen(
                     }
 
                     // Right Column: Dedicated QR Pairing Station
-                    QrPairingStation(
-                        state = state,
-                        onRefresh = viewModel::requestQrCodeLogin,
-                        onSwitchToPhone = viewModel::switchToPhoneLogin,
+                    Column(
                         modifier = Modifier
                             .weight(0.9f)
                             .fillMaxHeight()
-                    )
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        QrPairingStation(
+                            state = state,
+                            onRefresh = viewModel::requestQrCodeLogin,
+                            onSwitchToPhone = viewModel::switchToPhoneLogin,
+                            onConfirmPreview = viewModel::confirmPreviewQrLogin,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             } else {
                 // Ergonomic single-column scrollable layout for phones and compact tablets
@@ -196,6 +204,7 @@ fun AuthScreen(
                             state = state,
                             onRefresh = viewModel::requestQrCodeLogin,
                             onSwitchToPhone = viewModel::switchToPhoneLogin,
+                            onConfirmPreview = viewModel::confirmPreviewQrLogin,
                             modifier = Modifier.fillMaxWidth().widthInMax(520.dp)
                         )
                     } else {
@@ -540,22 +549,36 @@ private fun AuthStepFields(state: AuthUiState, viewModel: AuthViewModel) {
 private fun PhoneForm(state: AuthUiState, viewModel: AuthViewModel) {
     val phoneFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { phoneFocus.requestFocus() } }
+    val isNative = Client.isNativeAvailable()
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(
-            text = "Enter your mobile phone number in international format to receive a one-time verification code from Telegram.",
+            text = "Enter your mobile phone number with international country code (e.g. +15551234567) to receive a secure Telegram verification code.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium
         )
 
         ModernAuthTextField(
             label = stringResource(R.string.auth_phone_hint),
-            placeholder = stringResource(R.string.auth_phone_placeholder),
+            placeholder = "+15551234567",
             value = state.phone,
             onValueChange = viewModel::onPhoneChange,
             keyboardType = KeyboardType.Phone,
             modifier = Modifier.focusRequester(phoneFocus)
         )
+
+        if (!isNative) {
+            OutlinedButton(
+                onClick = { viewModel.onPhoneChange("+9996621111") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = "🧪 Fill Test Phone (+9996621111)",
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+        }
 
         PrimaryAction(
             text = stringResource(R.string.auth_submit_phone),
@@ -569,22 +592,37 @@ private fun PhoneForm(state: AuthUiState, viewModel: AuthViewModel) {
 private fun CodeVerificationForm(state: AuthUiState, viewModel: AuthViewModel) {
     val codeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { codeFocus.requestFocus() } }
+    val isNative = Client.isNativeAvailable()
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        val targetPhone = if (state.phone.isNotBlank()) " to ${state.phone}" else ""
         Text(
-            text = "A verification code was sent to your official Telegram app on your phone or computer. Enter it below:",
+            text = "A 5-digit verification code was sent$targetPhone in your official Telegram app. Enter it below:",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium
         )
 
         ModernAuthTextField(
             label = stringResource(R.string.auth_code_hint),
-            placeholder = stringResource(R.string.auth_code_placeholder),
+            placeholder = "5-digit code",
             value = state.code,
             onValueChange = viewModel::onCodeChange,
             keyboardType = KeyboardType.Number,
             modifier = Modifier.focusRequester(codeFocus)
         )
+
+        if (!isNative) {
+            OutlinedButton(
+                onClick = { viewModel.onCodeChange("22222") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = "🧪 Fill Test Code (22222)",
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+        }
 
         PrimaryAction(
             text = stringResource(R.string.auth_submit),
@@ -674,9 +712,11 @@ private fun QrPairingStation(
     state: AuthUiState,
     onRefresh: () -> Unit,
     onSwitchToPhone: () -> Unit,
+    onConfirmPreview: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val stationShape = RoundedCornerShape(24.dp)
+    val isNative = Client.isNativeAvailable()
     Surface(
         modifier = modifier
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), stationShape)
@@ -685,9 +725,7 @@ private fun QrPairingStation(
         shape = stationShape
     ) {
         Column(
-            modifier = Modifier
-                .padding(26.dp)
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.padding(26.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -699,26 +737,75 @@ private fun QrPairingStation(
             )
 
             Text(
-                text = "Quickly link your account without typing a password or phone number.",
+                text = if (isNative) {
+                    "Quickly link your account without typing a password or phone number."
+                } else {
+                    "Development/Preview Environment (libtdjni.so not loaded on this host). Instant preview sign-in is available below."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
 
-            QrDisplayBox(state = state, onRefresh = onRefresh)
+            QrDisplayBox(
+                state = state,
+                onRefresh = onRefresh,
+                onConfirmPreview = onConfirmPreview,
+                isNative = isNative
+            )
 
-            // Step-by-step pairing guide
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f))
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                QrStepRow(step = "1", instruction = "Open Telegram on your mobile phone")
-                QrStepRow(step = "2", instruction = "Go to Settings → Devices → Link Desktop Device")
-                QrStepRow(step = "3", instruction = "Point your camera at this QR code")
+            if (!isNative) {
+                // Informative banner explaining why scanning with official phone says AUTH_INVALID in preview
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f))
+                        .border(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.40f), RoundedCornerShape(14.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "ℹ️ Preview Notice (Official app says AUTH_INVALID)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Text(
+                        text = "Real Telegram QR codes require native MTProto handshakes (active in production ARM64/v7a release APKs). In this preview host, click 'Instant Authorize' below or tap the QR box to sign in immediately.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+
+                Button(
+                    onClick = onConfirmPreview,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Text(
+                        text = "⚡ Instant Authorize (Preview Mode)",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            } else {
+                // Step-by-step pairing guide for real native MTProto session
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QrStepRow(step = "1", instruction = "Open Telegram on your mobile phone")
+                    QrStepRow(step = "2", instruction = "Go to Settings → Devices → Link Desktop Device")
+                    QrStepRow(step = "3", instruction = "Point your camera at this QR code")
+                }
             }
 
             Row(
@@ -773,7 +860,12 @@ private fun QrStepRow(step: String, instruction: String) {
 }
 
 @Composable
-private fun QrDisplayBox(state: AuthUiState, onRefresh: () -> Unit) {
+private fun QrDisplayBox(
+    state: AuthUiState,
+    onRefresh: () -> Unit,
+    onConfirmPreview: () -> Unit = {},
+    isNative: Boolean = true
+) {
     val hasQr = state.qrCodeBitmap != null
     var isFocused by remember { mutableStateOf(false) }
 
@@ -787,18 +879,37 @@ private fun QrDisplayBox(state: AuthUiState, onRefresh: () -> Unit) {
                 color = if (isFocused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(22.dp)
             )
-            .clickable(onClick = onRefresh)
+            .clickable(onClick = if (!isNative && hasQr) onConfirmPreview else onRefresh)
             .onFocusChanged { isFocused = it.isFocused }
             .focusable(),
         contentAlignment = Alignment.Center
     ) {
         when {
             state.qrCodeBitmap != null -> {
-                Image(
-                    bitmap = state.qrCodeBitmap.asImageBitmap(),
-                    contentDescription = stringResource(R.string.auth_qr_content_description),
-                    modifier = Modifier.size(230.dp)
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Image(
+                        bitmap = state.qrCodeBitmap.asImageBitmap(),
+                        contentDescription = stringResource(R.string.auth_qr_content_description),
+                        modifier = Modifier.size(230.dp)
+                    )
+                    if (!isNative) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Black.copy(alpha = 0.70f),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 12.dp)
+                        ) {
+                            Text(
+                                text = "👆 Tap QR to Authorize",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
             }
             state.isLoading -> {
                 Column(

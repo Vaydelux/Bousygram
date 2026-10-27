@@ -31,14 +31,6 @@ object RecentSearchRepository {
     private const val KEY_USER_CLEARED = "user_cleared_recent_searches"
     const val MAX_RECENT_SEARCHES = 12
 
-    private val defaultSeedQueries = listOf(
-        RecentSearchQuery(query = "Sintel", chatTitle = "Saved Messages", resultCount = 2),
-        RecentSearchQuery(query = "Tears of Steel", chatTitle = "Saved Messages", resultCount = 2),
-        RecentSearchQuery(query = "1080p", chatTitle = "All Channels", resultCount = 8),
-        RecentSearchQuery(query = "4K", chatTitle = "Saved Messages", resultCount = 2),
-        RecentSearchQuery(query = "Big Buck Bunny", chatTitle = "Saved Messages", resultCount = 1)
-    )
-
     @Volatile
     private var database: AppDatabase? = null
     @Volatile
@@ -46,7 +38,7 @@ object RecentSearchRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var roomObserveJob: Job? = null
 
-    private val _recentSearches = MutableStateFlow<List<RecentSearchQuery>>(defaultSeedQueries)
+    private val _recentSearches = MutableStateFlow<List<RecentSearchQuery>>(emptyList())
     val recentSearches: StateFlow<List<RecentSearchQuery>> = _recentSearches.asStateFlow()
 
     fun init(context: Context) {
@@ -143,17 +135,7 @@ object RecentSearchRepository {
                     if (entities.isNotEmpty()) {
                         dao.insertRecentSearches(entities)
                         dao.trimToMaxCount(MAX_RECENT_SEARCHES)
-                        return@runCatching
                     }
-                }
-                val clearedByUser = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .getBoolean(KEY_USER_CLEARED, false)
-                if (!clearedByUser) {
-                    val seedEntities = defaultSeedQueries.mapIndexed { index, item ->
-                        item.copy(timestampMs = now - (index * 1000L)).toEntity()
-                    }
-                    dao.insertRecentSearches(seedEntities)
-                    dao.trimToMaxCount(MAX_RECENT_SEARCHES)
                 }
             }
         }.onFailure { e ->

@@ -72,6 +72,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         authManager.requestQrCodeLogin()
     }
 
+    fun confirmPreviewQrLogin() {
+        authManager.confirmPreviewQrLogin()
+    }
+
     fun onPhoneChange(value: String) = updateField { it.copy(phone = value.take(24)) }
     fun onApiIdChange(value: String) = updateField { it.copy(apiId = value.filter(Char::isDigit).take(12)) }
     fun onApiHashChange(value: String) = updateField {
@@ -138,8 +142,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         currentLink: String?,
         currentBitmap: android.graphics.Bitmap?
     ): android.graphics.Bitmap? {
-        if (link == currentLink) return currentBitmap
-        if (link == null) return null
+        if (link.isNullOrBlank()) return null
+        if (link == currentLink && currentBitmap != null) return currentBitmap
         return withContext(Dispatchers.Default) {
             QrCodeGenerator.generate(link, 400, 400)
         }

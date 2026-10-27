@@ -17,12 +17,39 @@ class AuthInputPolicyTest {
     }
 
     @Test
-    fun loginCodeMustBeNumeric() {
+    fun loginCodeMustBeFiveOrSixDigits() {
         assertNull(AuthInputPolicy.codeError("12345"))
+        assertNull(AuthInputPolicy.codeError("123456"))
         assertEquals(
-            "Enter the numeric login code from Telegram",
+            "Enter the 5-digit verification code from Telegram",
             AuthInputPolicy.codeError("12ab")
         )
+        assertEquals(
+            "Enter the 5-digit verification code from Telegram",
+            AuthInputPolicy.codeError("123")
+        )
+        assertEquals(
+            "Enter the 5-digit verification code from Telegram",
+            AuthInputPolicy.codeError("12345678")
+        )
+    }
+
+    @Test
+    fun dummyAndFakePhoneNumbersAreRejected() {
+        assertEquals(
+            "That phone number is not valid. Include the country code, for example +15551234567",
+            AuthInputPolicy.phoneError("+1234567890")
+        )
+        assertEquals(
+            "That phone number is not valid. Include the country code, for example +15551234567",
+            AuthInputPolicy.phoneError("+0000000000")
+        )
+        assertEquals(
+            "That phone number is not valid. Include the country code, for example +15551234567",
+            AuthInputPolicy.phoneError("+1111111111")
+        )
+        // Telegram official test DC numbers are allowed
+        assertNull(AuthInputPolicy.phoneError("+9996621111"))
     }
 
     @Test

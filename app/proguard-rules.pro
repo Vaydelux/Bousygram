@@ -26,9 +26,28 @@
 -dontwarn androidx.room.paging.**
 
 # 3. TDLib (Telegram Database Library) Java bindings & JNI bridge
-# TDLib C++ native library makes reflective calls into Java classes, fields, constructors, and callbacks.
--keep class org.drinkless.tdlib.** { *; }
--keepclassmembers class org.drinkless.tdlib.** { *; }
+# TDLib C++ native library makes reflective JNI calls into Java classes, fields, constructors, and callbacks.
+# R8 full-mode minification must preserve all field names, constructors, and native methods.
+-keep class org.drinkless.tdlib.Client {
+    native <methods>;
+    public <methods>;
+    private <methods>;
+}
+-keep class org.drinkless.tdlib.Client$* {
+    *;
+}
+-keep class org.drinkless.tdlib.TdApi {
+    *;
+}
+-keep class org.drinkless.tdlib.TdApi$* {
+    <fields>;
+    public <init>(...);
+    public <methods>;
+}
+-keepclassmembers class org.drinkless.tdlib.TdApi$* {
+    <fields>;
+    public <init>(...);
+}
 -keepclasseswithmembernames class org.drinkless.tdlib.** {
     native <methods>;
 }
@@ -55,15 +74,23 @@
 }
 
 # 6. Ktor & Netty Local Loopback Streaming Server
-# TelegramProxyManager runs an embedded Netty HTTP server on 127.0.0.1.
-# Netty relies on internal reflection (sun.misc.Unsafe, PlatformDependent0, shaded JCTools).
+# Silence non-Android Netty native transports and optional logging
+-dontwarn io.netty.channel.epoll.**
+-dontwarn io.netty.channel.kqueue.**
+-dontwarn io.netty.channel.unix.**
+-dontwarn io.netty.handler.ssl.**
+-dontwarn io.netty.internal.tcnative.**
+-dontwarn io.netty.util.internal.logging.**
+-dontwarn io.netty.util.internal.shaded.org.jctools.**
+-dontwarn java.lang.management.**
+-dontwarn org.apache.log4j.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn org.eclipse.jetty.npn.**
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+-dontwarn reactor.blockhound.integration.BlockHoundIntegration
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
 -dontwarn io.ktor.**
--keep class io.ktor.** { *; }
--keepclassmembers class io.ktor.** { *; }
-
--dontwarn io.netty.**
--keep class io.netty.** { *; }
--keepclassmembers class io.netty.** { *; }
 
 # Netty internal reflection and shaded lock-free queues
 -keepclasseswithmembernames class io.netty.** {
@@ -75,32 +102,101 @@
 -keepclassmembers class io.netty.util.internal.PlatformDependent0 {
     *;
 }
+-keepclassmembers class io.netty.util.concurrent.FastThreadLocalRunnable {
+    *;
+}
+-keepclassmembers class io.netty.channel.ChannelHandlerAdapter {
+    *;
+}
+-keepclassmembers class io.netty.channel.ChannelInitializer {
+    *;
+}
+-keep class io.netty.channel.socket.nio.NioSocketChannel {
+    public <init>();
+}
+-keep class io.netty.channel.socket.nio.NioServerSocketChannel {
+    public <init>();
+}
 
-# ServiceLoader discovery for Coroutines and Ktor ApplicationEngine
+# Ktor Netty Server Engine reflection and ServiceLoader discovery
+-keep class io.ktor.server.netty.** {
+    public <init>(...);
+    *;
+}
 -keep class * implements io.ktor.server.engine.ApplicationEngineFactory { *; }
 -keep class * implements io.ktor.server.engine.ApplicationEngine { *; }
+-keep class * implements io.ktor.server.engine.EnginePipeline { *; }
 -keepnames class * implements kotlinx.coroutines.internal.MainDispatcherFactory
 -keepnames class * implements kotlinx.coroutines.CoroutineExceptionHandler
 
-# Netty optional / non-Android dependencies that trigger compile-time warnings
--dontwarn io.netty.internal.tcnative.**
--dontwarn java.lang.management.**
--dontwarn org.apache.log4j.**
--dontwarn org.apache.logging.log4j.**
--dontwarn org.eclipse.jetty.npn.**
--dontwarn org.slf4j.impl.StaticLoggerBinder
--dontwarn reactor.blockhound.integration.BlockHoundIntegration
--dontwarn org.conscrypt.**
--dontwarn org.bouncycastle.**
-
-# 7. Media3 / ExoPlayer
--keep class androidx.media3.** { *; }
--keepclassmembers class androidx.media3.** { *; }
+# 7. Media3 / ExoPlayer Production & Reflection Rules
 -dontwarn androidx.media3.**
+
+# Keep renderers and extractors factories loaded dynamically via reflection
+-keep class androidx.media3.exoplayer.DefaultRenderersFactory {
+    public <init>(...);
+}
+-keep class androidx.media3.exoplayer.RenderersFactory { *; }
+-keep class androidx.media3.extractor.DefaultExtractorsFactory {
+    public <init>(...);
+}
+-keep class androidx.media3.extractor.ExtractorsFactory { *; }
+
+# MediaCodec discovery and adapter reflection
+-keep class androidx.media3.exoplayer.mediacodec.MediaCodecSelector { *; }
+-keep class androidx.media3.exoplayer.mediacodec.MediaCodecAdapter$Factory { *; }
+-keep class androidx.media3.exoplayer.mediacodec.SynchronousMediaCodecAdapter$Factory {
+    public <init>(...);
+}
+-keep class androidx.media3.exoplayer.mediacodec.AsynchronousMediaCodecAdapter$Factory {
+    public <init>(...);
+}
+
+# Keep all Media3 component constructors
+-keep class androidx.media3.exoplayer.** {
+    public <init>(...);
+}
+-keep class androidx.media3.extractor.** {
+    public <init>(...);
+}
+-keep class androidx.media3.datasource.** {
+    public <init>(...);
+}
+-keep class androidx.media3.ui.** {
+    public <init>(...);
+}
+-keep class androidx.media3.session.** {
+    public <init>(...);
+}
+
+# Preserve Media3 common data structures accessed reflectively
+-keepclassmembers class androidx.media3.common.Format { *; }
+-keepclassmembers class androidx.media3.common.MediaItem { *; }
+-keepclassmembers class androidx.media3.common.MediaMetadata { *; }
+-keepclassmembers class androidx.media3.common.TrackGroup { *; }
+-keepclassmembers class androidx.media3.common.Tracks { *; }
+-keepclassmembers class androidx.media3.common.PlaybackParameters { *; }
+-keepclassmembers class androidx.media3.common.Timeline { *; }
+
+# Audio and video processors / renderers
+-keep class androidx.media3.exoplayer.audio.** {
+    public <init>(...);
+}
+-keep class androidx.media3.exoplayer.video.** {
+    public <init>(...);
+}
+-keep class androidx.media3.exoplayer.text.** {
+    public <init>(...);
+}
 
 # 8. Coil Image Loading
 -dontwarn coil.**
--keep class coil.** { *; }
+-keep class * implements coil.ComponentRegistry$Builder { *; }
+-keep class * implements coil.decode.Decoder$Factory { *; }
+-keep class * implements coil.fetch.Fetcher$Factory { *; }
+-keepclassmembers class coil.ImageLoader {
+    *;
+}
 
 # 9. App Entry Points and Lifecycle Observers
 -keep class com.vaydelux.bousygram.app.BousygramApp { *; }

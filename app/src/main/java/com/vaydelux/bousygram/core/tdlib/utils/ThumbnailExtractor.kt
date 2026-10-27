@@ -12,18 +12,32 @@ import java.io.FileOutputStream
 
 object ThumbnailExtractor {
     private const val TAG = "ThumbnailExtractor"
-    private val memoryCache = android.util.LruCache<Int, Bitmap>(50) // Cache by fileId
+
+    // Dynamically sized based on device RAM and 32-bit / 64-bit architecture
+    private val isLowRam: Boolean by lazy {
+        try {
+            val app = com.vaydelux.bousygram.app.BousygramApp.instance
+            com.vaydelux.bousygram.core.media.PlayerBufferConfig.isLowRamDevice(app)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private val maxThumbnailCache = if (isLowRam) 16 else 48
+    private val maxPreviewCache = if (isLowRam) 24 else 80
+
+    private val memoryCache = android.util.LruCache<Int, Bitmap>(maxThumbnailCache) // Cache by fileId
 
     data class PreviewKey(val fileId: Int, val timeBucketMs: Long)
-    private val previewCache = android.util.LruCache<PreviewKey, Bitmap>(100)
+    private val previewCache = android.util.LruCache<PreviewKey, Bitmap>(maxPreviewCache)
 
     fun trimMemory(critical: Boolean) {
         if (critical) {
             memoryCache.evictAll()
             previewCache.evictAll()
         } else {
-            memoryCache.trimToSize(memoryCache.maxSize() / 2)
-            previewCache.trimToSize(previewCache.maxSize() / 2)
+            memoryCache.trimToSize((memoryCache.maxSize() / 2).coerceAtLeast(1))
+            previewCache.trimToSize((previewCache.maxSize() / 2).coerceAtLeast(1))
         }
     }
 

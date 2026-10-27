@@ -61,8 +61,7 @@ class EngineLabActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val initialUrl = intent.getStringExtra("url") ?: intent.dataString
-            ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+        val initialUrl = intent.getStringExtra("url") ?: intent.dataString ?: ""
 
         setContent {
             BousygramTheme {
@@ -145,7 +144,7 @@ fun EngineLabScreen(
                 hasFirstFrame = currentPositionMs > 500L,
                 currentPositionMs = currentPositionMs,
                 decoderName = playerEngine.activeDecoder,
-                mediaKey = "debug_sample"
+                mediaKey = if (initialUrl.isNotBlank()) initialUrl.hashCode().toString() else "diagnostic_stream"
             )
 
             if (recovery != BlackScreenRecoveryAction.NONE) {

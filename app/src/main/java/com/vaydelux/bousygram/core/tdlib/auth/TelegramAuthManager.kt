@@ -79,22 +79,35 @@ class TelegramAuthManager(private val context: Context) {
         _uiState.update {
             it.copy(
                 preferredMode = AuthMode.QR,
+                step = AuthStep.ScanQrCode,
                 isLoading = true,
-                message = null,
-                qrCodeLink = null
+                message = null
             )
         }
         client.send(TdApi.GetAuthorizationState()) { result ->
             when (result) {
-                is TdApi.AuthorizationStateWaitPhoneNumber -> requestQrCodeAuthentication()
-                is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> handleAuthState(result)
-                is TdApi.AuthorizationStateWaitTdlibParameters -> handleAuthState(result)
+                is TdApi.AuthorizationStateWaitPhoneNumber,
+                is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> {
+                    requestQrCodeAuthentication()
+                }
+                is TdApi.AuthorizationStateWaitTdlibParameters -> {
+                    handleAuthState(result)
+                }
+                is TdApi.AuthorizationStateWaitCode,
+                is TdApi.AuthorizationStateWaitPassword -> {
+                    // User was midway through phone login and requested QR pairing:
+                    // Reset pending unauthenticated session to return to clean QR pairing
+                    resetPendingAuth()
+                }
+                is TdApi.AuthorizationStateReady -> {
+                    handleAuthState(result)
+                }
                 is TdApi.AuthorizationState -> {
                     handleAuthState(result)
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            message = "QR login is not available at this step. Continue with the current sign-in form."
+                            message = "QR login is currently unavailable. Please continue with phone login."
                         )
                     }
                 }
@@ -111,13 +124,27 @@ class TelegramAuthManager(private val context: Context) {
                 step = AuthStep.ScanQrCode,
                 preferredMode = AuthMode.QR,
                 isLoading = true,
-                message = null,
-                qrCodeLink = null
+                message = null
             )
         }
         client.send(TdApi.RequestQrCodeAuthentication(longArrayOf())) { result ->
             qrRequestInFlight = false
-            handleResult(result)
+            if (result is TdApi.Error) {
+                Log.e(TAG, "RequestQrCodeAuthentication error: ${result.code} ${result.message}")
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        message = AuthInputPolicy.friendlyMessage(result.message)
+                    )
+                }
+            } else {
+                // Query current auth state to ensure link is bound
+                client.send(TdApi.GetAuthorizationState()) { stateResult ->
+                    if (stateResult is TdApi.AuthorizationStateWaitOtherDeviceConfirmation) {
+                        handleAuthState(stateResult)
+                    }
+                }
+            }
         }
     }
 
@@ -133,10 +160,27 @@ class TelegramAuthManager(private val context: Context) {
             )
         }
         client.send(TdApi.GetAuthorizationState()) { result ->
-            if (result is TdApi.AuthorizationStateWaitOtherDeviceConfirmation) {
-                resetPendingAuth()
-            } else {
-                _uiState.update { it.copy(isLoading = false) }
+            when (result) {
+                is TdApi.AuthorizationStateWaitOtherDeviceConfirmation,
+                is TdApi.AuthorizationStateWaitCode,
+                is TdApi.AuthorizationStateWaitPassword -> {
+                    resetPendingAuth()
+                }
+                is TdApi.AuthorizationStateWaitPhoneNumber -> {
+                    _uiState.update { it.copy(step = AuthStep.EnterPhone, isLoading = false) }
+                }
+                else -> {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
+            }
+        }
+    }
+
+    fun confirmPreviewQrLogin() {
+        if (!org.drinkless.tdlib.Client.isNativeAvailable()) {
+            _uiState.update { it.copy(isLoading = true, message = "Authorizing preview session…") }
+            com.vaydelux.bousygram.core.tdlib.client.TdLibFallbackEngine.confirmQrAuthentication { update ->
+                handleUpdate(update)
             }
         }
     }

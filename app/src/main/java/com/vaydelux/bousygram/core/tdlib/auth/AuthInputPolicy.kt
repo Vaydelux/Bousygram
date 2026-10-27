@@ -1,10 +1,19 @@
 package com.vaydelux.bousygram.core.tdlib.auth
 
 internal object AuthInputPolicy {
-    private val PHONE_PATTERN = Regex("^\\+[0-9]{8,15}$")
-    private val CODE_PATTERN = Regex("^[0-9]{4,8}$")
+    private val PHONE_PATTERN = Regex("^\\+[1-9][0-9]{8,14}$")
+    private val CODE_PATTERN = Regex("^[0-9]{5,6}$")
     private val API_HASH_PATTERN = Regex("^[a-fA-F0-9]{32}$")
     private val FLOOD_WAIT = Regex("FLOOD_WAIT_(\\d+)")
+
+    // Known dummy or test phone sequences that must not bypass authentication
+    private val DUMMY_PHONE_PATTERNS = listOf(
+        Regex("^\\+123456789[0-9]*$"),
+        Regex("^\\+0+$"),
+        Regex("^\\+1{7,}$"),
+        Regex("^\\+9{7,}$"),
+        Regex("^\\+0000.*$")
+    )
 
     fun normalizePhone(phone: String): String {
         val stripped = phone.trim()
@@ -20,10 +29,19 @@ internal object AuthInputPolicy {
         }
     }
 
+    fun isObviousDummyPhone(phone: String): Boolean {
+        val normalized = normalizePhone(phone)
+        // Telegram test DC prefixes (+99966...) are valid official test numbers
+        if (normalized.startsWith("+99966")) return false
+        return DUMMY_PHONE_PATTERNS.any { it.matches(normalized) } ||
+            normalized.drop(1).all { it == normalized[1] } // e.g. +2222222222
+    }
+
     fun phoneError(phone: String): String? {
         val normalized = normalizePhone(phone)
         return when {
             normalized.isBlank() -> "Enter your phone number"
+            isObviousDummyPhone(normalized) -> "That phone number is not valid. Include the country code, for example +15551234567"
             normalized.matches(PHONE_PATTERN) -> null
             else -> "Use an international number, for example +15551234567"
         }
@@ -34,7 +52,7 @@ internal object AuthInputPolicy {
         return when {
             trimmed.isBlank() -> "Enter the code from Telegram"
             trimmed.matches(CODE_PATTERN) -> null
-            else -> "Enter the numeric login code from Telegram"
+            else -> "Enter the 5-digit verification code from Telegram"
         }
     }
 
