@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -18,10 +19,15 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -73,6 +79,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -85,6 +92,7 @@ import androidx.compose.ui.focus.focusRequester
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
+import com.vaydelux.bousygram.data.database.RecentSearchQuery
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.SeriesGroup
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
@@ -1382,12 +1390,252 @@ private fun PosterFallback(privacyMode: Boolean = false) {
 }
 
 @Composable
+fun NoResultsIllustration(
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val primary = colors.primary
+    val secondary = colors.secondary
+    val surfaceVariant = colors.surfaceVariant
+    val outline = colors.outlineVariant
+
+    Box(
+        modifier = modifier
+            .size(96.dp)
+            .testTag("no_results_illustration"),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val center = Offset(w * 0.5f, h * 0.5f)
+
+            // Soft radial glow aura
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        primary.copy(alpha = 0.24f),
+                        secondary.copy(alpha = 0.08f),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = w * 0.48f
+                ),
+                radius = w * 0.48f,
+                center = center
+            )
+
+            // Film slate / media frame in background
+            val frameLeft = w * 0.16f
+            val frameTop = h * 0.22f
+            val frameWidth = w * 0.54f
+            val frameHeight = h * 0.44f
+            val corner = CornerRadius(w * 0.08f, w * 0.08f)
+
+            drawRoundRect(
+                color = surfaceVariant.copy(alpha = 0.85f),
+                topLeft = Offset(frameLeft, frameTop),
+                size = Size(frameWidth, frameHeight),
+                cornerRadius = corner
+            )
+            drawRoundRect(
+                color = outline.copy(alpha = 0.75f),
+                topLeft = Offset(frameLeft, frameTop),
+                size = Size(frameWidth, frameHeight),
+                cornerRadius = corner,
+                style = Stroke(width = w * 0.025f)
+            )
+
+            // Film sprocket dots along top and bottom of media frame
+            val dotRadius = w * 0.018f
+            for (i in 0..3) {
+                val dotX = frameLeft + frameWidth * (0.18f + i * 0.21f)
+                drawCircle(
+                    color = primary.copy(alpha = 0.45f),
+                    radius = dotRadius,
+                    center = Offset(dotX, frameTop + frameHeight * 0.16f)
+                )
+                drawCircle(
+                    color = primary.copy(alpha = 0.45f),
+                    radius = dotRadius,
+                    center = Offset(dotX, frameTop + frameHeight * 0.84f)
+                )
+            }
+
+            // Magnifying glass overlapping bottom-right of the media frame
+            val lensCenter = Offset(w * 0.60f, h * 0.56f)
+            val lensRadius = w * 0.19f
+
+            drawCircle(
+                color = surfaceVariant,
+                radius = lensRadius,
+                center = lensCenter
+            )
+            drawCircle(
+                color = primary,
+                radius = lensRadius,
+                center = lensCenter,
+                style = Stroke(width = w * 0.042f, cap = StrokeCap.Round)
+            )
+
+            // Magnifying glass handle
+            val handleStart = Offset(
+                lensCenter.x + lensRadius * 0.72f,
+                lensCenter.y + lensRadius * 0.72f
+            )
+            val handleEnd = Offset(w * 0.86f, h * 0.82f)
+            drawLine(
+                color = primary,
+                start = handleStart,
+                end = handleEnd,
+                strokeWidth = w * 0.055f,
+                cap = StrokeCap.Round
+            )
+
+            // "X" inside magnifying glass lens indicating no matching media
+            val crossSpan = lensRadius * 0.36f
+            drawLine(
+                color = secondary,
+                start = Offset(lensCenter.x - crossSpan, lensCenter.y - crossSpan),
+                end = Offset(lensCenter.x + crossSpan, lensCenter.y + crossSpan),
+                strokeWidth = w * 0.036f,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = secondary,
+                start = Offset(lensCenter.x + crossSpan, lensCenter.y - crossSpan),
+                end = Offset(lensCenter.x - crossSpan, lensCenter.y + crossSpan),
+                strokeWidth = w * 0.036f,
+                cap = StrokeCap.Round
+            )
+        }
+    }
+}
+
+@Composable
+fun NoSearchResultsEmptyState(
+    query: String,
+    modifier: Modifier = Modifier,
+    title: String = "No results found",
+    scopeLabel: String? = null,
+    message: String? = null,
+    onClearQuery: (() -> Unit)? = null,
+    primaryActionText: String? = "Clear search",
+    onPrimaryAction: (() -> Unit)? = onClearQuery,
+    secondaryActionText: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
+    suggestedQueries: List<String> = emptyList(),
+    suggestedSearches: List<String> = suggestedQueries,
+    onSelectSuggestedQuery: ((String) -> Unit)? = null,
+    onSelectSuggestion: ((String) -> Unit)? = onSelectSuggestedQuery
+) {
+    val colors = MaterialTheme.colorScheme
+    val resolvedMessage = message ?: if (query.isNotBlank()) {
+        val scopeSuffix = if (!scopeLabel.isNullOrBlank()) " in $scopeLabel" else ""
+        "We couldn't find any videos matching \"$query\"$scopeSuffix. Check your spelling, try shorter keywords, or search across all Telegram channels."
+    } else {
+        "No matching media items were found. Try searching with different keywords or switching sources."
+    }
+    Box(
+        modifier = modifier
+            .padding(24.dp)
+            .testTag("no_results_empty_state"),
+        contentAlignment = Alignment.Center
+    ) {
+        EnterprisePanel(modifier = Modifier.widthIn(max = 520.dp)) {
+            Column(
+                modifier = Modifier.padding(horizontal = 30.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                NoResultsIllustration()
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    text = title,
+                    color = colors.onSurface,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("no_results_title")
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = resolvedMessage,
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("no_results_message")
+                )
+                if ((primaryActionText != null && onPrimaryAction != null) ||
+                    (secondaryActionText != null && onSecondaryAction != null)
+                ) {
+                    Spacer(Modifier.height(20.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (primaryActionText != null && onPrimaryAction != null) {
+                            BousygramButton(
+                                text = primaryActionText,
+                                onClick = onPrimaryAction,
+                                selected = true,
+                                modifier = Modifier.testTag("no_results_primary_action")
+                            )
+                        }
+                        if (secondaryActionText != null && onSecondaryAction != null) {
+                            BousygramButton(
+                                text = secondaryActionText,
+                                onClick = onSecondaryAction,
+                                selected = false,
+                                modifier = Modifier.testTag("no_results_secondary_action")
+                            )
+                        }
+                    }
+                }
+                val filteredSuggestions = remember(suggestedSearches, query) {
+                    suggestedSearches
+                        .filter { it.isNotBlank() && !it.equals(query.trim(), ignoreCase = true) }
+                        .distinctBy { it.lowercase() }
+                        .take(4)
+                }
+                if (filteredSuggestions.isNotEmpty() && onSelectSuggestion != null) {
+                    Spacer(Modifier.height(18.dp))
+                    Text(
+                        text = "Try a recent search:",
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp)
+                    ) {
+                        items(filteredSuggestions, key = { it.lowercase() }) { suggestion ->
+                            BousygramChip(
+                                text = suggestion,
+                                selected = false,
+                                onClick = { onSelectSuggestion(suggestion) },
+                                modifier = Modifier.testTag("no_results_suggestion_${suggestion.lowercase()}")
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun EmptyStateView(
     title: String,
     message: String,
     modifier: Modifier = Modifier,
     actionText: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    illustration: (@Composable () -> Unit)? = null
 ) {
     Box(
         modifier = modifier.padding(24.dp),
@@ -1399,6 +1647,10 @@ fun EmptyStateView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                if (illustration != null) {
+                    illustration()
+                    Spacer(Modifier.height(12.dp))
+                }
                 Text(
                     title,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -1424,21 +1676,464 @@ fun EmptyStateView(
 }
 
 @Composable
+fun rememberShimmerBrush(): Brush {
+    val transition = rememberInfiniteTransition(label = "shimmerSweep")
+    val translateAnim by transition.animateFloat(
+        initialValue = -400f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1250, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerTranslate"
+    )
+    val colors = MaterialTheme.colorScheme
+    val baseColor = colors.surfaceVariant.copy(alpha = 0.36f)
+    val highlightColor = colors.primary.copy(alpha = 0.22f)
+    val midColor = colors.surfaceVariant.copy(alpha = 0.68f)
+    return Brush.linearGradient(
+        colors = listOf(baseColor, midColor, highlightColor, midColor, baseColor),
+        start = Offset(translateAnim - 300f, translateAnim - 150f),
+        end = Offset(translateAnim + 300f, translateAnim + 150f)
+    )
+}
+
+@Composable
 fun ShimmerCard(
     modifier: Modifier = Modifier,
     rounded: Dp = 18.dp
 ) {
-    val transition = rememberInfiniteTransition(label = "shimmer")
-    val alpha by transition.animateFloat(
-        initialValue = 0.28f,
-        targetValue = 0.62f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "shimmerAlpha"
-    )
+    val shimmerBrush = rememberShimmerBrush()
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(rounded))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
+            .background(shimmerBrush)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(rounded)
+            )
+    )
+}
+
+@Composable
+fun MediaPosterSkeletonCard(
+    modifier: Modifier = Modifier,
+    cardWidth: Dp? = null
+) {
+    val shimmerBrush = rememberShimmerBrush()
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(18.dp)
+    Surface(
+        modifier = modifier
+            .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
+            .border(
+                width = 1.dp,
+                color = colors.outlineVariant.copy(alpha = 0.38f),
+                shape = shape
+            )
+            .clip(shape)
+            .testTag("media_poster_skeleton_card"),
+        color = colors.surface.copy(alpha = 0.78f),
+        shape = shape
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(shimmerBrush)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .width(46.dp)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(colors.background.copy(alpha = 0.55f))
+                )
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.82f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(shimmerBrush)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.52f)
+                            .height(11.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(shimmerBrush)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(38.dp)
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(shimmerBrush)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BrowseGridShimmerSkeleton(
+    columns: GridCells,
+    modifier: Modifier = Modifier,
+    itemCount: Int = 9,
+    spacing: Dp = 12.dp
+) {
+    LazyVerticalGrid(
+        columns = columns,
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+        verticalArrangement = Arrangement.spacedBy(spacing),
+        contentPadding = PaddingValues(bottom = 24.dp),
+        userScrollEnabled = false,
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("browse_grid_shimmer_skeleton")
+    ) {
+        items(itemCount) {
+            MediaPosterSkeletonCard(
+                cardWidth = null,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+fun SidebarListShimmerSkeleton(
+    modifier: Modifier = Modifier,
+    itemCount: Int = 6
+) {
+    val shimmerBrush = rememberShimmerBrush()
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("sidebar_shimmer_skeleton"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        repeat(itemCount) { idx ->
+            val widthFraction = when (idx % 3) {
+                0 -> 0.88f
+                1 -> 0.72f
+                else -> 0.80f
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                        RoundedCornerShape(14.dp)
+                    )
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(widthFraction)
+                        .height(13.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(shimmerBrush)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun RecentHistoryIcon(
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.size(16.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        drawCircle(
+            color = tint,
+            radius = w * 0.38f,
+            center = Offset(w * 0.50f, h * 0.50f),
+            style = stroke
+        )
+        drawLine(
+            color = tint,
+            start = Offset(w * 0.50f, h * 0.50f),
+            end = Offset(w * 0.50f, h * 0.28f),
+            strokeWidth = w * 0.12f,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = tint,
+            start = Offset(w * 0.50f, h * 0.50f),
+            end = Offset(w * 0.66f, h * 0.58f),
+            strokeWidth = w * 0.12f,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+@Composable
+fun RecentSearchesSection(
+    recentSearches: List<RecentSearchQuery>,
+    activeQuery: String,
+    onSelectQuery: (String) -> Unit,
+    onClearActiveQuery: () -> Unit,
+    onClearHistory: () -> Unit,
+    modifier: Modifier = Modifier,
+    onRemoveQuery: ((String) -> Unit)? = null,
+    onOpenFullSearch: ((String) -> Unit)? = null
+) {
+    if (recentSearches.isEmpty() && activeQuery.isBlank()) return
+    val colors = MaterialTheme.colorScheme
+    val handleClearHistory = {
+        onClearHistory()
+        if (activeQuery.isNotBlank()) {
+            onClearActiveQuery()
+        }
+    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("recent_searches_section"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                RecentHistoryIcon(tint = colors.primary)
+                Text(
+                    text = "Recent Searches",
+                    color = colors.onBackground,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                if (activeQuery.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colors.primary.copy(alpha = 0.20f)
+                    ) {
+                        Text(
+                            text = "Active: \"$activeQuery\"",
+                            color = colors.primary,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "• Tap a query to re-execute search",
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (recentSearches.isNotEmpty()) {
+                TvFocusSurface(
+                    onClick = handleClearHistory,
+                    selected = false,
+                    modifier = Modifier.testTag("clear_history_button")
+                ) { focused ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "✕",
+                            color = if (focused) colors.error else colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Clear History",
+                            color = if (focused) colors.error else colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(vertical = 2.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("recent_searches_quick_bar")
+        ) {
+            if (activeQuery.isNotBlank()) {
+                item(key = "__clear_active_filter__") {
+                    TvFocusSurface(
+                        onClick = onClearActiveQuery,
+                        selected = true,
+                        modifier = Modifier.testTag("clear_quick_search_filter_chip")
+                    ) { focused ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                text = "✕ Clear \"$activeQuery\"",
+                                color = if (focused) colors.onSurface else colors.primary,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                if (onOpenFullSearch != null) {
+                    item(key = "__open_full_search__") {
+                        TvFocusSurface(
+                            onClick = { onOpenFullSearch(activeQuery) },
+                            selected = false,
+                            modifier = Modifier.testTag("open_full_search_chip")
+                        ) { focused ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                Text(
+                                    text = "Search all Telegram for \"$activeQuery\" →",
+                                    color = if (focused) colors.primary else colors.secondary,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            items(recentSearches, key = { it.normalizedQuery }) { entry ->
+                val isSelected = activeQuery.equals(entry.query, ignoreCase = true)
+                TvFocusSurface(
+                    onClick = { onSelectQuery(entry.query) },
+                    selected = isSelected,
+                    modifier = Modifier.testTag("recent_search_chip_${entry.normalizedQuery}")
+                ) { focused ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            text = if (isSelected) "↻" else "⌕",
+                            color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = entry.query,
+                            color = if (isSelected) colors.primary else colors.onSurface,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (entry.resultCount > 0) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (isSelected) colors.primary.copy(alpha = 0.24f) else colors.surfaceVariant
+                            ) {
+                                Text(
+                                    text = "${entry.resultCount}",
+                                    color = if (isSelected) colors.primary else colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        if (onRemoveQuery != null && !isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable { onRemoveQuery(entry.query) }
+                                    .padding(horizontal = 3.dp, vertical = 1.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "×",
+                                    color = colors.onSurfaceVariant.copy(alpha = 0.75f),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            if (recentSearches.isNotEmpty()) {
+                item(key = "__clear_recent_searches__") {
+                    TvFocusSurface(
+                        onClick = handleClearHistory,
+                        selected = false,
+                        modifier = Modifier.testTag("clear_recent_searches_button")
+                    ) { focused ->
+                        Text(
+                            text = "Clear History",
+                            color = if (focused) colors.error else colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (focused) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RecentSearchesQuickBar(
+    recentSearches: List<RecentSearchQuery>,
+    activeQuery: String,
+    onSelectQuery: (String) -> Unit,
+    onClearActiveQuery: () -> Unit,
+    onClearHistory: () -> Unit,
+    modifier: Modifier = Modifier,
+    onRemoveQuery: ((String) -> Unit)? = null,
+    onOpenFullSearch: ((String) -> Unit)? = null
+) {
+    RecentSearchesSection(
+        recentSearches = recentSearches,
+        activeQuery = activeQuery,
+        onSelectQuery = onSelectQuery,
+        onClearActiveQuery = onClearActiveQuery,
+        onClearHistory = onClearHistory,
+        modifier = modifier,
+        onRemoveQuery = onRemoveQuery,
+        onOpenFullSearch = onOpenFullSearch
     )
 }
 

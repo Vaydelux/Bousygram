@@ -81,6 +81,9 @@ import com.vaydelux.bousygram.presentation.components.ChatSourceTabs
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.GlassPill
 import com.vaydelux.bousygram.presentation.components.ImagePlaceholderIcon
+import com.vaydelux.bousygram.presentation.components.MediaPosterSkeletonCard
+import com.vaydelux.bousygram.presentation.components.NoSearchResultsEmptyState
+import com.vaydelux.bousygram.presentation.components.RecentSearchesQuickBar
 import com.vaydelux.bousygram.presentation.components.ShimmerCard
 import com.vaydelux.bousygram.presentation.components.rememberMiniThumbnail
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
@@ -127,7 +130,14 @@ fun TvHybridHomeDashboard(
     onSelectTopic: (Int?) -> Unit = {},
     onOpenExternalPlayer: (MediaItem) -> Unit = {},
     onDeleteMedia: (MediaItem) -> Unit = {},
-    onBackToNavBar: () -> Unit = {}
+    onBackToNavBar: () -> Unit = {},
+    recentSearches: List<com.vaydelux.bousygram.data.database.RecentSearchQuery> = emptyList(),
+    activeQuickSearchQuery: String = "",
+    onSelectRecentSearch: (String) -> Unit = {},
+    onRemoveRecentSearch: (String) -> Unit = {},
+    onClearQuickSearch: () -> Unit = {},
+    onClearRecentSearches: () -> Unit = {},
+    onOpenSearchWithQuery: (String) -> Unit = {}
 ) {
     val adaptive = rememberAdaptiveMetrics()
     val compact = adaptive.isCompact
@@ -474,6 +484,19 @@ fun TvHybridHomeDashboard(
                 }
             }
 
+            // Quick access to Room-cached recent search queries
+            if (!safeMode && (recentSearches.isNotEmpty() || activeQuickSearchQuery.isNotBlank())) {
+                RecentSearchesQuickBar(
+                    recentSearches = recentSearches,
+                    activeQuery = activeQuickSearchQuery,
+                    onSelectQuery = onSelectRecentSearch,
+                    onRemoveQuery = onRemoveRecentSearch,
+                    onClearActiveQuery = onClearQuickSearch,
+                    onClearHistory = onClearRecentSearches,
+                    onOpenFullSearch = onOpenSearchWithQuery
+                )
+            }
+
             // Series inference is intentionally excluded: Telegram chats/topics are the hierarchy.
             if (selectedSeriesTitle == null) {
                 Row(
@@ -520,28 +543,59 @@ fun TvHybridHomeDashboard(
                 }
             }
 
-            // Shimmer loading cards
+            // Shimmer loading skeletons while waiting for TDLib media content
             if (isLoading && featuredVideos.isEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(
-                        text = "Loading media…",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        repeat(if (compact) 2 else 4) {
-                            ShimmerCard(Modifier.width(cardWidth).height(if (compact) 110.dp else 134.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    repeat(2) { shelfIdx ->
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                ShimmerCard(
+                                    modifier = Modifier
+                                        .width(if (shelfIdx == 0) 180.dp else 150.dp)
+                                        .height(20.dp),
+                                    rounded = 8.dp
+                                )
+                                ShimmerCard(
+                                    modifier = Modifier
+                                        .width(36.dp)
+                                        .height(18.dp),
+                                    rounded = 6.dp
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                repeat(if (compact) 2 else 4) {
+                                    MediaPosterSkeletonCard(cardWidth = cardWidth)
+                                }
+                            }
                         }
                     }
                 }
             } else if (featuredVideos.isEmpty() && !isLoading) {
-                EmptyStateView(
-                    title = "No videos in this source",
-                    message = "Switch to another Telegram chat above or search across your channels.",
-                    actionText = "Search",
-                    onAction = onOpenSearch,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp)
-                )
+                if (activeQuickSearchQuery.isNotBlank()) {
+                    NoSearchResultsEmptyState(
+                        query = activeQuickSearchQuery,
+                        scopeLabel = channelLabel,
+                        onClearQuery = onClearQuickSearch,
+                        secondaryActionText = "Search All Telegram",
+                        onSecondaryAction = { onOpenSearchWithQuery(activeQuickSearchQuery) },
+                        suggestedSearches = recentSearches
+                            .map { it.query }
+                            .filterNot { it.equals(activeQuickSearchQuery, ignoreCase = true) },
+                        onSelectSuggestion = onSelectRecentSearch,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp)
+                    )
+                } else {
+                    EmptyStateView(
+                        title = "No videos in this source",
+                        message = "Switch to another Telegram chat above or search across your channels.",
+                        actionText = "Search",
+                        onAction = onOpenSearch,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp)
+                    )
+                }
             } else if (seriesGroups.firstOrNull { it.title == selectedSeriesTitle } != null) {
                 val activeSeries = seriesGroups.first { it.title == selectedSeriesTitle }
                 var selectedSeasonFilter by remember(selectedSeriesTitle) { mutableStateOf<Int?>(null) }

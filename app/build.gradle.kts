@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.androidx.baselineprofile)
+    alias(libs.plugins.secrets)
 }
 
 val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a")
@@ -14,27 +15,10 @@ val tdLibAvailableAbis = supportedTdLibAbis.filter { abi ->
     nativeLibrary.isFile && nativeLibrary.length() > 0L
 }
 
-val properties = Properties().apply {
-    val localProperties = rootProject.file("local.properties")
-    if (localProperties.exists()) {
-        localProperties.inputStream().use { stream ->
-            load(stream)
-        }
-    }
-}
-
-val releaseStoreFile = properties.getProperty("RELEASE_STORE_FILE")
-    ?: System.getenv("RELEASE_STORE_FILE")
-    ?: ""
-val releaseStorePassword = properties.getProperty("RELEASE_STORE_PASSWORD")
-    ?: System.getenv("RELEASE_STORE_PASSWORD")
-    ?: ""
-val releaseKeyAlias = properties.getProperty("RELEASE_KEY_ALIAS")
-    ?: System.getenv("RELEASE_KEY_ALIAS")
-    ?: ""
-val releaseKeyPassword = properties.getProperty("RELEASE_KEY_PASSWORD")
-    ?: System.getenv("RELEASE_KEY_PASSWORD")
-    ?: ""
+val releaseStoreFile = System.getenv("RELEASE_STORE_FILE") ?: ""
+val releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: ""
+val releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: ""
+val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: ""
 val hasReleaseSigning = releaseStoreFile.isNotBlank() &&
     releaseStorePassword.isNotBlank() &&
     releaseKeyAlias.isNotBlank() &&
@@ -51,6 +35,12 @@ android {
     val devAbi = project.findProperty("devAbi") as? String
 
     signingConfigs {
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         create("release") {
             if (releaseStoreFile.isNotBlank()) {
                 storeFile = file(releaseStoreFile)
@@ -75,12 +65,6 @@ android {
             }
         }
 
-        val apiId = properties.getProperty("TELEGRAM_API_ID") ?: ""
-        val apiHash = properties.getProperty("TELEGRAM_API_HASH") ?: ""
-        val tmdbApiKey = properties.getProperty("TMDB_API_KEY") ?: System.getenv("TMDB_API_KEY") ?: ""
-        buildConfigField("String", "TELEGRAM_API_ID", "\"$apiId\"")
-        buildConfigField("String", "TELEGRAM_API_HASH", "\"$apiHash\"")
-        buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "true")
     }
 
@@ -89,9 +73,10 @@ android {
     }
 
     val isBuildingBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
+    val isReleaseTask = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
     splits {
         abi {
-            isEnable = devAbi.isNullOrBlank() && !isBuildingBundle
+            isEnable = isReleaseTask && devAbi.isNullOrBlank() && !isBuildingBundle
             reset()
             include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = true
@@ -106,6 +91,9 @@ android {
 
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debugConfig")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -178,20 +166,14 @@ android {
 
 }
 
+secrets {
+    propertiesFileName = ".env"
+    defaultPropertiesFileName = ".env.example"
+}
+
 baselineProfile {
     warnings {
         maxAgpVersion = false
-    }
-}
-
-androidComponents {
-    onVariants { variant ->
-        variant.outputs.forEach { output ->
-            val versionName = output.versionName.orNull ?: "1.0"
-            val abi = output.filters.find { it.filterType == com.android.build.api.variant.FilterConfiguration.FilterType.ABI }?.identifier
-            val suffix = if (abi != null) "-$abi" else "-universal"
-            output.outputFileName.set("Bousygram-v$versionName-${variant.name}$suffix.apk")
-        }
     }
 }
 

@@ -371,7 +371,9 @@ class TelegramAuthManager(private val context: Context) {
         val storedApiId = credentialsStore.getApiId()?.toIntOrNull()?.takeIf { it != 0 }
         val storedApiHash = credentialsStore.getApiHash()?.takeIf { it.isNotBlank() }
         val buildApiId = BuildConfig.TELEGRAM_API_ID.toIntOrNull()?.takeIf { it != 0 }
-        val buildApiHash = BuildConfig.TELEGRAM_API_HASH.takeIf { it.isNotBlank() }
+        val buildApiHash = BuildConfig.TELEGRAM_API_HASH.takeIf {
+            it.isNotBlank() && it != "TELEGRAM_API_HASH_DEFAULT_VALUE"
+        }
 
         val apiId = storedApiId ?: buildApiId ?: DEFAULT_API_ID
         val apiHash = storedApiHash ?: buildApiHash ?: DEFAULT_API_HASH

@@ -61,20 +61,35 @@ import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.ChatSourceTabs
 import com.vaydelux.bousygram.presentation.components.AllChatsPickerDialog
+import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
+import com.vaydelux.bousygram.presentation.components.MediaPosterSkeletonCard
+import com.vaydelux.bousygram.presentation.components.NoSearchResultsEmptyState
+import com.vaydelux.bousygram.presentation.components.RecentSearchesSection
+import com.vaydelux.bousygram.presentation.components.SidebarListShimmerSkeleton
 import com.vaydelux.bousygram.presentation.layout.TvHybridHomeDashboard
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
+import com.vaydelux.bousygram.data.database.RecentSearchQuery
 
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import com.vaydelux.bousygram.presentation.components.BousygramTextField
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
 import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
 import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
+import com.vaydelux.bousygram.presentation.search.SearchBarVoiceButton
+import com.vaydelux.bousygram.presentation.search.SearchMode
+import com.vaydelux.bousygram.presentation.search.buildVoiceSearchPrompt
+import com.vaydelux.bousygram.presentation.search.rememberVoiceSearchController
 
 @Composable
 fun BrowseScreen(
@@ -84,6 +99,9 @@ fun BrowseScreen(
     onOpenFavorites: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenSearchWithQuery: (chatId: Long?, chatTitle: String, query: String) -> Unit = { chatId, chatTitle, _ ->
+        onOpenSearch(chatId, chatTitle)
+    },
     onStreamError: (String) -> Unit = {},
     libraryMode: Boolean = false,
     resumeSignal: Int = 0,
@@ -92,6 +110,7 @@ fun BrowseScreen(
     viewModel: MediaViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val recentSearches by viewModel.recentSearches.collectAsState()
     val adaptive = rememberAdaptiveMetrics()
     val context = LocalContext.current
     var favoriteKeys by remember { mutableStateOf(EnterprisePreferences.favoriteKeys()) }
@@ -175,7 +194,11 @@ fun BrowseScreen(
         restorationApplied = true
     }
 
-    BackHandler(enabled = state.selectedTopicId != null) {
+    BackHandler(enabled = state.quickSearchQuery.isNotBlank()) {
+        viewModel.clearQuickSearchQuery()
+    }
+
+    BackHandler(enabled = state.selectedTopicId != null && state.quickSearchQuery.isBlank()) {
         viewModel.selectTopic(null)
     }
 
@@ -223,12 +246,24 @@ fun BrowseScreen(
         }
     }
 
+    val voiceSearchController = rememberVoiceSearchController(
+        promptProvider = {
+            buildVoiceSearchPrompt(SearchMode.InChat, state.selectedChatTitle)
+        },
+        onPartialText = { partial ->
+            viewModel.setQuickSearchQuery(partial)
+        },
+        onQueryRecognized = { recognizedQuery ->
+            viewModel.executeRecentSearch(recognizedQuery)
+        }
+    )
+
     val pagePadding = if (adaptive.isCompact) 12.dp else 28.dp
     val posterMin = if (adaptive.isCompact) 160.dp else 220.dp
     Box(modifier = modifier.fillMaxSize()) {
         if (libraryMode) {
             if (adaptive.isPhoneLayout) {
-                // Phone Library: group list, then topic chips, then a 3-column poster grid.
+                // Phone Library: group list, then topic chips, recent searches bar, then a 3-column poster grid.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -321,18 +356,76 @@ fun BrowseScreen(
                         }
                     }
 
-                    // 3-column poster grid
+                    // Search bar with voice search microphone button
+                    BrowseSearchBar(
+                        query = state.quickSearchQuery,
+                        onQueryChange = viewModel::setQuickSearchQuery,
+                        onSearch = {
+                            if (state.quickSearchQuery.isNotBlank()) {
+                                viewModel.executeRecentSearch(state.quickSearchQuery)
+                            }
+                        },
+                        onVoiceSearch = voiceSearchController::toggleVoiceSearch,
+                        isVoiceListening = voiceSearchController.isListening,
+                        placeholder = "Search in ${state.selectedChatTitle}"
+                    )
+
+                    // Cached recent search queries from Room database
+                    if (!safeMode && (recentSearches.isNotEmpty() || state.quickSearchQuery.isNotBlank())) {
+                        RecentSearches(
+                            recentSearches = recentSearches,
+                            activeQuery = state.quickSearchQuery,
+                            onSelectQuery = viewModel::toggleQuickSearchQuery,
+                            onRemoveQuery = viewModel::removeRecentSearch,
+                            onClearActiveQuery = viewModel::clearQuickSearchQuery,
+                            onClearHistory = {
+                                viewModel.clearRecentSearches()
+                                viewModel.clearQuickSearchQuery()
+                            },
+                            onOpenFullSearch = { query ->
+                                val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
+                                onOpenSearchWithQuery(chatId, state.selectedChatTitle, query)
+                            }
+                        )
+                    }
+
+                    // 3-column poster grid with shimmer loading skeletons
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         if (state.isLoading && videos.isEmpty()) {
-                            CircularProgressIndicator(Modifier.align(Alignment.Center))
-                        } else if (videos.isEmpty()) {
-                            EmptyStateView(
-                                title = "No videos in this source",
-                                message = "Switch to another channel above or search your media.",
-                                actionText = "Refresh",
-                                onAction = { viewModel.refresh(); viewModel.refreshVideoChats() },
-                                modifier = Modifier.align(Alignment.Center)
+                            BrowseGridShimmerSkeleton(
+                                columns = GridCells.Fixed(3),
+                                itemCount = 9,
+                                spacing = 8.dp
                             )
+                        } else if (videos.isEmpty()) {
+                            if (state.quickSearchQuery.isNotBlank()) {
+                                NoSearchResultsEmptyState(
+                                    query = state.quickSearchQuery,
+                                    scopeLabel = state.selectedChatTitle,
+                                    onClearQuery = viewModel::clearQuickSearchQuery,
+                                    secondaryActionText = "Search All Telegram",
+                                    onSecondaryAction = {
+                                        val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
+                                        onOpenSearchWithQuery(chatId, state.selectedChatTitle, state.quickSearchQuery)
+                                    },
+                                    suggestedSearches = recentSearches
+                                        .map { it.query }
+                                        .filterNot { it.equals(state.quickSearchQuery, ignoreCase = true) },
+                                    onSelectSuggestion = viewModel::executeRecentSearch,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            } else {
+                                EmptyStateView(
+                                    title = "No videos in this source",
+                                    message = "Switch to another channel above or search your media.",
+                                    actionText = "Refresh",
+                                    onAction = {
+                                        viewModel.refresh()
+                                        viewModel.refreshVideoChats()
+                                    },
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            }
                         } else {
                             LazyVerticalGrid(
                                 state = libraryGridState,
@@ -364,13 +457,21 @@ fun BrowseScreen(
                                         }
                                     )
                                 }
+                                if (state.isLoadingMore) {
+                                    items(3, key = { "__phone_loading_more_$it" }) {
+                                        MediaPosterSkeletonCard(
+                                            cardWidth = null,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             } else {
                 // TV and Tablet split layout:
-                // Left list: Groups & Channels | Right: Topics (chips) + grid of posters
+                // Left list: Groups & Channels | Right: Topics (chips) + Recent Searches + grid of posters
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -456,10 +557,15 @@ fun BrowseScreen(
                                     }
                                 }
                             }
+                            if (state.isSidebarLoading && state.videoChats.isEmpty()) {
+                                item(key = "__sidebar_shimmer__") {
+                                    SidebarListShimmerSkeleton(itemCount = 5)
+                                }
+                            }
                         }
                     }
 
-                    // Right pane: Topics (chips) on top + grid of posters
+                    // Right pane: Topics (chips) on top + Recent Searches + grid of posters
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -503,24 +609,82 @@ fun BrowseScreen(
                             }
                         }
 
+                        // Search bar with voice search microphone button
+                        BrowseSearchBar(
+                            query = state.quickSearchQuery,
+                            onQueryChange = viewModel::setQuickSearchQuery,
+                            onSearch = {
+                                if (state.quickSearchQuery.isNotBlank()) {
+                                    viewModel.executeRecentSearch(state.quickSearchQuery)
+                                }
+                            },
+                            onVoiceSearch = voiceSearchController::toggleVoiceSearch,
+                            isVoiceListening = voiceSearchController.isListening,
+                            placeholder = "Search in ${state.selectedChatTitle}"
+                        )
+
+                        // Cached recent search queries from Room database
+                        if (!safeMode && (recentSearches.isNotEmpty() || state.quickSearchQuery.isNotBlank())) {
+                            RecentSearches(
+                                recentSearches = recentSearches,
+                                activeQuery = state.quickSearchQuery,
+                                onSelectQuery = viewModel::toggleQuickSearchQuery,
+                                onRemoveQuery = viewModel::removeRecentSearch,
+                                onClearActiveQuery = viewModel::clearQuickSearchQuery,
+                                onClearHistory = {
+                                    viewModel.clearRecentSearches()
+                                    viewModel.clearQuickSearchQuery()
+                                },
+                                onOpenFullSearch = { query ->
+                                    val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
+                                    onOpenSearchWithQuery(chatId, state.selectedChatTitle, query)
+                                }
+                            )
+                        }
+
                         // Grid of posters: touch-friendly on tablets/phones, TV-friendly on TV
+                        val gridColumns = when {
+                            adaptive.isTv -> GridCells.Adaptive(200.dp)
+                            adaptive.isTabletLayout -> GridCells.Adaptive(170.dp)
+                            else -> GridCells.Adaptive(140.dp)
+                        }
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                             if (state.isLoading && videos.isEmpty()) {
-                                CircularProgressIndicator(Modifier.align(Alignment.Center))
-                            } else if (videos.isEmpty()) {
-                                EmptyStateView(
-                                    title = "No videos in this source",
-                                    message = "Choose another channel from the left or search your media.",
-                                    actionText = "Refresh",
-                                    onAction = { viewModel.refresh(); viewModel.refreshVideoChats() },
-                                    modifier = Modifier.align(Alignment.Center)
+                                BrowseGridShimmerSkeleton(
+                                    columns = gridColumns,
+                                    itemCount = 12,
+                                    spacing = 14.dp
                                 )
-                            } else {
-                                val gridColumns = when {
-                                    adaptive.isTv -> GridCells.Adaptive(200.dp)
-                                    adaptive.isTabletLayout -> GridCells.Adaptive(170.dp)
-                                    else -> GridCells.Adaptive(140.dp)
+                            } else if (videos.isEmpty()) {
+                                if (state.quickSearchQuery.isNotBlank()) {
+                                    NoSearchResultsEmptyState(
+                                        query = state.quickSearchQuery,
+                                        scopeLabel = state.selectedChatTitle,
+                                        onClearQuery = viewModel::clearQuickSearchQuery,
+                                        secondaryActionText = "Search All Telegram",
+                                        onSecondaryAction = {
+                                            val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
+                                            onOpenSearchWithQuery(chatId, state.selectedChatTitle, state.quickSearchQuery)
+                                        },
+                                        suggestedSearches = recentSearches
+                                            .map { it.query }
+                                            .filterNot { it.equals(state.quickSearchQuery, ignoreCase = true) },
+                                        onSelectSuggestion = viewModel::executeRecentSearch,
+                                        modifier = Modifier.align(Alignment.Center)
+                                    )
+                                } else {
+                                    EmptyStateView(
+                                        title = "No videos in this source",
+                                        message = "Choose another channel from the left or search your media.",
+                                        actionText = "Refresh",
+                                        onAction = {
+                                            viewModel.refresh()
+                                            viewModel.refreshVideoChats()
+                                        },
+                                        modifier = Modifier.align(Alignment.Center)
+                                    )
                                 }
+                            } else {
                                 LazyVerticalGrid(
                                     state = libraryGridState,
                                     columns = gridColumns,
@@ -550,6 +714,14 @@ fun BrowseScreen(
                                                 }
                                             }
                                         )
+                                    }
+                                    if (state.isLoadingMore) {
+                                        items(4, key = { "__tv_loading_more_$it" }) {
+                                            MediaPosterSkeletonCard(
+                                                cardWidth = null,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -612,6 +784,16 @@ fun BrowseScreen(
                     }
                 },
                 onBackToNavBar = onBackToNavBar,
+                recentSearches = recentSearches,
+                activeQuickSearchQuery = state.quickSearchQuery,
+                onSelectRecentSearch = viewModel::toggleQuickSearchQuery,
+                onRemoveRecentSearch = viewModel::removeRecentSearch,
+                onClearQuickSearch = viewModel::clearQuickSearchQuery,
+                onClearRecentSearches = viewModel::clearRecentSearches,
+                onOpenSearchWithQuery = { query ->
+                    val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
+                    onOpenSearchWithQuery(chatId, state.selectedChatTitle, query)
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -640,6 +822,64 @@ fun BrowseScreen(
                 .padding(bottom = 32.dp)
         )
     }
+}
+
+/**
+ * Search bar with integrated microphone voice search button for BrowseScreen.
+ */
+@Composable
+fun BrowseSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    onVoiceSearch: () -> Unit,
+    isVoiceListening: Boolean = false,
+    placeholder: String = "Search videos",
+    modifier: Modifier = Modifier
+) {
+    BousygramTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        label = if (isVoiceListening) "Listening... speak now" else placeholder,
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("browse_search_bar"),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+        trailingIcon = {
+            SearchBarVoiceButton(
+                onClick = onVoiceSearch,
+                isListening = isVoiceListening
+            )
+        }
+    )
+}
+
+/**
+ * Recent Searches component in BrowseScreen that displays cached search queries from
+ * the Room database, allowing users to tap on any chip to re-execute the search.
+ */
+@Composable
+fun RecentSearches(
+    recentSearches: List<RecentSearchQuery>,
+    activeQuery: String,
+    onSelectQuery: (String) -> Unit,
+    onRemoveQuery: (String) -> Unit,
+    onClearActiveQuery: () -> Unit,
+    onClearHistory: () -> Unit,
+    onOpenFullSearch: ((String) -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    RecentSearchesSection(
+        recentSearches = recentSearches,
+        activeQuery = activeQuery,
+        onSelectQuery = onSelectQuery,
+        onRemoveQuery = onRemoveQuery,
+        onClearActiveQuery = onClearActiveQuery,
+        onClearHistory = onClearHistory,
+        onOpenFullSearch = onOpenFullSearch,
+        modifier = modifier
+    )
 }
 
 

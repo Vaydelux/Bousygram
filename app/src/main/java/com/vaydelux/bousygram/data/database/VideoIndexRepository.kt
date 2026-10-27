@@ -22,10 +22,12 @@ object VideoIndexRepository {
         if (database == null) {
             database = AppDatabase.getInstance(context)
         }
+        RecentSearchRepository.init(context)
     }
 
     fun setDatabaseForTest(testDb: AppDatabase) {
         database = testDb
+        RecentSearchRepository.setDatabaseForTest(testDb)
     }
 
     suspend fun getIndexedVideosForChat(chatId: Long?, topicId: Long?): List<MediaItem> = withContext(Dispatchers.IO) {

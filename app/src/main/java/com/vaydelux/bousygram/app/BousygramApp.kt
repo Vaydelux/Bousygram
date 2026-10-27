@@ -15,14 +15,23 @@ import java.io.File
 
 class BousygramApp : Application(), DefaultLifecycleObserver {
     companion object {
+        init {
+            System.setProperty("io.netty.transport.noNative", "true")
+        }
+
         lateinit var instance: BousygramApp
             private set
     }
 
     override fun onCreate() {
+        System.setProperty("io.netty.transport.noNative", "true")
         super<Application>.onCreate()
         instance = this
-        System.loadLibrary("tdjni")
+        try {
+            System.loadLibrary("tdjni")
+        } catch (e: Throwable) {
+            android.util.Log.w("BousygramApp", "libtdjni.so not present for current ABI; using TdLibFallbackEngine")
+        }
         com.vaydelux.bousygram.data.database.VideoIndexRepository.init(this)
         com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.init(this)
         com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.enableStorageOptimizer()

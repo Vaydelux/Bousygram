@@ -6,16 +6,24 @@ import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
+import com.vaydelux.bousygram.data.repository.searchChatVideos
+import com.vaydelux.bousygram.data.repository.searchGlobalVideos
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaUiState
 import com.vaydelux.bousygram.domain.model.SAVED_MESSAGES_TITLE
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
+
+import com.vaydelux.bousygram.data.database.RecentSearchQuery
+import com.vaydelux.bousygram.data.database.RecentSearchRepository
+import com.vaydelux.bousygram.data.database.VideoIndexRepository
 
 data class BrowseRestoration(
     val firstVisibleItemIndex: Int = 0,
@@ -29,6 +37,7 @@ class MediaViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(MediaUiState())
     val uiState: StateFlow<MediaUiState> = _uiState
+    val recentSearches: StateFlow<List<RecentSearchQuery>> = RecentSearchRepository.recentSearches
     private val pageSize = 30
     private var isInitialized = false
     private var hasLoadedVideoChats = false
@@ -536,6 +545,112 @@ class MediaViewModel(
 
     fun setFilter(year: Int?, month: Int?) {
         _uiState.update { it.copy(filterYear = year, filterMonth = month) }
+    }
+
+    fun setQuickSearchQuery(query: String) {
+        val clean = query.trim()
+        _uiState.update { it.copy(quickSearchQuery = clean) }
+        if (clean.isNotEmpty()) {
+            val currentState = _uiState.value
+            val scopedChatId = if (currentState.isSavedMessagesSelected) null else currentState.selectedChatId
+            val scopedChatTitle = currentState.selectedChatTitle
+            viewModelScope.launch {
+                val cachedMatches = withContext(Dispatchers.IO) {
+                    VideoIndexRepository.searchIndexedVideos(clean, scopedChatId, limit = 50)
+                }
+                if (cachedMatches.isNotEmpty()) {
+                    _uiState.update { current ->
+                        val merged = (current.items + cachedMatches)
+                            .distinctBy { "${it.chatId}:${it.messageId}" }
+                        current.copy(items = merged)
+                    }
+                }
+                val initialMatchCount = _uiState.value.filteredAndSortedItems.size
+                RecentSearchRepository.recordSearchQuery(
+                    query = clean,
+                    chatId = scopedChatId,
+                    chatTitle = scopedChatTitle,
+                    resultCount = initialMatchCount
+                )
+            }
+            // Also re-execute TDLib search for this query and merge any new matches
+            if (scopedChatId != null && scopedChatId != 0L) {
+                repository.searchChatVideos(scopedChatId, clean, 0L, limit = 40) { foundItems, _, _ ->
+                    if (foundItems.isNotEmpty()) {
+                        VideoIndexRepository.indexMediaItemsAsync(foundItems)
+                        _uiState.update { current ->
+                            val merged = (current.items + foundItems)
+                                .distinctBy { "${it.chatId}:${it.messageId}" }
+                            current.copy(items = merged)
+                        }
+                    }
+                    val updatedCount = _uiState.value.filteredAndSortedItems.size
+                    if (updatedCount > 0) {
+                        RecentSearchRepository.recordSearchQueryAsync(
+                            query = clean,
+                            chatId = scopedChatId,
+                            chatTitle = scopedChatTitle,
+                            resultCount = updatedCount
+                        )
+                    }
+                }
+            } else {
+                repository.searchGlobalVideos(clean, "", limit = 40) { globalResult, _ ->
+                    val foundItems = globalResult?.items.orEmpty()
+                    if (foundItems.isNotEmpty()) {
+                        VideoIndexRepository.indexMediaItemsAsync(foundItems)
+                        _uiState.update { current ->
+                            val merged = (current.items + foundItems)
+                                .distinctBy { "${it.chatId}:${it.messageId}" }
+                            current.copy(items = merged)
+                        }
+                    }
+                    val updatedCount = _uiState.value.filteredAndSortedItems.size
+                    if (updatedCount > 0) {
+                        RecentSearchRepository.recordSearchQueryAsync(
+                            query = clean,
+                            chatId = null,
+                            chatTitle = scopedChatTitle,
+                            resultCount = updatedCount
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun executeRecentSearch(query: String) {
+        setQuickSearchQuery(query)
+    }
+
+    fun toggleQuickSearchQuery(query: String) {
+        val clean = query.trim()
+        val current = _uiState.value.quickSearchQuery
+        if (current.equals(clean, ignoreCase = true)) {
+            clearQuickSearchQuery()
+        } else {
+            setQuickSearchQuery(clean)
+        }
+    }
+
+    fun clearQuickSearchQuery() {
+        _uiState.update { it.copy(quickSearchQuery = "") }
+    }
+
+    fun removeRecentSearch(query: String) {
+        viewModelScope.launch {
+            RecentSearchRepository.removeSearchQuery(query)
+            if (_uiState.value.quickSearchQuery.equals(query.trim(), ignoreCase = true)) {
+                clearQuickSearchQuery()
+            }
+        }
+    }
+
+    fun clearRecentSearches() {
+        viewModelScope.launch {
+            RecentSearchRepository.clearRecentSearches()
+            clearQuickSearchQuery()
+        }
     }
 
     fun setCategoryTab(tab: com.vaydelux.bousygram.domain.model.MediaCategoryTab) {

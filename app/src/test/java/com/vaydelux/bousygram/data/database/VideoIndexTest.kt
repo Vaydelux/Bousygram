@@ -146,4 +146,65 @@ class VideoIndexTest {
             PlaybackSessionController.setVideoPlaying(false)
         }
     }
+
+    @Test
+    fun testRecentSearchEntityToDomainMapping() {
+        val entity = RecentSearchEntity(
+            "dune part two",
+            "Dune Part Two",
+            -100777888999L,
+            "Cinema 4K",
+            14,
+            1720000000000L
+        )
+        val model = entity.toDomain()
+        assertEquals("dune part two", model.normalizedQuery)
+        assertEquals("Dune Part Two", model.query)
+        assertEquals(-100777888999L, model.chatId)
+        assertEquals("Cinema 4K", model.chatTitle)
+        assertEquals(14, model.resultCount)
+        assertEquals(1720000000000L, model.timestampMs)
+    }
+
+    @Test
+    fun testMediaUiStateQuickSearchQueryFiltering() {
+        val items = listOf(
+            MediaItem(
+                chatId = -1001L,
+                messageId = 1L,
+                date = 1700000010,
+                type = MediaType.Video,
+                title = "Cyberpunk Edgerunners S01E01 1080p",
+                fileId = 101,
+                durationSeconds = 1440
+            ),
+            MediaItem(
+                chatId = -1001L,
+                messageId = 2L,
+                date = 1700000020,
+                type = MediaType.Video,
+                title = "Interstellar IMAX Remux",
+                fileId = 102,
+                durationSeconds = 10140
+            ),
+            MediaItem(
+                chatId = -1001L,
+                messageId = 3L,
+                date = 1700000030,
+                type = MediaType.Video,
+                title = "Cyberpunk Edgerunners S01E02 1080p",
+                fileId = 103,
+                durationSeconds = 1480
+            )
+        )
+        val unfiltered = com.vaydelux.bousygram.domain.model.MediaUiState(
+            items = items,
+            quickSearchQuery = ""
+        )
+        assertEquals(3, unfiltered.filteredAndSortedItems.size)
+
+        val filtered = unfiltered.copy(quickSearchQuery = "cyberpunk")
+        assertEquals(2, filtered.filteredAndSortedItems.size)
+        assertTrue(filtered.filteredAndSortedItems.all { it.title.contains("Cyberpunk", ignoreCase = true) })
+    }
 }

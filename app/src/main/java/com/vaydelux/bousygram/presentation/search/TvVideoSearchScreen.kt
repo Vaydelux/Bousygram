@@ -72,9 +72,12 @@ import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramChip
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.BousygramTextField
+import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
+import com.vaydelux.bousygram.presentation.components.NoSearchResultsEmptyState
+import com.vaydelux.bousygram.presentation.components.RecentSearchesSection
 import com.vaydelux.bousygram.presentation.media.buildPlaybackRequest
 import com.vaydelux.bousygram.presentation.media.playableVideos
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusTarget
@@ -94,6 +97,7 @@ fun TvVideoSearchScreen(
     modifier: Modifier = Modifier,
     inChatId: Long? = null,
     inChatTitle: String = "",
+    initialQuery: String = "",
     restoreFocusTarget: SearchFocusTarget = SearchFocusTarget.SearchField,
     restoreGridIndex: Int = 0,
     onFocusStateChanged: (SearchFocusTarget, Int) -> Unit = { _, _ -> },
@@ -101,22 +105,21 @@ fun TvVideoSearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val searchScope by viewModel.scope.collectAsState()
+    val recentSearches by viewModel.recentSearches.collectAsState()
     val adaptive = rememberAdaptiveMetrics()
     val context = LocalContext.current
-    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf(initialQuery) }
     val launcher = rememberMediaLauncher(
         screenKey = "search",
         onPlay = onPlaybackReady,
         onError = onStreamError
     )
     var privacyMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
-    var isVoiceListening by remember { mutableStateOf(false) }
     val searchInputFocusRequester = remember { FocusRequester() }
     val voiceButtonFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
     val focusManager = LocalFocusManager.current
     var lastFocusedGridIndex by rememberSaveable { mutableIntStateOf(restoreGridIndex) }
-    var recentQueries by remember { mutableStateOf(EnterprisePreferences.recentQueries()) }
     var selectedFilter by remember { mutableStateOf(SearchFilterOption.ALL) }
 
     fun clearSearch() {
@@ -128,54 +131,37 @@ fun TvVideoSearchScreen(
         val clean = query.trim()
         if (clean.isBlank()) return
         EnterprisePreferences.rememberQuery(clean)
-        recentQueries = EnterprisePreferences.recentQueries()
         viewModel.executeGlobalSearch(clean)
         focusManager.moveFocus(FocusDirection.Down)
     }
 
-    val voiceSearchLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        isVoiceListening = false
-        if (result.resultCode == Activity.RESULT_OK) {
-            val spokenMatches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            val recognizedQuery = spokenMatches?.firstOrNull()?.trim()
-            if (!recognizedQuery.isNullOrBlank()) {
-                searchQuery = recognizedQuery
-                executeSearch(recognizedQuery)
-            }
+    val voiceSearchController = rememberVoiceSearchController(
+        promptProvider = {
+            buildVoiceSearchPrompt(searchScope, viewModel.inChatTitle.ifBlank { inChatTitle })
+        },
+        onPartialText = { partial ->
+            searchQuery = partial
+        },
+        onQueryRecognized = { recognizedQuery ->
+            searchQuery = recognizedQuery
+            executeSearch(recognizedQuery)
         }
-    }
+    )
+    val isVoiceListening = voiceSearchController.isListening
 
     fun launchVoiceSearch() {
-        val prompt = buildVoiceSearchPrompt(searchScope, viewModel.inChatTitle.ifBlank { inChatTitle })
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, voiceSearchLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, voiceSearchLanguageTag())
-            // Prefer the device recognizer on TVs that provide one; the system recognizer
-            // remains responsible for its network fallback when offline recognition is absent.
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-        }
-        try {
-            isVoiceListening = true
-            voiceSearchLauncher.launch(intent)
-        } catch (_: ActivityNotFoundException) {
-            isVoiceListening = false
-            Toast.makeText(context, "Voice search is not available on this device", Toast.LENGTH_SHORT).show()
-        } catch (_: Exception) {
-            isVoiceListening = false
-            Toast.makeText(context, "Unable to activate voice search", Toast.LENGTH_SHORT).show()
-        }
+        voiceSearchController.toggleVoiceSearch()
     }
 
-    LaunchedEffect(inChatId, inChatTitle) {
+    LaunchedEffect(inChatId, inChatTitle, initialQuery) {
         if (inChatId != null) {
             viewModel.setInChatScope(inChatId, inChatTitle)
         } else {
             viewModel.setGlobalScope()
+        }
+        if (initialQuery.isNotBlank()) {
+            searchQuery = initialQuery
+            executeSearch(initialQuery)
         }
     }
 
@@ -236,7 +222,8 @@ fun TvVideoSearchScreen(
                                     }
                                 },
                             onSearch = { executeSearch() },
-                            onVoiceSearch = { launchVoiceSearch() }
+                            onVoiceSearch = { launchVoiceSearch() },
+                            isVoiceListening = isVoiceListening
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                             VoiceSearchButton(
@@ -283,7 +270,8 @@ fun TvVideoSearchScreen(
                                     }
                                 },
                             onSearch = { executeSearch() },
-                            onVoiceSearch = { launchVoiceSearch() }
+                            onVoiceSearch = { launchVoiceSearch() },
+                            isVoiceListening = isVoiceListening
                         )
                         VoiceSearchButton(
                             onClick = { launchVoiceSearch() },
@@ -308,22 +296,19 @@ fun TvVideoSearchScreen(
                     }
                 }
 
-                if (!privacyMode && recentQueries.isNotEmpty()) {
+                if (!privacyMode && recentSearches.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(recentQueries.take(5)) { query ->
-                        BousygramChip(query, selected = false, onClick = {
+                    RecentSearchesSection(
+                        recentSearches = recentSearches.take(10),
+                        activeQuery = searchQuery.trim(),
+                        onSelectQuery = { query ->
                             searchQuery = query
                             executeSearch(query)
-                        })
-                        }
-                        item {
-                            BousygramButton("Clear recent", {
-                                EnterprisePreferences.clearRecentQueries()
-                                recentQueries = emptyList()
-                            })
-                        }
-                    }
+                        },
+                        onClearActiveQuery = { clearSearch() },
+                        onClearHistory = { viewModel.clearRecentSearches() },
+                        onRemoveQuery = { query -> viewModel.removeRecentSearch(query) }
+                    )
                 }
 
                 Spacer(Modifier.height(22.dp))
@@ -344,24 +329,43 @@ fun TvVideoSearchScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
-                is SearchUiState.Loading -> LoadingOverlay("Searching Telegram...")
+                is SearchUiState.Loading -> {
+                    BrowseGridShimmerSkeleton(
+                        columns = GridCells.Adaptive(if (adaptive.isCompact) 150.dp else 220.dp),
+                        itemCount = if (adaptive.isCompact) 6 else 10,
+                        spacing = 12.dp
+                    )
+                }
                 is SearchUiState.Error -> {
                     EmptyStateView("Search failed", state.message, actionText = "Retry", onAction = { executeSearch() })
                 }
                 is SearchUiState.Success -> {
                     if (state.results.isEmpty()) {
-                        EmptyStateView(
-                            "No videos found",
-                            if (privacyMode) "No matching videos were found." else "No results for \"${state.query}\".",
-                            actionText = if (searchScope == SearchMode.InChat) "Search all" else null,
-                            onAction = if (searchScope == SearchMode.InChat) {
+                        NoSearchResultsEmptyState(
+                            query = if (privacyMode) "" else state.query,
+                            title = "No results found",
+                            message = if (privacyMode) {
+                                "No matching videos were found for your search query."
+                            } else {
+                                "We couldn't find any videos matching \"${state.query}\". Check your spelling, try shorter keywords, or search across all Telegram channels."
+                            },
+                            primaryActionText = "Clear search",
+                            onPrimaryAction = { clearSearch() },
+                            secondaryActionText = if (searchScope == SearchMode.InChat) "Search all Telegram" else null,
+                            onSecondaryAction = if (searchScope == SearchMode.InChat) {
                                 {
                                     viewModel.setGlobalScope()
                                     executeSearch()
                                 }
                             } else {
                                 null
-                            }
+                            },
+                            suggestedQueries = if (privacyMode) emptyList() else recentSearches.map { it.query },
+                            onSelectSuggestedQuery = { suggestion ->
+                                searchQuery = suggestion
+                                executeSearch(suggestion)
+                            },
+                            modifier = Modifier.fillMaxSize()
                         )
                     } else {
                         val filteredResults = remember(state.results, selectedFilter) {
@@ -388,69 +392,86 @@ fun TvVideoSearchScreen(
                                     )
                                 }
                             }
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(if (adaptive.isCompact) 150.dp else 220.dp),
-                                state = gridState,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                contentPadding = PaddingValues(bottom = 48.dp),
-                                modifier = Modifier.fillMaxSize().weight(1f).focusGroup()
-                            ) {
-                                itemsIndexed(
-                                    filteredResults,
-                                    key = { _, row -> "${row.media.chatId}:${row.media.messageId}" }
-                                ) { index, row ->
-                                    if (index >= filteredResults.size - 4 && state.hasMore) {
-                                        LaunchedEffect(filteredResults.size) {
-                                            viewModel.loadNextPage()
-                                        }
-                                    }
-                                MediaPosterCard(
-                                    media = row.media,
-                                    subtitle = row.channelLabel,
-                                    onClick = {
-                                        val queue = playableVideos(videos)
-                                        launcher.launch(row.media, queue)
+                            if (filteredResults.isEmpty()) {
+                                NoSearchResultsEmptyState(
+                                    query = if (privacyMode) "" else state.query,
+                                    title = "No results found",
+                                    message = if (privacyMode) {
+                                        "No videos matched the \"${selectedFilter.label}\" filter."
+                                    } else {
+                                        "No videos for \"${state.query}\" matched the \"${selectedFilter.label}\" filter (${state.results.size} available without filter)."
                                     },
-                                    cardWidth = null,
-                                    privacyMode = privacyMode,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .onFocusChanged {
-                                            if (it.isFocused) {
-                                                lastFocusedGridIndex = index
-                                                onFocusStateChanged(SearchFocusTarget.Grid, index)
-                                                com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onCardFocused(row.media)
+                                    primaryActionText = "Show all results (${state.results.size})",
+                                    onPrimaryAction = { selectedFilter = SearchFilterOption.ALL },
+                                    secondaryActionText = "Clear search",
+                                    onSecondaryAction = { clearSearch() },
+                                    modifier = Modifier.fillMaxSize().weight(1f)
+                                )
+                            } else {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(if (adaptive.isCompact) 150.dp else 220.dp),
+                                    state = gridState,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    contentPadding = PaddingValues(bottom = 48.dp),
+                                    modifier = Modifier.fillMaxSize().weight(1f).focusGroup()
+                                ) {
+                                    itemsIndexed(
+                                        filteredResults,
+                                        key = { _, row -> "${row.media.chatId}:${row.media.messageId}" }
+                                    ) { index, row ->
+                                        if (index >= filteredResults.size - 4 && state.hasMore) {
+                                            LaunchedEffect(filteredResults.size) {
+                                                viewModel.loadNextPage()
                                             }
                                         }
-                                )
-                            }
-                            item {
-                                Text(
-                                    text = if (state.hasMore) "Loading more..." else "No more results",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(16.dp)
-                                )
+                                        MediaPosterCard(
+                                            media = row.media,
+                                            subtitle = row.channelLabel,
+                                            onClick = {
+                                                val queue = playableVideos(videos)
+                                                launcher.launch(row.media, queue)
+                                            },
+                                            cardWidth = null,
+                                            privacyMode = privacyMode,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .onFocusChanged {
+                                                    if (it.isFocused) {
+                                                        lastFocusedGridIndex = index
+                                                        onFocusStateChanged(SearchFocusTarget.Grid, index)
+                                                        com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onCardFocused(row.media)
+                                                    }
+                                                }
+                                        )
+                                    }
+                                    item {
+                                        Text(
+                                            text = if (state.hasMore) "Loading more..." else "No more results",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(16.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
+                }
+                }
             }
-        }
+            BackHandler(enabled = launcher.isPending) {
+                launcher.cancel()
+            }
+            LaunchOpeningIndicator(
+                launcher = launcher,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp)
+            )
         }
     }
-        BackHandler(enabled = launcher.isPending) {
-            launcher.cancel()
-        }
-        LaunchOpeningIndicator(
-            launcher = launcher,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp)
-        )
-    }
-}
 }
 
 
@@ -462,29 +483,22 @@ private fun SearchField(
     label: String,
     modifier: Modifier = Modifier,
     onSearch: () -> Unit,
-    onVoiceSearch: (() -> Unit)? = null
+    onVoiceSearch: (() -> Unit)? = null,
+    isVoiceListening: Boolean = false
 ) {
     BousygramTextField(
         value = value,
         onValueChange = onValueChange,
-        label = label,
+        label = if (isVoiceListening) "Listening... speak now" else label,
         modifier = modifier,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSearch() }),
         trailingIcon = onVoiceSearch?.let { voiceAction ->
             {
-                IconButton(
+                SearchBarVoiceButton(
                     onClick = voiceAction,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Voice search"
-                        role = Role.Button
-                    }
-                ) {
-                    VoiceMicIcon(
-                        tint = MaterialTheme.colorScheme.primary,
-                        size = 20.dp
-                    )
-                }
+                    isListening = isVoiceListening
+                )
             }
         }
     )

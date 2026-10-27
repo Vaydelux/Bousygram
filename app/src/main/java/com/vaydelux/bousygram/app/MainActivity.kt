@@ -235,6 +235,9 @@ private fun AuthorizedContent(
             onOpenSearch = { chatId, chatTitle ->
                 onAppScreenChange(AppScreen.Search(chatId, chatTitle, AppScreen.Library))
             },
+            onOpenSearchWithQuery = { chatId, chatTitle, query ->
+                onAppScreenChange(AppScreen.Search(chatId, chatTitle, AppScreen.Library, initialQuery = query))
+            },
             onOpenLibrary = { onAppScreenChange(AppScreen.Library) },
             onOpenFavorites = { onAppScreenChange(AppScreen.Favorites(AppScreen.Library)) },
             onOpenSettings = { onAppScreenChange(AppScreen.Settings(AppScreen.Library)) },
@@ -264,6 +267,9 @@ private fun AuthorizedContent(
             onOpenSearch = { chatId, chatTitle ->
                 onAppScreenChange(AppScreen.Search(chatId, chatTitle, AppScreen.Home))
             },
+            onOpenSearchWithQuery = { chatId, chatTitle, query ->
+                onAppScreenChange(AppScreen.Search(chatId, chatTitle, AppScreen.Home, initialQuery = query))
+            },
             onOpenLibrary = { onAppScreenChange(AppScreen.Library) },
             onOpenSettings = { onAppScreenChange(AppScreen.Settings(AppScreen.Home)) },
             onOpenFavorites = { onAppScreenChange(AppScreen.Favorites(AppScreen.Home)) },
@@ -290,6 +296,7 @@ private fun SearchRoute(
         viewModel = searchViewModel,
         inChatId = screen.inChatId,
         inChatTitle = screen.inChatTitle,
+        initialQuery = screen.initialQuery,
         restoreFocusTarget = searchFocus.target,
         restoreGridIndex = searchFocus.gridIndex,
         onFocusStateChanged = { target, index ->

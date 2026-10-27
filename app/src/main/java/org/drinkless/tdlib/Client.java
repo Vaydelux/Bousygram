@@ -13,12 +13,21 @@ import java.util.concurrent.atomic.AtomicLong;
  * Main class for interaction with the TDLib.
  */
 public final class Client {
+    private static final boolean NATIVE_AVAILABLE;
+
     static {
+        boolean loaded = false;
         try {
             System.loadLibrary("tdjni");
-        } catch (UnsatisfiedLinkError e) {
-            e.printStackTrace();
+            loaded = true;
+        } catch (Throwable e) {
+            loaded = false;
         }
+        NATIVE_AVAILABLE = loaded;
+    }
+
+    public static boolean isNativeAvailable() {
+        return NATIVE_AVAILABLE;
     }
 
     /**
@@ -92,6 +101,16 @@ public final class Client {
      *                         defaultExceptionHandler will be called.
      */
     public void send(TdApi.Function query, ResultHandler resultHandler, ExceptionHandler exceptionHandler) {
+        if (!NATIVE_AVAILABLE) {
+            Handler updateHandler = updateHandlers.get(nativeClientId);
+            com.vaydelux.bousygram.core.tdlib.client.TdLibFallbackEngine.send(
+                query,
+                resultHandler,
+                exceptionHandler,
+                updateHandler != null ? updateHandler.resultHandler : null
+            );
+            return;
+        }
         long queryId = currentQueryId.incrementAndGet();
         if (resultHandler != null) {
             handlers.put(queryId, new Handler(resultHandler, exceptionHandler));
@@ -121,6 +140,13 @@ public final class Client {
      */
     @SuppressWarnings("unchecked")
     public static <T extends TdApi.Object> T execute(TdApi.Function<T> query) throws ExecutionException {
+        if (!NATIVE_AVAILABLE) {
+            TdApi.Object object = com.vaydelux.bousygram.core.tdlib.client.TdLibFallbackEngine.execute(query);
+            if (object instanceof TdApi.Error) {
+                throw new ExecutionException((TdApi.Error) object);
+            }
+            return (T) object;
+        }
         TdApi.Object object = nativeClientExecute(query);
         if (object instanceof TdApi.Error) {
             throw new ExecutionException((TdApi.Error) object);
@@ -138,13 +164,15 @@ public final class Client {
      */
     public static Client create(ResultHandler updateHandler, ExceptionHandler updateExceptionHandler, ExceptionHandler defaultExceptionHandler) {
         Client client = new Client(updateHandler, updateExceptionHandler, defaultExceptionHandler);
-        synchronized (responseReceiver) {
-            if (!responseReceiver.isRun) {
-                responseReceiver.isRun = true;
+        if (NATIVE_AVAILABLE) {
+            synchronized (responseReceiver) {
+                if (!responseReceiver.isRun) {
+                    responseReceiver.isRun = true;
 
-                Thread receiverThread = new Thread(responseReceiver, "TDLib thread");
-                receiverThread.setDaemon(true);
-                receiverThread.start();
+                    Thread receiverThread = new Thread(responseReceiver, "TDLib thread");
+                    receiverThread.setDaemon(true);
+                    receiverThread.start();
+                }
             }
         }
         return client;
@@ -158,6 +186,9 @@ public final class Client {
      * @param logMessageHandler Handler for messages that are added to the internal TDLib log. Pass null to remove the handler.
      */
     public static void setLogMessageHandler(int maxVerbosityLevel, Client.LogMessageHandler logMessageHandler) {
+        if (!NATIVE_AVAILABLE) {
+            return;
+        }
         nativeClientSetLogMessageHandler(maxVerbosityLevel, logMessageHandler);
     }
 
@@ -236,15 +267,23 @@ public final class Client {
     }
 
     private Client(ResultHandler updateHandler, ExceptionHandler updateExceptionHandler, ExceptionHandler defaultExceptionHandler) {
-        clientCount.incrementAndGet();
-        nativeClientId = createNativeClient();
+        int nextId = (int) clientCount.incrementAndGet();
+        if (NATIVE_AVAILABLE) {
+            nativeClientId = createNativeClient();
+        } else {
+            nativeClientId = nextId;
+        }
         if (updateHandler != null) {
             updateHandlers.put(nativeClientId, new Handler(updateHandler, updateExceptionHandler));
         }
         if (defaultExceptionHandler != null) {
             defaultExceptionHandlers.put(nativeClientId, defaultExceptionHandler);
         }
-        send(new TdApi.GetOption("version"), null, null);
+        if (NATIVE_AVAILABLE) {
+            send(new TdApi.GetOption("version"), null, null);
+        } else {
+            com.vaydelux.bousygram.core.tdlib.client.TdLibFallbackEngine.onClientCreated(updateHandler);
+        }
     }
 
     private static native int createNativeClient();

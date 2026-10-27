@@ -145,7 +145,7 @@ object TmdbRepository {
         context: Context? = null
     ): TmdbMetadata? = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.TMDB_API_KEY
-        if (apiKey.isBlank()) {
+        if (apiKey.isBlank() || apiKey == "TMDB_API_KEY_DEFAULT_VALUE") {
             return@withContext null
         }
 

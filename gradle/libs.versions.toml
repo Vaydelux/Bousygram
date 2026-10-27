@@ -1,5 +1,5 @@
 [versions]
-agp = "9.2.1"
+agp = "9.1.1"
 coreKtx = "1.18.0"
 kotlin = "2.3.21"
 lifecycleRuntimeKtx = "2.10.0"
@@ -73,3 +73,4 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineProfile" }
+secrets = { id = "com.google.android.libraries.mapsplatform.secrets-gradle-plugin", version = "2.0.1" }

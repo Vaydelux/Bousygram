@@ -65,11 +65,16 @@ object TelegramProxyManager {
     @Volatile
     private var server: NettyApplicationEngine? = null
 
+    init {
+        System.setProperty("io.netty.transport.noNative", "true")
+    }
+
     val isRunning: Boolean
         get() = server != null
 
     @Synchronized
     fun startProxy() {
+        System.setProperty("io.netty.transport.noNative", "true")
         if (server != null) return
         try {
             val nettyServer = embeddedServer(Netty, host = HOST, port = 0) {

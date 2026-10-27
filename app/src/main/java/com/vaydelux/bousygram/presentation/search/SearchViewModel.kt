@@ -2,6 +2,8 @@ package com.vaydelux.bousygram.presentation.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vaydelux.bousygram.data.database.RecentSearchQuery
+import com.vaydelux.bousygram.data.database.RecentSearchRepository
 import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
 import com.vaydelux.bousygram.data.repository.searchChatVideos
 import com.vaydelux.bousygram.data.repository.searchGlobalVideos
@@ -38,6 +40,8 @@ class SearchViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState
+
+    val recentSearches: StateFlow<List<RecentSearchQuery>> = RecentSearchRepository.recentSearches
 
     var searchMode: SearchMode = SearchMode.Global
         private set
@@ -77,6 +81,18 @@ class SearchViewModel(
         _uiState.value = SearchUiState.Idle
     }
 
+    fun removeRecentSearch(query: String) {
+        viewModelScope.launch {
+            RecentSearchRepository.removeSearchQuery(query)
+        }
+    }
+
+    fun clearRecentSearches() {
+        viewModelScope.launch {
+            RecentSearchRepository.clearRecentSearches()
+        }
+    }
+
     fun executeGlobalSearch(query: String) {
         currentQuery = query.trim()
         nextOffset = ""
@@ -89,6 +105,14 @@ class SearchViewModel(
         }
         _uiState.value = SearchUiState.Loading
         viewModelScope.launch {
+            val scopedChatId = if (searchMode == SearchMode.InChat) inChatId else null
+            val scopedChatTitle = if (searchMode == SearchMode.InChat) inChatTitle else ""
+            RecentSearchRepository.recordSearchQuery(
+                query = currentQuery,
+                chatId = scopedChatId,
+                chatTitle = scopedChatTitle,
+                resultCount = 0
+            )
             val cachedItems = withContext(Dispatchers.IO) {
                 if (searchMode == SearchMode.InChat) {
                     com.vaydelux.bousygram.data.database.VideoIndexRepository.searchIndexedVideos(currentQuery, inChatId, limit = 50)
@@ -186,9 +210,20 @@ class SearchViewModel(
     }
 
     private fun publishSuccess(hasMore: Boolean) {
+        val resultsList = accumulated.toList()
+        if (currentQuery.isNotBlank()) {
+            val scopedChatId = if (searchMode == SearchMode.InChat) inChatId else null
+            val scopedChatTitle = if (searchMode == SearchMode.InChat) inChatTitle else ""
+            RecentSearchRepository.recordSearchQueryAsync(
+                query = currentQuery,
+                chatId = scopedChatId,
+                chatTitle = scopedChatTitle,
+                resultCount = resultsList.size
+            )
+        }
         _uiState.value = SearchUiState.Success(
             query = currentQuery,
-            results = accumulated.toList(),
+            results = resultsList,
             hasMore = hasMore
         )
     }

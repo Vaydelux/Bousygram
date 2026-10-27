@@ -41,6 +41,7 @@ release.keystore.b64
 **/service-account*.json
 **/.env
 **/.env.*
+!**/.env.example
 !server/fastlink-proxy/.env.template
 **/secrets.properties
 **/keys.properties

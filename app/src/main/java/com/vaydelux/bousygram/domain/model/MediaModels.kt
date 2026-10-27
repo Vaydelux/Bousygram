@@ -127,7 +127,8 @@ data class MediaUiState(
     val selectedSeriesTitle: String? = null,
     val availableTopics: List<ForumTopicChannel> = emptyList(),
     val selectedTopicId: Int? = null,
-    val isLoadingTopics: Boolean = false
+    val isLoadingTopics: Boolean = false,
+    val quickSearchQuery: String = ""
 ) {
     val filteredAndSortedItems: List<MediaItem>
         get() {
@@ -144,6 +145,16 @@ data class MediaUiState(
                 result = result.filter { item ->
                     item.messageThreadId == selectedTopicId.toLong() ||
                     (selectedTopicId == 1 && (item.messageThreadId == null || item.messageThreadId == 0L || item.messageThreadId == 1L))
+                }
+            }
+            val cleanQuery = quickSearchQuery.trim()
+            if (cleanQuery.isNotEmpty()) {
+                result = result.filter { item ->
+                    item.title.contains(cleanQuery, ignoreCase = true) ||
+                        (item.fileName?.contains(cleanQuery, ignoreCase = true) == true) ||
+                        (item.seriesTitle?.contains(cleanQuery, ignoreCase = true) == true) ||
+                        (item.topicName?.contains(cleanQuery, ignoreCase = true) == true) ||
+                        (item.tmdbTitle?.contains(cleanQuery, ignoreCase = true) == true)
                 }
             }
             if (filterYear != null) {

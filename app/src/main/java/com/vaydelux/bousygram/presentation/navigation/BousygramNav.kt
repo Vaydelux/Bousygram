@@ -18,7 +18,8 @@ sealed class AppScreen {
     data class Search(
         val inChatId: Long? = null,
         val inChatTitle: String = "",
-        val returnTo: AppScreen = Home
+        val returnTo: AppScreen = Home,
+        val initialQuery: String = ""
     ) : AppScreen()
     data class Player(
         val request: PlaybackRequest,
