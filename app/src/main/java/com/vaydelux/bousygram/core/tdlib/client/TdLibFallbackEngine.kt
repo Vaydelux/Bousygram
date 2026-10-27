@@ -14,12 +14,12 @@ import java.util.concurrent.Executors
  * in favor of real JNI TDLib execution.
  *
  * Provides a clean, authentic empty state without dummy demo movies or fake media.
+ * Catalog queries return empty result sets; missing entities return [TdApi.Error].
  */
 object TdLibFallbackEngine {
     private const val TAG = "TdLibFallbackEngine"
+    /** Matches Telegram Saved Messages chat id (== authenticated user id). */
     const val SAVED_MESSAGES_CHAT_ID = 777000L
-    const val FORUM_CHAT_ID = -1001001L
-    const val CHANNEL_CHAT_ID = -1001002L
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "Bousygram-TdLibFallback").apply { isDaemon = true }
@@ -35,6 +35,8 @@ object TdLibFallbackEngine {
     @Volatile
     private var failedCodeAttempts: Int = 0
 
+    private fun isAuthorized(): Boolean = authState is TdApi.AuthorizationStateReady
+
     @JvmStatic
     fun confirmQrAuthentication(updateHandler: Client.ResultHandler?) {
         executor.execute {
@@ -42,9 +44,6 @@ object TdLibFallbackEngine {
             updateHandler?.onResult(TdApi.UpdateAuthorizationState(authState))
         }
     }
-
-    @JvmStatic
-    fun sampleFileSizeForFile(fileId: Int): Long = 0L
 
     @JvmStatic
     fun onClientCreated(updateHandler: Client.ResultHandler?) {
@@ -173,12 +172,22 @@ object TdLibFallbackEngine {
                 updateHandler?.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
                 TdApi.Ok()
             }
-            is TdApi.GetMe -> TdApi.User().apply {
-                id = SAVED_MESSAGES_CHAT_ID
-                firstName = "Telegram"
-                lastName = "User"
+            is TdApi.GetMe -> {
+                if (!isAuthorized()) {
+                    TdApi.Error(401, "Unauthorized")
+                } else {
+                    buildMeUser()
+                }
             }
-            is TdApi.CreatePrivateChat -> buildEmptyChat(SAVED_MESSAGES_CHAT_ID)
+            is TdApi.CreatePrivateChat -> {
+                if (!isAuthorized()) {
+                    TdApi.Error(401, "Unauthorized")
+                } else if (query.userId == SAVED_MESSAGES_CHAT_ID) {
+                    buildSavedMessagesChat()
+                } else {
+                    TdApi.Error(404, "Chat not found")
+                }
+            }
             is TdApi.OpenChat,
             is TdApi.CloseChat -> TdApi.Ok()
             is TdApi.GetChats -> TdApi.Chats(0, longArrayOf())
@@ -186,17 +195,24 @@ object TdLibFallbackEngine {
             is TdApi.SearchChats -> TdApi.Chats(0, longArrayOf())
             is TdApi.SearchPublicChats -> TdApi.Chats(0, longArrayOf())
             is TdApi.SearchPublicChat -> TdApi.Error(404, "Public chat not found")
-            is TdApi.GetChat -> buildEmptyChat(query.chatId)
-            is TdApi.GetSupergroup -> TdApi.Supergroup().apply {
-                id = query.supergroupId
-                isForum = false
-                isChannel = false
-                memberCount = 0
+            is TdApi.GetChat -> {
+                if (isAuthorized() && query.chatId == SAVED_MESSAGES_CHAT_ID) {
+                    buildSavedMessagesChat()
+                } else {
+                    TdApi.Error(404, "Chat not found")
+                }
             }
+            is TdApi.GetSupergroup -> TdApi.Error(404, "Supergroup not found")
             is TdApi.GetSupergroupFullInfo -> TdApi.Error(404, "Supergroup details not found")
             is TdApi.GetBasicGroup -> TdApi.Error(404, "Basic group not found")
             is TdApi.GetBasicGroupFullInfo -> TdApi.Error(404, "Basic group details not found")
-            is TdApi.GetUser -> TdApi.Error(404, "User not found")
+            is TdApi.GetUser -> {
+                if (isAuthorized() && query.userId == SAVED_MESSAGES_CHAT_ID) {
+                    buildMeUser()
+                } else {
+                    TdApi.Error(404, "User not found")
+                }
+            }
             is TdApi.GetUserFullInfo -> TdApi.Error(404, "User details not found")
             is TdApi.GetForumTopics -> TdApi.ForumTopics(0, emptyArray(), 0, 0L, 0)
             is TdApi.SearchChatMessages -> TdApi.FoundChatMessages(0, emptyArray(), 0L)
@@ -220,9 +236,15 @@ object TdLibFallbackEngine {
         }
     }
 
-    private fun buildEmptyChat(chatId: Long): TdApi.Chat = TdApi.Chat().apply {
-        id = chatId
-        title = if (chatId == SAVED_MESSAGES_CHAT_ID) "Saved Messages" else "Telegram Chat"
-        type = TdApi.ChatTypePrivate(chatId)
+    private fun buildMeUser(): TdApi.User = TdApi.User().apply {
+        id = SAVED_MESSAGES_CHAT_ID
+        firstName = "Telegram"
+        lastName = "User"
+    }
+
+    private fun buildSavedMessagesChat(): TdApi.Chat = TdApi.Chat().apply {
+        id = SAVED_MESSAGES_CHAT_ID
+        title = "Saved Messages"
+        type = TdApi.ChatTypePrivate(SAVED_MESSAGES_CHAT_ID)
     }
 }

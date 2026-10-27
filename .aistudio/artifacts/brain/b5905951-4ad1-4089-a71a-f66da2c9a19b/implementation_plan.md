@@ -7,7 +7,7 @@ Enhance Bousygram's video streaming pipeline using a hybrid Ktor local HTTP prox
 > [!IMPORTANT]
 > **Summary of Confirmed Choices & Architectural Directives:**
 > - **Streaming Architecture**: Implement the **Hybrid Ktor Local Proxy with Media3 ExoPlayer and libmpv**. The embedded Ktor server intercepts HTTP byte-range requests (`Range: bytes=X-Y`), schedules chunked reads through TDLib's sequential file pipeline (`downloadFile` / `readFilePart`), and feeds low-latency video streams to both ExoPlayer (standard streams) and libmpv (complex MKV/multi-audio tracks).
-> - **Production Data Hygiene**: Verified that the entire repository layer (`SavedMessagesRepository`, `ContinueWatchingRepository`, `TmdbRepository`, `VideoIndex`) operates exclusively on authentic TDLib MTProto data and local Room index tables with zero mock repositories. UI design previews (`TvHybridPreviewHost`, `TvPreviewMocks`) remain isolated behind `BuildConfig.DEBUG` flags for layout inspection without polluting production releases.
+> - **Production Data Hygiene**: Verified that the entire repository layer (`SavedMessagesRepository`, `ContinueWatchingRepository`, `TmdbRepository`, `VideoIndex`) operates exclusively on authentic TDLib MTProto data and local Room index tables with zero mock repositories. Preview mocks (`TvPreviewMocks`) were removed; `TvHybridPreviewHost` uses empty lists and remains gated behind `BuildConfig.DEBUG` for layout inspection without polluting production releases.
 > - **ProGuard / R8 Hardening**: Expand `proguard-rules.pro` to explicitly protect TDLib JNI field reflection (preventing field strip/rename which causes JNI `NoSuchFieldError`), Media3 dynamic codec and renderer instantiation (`DefaultRenderersFactory`, `DefaultExtractorsFactory`), and Ktor ServiceLoader registration.
 
 ---
@@ -47,8 +47,8 @@ Enhance Bousygram's video streaming pipeline using a hybrid Ktor local HTTP prox
   - *Chosen Approach*: Explicitly preserve all `org.drinkless.tdlib.TdApi$*` classes, constructors, and fields, along with Media3 `DefaultRenderersFactory` and codec discovery mechanisms.
   - *Why*: TDLib's native C++ library locates Java fields directly via JNI (`GetFieldID`, `SetObjectField`, `NewObject`). R8 minification stripping or renaming these fields causes fatal `NoSuchFieldError` crashes on release APKs. Media3 dynamically instantiates decoders and renderers via reflection.
 - **Decision 3: Scope of Mock Data Removal**
-  - *Chosen Approach*: Remove all mock repositories and synthetic seeds from `data/repository`, keeping only standalone `@Preview` helper mocks strictly fenced inside `BuildConfig.DEBUG` preview composables.
-  - *Why*: Satisfies production release requirements while preserving Compose tooling previews during development.
+  - *Chosen Approach*: Remove all mock repositories and synthetic seeds from `data/repository` and delete `TvPreviewMocks`. DEBUG-only `TvHybridPreviewHost` renders empty lists; `TdLibFallbackEngine` returns empty catalogs / `TdApi.Error` when native TDLib is unavailable (no demo media).
+  - *Why*: Satisfies production release requirements while preserving an empty layout shell for Compose tooling during development.
 
 ---
 
@@ -100,6 +100,6 @@ Enhance Bousygram's video streaming pipeline using a hybrid Ktor local HTTP prox
    - Ensure chunk scheduler allocates priority to the current playback head and cancels stale download requests when seeking forward or backward.
 3. **Repository & Data Layer Audit**:
    - Verify that all production repository implementations (`SavedMessagesRepository.kt`, etc.) strictly query authentic Telegram channels and saved messages.
-   - Guard preview mocks in `TvPreviewMocks.kt` so they are excluded or unreferenced in production paths.
+   - Confirm `TvPreviewMocks` is deleted and `TvHybridPreviewHost` / `TdLibFallbackEngine` expose empty catalogs or `TdApi.Error` only (no synthetic media).
 4. **Verification**:
    - Run `compile_applet` and the unit test suite (`gradle :app:testDebugUnitTest`) to ensure zero regressions across streaming and ProGuard rules.
