@@ -37,5 +37,19 @@
     <string name="auth_screen_code">Enter login code</string>
     <string name="auth_screen_password">Enter 2FA password</string>
     <string name="auth_connection_default">Direct Telegram sign-in</string>
+    <string name="managed_allow_cellular_description">Permit media streaming while not connected to Wi-Fi.</string>
+    <string name="managed_allow_cellular_title">Allow cellular streaming</string>
+    <string name="managed_cache_limit_description">Maximum managed cache size in megabytes. Zero uses the device-aware default.</string>
+    <string name="managed_cache_limit_title">Cache limit (MB)</string>
+    <string name="managed_external_players_description">Permit handing media playback to another installed player.</string>
+    <string name="managed_external_players_title">Allow external players</string>
+    <string name="managed_quality_description">Default quality preference for managed devices.</string>
+    <string name="managed_quality_title">Default media quality</string>
+    <string name="managed_quality_auto">Automatic</string>
+    <string name="managed_quality_low">Low</string>
+    <string name="managed_quality_medium">Medium</string>
+    <string name="managed_quality_high">High</string>
+    <string name="managed_prefetch_description">Permit background media prefetch while the app is not visible.</string>
+    <string name="managed_prefetch_title">Allow background prefetch</string>
 
 </resources>

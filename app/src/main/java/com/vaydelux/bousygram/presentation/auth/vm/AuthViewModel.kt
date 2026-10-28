@@ -72,10 +72,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         authManager.requestQrCodeLogin()
     }
 
-    fun confirmPreviewQrLogin() {
-        authManager.confirmPreviewQrLogin()
-    }
-
     fun onPhoneChange(value: String) = updateField { it.copy(phone = value.take(24)) }
     fun onApiIdChange(value: String) = updateField { it.copy(apiId = value.filter(Char::isDigit).take(12)) }
     fun onApiHashChange(value: String) = updateField {

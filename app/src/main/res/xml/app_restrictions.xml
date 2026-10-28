@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android">
+    <restriction
+        android:key="allow_cellular_streaming"
+        android:title="@string/managed_allow_cellular_title"
+        android:description="@string/managed_allow_cellular_description"
+        android:restrictionType="bool"
+        android:defaultValue="true" />
+    <restriction
+        android:key="cache_limit_mb"
+        android:title="@string/managed_cache_limit_title"
+        android:description="@string/managed_cache_limit_description"
+        android:restrictionType="integer"
+        android:defaultValue="0" />
+    <restriction
+        android:key="allow_external_players"
+        android:title="@string/managed_external_players_title"
+        android:description="@string/managed_external_players_description"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+    <restriction
+        android:key="default_media_quality"
+        android:title="@string/managed_quality_title"
+        android:description="@string/managed_quality_description"
+        android:restrictionType="choice"
+        android:defaultValue="auto"
+        android:entries="@array/managed_quality_entries"
+        android:entryValues="@array/managed_quality_values" />
+    <restriction
+        android:key="allow_background_prefetch"
+        android:title="@string/managed_prefetch_title"
+        android:description="@string/managed_prefetch_description"
+        android:restrictionType="bool"
+        android:defaultValue="false" />
+</restrictions>

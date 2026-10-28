@@ -35,12 +35,6 @@ android {
     val devAbi = project.findProperty("devAbi") as? String
 
     signingConfigs {
-        create("debugConfig") {
-            storeFile = file("${rootDir}/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
         create("release") {
             if (releaseStoreFile.isNotBlank()) {
                 storeFile = file(releaseStoreFile)
@@ -92,7 +86,8 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("debugConfig")
+            // Use the Android Gradle Plugin's generated debug keystore. A clean
+            // checkout must not depend on a repository-root debug.keystore.
         }
         release {
             isMinifyEnabled = true
@@ -188,7 +183,7 @@ val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
     doLast {
         if (!signingConfigured) {
             throw GradleException(
-                "Refusing to build a production artifact: production signing is not configured. " +
+                "Refusing to build a production artifact: Production signing is not configured. " +
                     "Set RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and " +
                     "RELEASE_KEY_PASSWORD in local.properties or the build environment."
             )

@@ -11,6 +11,7 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramLogWrapper
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
 import com.vaydelux.bousygram.core.tdlib.utils.ThumbnailExtractor
+import com.vaydelux.bousygram.data.store.ManagedAppConfiguration
 import java.io.File
 
 class BousygramApp : Application(), DefaultLifecycleObserver {
@@ -27,6 +28,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
         System.setProperty("io.netty.transport.noNative", "true")
         super<Application>.onCreate()
         instance = this
+        ManagedAppConfiguration.refresh(this)
         try {
             System.loadLibrary("tdjni")
         } catch (e: Throwable) {
@@ -44,8 +46,13 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
     }
 
     override fun onStart(owner: LifecycleOwner) {
+        ManagedAppConfiguration.refresh(this)
         com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.refresh()
-        TelegramPreCacheEngine.resumeBackgroundCaching()
+        if (ManagedAppConfiguration.allowBackgroundPrefetch()) {
+            TelegramPreCacheEngine.resumeBackgroundCaching()
+        } else {
+            TelegramPreCacheEngine.pauseBackgroundCaching()
+        }
         TelegramProxyManager.startProxy()
     }
 

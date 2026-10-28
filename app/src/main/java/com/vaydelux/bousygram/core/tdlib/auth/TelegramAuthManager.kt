@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import org.drinkless.tdlib.TdApi
+import org.drinkless.tdlib.Client
 import java.io.File
 
 class TelegramAuthManager(private val context: Context) {
@@ -66,10 +67,19 @@ class TelegramAuthManager(private val context: Context) {
         errorHandlerRef = errorHandler
         TdLibClient.addUpdateHandler(updateHandler)
         TdLibClient.addErrorHandler(errorHandler)
-        client.send(TdApi.GetAuthorizationState()) { result ->
-            when (result) {
-                is TdApi.AuthorizationState -> handleAuthState(result)
-                else -> handleResult(result)
+        if (!Client.isNativeAvailable()) {
+            _uiState.value = AuthUiState(
+                step = AuthStep.Unavailable,
+                isLoading = false,
+                preferredMode = if (isTelevision) AuthMode.QR else AuthMode.Phone,
+                message = "Native TDLib is unavailable. Install a build containing libtdjni.so for this device ABI."
+            )
+        } else {
+            client.send(TdApi.GetAuthorizationState()) { result ->
+                when (result) {
+                    is TdApi.AuthorizationState -> handleAuthState(result)
+                    else -> handleResult(result)
+                }
             }
         }
     }
@@ -176,12 +186,10 @@ class TelegramAuthManager(private val context: Context) {
         }
     }
 
-    fun confirmPreviewQrLogin() {
+    private fun removedPreviewAuthentication() {
         if (!org.drinkless.tdlib.Client.isNativeAvailable()) {
             _uiState.update { it.copy(isLoading = true, message = "Authorizing preview session…") }
-            com.vaydelux.bousygram.core.tdlib.client.TdLibFallbackEngine.confirmQrAuthentication { update ->
-                handleUpdate(update)
-            }
+            _uiState.update { it.copy(isLoading = false, message = "Native TDLib is unavailable.") }
         }
     }
 

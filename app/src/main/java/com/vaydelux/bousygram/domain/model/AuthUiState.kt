@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 
 enum class AuthStep {
     Loading,
+    Unavailable,
     EnterApiKeys,
     ScanQrCode,
     EnterPhone,

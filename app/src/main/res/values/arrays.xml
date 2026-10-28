@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="managed_quality_entries">
+        <item>@string/managed_quality_auto</item>
+        <item>@string/managed_quality_low</item>
+        <item>@string/managed_quality_medium</item>
+        <item>@string/managed_quality_high</item>
+    </string-array>
+    <string-array name="managed_quality_values">
+        <item>auto</item>
+        <item>low</item>
+        <item>medium</item>
+        <item>high</item>
+    </string-array>
+</resources>

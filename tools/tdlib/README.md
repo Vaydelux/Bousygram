@@ -1,4 +1,4 @@
-# TDLib Native Build (Phase 2)
+# TDLib Native Build
 
 This project currently needs `libtdjni.so` for each target ABI it ships.
 
@@ -8,8 +8,8 @@ At runtime, Android loads native libs based on the process ABI. If `libtdjni.so`
 
 ## Current state
 
-- Present: `app/src/main/jniLibs/armeabi-v7a/libtdjni.so`
-- Missing long-term target: `arm64-v8a`
+- Required: `app/src/main/jniLibs/armeabi-v7a/libtdjni.so`
+- Required: `app/src/main/jniLibs/arm64-v8a/libtdjni.so`
 
 ## Long-term target profile
 
@@ -17,12 +17,12 @@ At runtime, Android loads native libs based on the process ABI. If `libtdjni.so`
 - Optional later: `x86_64` (emulator/ChromeOS workflows)
 - Legacy fallback: `armeabi-v7a`
 
-## Build arm64 TDLib from source (Windows PowerShell)
+## Build both target ABIs from one TDLib revision (Windows PowerShell)
 
 From repository root:
 
 ```powershell
-.\tools\tdlib\build_tdlib_android_arm64.ps1 -AndroidNdk "C:\Users\<you>\AppData\Local\Android\Sdk\ndk\<version>"
+.\tools\tdlib\build_tdlib_android_arm64.ps1 -TdlibRef <pinned-commit> -AndroidNdk "C:\Users\<you>\AppData\Local\Android\Sdk\ndk\<version>" -OpenSslRoot "C:\path\to\openssl"
 ```
 
 If `ANDROID_NDK_HOME` is set, `-AndroidNdk` can be omitted.
@@ -30,10 +30,14 @@ If `ANDROID_NDK_HOME` is set, `-AndroidNdk` can be omitted.
 The script:
 
 1. clones `https://github.com/tdlib/td.git`
-2. configures CMake for Android `arm64-v8a`
-3. builds `tdjni`
-4. copies resulting `libtdjni.so` to:
-   - `app/src/main/jniLibs/arm64-v8a/libtdjni.so`
+2. checks out one TDLib revision for both ABIs
+3. configures and builds `tdjni` for `arm64-v8a` and `armeabi-v7a`
+4. copies each resulting library to its matching `jniLibs` directory
+5. records the resolved commit, NDK, ABIs, and timestamp in `BUILD_METADATA.txt`
+
+The OpenSSL root must contain `arm64-v8a` and `armeabi-v7a` directories, each with
+`include/openssl/ssl.h` and `lib/libcrypto.a`. TDLib's `example/android/build-openssl.sh`
+can produce these per-ABI static libraries when run in Git Bash or WSL.
 
 ## Verify ABI packaging
 
@@ -46,6 +50,6 @@ The script:
 
 Before shipping builds for phone/tablet/TV:
 
-- ensure `arm64-v8a/libtdjni.so` exists
+- ensure both ABI libraries exist and are non-empty
 - run `:app:verifyTdlibAbiCoverage`
 - install and smoke-test on at least one physical arm64 phone and one arm64 Android TV device

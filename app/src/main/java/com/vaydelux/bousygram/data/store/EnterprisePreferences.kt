@@ -171,7 +171,8 @@ object EnterprisePreferences {
         // No-op: automatic cache management is active
     }
 
-    fun cacheLimitBytes(): Long = com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner.calculateDynamicCacheLimit()
+    fun cacheLimitBytes(): Long = ManagedAppConfiguration.cacheLimitBytes()
+        ?: com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner.calculateDynamicCacheLimit()
 
     fun setLastError(message: String) = prefs.edit { putString(KEY_LAST_ERROR, message.take(400)) }
     fun lastError(): String = prefs.getString(KEY_LAST_ERROR, "None").orEmpty()

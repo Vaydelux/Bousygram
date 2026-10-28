@@ -67,6 +67,9 @@
         <profileable
             android:shell="true"
             tools:targetApi="q" />
+        <meta-data
+            android:name="android.content.APP_RESTRICTIONS"
+            android:resource="@xml/app_restrictions" />
 
         <activity
             android:name=".app.MainActivity"

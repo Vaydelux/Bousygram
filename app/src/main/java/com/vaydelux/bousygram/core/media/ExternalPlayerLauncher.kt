@@ -5,11 +5,16 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
+import com.vaydelux.bousygram.data.store.ManagedAppConfiguration
 import com.vaydelux.bousygram.domain.model.MediaItem
 
 object ExternalPlayerLauncher {
 
     fun launch(context: Context, item: MediaItem) {
+        if (!ManagedAppConfiguration.allowExternalPlayers()) {
+            Toast.makeText(context, "External players are disabled by device policy", Toast.LENGTH_SHORT).show()
+            return
+        }
         val fileId = item.fileId
         if (fileId == null) {
             Toast.makeText(context, "No streamable file found", Toast.LENGTH_SHORT).show()

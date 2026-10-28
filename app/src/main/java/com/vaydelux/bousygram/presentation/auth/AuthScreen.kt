@@ -171,7 +171,6 @@ fun AuthScreen(
                             state = state,
                             onRefresh = viewModel::requestQrCodeLogin,
                             onSwitchToPhone = viewModel::switchToPhoneLogin,
-                            onConfirmPreview = viewModel::confirmPreviewQrLogin,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -204,7 +203,6 @@ fun AuthScreen(
                             state = state,
                             onRefresh = viewModel::requestQrCodeLogin,
                             onSwitchToPhone = viewModel::switchToPhoneLogin,
-                            onConfirmPreview = viewModel::confirmPreviewQrLogin,
                             modifier = Modifier.fillMaxWidth().widthInMax(520.dp)
                         )
                     } else {
@@ -504,6 +502,13 @@ private fun AuthPrimaryCard(
 @Composable
 private fun AuthStepFields(state: AuthUiState, viewModel: AuthViewModel) {
     when (state.step) {
+        AuthStep.Unavailable -> {
+            Text(
+                text = state.message ?: "Native TDLib is unavailable for this device.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
         AuthStep.EnterApiKeys -> ApiKeysForm(state, viewModel)
         AuthStep.EnterPhone -> PhoneForm(state, viewModel)
         AuthStep.EnterCode -> CodeVerificationForm(state, viewModel)
@@ -574,7 +579,7 @@ private fun PhoneForm(state: AuthUiState, viewModel: AuthViewModel) {
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    text = "🧪 Fill Test Phone (+9996621111)",
+                    text = "Test phone controls are unavailable without native TDLib",
                     style = MaterialTheme.typography.labelMedium
                 )
             }
@@ -618,7 +623,7 @@ private fun CodeVerificationForm(state: AuthUiState, viewModel: AuthViewModel) {
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    text = "🧪 Fill Test Code (22222)",
+                    text = "Test code controls are unavailable without native TDLib",
                     style = MaterialTheme.typography.labelMedium
                 )
             }
@@ -712,11 +717,9 @@ private fun QrPairingStation(
     state: AuthUiState,
     onRefresh: () -> Unit,
     onSwitchToPhone: () -> Unit,
-    onConfirmPreview: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val stationShape = RoundedCornerShape(24.dp)
-    val isNative = Client.isNativeAvailable()
     Surface(
         modifier = modifier
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), stationShape)
@@ -737,11 +740,7 @@ private fun QrPairingStation(
             )
 
             Text(
-                text = if (isNative) {
-                    "Quickly link your account without typing a password or phone number."
-                } else {
-                    "Development/Preview Environment (libtdjni.so not loaded on this host). Instant preview sign-in is available below."
-                },
+                text = "Link your account with an official Telegram QR code.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -750,49 +749,9 @@ private fun QrPairingStation(
             QrDisplayBox(
                 state = state,
                 onRefresh = onRefresh,
-                onConfirmPreview = onConfirmPreview,
-                isNative = isNative
             )
 
-            if (!isNative) {
-                // Informative banner explaining why scanning with official phone says AUTH_INVALID in preview
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f))
-                        .border(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.40f), RoundedCornerShape(14.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "ℹ️ Preview Notice (Official app says AUTH_INVALID)",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                    Text(
-                        text = "Real Telegram QR codes require native MTProto handshakes (active in production ARM64/v7a release APKs). In this preview host, click 'Instant Authorize' below or tap the QR box to sign in immediately.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                }
-
-                Button(
-                    onClick = onConfirmPreview,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
-                    )
-                ) {
-                    Text(
-                        text = "⚡ Instant Authorize (Preview Mode)",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-            } else {
+            run {
                 // Step-by-step pairing guide for real native MTProto session
                 Column(
                     modifier = Modifier
@@ -863,8 +822,6 @@ private fun QrStepRow(step: String, instruction: String) {
 private fun QrDisplayBox(
     state: AuthUiState,
     onRefresh: () -> Unit,
-    onConfirmPreview: () -> Unit = {},
-    isNative: Boolean = true
 ) {
     val hasQr = state.qrCodeBitmap != null
     var isFocused by remember { mutableStateOf(false) }
@@ -879,7 +836,7 @@ private fun QrDisplayBox(
                 color = if (isFocused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(22.dp)
             )
-            .clickable(onClick = if (!isNative && hasQr) onConfirmPreview else onRefresh)
+            .clickable(onClick = onRefresh)
             .onFocusChanged { isFocused = it.isFocused }
             .focusable(),
         contentAlignment = Alignment.Center
@@ -892,7 +849,7 @@ private fun QrDisplayBox(
                         contentDescription = stringResource(R.string.auth_qr_content_description),
                         modifier = Modifier.size(230.dp)
                     )
-                    if (!isNative) {
+                    if (false) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.Black.copy(alpha = 0.70f),
@@ -1078,6 +1035,7 @@ private fun SecondaryAction(
 }
 
 private fun screenTitle(step: AuthStep): String = when (step) {
+    AuthStep.Unavailable -> "TDLib Unavailable"
     AuthStep.EnterApiKeys -> "Telegram API Setup"
     AuthStep.ScanQrCode -> "Scan QR Code"
     AuthStep.EnterPhone -> "Phone Sign-In"
@@ -1088,6 +1046,7 @@ private fun screenTitle(step: AuthStep): String = when (step) {
 }
 
 private fun stepBadgeText(step: AuthStep): String = when (step) {
+    AuthStep.Unavailable -> "NATIVE RUNTIME REQUIRED"
     AuthStep.EnterApiKeys -> "STEP 1 · API CREDENTIALS"
     AuthStep.EnterPhone -> "PHONE NUMBER AUTH"
     AuthStep.ScanQrCode -> "INSTANT QR PAIRING"
