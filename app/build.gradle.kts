@@ -8,10 +8,10 @@ plugins {
     alias(libs.plugins.secrets)
 }
 
-val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a")
+val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 val tdLibJniDir = project.layout.projectDirectory.dir("src/main/jniLibs").asFile
 val tdLibAvailableAbis = supportedTdLibAbis.filter { abi ->
-    val nativeLibrary = File(tdLibJniDir, "$abi/libtdjni.so")
+    val nativeLibrary = File(tdLibJniDir, "$abi/libtdjson.so")
     nativeLibrary.isFile && nativeLibrary.length() > 0L
 }
 
@@ -123,6 +123,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -210,19 +216,19 @@ tasks.register("verifyTdlibAbiCoverage") {
     doLast {
         if (abis.isEmpty()) {
             throw GradleException(
-                "Missing TDLib native binaries. Expected non-empty libtdjni.so files under src/main/jniLibs/<abi>/."
+                "Missing TDLib native binaries. Expected non-empty libtdjson.so files under src/main/jniLibs/<abi>/."
             )
         }
         if (!abis.contains("arm64-v8a")) {
             throw GradleException(
-                "Missing required arm64-v8a/libtdjni.so. Bousygram targets modern Android phones and TVs; " +
+                "Missing required arm64-v8a/libtdjson.so. Bousygram targets modern Android phones and TVs; " +
                     "an APK without the arm64 TDLib runtime is not eligible for release. " +
                     "Available ABIs: $abis"
             )
         }
         if (!abis.contains("armeabi-v7a")) {
             throw GradleException(
-                "Missing required armeabi-v7a/libtdjni.so. Bousygram targets 32-bit budget Android TVs; " +
+                "Missing required armeabi-v7a/libtdjson.so. Bousygram targets 32-bit budget Android TVs; " +
                     "an APK without the 32-bit ARM TDLib runtime is not eligible for release. " +
                     "Available ABIs: $abis"
             )
