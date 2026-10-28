@@ -16,15 +16,12 @@ import org.junit.Test
 class HlsAndMp4StreamingTest {
 
     @Test
-    fun testHlsMasterStreamUrlGeneration() {
-        val options = listOf(
-            VideoResolutionOption(quality = 1080, fileId = 101, token = "tok1080"),
-            VideoResolutionOption(quality = 720, fileId = 102, token = "tok720")
-        )
-        val url = TelegramProxyManager.hlsMasterStreamUrl(options)
-        assertTrue(url.contains("/hls/master.m3u8?options="))
-        assertTrue(url.contains("1080%3A101%3Atok1080"))
-        assertTrue(url.contains("720%3A102%3Atok720"))
+    fun progressiveStreamUrlIsAuthorizedForItsFile() {
+        val url = TelegramProxyManager.baseStreamUrl(101)
+        assertTrue(url.contains("/stream?fileId=101&token="))
+        val token = url.substringAfter("token=").substringBefore('&')
+        assertTrue(StreamAccessRegistry.authorizesFile(token, 101))
+        assertTrue(!StreamAccessRegistry.authorizesFile(token, 102))
     }
 
     @Test

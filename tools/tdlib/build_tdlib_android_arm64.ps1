@@ -40,21 +40,69 @@ if (-not (Test-Path $srcDir)) { git clone https://github.com/tdlib/td.git $srcDi
 Push-Location $srcDir
 try { git fetch --all --tags; git checkout $TdlibRef; $resolvedTdlibCommit = (git rev-parse HEAD).Trim() }
 finally { Pop-Location }
+# Override stock FindOpenSSL so Windows-host cross builds do not pull in
+# ws2_32/Crypt32/etc. TDLib sets CMAKE_MODULE_PATH to its own CMake/ folder.
+$customFindOpenSsl = Join-Path $PSScriptRoot "cmake\FindOpenSSL.cmake"
+$tdlibFindOpenSsl = Join-Path $srcDir "CMake\FindOpenSSL.cmake"
+$tdlibFindOpenSslBackup = Join-Path $srcDir "CMake\FindOpenSSL.cmake.stock-backup"
+if (-not (Test-Path $customFindOpenSsl)) { throw "Missing custom FindOpenSSL at $customFindOpenSsl" }
+if ((Test-Path $tdlibFindOpenSsl) -and -not (Test-Path $tdlibFindOpenSslBackup)) {
+    Copy-Item -Force $tdlibFindOpenSsl $tdlibFindOpenSslBackup
+}
+Copy-Item -Force $customFindOpenSsl $tdlibFindOpenSsl
+
+try {
 foreach ($abi in $Abis) {
     $buildDir = Join-Path $WorkRoot "build\$abi"
     $outputDir = Join-Path $repoRoot "app\src\main\jniLibs\$abi"
     New-Item -ItemType Directory -Force -Path $buildDir, $outputDir | Out-Null
     # TDLib's Android JNI target is defined by the Android example wrapper,
     # not by the top-level TDLib CMake project.
+    $opensslAbiRoot = ($opensslRoots[$abi] -replace '\\', '/')
+    $opensslCrypto = "$opensslAbiRoot/lib/libcrypto.a"
+    $opensslSsl = "$opensslAbiRoot/lib/libssl.a"
+    $opensslInclude = "$opensslAbiRoot/include"
+    if (-not (Test-Path ($opensslCrypto -replace '/', '\')) -or -not (Test-Path ($opensslSsl -replace '/', '\'))) {
+        throw "OpenSSL static libraries missing under '$opensslAbiRoot/lib'."
+    }
     cmake -G Ninja -S (Join-Path $srcDir "example\android") -B $buildDir -DCMAKE_BUILD_TYPE=Release `
         "-DCMAKE_TOOLCHAIN_FILE=$toolchainFile" "-DANDROID_ABI=$abi" `
         "-DANDROID_PLATFORM=$AndroidPlatform" -DTD_ENABLE_JNI=ON `
         -DTD_ANDROID_JSON=OFF -DTD_ANDROID_JSON_JAVA=OFF `
-        "-DOPENSSL_ROOT_DIR=$($opensslRoots[$abi])"
+        "-DOPENSSL_ROOT_DIR:PATH=$opensslAbiRoot" `
+        "-DOPENSSL_INCLUDE_DIR:PATH=$opensslInclude" `
+        "-DOPENSSL_CRYPTO_LIBRARY:FILEPATH=$opensslCrypto" `
+        "-DOPENSSL_SSL_LIBRARY:FILEPATH=$opensslSsl"
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     cmake --build $buildDir --config Release --target tdjni --parallel
-    $libCandidate = Get-ChildItem -Path $buildDir -Recurse -Filter "libtdjni.so" | Select-Object -First 1
-    if (-not $libCandidate) { throw "Build completed but libtdjni.so was not found for $abi." }
-    Copy-Item -Force $libCandidate.FullName (Join-Path $outputDir "libtdjni.so")
+    $buildExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    $libCandidate = Get-ChildItem -Path $buildDir -Recurse -Filter "libtdjni.so" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq "libtdjni.so" -and $_.Length -gt 0 } |
+        Select-Object -First 1
+    if ($buildExit -ne 0 -or -not $libCandidate) {
+        # TDLib CMake uses if(WIN32) on Windows hosts and injects ws2_32/Crypt32/etc.
+        # into Android link lines. Objects are built; relink without those libs.
+        Write-Host "tdjni cmake build exited $buildExit; attempting Android-only relink for $abi..."
+        $relinkScript = Join-Path $PSScriptRoot "relink_tdjni.ps1"
+        & $relinkScript -BuildDir $buildDir -Abi $abi -AndroidNdk $AndroidNdk -OpenSslRoot $OpenSslRoot -OutputDir $outputDir
+        $libCandidate = Get-Item (Join-Path $outputDir "libtdjni.so") -ErrorAction SilentlyContinue
+    }
+    if (-not $libCandidate -or -not (Test-Path $libCandidate.FullName) -or $libCandidate.Length -le 0) {
+        throw "Build completed but libtdjni.so was not found for $abi."
+    }
+    if ($libCandidate.DirectoryName -ne $outputDir) {
+        Copy-Item -Force $libCandidate.FullName (Join-Path $outputDir "libtdjni.so")
+    }
+}
+} finally {
+    if (Test-Path $tdlibFindOpenSslBackup) {
+        Copy-Item -Force $tdlibFindOpenSslBackup $tdlibFindOpenSsl
+        Remove-Item -Force $tdlibFindOpenSslBackup
+    } elseif (Test-Path $tdlibFindOpenSsl) {
+        Remove-Item -Force $tdlibFindOpenSsl
+    }
 }
 $metadata = Join-Path $repoRoot "tools\tdlib\BUILD_METADATA.txt"
 @("TDLib commit: $resolvedTdlibCommit", "NDK: $AndroidNdk", "Android platform: $AndroidPlatform", "ABIs: $($Abis -join ', ')", "Generated: $(Get-Date -Format o)") | Set-Content $metadata

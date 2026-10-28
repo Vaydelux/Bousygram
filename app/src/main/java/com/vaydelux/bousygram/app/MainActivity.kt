@@ -96,6 +96,7 @@ private fun BousygramAppRoot(
     themePreset: BousygramThemePreset,
     onThemePresetChange: (BousygramThemePreset) -> Unit
 ) {
+    val context = LocalContext.current
     val authState by authViewModel.uiState.collectAsState()
     var appScreen by remember { mutableStateOf<AppScreen>(AppScreen.Home) }
     var searchFocus by rememberSaveable(stateSaver = SearchFocusStateSaver) {
@@ -106,6 +107,11 @@ private fun BousygramAppRoot(
     val pendingCast by CastReceiverManager.pendingCastRequest.collectAsState()
     LaunchedEffect(pendingCast) {
         val payload = pendingCast ?: return@LaunchedEffect
+        if (authState.step != AuthStep.Authorized || !CastReceiverManager.isAuthorizedTelegramMedia(payload)) {
+            CastReceiverManager.clearPendingRequest()
+            android.widget.Toast.makeText(context, "This Cast link is not authorized for the current Telegram session", android.widget.Toast.LENGTH_LONG).show()
+            return@LaunchedEffect
+        }
         val preparation = LocalStreamingServer.prepareStream(
             fileId = payload.fileId,
             declaredSize = 0L,
@@ -149,7 +155,6 @@ private fun BousygramAppRoot(
                 else -> ShellDestination.Home
             }
             val lastPlayed = EnterprisePreferences.lastPlayed()
-            val context = LocalContext.current
             val navFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
             BousygramAdaptiveShell(
                 selected = destination,

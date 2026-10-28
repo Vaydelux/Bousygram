@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
+import com.vaydelux.bousygram.core.tdlib.server.TdLibTelegramFileGateway
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 
 /**
  * Lightweight Cast Connect payload model for cross-device media handoff.
@@ -60,6 +62,16 @@ object CastReceiverManager {
         _pendingCastRequest.value = null
     }
 
+    /** Validate externally supplied identifiers against a real message in the active TDLib session. */
+    suspend fun isAuthorizedTelegramMedia(payload: CastMediaPayload): Boolean {
+        if (payload.chatId == 0L || payload.messageId == 0L || payload.fileId <= 0) return false
+        val file = runCatching {
+            TdLibTelegramFileGateway.reResolveFile(payload.chatId, payload.messageId)
+        }.getOrNull() ?: return false
+        val effectiveId = TelegramChunkScheduler.resolveEffectiveFileId(payload.fileId)
+        return file.fileId == payload.fileId || file.fileId == effectiveId
+    }
+
     fun parseIntent(intent: Intent?): CastMediaPayload? {
         if (intent == null) return null
         val action = intent.action
@@ -100,6 +112,7 @@ object CastReceiverManager {
 
     fun fromUri(uri: Uri): CastMediaPayload? {
         return runCatching {
+            if (uri.scheme != URI_SCHEME || uri.host != URI_HOST || uri.path != URI_PATH_LOAD) return null
             val fileId = uri.getQueryParameter("fileId")?.toIntOrNull() ?: return null
             val chatId = uri.getQueryParameter("chatId")?.toLongOrNull() ?: 0L
             val messageId = uri.getQueryParameter("messageId")?.toLongOrNull() ?: 0L
@@ -109,7 +122,7 @@ object CastReceiverManager {
             val thumb = uri.getQueryParameter("thumb")
             val version = uri.getQueryParameter("v")?.toIntOrNull() ?: CastMediaPayload.CURRENT_VERSION
 
-            CastMediaPayload(
+            validPayload(CastMediaPayload(
                 chatId = chatId,
                 messageId = messageId,
                 fileId = fileId,
@@ -118,7 +131,7 @@ object CastReceiverManager {
                 durationMs = durMs,
                 thumbnailUrl = thumb,
                 version = version
-            )
+            ))
         }.getOrElse {
             fromUriString(uri.toString())
         }
@@ -135,41 +148,22 @@ object CastReceiverManager {
     }
 
     fun fromUriString(uriStr: String): CastMediaPayload? {
-        if (!uriStr.startsWith("$URI_SCHEME://$URI_HOST$URI_PATH_LOAD") &&
-            !uriStr.startsWith("$URI_SCHEME://$URI_HOST")
-        ) {
-            return null
-        }
-        val queryIndex = uriStr.indexOf('?')
-        if (queryIndex < 0) return null
-        val query = uriStr.substring(queryIndex + 1)
-        val params = query.split('&').associate { param ->
-            val parts = param.split('=', limit = 2)
-            val key = parts[0]
-            val value = if (parts.size > 1) {
-                runCatching { java.net.URLDecoder.decode(parts[1], "UTF-8") }.getOrDefault(parts[1])
-            } else ""
-            key to value
-        }
-        val fileId = params["fileId"]?.toIntOrNull() ?: return null
-        val chatId = params["chatId"]?.toLongOrNull() ?: 0L
-        val messageId = params["messageId"]?.toLongOrNull() ?: 0L
-        val title = params["title"].orEmpty().ifBlank { "Cast Media" }
-        val posMs = params["positionMs"]?.toLongOrNull() ?: 0L
-        val durMs = params["durationMs"]?.toLongOrNull() ?: 0L
-        val thumb = params["thumb"]?.takeIf { it.isNotBlank() }
-        val version = params["v"]?.toIntOrNull() ?: CastMediaPayload.CURRENT_VERSION
-
-        return CastMediaPayload(
-            chatId = chatId,
-            messageId = messageId,
-            fileId = fileId,
-            title = title,
-            positionMs = posMs,
-            durationMs = durMs,
-            thumbnailUrl = thumb,
-            version = version
-        )
+        return runCatching {
+            val uri = Uri.parse(uriStr)
+            if (uri.scheme != URI_SCHEME || uri.host != URI_HOST || uri.path != URI_PATH_LOAD) return null
+            val fileId = uri.getQueryParameter("fileId")?.toIntOrNull() ?: return null
+            val payload = CastMediaPayload(
+                chatId = uri.getQueryParameter("chatId")?.toLongOrNull() ?: 0L,
+                messageId = uri.getQueryParameter("messageId")?.toLongOrNull() ?: 0L,
+                fileId = fileId,
+                title = uri.getQueryParameter("title").orEmpty().ifBlank { "Cast Media" },
+                positionMs = uri.getQueryParameter("positionMs")?.toLongOrNull() ?: 0L,
+                durationMs = uri.getQueryParameter("durationMs")?.toLongOrNull() ?: 0L,
+                thumbnailUrl = uri.getQueryParameter("thumb")?.takeIf { it.isNotBlank() },
+                version = uri.getQueryParameter("v")?.toIntOrNull() ?: CastMediaPayload.CURRENT_VERSION
+            )
+            validPayload(payload)
+        }.getOrNull()
     }
 
     fun toUri(payload: CastMediaPayload): Uri {
@@ -194,7 +188,7 @@ object CastReceiverManager {
             val json = JSONObject(jsonStr)
             val fileId = json.optInt("fileId", 0)
             if (fileId <= 0) return null
-            CastMediaPayload(
+            validPayload(CastMediaPayload(
                 chatId = json.optLong("chatId", 0L),
                 messageId = json.optLong("messageId", 0L),
                 fileId = fileId,
@@ -203,7 +197,7 @@ object CastReceiverManager {
                 durationMs = json.optLong("durationMs", 0L),
                 thumbnailUrl = json.optString("thumbnailUrl").takeIf { it.isNotBlank() },
                 version = json.optInt("version", CastMediaPayload.CURRENT_VERSION)
-            )
+            ))
         }.getOrNull()
     }
 
@@ -246,5 +240,11 @@ object CastReceiverManager {
             durationSeconds = (payload.durationMs / 1000L).toInt(),
             fileSizeBytes = 0L
         )
+    }
+
+    private fun validPayload(payload: CastMediaPayload): CastMediaPayload? = payload.takeIf {
+        it.fileId > 0 && it.chatId != 0L && it.messageId > 0L &&
+            it.positionMs >= 0L && it.durationMs >= 0L &&
+            it.title.length <= 256 && it.version == CastMediaPayload.CURRENT_VERSION
     }
 }

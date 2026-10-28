@@ -50,7 +50,6 @@ object TelegramProxyManager {
 
     val port: Int get() = actualPort
     val localStreamBaseUrl: String get() = "http://$HOST:$actualPort/stream"
-    val localAdaptiveStreamBaseUrl: String get() = "http://$HOST:$actualPort/adaptive-stream"
 
     private val _proxyBaseUrlFlow = kotlinx.coroutines.flow.MutableStateFlow(localStreamBaseUrl)
     val proxyBaseUrlFlow: kotlinx.coroutines.flow.StateFlow<String> = _proxyBaseUrlFlow.asStateFlow()
@@ -87,15 +86,6 @@ object TelegramProxyManager {
                     }
                     head("/stream") {
                         handleHead(call)
-                    }
-                    get("/adaptive-stream") {
-                        handleHlsMasterManifest(call)
-                    }
-                    get("/hls/master.m3u8") {
-                        handleHlsMasterManifest(call)
-                    }
-                    get("/hls/segment") {
-                        handleStream(call)
                     }
                 }
             }.start(wait = false)
@@ -193,21 +183,6 @@ object TelegramProxyManager {
         return "$localStreamBaseUrl?fileId=$fileId&token=$token"
     }
 
-    fun adaptiveStreamUrl(options: List<VideoResolutionOption>): String {
-        return hlsMasterStreamUrl(options)
-    }
-
-    fun hlsMasterStreamUrl(options: List<VideoResolutionOption>): String {
-        val encodedOptions = options
-            .filter { it.fileId > 0 && it.quality > 0 }
-            .joinToString(",") { option ->
-                val token = option.token ?: StreamAccessRegistry.issueFile(option.fileId)
-                "${option.quality}:${option.fileId}:$token"
-            }
-        val query = URLEncoder.encode(encodedOptions, "UTF-8")
-        return "http://$HOST:$actualPort/hls/master.m3u8?options=$query"
-    }
-
     private suspend fun handleStream(call: ApplicationCall) {
         val fileId = call.request.queryParameters["fileId"]?.toIntOrNull()
         if (fileId == null || fileId <= 0) {
@@ -263,7 +238,7 @@ object TelegramProxyManager {
         }
         TelegramChunkScheduler.noteFileSize(fileId, size)
         TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
-        TelegramChunkScheduler.openPlayback(fileId, size)
+        TelegramChunkScheduler.openPlayback(fileId, size, isMp4 = contentType.contentSubtype.contains("mp4", ignoreCase = true))
         try {
             call.respondBytesWriter(contentType = contentType, status = status) {
                 streamTelegramFileSequentially(
@@ -331,51 +306,7 @@ object TelegramProxyManager {
         call.respond(status)
     }
 
-    private suspend fun handleHlsMasterManifest(call: ApplicationCall) {
-        val options = parseResolutionOptions(call.request.queryParameters["options"])
-        if (options.isEmpty()) {
-            call.respond(HttpStatusCode.Forbidden, "Missing or invalid adaptive stream authorization")
-            return
-        }
-
-        val playlist = buildString {
-            appendLine("#EXTM3U")
-            appendLine("#EXT-X-VERSION:4")
-            options.forEach { opt ->
-                val bandwidth = when (opt.quality) {
-                    2160 -> 14000000
-                    1440 -> 8000000
-                    1080 -> 4500000
-                    720 -> 2200000
-                    480 -> 1000000
-                    360 -> 600000
-                    else -> opt.quality * 3000
-                }
-                val resolution = when (opt.quality) {
-                    2160 -> "3840x2160"
-                    1440 -> "2560x1440"
-                    1080 -> "1920x1080"
-                    720 -> "1280x720"
-                    480 -> "854x480"
-                    360 -> "640x360"
-                    else -> "${(opt.quality * 16) / 9}x${opt.quality}"
-                }
-                appendLine("#EXT-X-STREAM-INF:BANDWIDTH=$bandwidth,RESOLUTION=$resolution")
-                val streamUrl = "$localStreamBaseUrl?fileId=${opt.fileId}&token=${opt.token}"
-                appendLine(streamUrl)
-            }
-        }
-
-        call.response.header(HttpHeaders.ContentType, "application/vnd.apple.mpegurl")
-        call.response.header(HttpHeaders.CacheControl, "no-cache")
-        call.respond(HttpStatusCode.OK, playlist)
-    }
-
-    private suspend fun handleAdaptiveStream(call: ApplicationCall) {
-        handleHlsMasterManifest(call)
-    }
-
-    private suspend fun streamTelegramFileSequentially(
+    internal suspend fun streamTelegramFileSequentially(
         fileId: Int,
         range: HttpByteRange,
         channel: ByteWriteChannel,
@@ -477,19 +408,4 @@ object TelegramProxyManager {
         call.respond(HttpStatusCode.ServiceUnavailable, message)
     }
 
-    private fun parseResolutionOptions(rawOptions: String?): List<VideoResolutionOption> {
-        if (rawOptions.isNullOrBlank()) return emptyList()
-        return rawOptions.split(",").mapNotNull { entry ->
-            val parts = entry.split(":")
-            if (parts.size != 3) return@mapNotNull null
-            val quality = parts[0].toIntOrNull() ?: return@mapNotNull null
-            val fileId = parts[1].toIntOrNull() ?: return@mapNotNull null
-            val token = parts[2]
-            if (quality <= 0 || fileId <= 0 || !StreamAccessRegistry.authorizesFile(token, fileId)) {
-                null
-            } else {
-                VideoResolutionOption(quality, fileId, token)
-            }
-        }.distinctBy { it.fileId }.sortedByDescending { it.quality }
-    }
 }

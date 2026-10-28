@@ -425,7 +425,7 @@ class TelegramChunkSchedulerTest {
         val mediumGateway = FakeTelegramFileGateway(mediumBytes, completed = false)
         TelegramFileGatewayRegistry.installForTests(mediumGateway)
 
-        TelegramChunkScheduler.openPlayback(fileId = 92, totalSize = mediumSize.toLong()).join()
+        TelegramChunkScheduler.openPlayback(fileId = 92, totalSize = mediumSize.toLong(), isMp4 = true).join()
 
         val medHead = mediumGateway.downloadRecords.firstOrNull { it.fileId == 92 && it.offset == 0L }
         assertNotNull(medHead)
@@ -437,6 +437,12 @@ class TelegramChunkSchedulerTest {
         val expectedTailBytes = (mediumSize - TelegramChunkScheduler.HEAD_BURST_BYTES).toInt()
         assertEquals(expectedTailBytes, medTail!!.limit)
         assertEquals(TelegramChunkScheduler.PLAYBACK_PRIORITY, medTail.priority)
+
+        val nonMp4Size = 8 * 1024 * 1024
+        val nonMp4Gateway = FakeTelegramFileGateway(ByteArray(nonMp4Size) { 7 }, completed = false)
+        TelegramFileGatewayRegistry.installForTests(nonMp4Gateway)
+        TelegramChunkScheduler.openPlayback(fileId = 93, totalSize = nonMp4Size.toLong(), isMp4 = false).join()
+        assertTrue(nonMp4Gateway.downloadRecords.all { it.offset == 0L })
     }
 
     @Test

@@ -450,7 +450,7 @@ internal object TelegramChunkScheduler {
      * the first ~2 MB and the last ~4 MB of the file (clamped for small files),
      * using TDLib downloadFile with explicit offset and limit.
      */
-    fun openPlayback(fileId: Int, totalSize: Long, isMp4: Boolean = true): Job = scope.launch {
+    fun openPlayback(fileId: Int, totalSize: Long, isMp4: Boolean = false): Job = scope.launch {
         if (fileId <= 0) return@launch
         val effectiveId = resolveEffectiveFileId(fileId)
         val initialFile = latestFiles[effectiveId] ?: getFileStatus(effectiveId)
@@ -463,8 +463,23 @@ internal object TelegramChunkScheduler {
         PlaybackTelemetryRecorder.recordFullyCachedAtStart(effectiveId, isFullyCached)
 
         val headLimit = if (resolvedSize > 0L) min(HEAD_BURST_BYTES, resolvedSize).toInt() else HEAD_BURST_BYTES.toInt()
+        val headStartMs = System.currentTimeMillis()
+        rememberWindow(effectiveId, 0L, headLimit.toLong(), TelegramChunkPurpose.Streaming)
+        startChunkDownload(effectiveId, offset = 0L, limit = headLimit, priority = PLAYBACK_PRIORITY)
+        awaitPrefixReady(effectiveId, 0L, min(headLimit, MIN_PARTIAL_BYTES), timeoutMs = 15_000L)
+        val headElapsed = if (isFullyCached) 0L else (System.currentTimeMillis() - headStartMs).coerceAtLeast(1L)
+        PlaybackTelemetryRecorder.recordHeaderChunkTime(effectiveId, headElapsed)
+
+        val headProbe = if (isMp4 && !isFullyCached && resolvedSize > 0L) {
+            readRange(effectiveId, 0L, min(headLimit, MIN_PARTIAL_BYTES))
+        } else {
+            null
+        }
+        val hasFaststartMoov = headProbe?.let {
+            com.vaydelux.bousygram.core.media.ContainerHeaderParser.findFaststartMoovSize(it) != null
+        } ?: false
         val (tailOffset, tailLimit) = when {
-            isFullyCached -> Pair(-1L, 0)
+            isFullyCached || !isMp4 || hasFaststartMoov -> Pair(-1L, 0)
             resolvedSize <= 0L -> Pair(-1L, 0)
             resolvedSize <= HEAD_BURST_BYTES -> Pair(0L, 0)
             resolvedSize <= HEAD_BURST_BYTES + TAIL_BURST_BYTES -> {
@@ -478,13 +493,6 @@ internal object TelegramChunkScheduler {
                 Pair(offset, limit)
             }
         }
-
-        val headStartMs = System.currentTimeMillis()
-        rememberWindow(effectiveId, 0L, headLimit.toLong(), TelegramChunkPurpose.Streaming)
-        startChunkDownload(effectiveId, offset = 0L, limit = headLimit, priority = PLAYBACK_PRIORITY)
-        awaitPrefixReady(effectiveId, 0L, min(headLimit, MIN_PARTIAL_BYTES), timeoutMs = 15_000L)
-        val headElapsed = if (isFullyCached) 0L else (System.currentTimeMillis() - headStartMs).coerceAtLeast(1L)
-        PlaybackTelemetryRecorder.recordHeaderChunkTime(effectiveId, headElapsed)
 
         if (tailLimit > 0 && tailOffset >= 0L) {
             val startMs = System.currentTimeMillis()

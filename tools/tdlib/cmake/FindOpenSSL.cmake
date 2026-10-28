@@ -1,0 +1,59 @@
+# Android-oriented FindOpenSSL used when cross-compiling TDLib on a Windows host.
+# The stock CMake module takes the WIN32 branch and injects Windows system libs
+# (ws2_32, Crypt32, ...) into Android link lines.
+if(OPENSSL_FOUND)
+  return()
+endif()
+
+if(NOT OPENSSL_ROOT_DIR AND DEFINED ENV{OPENSSL_ROOT_DIR})
+  set(OPENSSL_ROOT_DIR "$ENV{OPENSSL_ROOT_DIR}")
+endif()
+
+if(NOT OPENSSL_INCLUDE_DIR)
+  set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
+endif()
+if(NOT OPENSSL_CRYPTO_LIBRARY)
+  set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libcrypto.a")
+endif()
+if(NOT OPENSSL_SSL_LIBRARY)
+  set(OPENSSL_SSL_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libssl.a")
+endif()
+
+if(NOT EXISTS "${OPENSSL_INCLUDE_DIR}/openssl/ssl.h")
+  message(FATAL_ERROR "OpenSSL headers missing at ${OPENSSL_INCLUDE_DIR}")
+endif()
+if(NOT EXISTS "${OPENSSL_CRYPTO_LIBRARY}")
+  message(FATAL_ERROR "OpenSSL crypto library missing at ${OPENSSL_CRYPTO_LIBRARY}")
+endif()
+if(NOT EXISTS "${OPENSSL_SSL_LIBRARY}")
+  message(FATAL_ERROR "OpenSSL ssl library missing at ${OPENSSL_SSL_LIBRARY}")
+endif()
+
+set(OPENSSL_INCLUDE_DIR "${OPENSSL_INCLUDE_DIR}" CACHE PATH "OpenSSL include dir" FORCE)
+set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_CRYPTO_LIBRARY}" CACHE FILEPATH "OpenSSL crypto lib" FORCE)
+set(OPENSSL_SSL_LIBRARY "${OPENSSL_SSL_LIBRARY}" CACHE FILEPATH "OpenSSL ssl lib" FORCE)
+set(OPENSSL_CRYPTO_LIBRARIES "${OPENSSL_CRYPTO_LIBRARY}")
+set(OPENSSL_SSL_LIBRARIES "${OPENSSL_SSL_LIBRARY}")
+set(OPENSSL_LIBRARIES "${OPENSSL_SSL_LIBRARY};${OPENSSL_CRYPTO_LIBRARY}")
+set(OPENSSL_VERSION "3.3.2")
+set(OpenSSL_VERSION "${OPENSSL_VERSION}")
+set(OPENSSL_FOUND TRUE)
+set(OpenSSL_FOUND TRUE)
+set(OpenSSL_Crypto_FOUND TRUE)
+set(OpenSSL_SSL_FOUND TRUE)
+
+if(NOT TARGET OpenSSL::Crypto)
+  add_library(OpenSSL::Crypto UNKNOWN IMPORTED)
+  set_target_properties(OpenSSL::Crypto PROPERTIES
+    IMPORTED_LOCATION "${OPENSSL_CRYPTO_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}")
+endif()
+if(NOT TARGET OpenSSL::SSL)
+  add_library(OpenSSL::SSL UNKNOWN IMPORTED)
+  set_target_properties(OpenSSL::SSL PROPERTIES
+    IMPORTED_LOCATION "${OPENSSL_SSL_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}"
+    INTERFACE_LINK_LIBRARIES OpenSSL::Crypto)
+endif()
+
+message(STATUS "Found OpenSSL: ${OPENSSL_CRYPTO_LIBRARY} (custom Android FindOpenSSL, version \"${OPENSSL_VERSION}\")")

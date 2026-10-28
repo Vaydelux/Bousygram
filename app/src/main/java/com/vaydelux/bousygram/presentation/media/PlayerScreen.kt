@@ -1,7 +1,9 @@
 package com.vaydelux.bousygram.presentation.media
 
 import android.app.Activity
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -26,6 +28,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import com.vaydelux.bousygram.core.media.SeekThumbnailManager
 import com.vaydelux.bousygram.core.media.TdLibDataSource
+import com.vaydelux.bousygram.core.cast.CastLanStreamingServer
+import com.vaydelux.bousygram.core.cast.CastPlaybackStatus
+import com.vaydelux.bousygram.core.cast.CastSessionController
+import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.data.store.SessionHealthRecord
 import com.vaydelux.bousygram.data.store.StreamHealthTelemetry
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -95,6 +101,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -170,6 +179,19 @@ fun PlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val castState by CastSessionController.state.collectAsStateWithLifecycle()
+    val isAndroidTv = remember(context) {
+        context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+    }
+    var hasLocalNetworkPermission by remember(context) {
+        mutableStateOf(Build.VERSION.SDK_INT < 37 || ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_LOCAL_NETWORK
+        ) == PackageManager.PERMISSION_GRANTED)
+    }
+    val localNetworkPermissionRequest = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> hasLocalNetworkPermission = granted }
     val adaptive = rememberAdaptiveMetrics()
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -360,6 +382,66 @@ fun PlayerScreen(
     }
     val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
+    var castWasConnected by remember { mutableStateOf(false) }
+    var lastCastPositionMs by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(context) {
+        if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) CastSessionController.initialize(context)
+    }
+
+    LaunchedEffect(castState.connected, queueIndex) {
+        if (!castState.connected) {
+            if (castWasConnected) {
+                castWasConnected = false
+                playerEngine.seekTo(lastCastPositionMs.coerceAtLeast(0L))
+                playerEngine.play()
+                isPlaying = true
+            }
+            return@LaunchedEffect
+        }
+        castWasConnected = true
+        if (!hasLocalNetworkPermission) {
+            CastSessionController.endSession()
+            return@LaunchedEffect
+        }
+        val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
+        val name = current.fileName.orEmpty()
+        val mime = VideoFormatSupport.httpContentType(current.mimeType, name, current.title)
+        if (!mime.equals("video/mp4", ignoreCase = true) &&
+            !name.endsWith(".mp4", ignoreCase = true) && !name.endsWith(".m4v", ignoreCase = true)
+        ) {
+            android.widget.Toast.makeText(context, "Cast currently supports MP4 media only", android.widget.Toast.LENGTH_LONG).show()
+            CastSessionController.endSession()
+            return@LaunchedEffect
+        }
+        val size = current.fileSizeBytes.takeIf { it > 0L } ?: withContext(Dispatchers.IO) {
+            com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer.resolveFileSizeWithin(current.fileId, 1_000L)
+        }
+        val mediaType = if (mime.equals("application/octet-stream", ignoreCase = true)) "video/mp4" else mime
+        val lanUrl = withContext(Dispatchers.IO) {
+            CastLanStreamingServer.start(context, current.fileId, size, mediaType)
+        }
+        if (lanUrl == null || !CastSessionController.loadMedia(
+                url = lanUrl,
+                title = current.title,
+                contentType = mediaType,
+                durationMs = duration,
+                positionMs = playerEngine.currentPositionMs
+            )
+        ) {
+            android.widget.Toast.makeText(context, "Could not start Cast streaming on this network", android.widget.Toast.LENGTH_LONG).show()
+            CastSessionController.endSession()
+        }
+    }
+
+    LaunchedEffect(castState.connected, castState.positionMs, castState.playbackStatus) {
+        if (!castState.connected) return@LaunchedEffect
+        lastCastPositionMs = castState.positionMs
+        if (castState.durationMs > 0L) duration = castState.durationMs
+        position = castState.positionMs
+        isPlaying = castState.playbackStatus == CastPlaybackStatus.Playing
+        if (castState.playbackStatus == CastPlaybackStatus.Playing) playerEngine.pause()
+    }
 
     fun performTrackedSeek(targetMs: Long) {
         pendingSeekTargetMs = targetMs.coerceAtLeast(0L)
@@ -1007,43 +1089,15 @@ fun PlayerScreen(
                 null
             } else {
                 withContext(Dispatchers.IO) {
-                    if (item.alternativeVideos.isNotEmpty()) {
-                        val options = item.alternativeVideos.mapNotNull { alt ->
-                            val fid = alt.fileId ?: return@mapNotNull null
-                            val q = alt.height.takeIf { it > 0 } ?: 720
-                            val tok = StreamAccessRegistry.issueFile(fid)
-                            com.vaydelux.bousygram.core.tdlib.server.VideoResolutionOption(q, fid, tok)
-                        }
-                        if (options.isNotEmpty()) {
-                            val hlsUrl = com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager.hlsMasterStreamUrl(options)
-                            com.vaydelux.bousygram.core.tdlib.server.StreamPreparation(
-                                fileId = item.fileId,
-                                resolvedSize = item.fileSizeBytes,
-                                url = hlsUrl,
-                                warmupStarted = true
-                            )
-                        } else {
-                            LocalStreamingServer.prepareStream(
-                                fileId = item.fileId,
-                                declaredSize = item.fileSizeBytes,
-                                title = item.title,
-                                mimeType = item.mimeType,
-                                fileName = item.fileName,
-                                chatId = item.chatId,
-                                messageId = item.messageId
-                            )
-                        }
-                    } else {
-                        LocalStreamingServer.prepareStream(
-                            fileId = item.fileId,
-                            declaredSize = item.fileSizeBytes,
-                            title = item.title,
-                            mimeType = item.mimeType,
-                            fileName = item.fileName,
-                            chatId = item.chatId,
-                            messageId = item.messageId
-                        )
-                    }
+                    LocalStreamingServer.prepareStream(
+                        fileId = item.fileId,
+                        declaredSize = item.fileSizeBytes,
+                        title = item.title,
+                        mimeType = item.mimeType,
+                        fileName = item.fileName,
+                        chatId = item.chatId,
+                        messageId = item.messageId
+                    )
                 }
             }
             if (alreadyPreparedUrl == null && preparation == null) {
@@ -1552,21 +1606,29 @@ fun PlayerScreen(
                 },
                 onPlayPause = {
                     hudInteractionTick++
-                    if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                    if (castState.connected) {
+                        if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
+                        else CastSessionController.play()
+                    } else if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
                 },
                 onSeekBy = { delta ->
                     hudInteractionTick++
                     val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
-                    val newPos = (playerEngine.currentPositionMs + delta).coerceIn(0L, max)
-                    performTrackedSeek(newPos)
-                    CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
+                    val basePosition = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
+                    val newPos = (basePosition + delta).coerceIn(0L, max)
+                    if (castState.connected) CastSessionController.seekTo(newPos) else {
+                        performTrackedSeek(newPos)
+                        CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
+                    }
                 },
                 onSeekTo = { target ->
                     hudInteractionTick++
                     val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
                     val newPos = target.coerceIn(0L, max)
-                    performTrackedSeek(newPos)
-                    CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
+                    if (castState.connected) CastSessionController.seekTo(newPos) else {
+                        performTrackedSeek(newPos)
+                        CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
+                    }
                 },
                 onSkipPrevious = {
                     hudInteractionTick++
@@ -1658,6 +1720,48 @@ fun PlayerScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
+                }
+            }
+        }
+
+        if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED && !isAndroidTv && castState.supported) {
+            Row(
+                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (Build.VERSION.SDK_INT >= 37 && !hasLocalNetworkPermission) {
+                    Surface(
+                        modifier = Modifier.size(48.dp).clickable {
+                            localNetworkPermissionRequest.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                        },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("Cast", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                } else {
+                    AndroidView(
+                        modifier = Modifier.size(48.dp),
+                        factory = { viewContext ->
+                            androidx.mediarouter.app.MediaRouteButton(viewContext).also { button ->
+                                com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(
+                                    viewContext.applicationContext,
+                                    button
+                                )
+                                button.contentDescription = "Choose a Cast device"
+                            }
+                        }
+                    )
+                }
+                if (castState.connected && !castState.deviceName.isNullOrBlank()) {
+                    Text(
+                        "Casting to ${castState.deviceName}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge
+                    )
                 }
             }
         }

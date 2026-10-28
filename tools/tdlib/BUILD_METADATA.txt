@@ -1,0 +1,7 @@
+TDLib commit: 4c6377aa7386c39217878a9a56d581922ad37ca4
+NDK: C:\ndk-r27d (r27d / 27.3.13750724)
+Android platform: android-23
+ABIs: arm64-v8a, armeabi-v7a
+OpenSSL: 3.3.2 static under C:\tdlib-build\openssl
+Note: final link step stripped Windows host libs injected by TDLib WIN32 checks
+Generated: 2026-10-28T17:10:38.8930481+08:00

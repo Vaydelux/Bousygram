@@ -60,6 +60,9 @@ android {
         }
 
         buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "true")
+        // Private-media Cast uses cleartext LAN HTTP until receiver-trusted TLS is verified.
+        // Keep it available for development only; production variants stay fail-closed.
+        buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
     }
 
     androidResources {
@@ -88,11 +91,13 @@ android {
         debug {
             // Use the Android Gradle Plugin's generated debug keystore. A clean
             // checkout must not depend on a repository-root debug.keystore.
+            buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "true")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
+            buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -107,6 +112,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
+            buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
             matchingFallbacks += listOf("release")
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
@@ -361,6 +367,7 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
+    implementation(libs.google.play.services.cast.framework)
 
     // libmpv core engine
     implementation(libs.mpv)

@@ -99,7 +99,9 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
 
         // Notify scheduler of streaming start with the same priority as the HTTP path
         TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
-        TelegramChunkScheduler.openPlayback(fileId, totalSize)
+        val fileName = dataSpec.uri.getQueryParameter("name").orEmpty()
+        val isMp4 = fileName.endsWith(".mp4", ignoreCase = true) || fileName.endsWith(".m4v", ignoreCase = true)
+        TelegramChunkScheduler.openPlayback(fileId, totalSize, isMp4 = isMp4)
 
         opened = true
         transferStarted(dataSpec)

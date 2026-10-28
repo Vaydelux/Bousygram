@@ -102,6 +102,26 @@ class CastReceiverManagerTest {
     }
 
     @Test
+    fun externalPayloadMustNameARealMessageAndExactDeepLinkPath() {
+        assertNull(CastReceiverManager.fromUriString("bousygram://cast/load?fileId=12&chatId=9"))
+        assertNull(CastReceiverManager.fromUriString("bousygram://cast/load/extra?fileId=12&chatId=9&messageId=3"))
+        assertNull(CastReceiverManager.fromUriString("bousygram://cast-evil/load?fileId=12&chatId=9&messageId=3"))
+    }
+
+    @Test
+    fun invalidPositionsAndOversizedTitlesAreRejected() {
+        assertNull(CastReceiverManager.fromJson("""{"chatId":9,"messageId":3,"fileId":12,"positionMs":-1}"""))
+        val oversizedTitle = "x".repeat(257)
+        val json = org.json.JSONObject().apply {
+            put("chatId", 9)
+            put("messageId", 3)
+            put("fileId", 12)
+            put("title", oversizedTitle)
+        }.toString()
+        assertNull(CastReceiverManager.fromJson(json))
+    }
+
+    @Test
     fun toPlaybackRequest_mapsCorrectFields() {
         val payload = CastMediaPayload(
             chatId = 112233L,
