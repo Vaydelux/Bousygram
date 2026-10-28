@@ -108,6 +108,7 @@
         <activity
             android:name=".presentation.debug.EngineLabActivity"
             android:exported="true"
+            android:enabled="${engineLabEnabled}"
             android:theme="@style/Theme.Bousygram"
             android:label="Bousygram Engine Lab">
             <intent-filter>

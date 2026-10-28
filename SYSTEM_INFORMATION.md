@@ -3,43 +3,39 @@
 **Project:** Bousygram (formerly Tele)  
 **Package:** `com.vaydelux.bousygram`  
 **Version:** 1.0 (versionCode: 10)  
-**Audit Timestamp:** October 24, 2026  
-**Repository Branch:** `main` (commit `588d843`)  
+**Last reconciled against source:** October 28, 2026
+**Repository Branch:** `main` (commit `4190b726753f6ed4798d14767840f990b6c69caf`)
+**Evidence boundary:** This checkout has not been tested as part of this documentation update. Historical test/build counts elsewhere in this file and in reports are not evidence for this commit. See `docs/engineering/E0_E1_SOURCE_AUDIT_4190b726.md`.
 
 ---
 
 ## 1. Executive Summary
 
-**Bousygram** is a specialized, video-first Android application optimized for **Android TV (Leanback / D-pad)** with adaptive layouts for phones and tablets. It connects directly to Telegram via native **TDLib (Telegram Database Library)** to index, stream, and play video content stored in chats, channels, groups, and Saved Messages.
+**Bousygram** is a video-first Android application optimized for **Android TV (Leanback / D-pad)** with adaptive layouts for phones and tablets. It connects to Telegram through the bundled native **TDLib JNI client** to index, stream, and play video content stored in chats, channels, groups, and Saved Messages. The app source uses the JNI `Client.create` path; no TDLib JSON transport is active in this checkout.
 
-The application operates exclusively through a **direct local loopback architecture**: an on-device local HTTP streaming server bridges Telegram's MTProto chunk downloads to **AndroidX Media3 ExoPlayer** and **libmpv**, enabling seamless HTTP byte-range seeking, partial caching, and privacy-preserving playback without an intermediate proxy server.
+Playback uses two on-device loopback HTTP paths backed by the TDLib chunk scheduler: a Ktor/Netty proxy endpoint used by Media3 ExoPlayer and a `ServerSocket` endpoint used by local-file/MPV and selected handoff paths. Both bind to `127.0.0.1`; neither is a separate network service. Bounded range requests do not establish a cumulative disk-cache limit. Private-media Google Cast uses a LAN HTTP endpoint and is disabled in release variants until receiver-trusted TLS is validated.
 
 ---
 
 ## 2. Host Environment & Toolchain Details
 
-The following environment configuration was audited and validated directly on the host machine:
+Project toolchain values below come from the Gradle configuration at the audited commit. The hardware and absolute paths recorded in the October 24 snapshot are historical and are not treated as current environment or benchmark evidence.
 
 ### 2.1 Operating System & Hardware
 | Property | Value |
 |---|---|
-| **Operating System** | Microsoft Windows 10 Pro (Build `10.0.19045`, 64-bit) |
-| **Processor** | Intel(R) Core(TM) i5-4210H CPU @ 2.90GHz (2 physical cores, 4 logical processors) |
-| **System Memory (RAM)** | 16.0 GB (~16,696 MB visible, ~7.1 GB free during idle) |
-| **Workspace Location** | `c:\Users\Jech\Downloads\Tele-main--1-` |
+| **Host OS / CPU / RAM** | Not established by this commit audit; record at benchmark time. |
+| **Workspace location** | Host-specific; omit from project architecture documentation. |
 
 ### 2.2 Installed Runtimes & SDKs
 | Component | Version / Path | Status / Details |
 |---|---|---|
-| **Java JDK** | OpenJDK 21.0.12.1 LTS (`Temurin-21.0.12.1+1`) | Installed at `C:\Users\Jech\AppData\Local\Programs\Eclipse Adoptium\jdk-21.0.12.101-hotspot`. Requires setting `JAVA_HOME` in shell sessions. |
-| **Android SDK** | Android SDK 37 (API 37 / Android 16) | Located at `C:\Users\Jech\AppData\Local\Android\Sdk`. Configured in `local.properties`. |
-| **SDK Platforms** | `android-37.0` | Present in `$ANDROID_HOME/platforms`. |
-| **SDK Build-Tools** | `36.0.0`, `37.0.0` | Present in `$ANDROID_HOME/build-tools`. |
-| **Gradle Wrapper** | Gradle `9.4.1` (Kotlin `2.3.0`, Groovy `4.0.29`) | Pre-cached in `C:\Users\Jech\.gradle\wrapper\dists\gradle-9.4.1-bin`. |
-| **Android Gradle Plugin (AGP)** | `9.2.1` | Defined in `gradle/libs.versions.toml`. |
+| **Java JDK** | Java 21 in repository CI | Local path and patch release are host-specific. |
+| **Android SDK** | Compile SDK 37; target SDK 37; min SDK 26 | Configured in `app/build.gradle.kts`; API 37 is Android 17. |
+| **Gradle Wrapper** | Gradle `9.4.1` | Configured in `gradle/wrapper/gradle-wrapper.properties`. |
+| **Android Gradle Plugin (AGP)** | `9.1.1` | Defined in `gradle/libs.versions.toml`. |
 | **Kotlin Compiler** | `2.3.21` (Compose compiler plugin `2.3.21`) | Defined in `gradle/libs.versions.toml`. |
-| **Python** | Python `3.14.7` (64-bit) | Executable at `C:\Python314\python.exe`. |
-| **Node.js** | `v26.8.2` | Available in System `PATH`. |
+| **Other host tools** | Not project-pinned | Record versions only when a relevant build or benchmark uses them. |
 
 ---
 
@@ -84,23 +80,24 @@ The project follows a modular Clean Architecture under package `com.vaydelux.bou
 
 ### 4.1 `app` (Application & Entry Points)
 - `BousygramApp.kt`: Application lifecycle subclass. Initializes native TDLib (`System.loadLibrary("tdjni")`), sets up network connectivity observer, storage garbage collector, log wrapper, and launches `LocalStreamingServer` and `TelegramProxyManager`.
-- `MainActivity.kt`: Primary `ComponentActivity`. Coordinates Compose rendering, Picture-in-Picture (PiP) mode transitions, aspect ratio tracking, and destination routing.
+- `MainActivity.kt`: Primary `ComponentActivity`. Hosts Compose navigation and validates external Cast handoff requests. The current Android TV hardening contract forbids PiP support.
 
 ### 4.2 `core` (Infrastructure, Native Bridge, & Streaming)
 - **`core.media`**:
   - `PlayerEngine.kt` / `PlayerEngineFactory.kt`: Abstraction layer supporting multi-engine playback.
   - `ExoPlayerEngine.kt`: AndroidX Media3 ExoPlayer implementation.
   - `MpvPlayerEngine.kt`: Direct libmpv playback engine for unsupported containers.
+  - `PlayerScreen` uses `CapabilityProber` and the selected preference to choose ExoPlayer or MPV; runtime fallback may switch engines after a playback failure. ExoPlayer streams through `TelegramProxyManager`; MPV/local handoff uses `LocalStreamingServer`.
   - `PlaybackSessionController.kt`: Session-aware state controller handling error classification, retry decisions, duration estimation, and active file reference tracking.
   - `VideoFormatSupport.kt`: Progressive container extensions (`.mp4`, `.fmp4`, `.mkv`, `.webm`, `.ts`, `.mov`, `.ogg`, etc.) and MIME mapping.
   - `SeriesMetadataParser.kt` / `MediaDurationResolver.kt`: Series/season grouping and duration resolvers.
 - **`core.tdlib`**:
   - `core.tdlib.client.TdLibClient`: Wrapper managing TDLib instance creation, client interaction, and event loops.
-  - `core.tdlib.server.LocalStreamingServer`: Local HTTP server (ports 8080/8081) handling HTTP `Range` requests from the video player.
+  - `core.tdlib.server.LocalStreamingServer` and `TelegramProxyManager`: loopback HTTP endpoints on runtime-selected ports; the former uses `ServerSocket`, the latter Ktor/Netty.
   - `core.tdlib.server.TelegramChunkScheduler`: Coalesces, prioritizes, and streams ordered byte chunks from TDLib without blocking the UI.
-  - `core.tdlib.server.StreamAccessRegistry`: Issues high-entropy, short-lived capability tokens scoped per file ID with explicit revocation upon stop/backgrounding.
+  - `core.tdlib.server.StreamAccessRegistry`: Issues random capability tokens scoped per file/resource, with expiry and explicit revocation on playback teardown/track changes. Backgrounding alone is not a general revocation event.
   - `core.tdlib.server.HttpRangeParser`: RFC-compliant byte range parser clamping unbounded ranges and rejecting multi-range/malformed requests.
-  - `core.tdlib.cache.OfflineCacheManager` / `TelegramNativeFileGc` / `TelegramCachePruner`: Storage managers enforcing disk quotas (1 GB to 10 GB limits) while preserving pinned/active media.
+  - `CacheManager` / `OfflineCacheManager` / `TelegramNativeFileGc` / `TelegramCachePruner`: TDLib-aware tracked-file cleanup. Intended runtime target is 15% of available bytes with a 256 MiB floor and 2 GiB maximum; this is a cleanup target, not a hard write cap. The no-managed-override path currently recurses through the legacy quota facade; see the E0/E1 audit before relying on its computed value. `TelegramCachePruner`'s 5 GiB/20% constants are stale facade constants.
   - `core.tdlib.auth`: `TelegramAuthManager`, `AuthInputPolicy`, and `TdlibDatabaseKeyPolicy`.
 - **`core.network`**: `NetworkConnectivityObserver` monitoring WiFi/Ethernet status and signal strength.
 - **`core.observability`**: `StructuredPlaybackLogger`, `PlaybackErrorMapper`, and `CrashReporter`.
@@ -111,7 +108,7 @@ The project follows a modular Clean Architecture under package `com.vaydelux.bou
   - `SavedMessagesMediaSearch.kt` / `SavedMessagesGlobalSearch.kt`: Concurrent, progressive search queries across video documents.
   - `ContinueWatchingRepository.kt`: Local resume progress tracker.
 - **`data.store`**:
-  - `AndroidKeystoreCipher.kt`: AES-GCM-256 encryption backed by the hardware Android Keystore.
+  - `AndroidKeystoreCipher.kt`: AES-GCM encryption using Android Keystore; hardware-backed storage is device-dependent.
   - `ApiCredentialsStore.kt`: Encrypted storage for Telegram `api_id` and `api_hash`.
   - `TdlibDatabaseKeyStore.kt`: Keystore-wrapped 32-byte encryption key for TDLib SQLite databases.
   - `EnterprisePreferences.kt`: User settings (themes, cache size limits, safe/privacy mode, last played position, playback mode).
@@ -148,17 +145,17 @@ The interface enforces a unified design system tailored specifically for 10-foot
 ## 5. Security & Privacy Controls
 
 1. **Keystore-Backed Credential Security**:
-   - Telegram `api_id` and `api_hash` are encrypted using AES-GCM-256 with keys generated inside the hardware Android Keystore.
+   - Telegram `api_id` and `api_hash` are encrypted using AES-GCM with an Android Keystore key. Hardware-backed storage is device-dependent and is not asserted by this code.
    - Plaintext credentials from legacy versions fail-closed and are purged upon migration.
 2. **TDLib Database Encryption**:
    - New database instances are generated with a persistent 256-bit encryption key.
    - Dual-marker validation records mode in both private shared preferences and `noBackupFilesDir`. Mismatched markers fail closed.
 3. **Loopback Server Token Scoping**:
    - Local stream URLs (`http://127.0.0.1:<port>/stream?fileId=...&token=...`) require a cryptographically random capability token.
-   - Tokens are scoped to a single file ID and immediately revoked when playback ends or the app enters the background.
+   - Tokens are scoped to a file/resource, expire, and are revoked during playback teardown or track transitions. Backgrounding alone does not always revoke access.
 4. **Network Security Configuration**:
-   - Cleartext HTTP traffic is strictly forbidden globally across the app.
-   - Cleartext traffic is exclusively whitelisted for `127.0.0.1` and `localhost` to allow ExoPlayer to communicate with the embedded loopback server.
+   - App cleartext is denied by default; the Network Security Config allows loopback `127.0.0.1` and `localhost`. Native sockets are not governed by the same HTTP client policy.
+   - The development Cast endpoint uses HTTP. Private-media Cast is disabled for release and hardened-release until receiver-trusted TLS is validated.
 5. **Browsing Privacy Mode**:
    - Optional toggle masking media posters, chat titles, file sizes, duration badges, and recent search history.
 6. **Auto-Backup Disabled**:
@@ -173,28 +170,29 @@ Configured in `app/build.gradle.kts`:
 | Variant | Minify / Obfuscation | Shrink Resources | Signing Config | Intended Purpose |
 |---|---|---|---|---|
 | **`debug`** | `false` | `false` | Debug Key | Local development and device testing |
-| **`release`** | `true` (R8 / ProGuard)| `true` | Release Keystore | Production distribution |
+| **`release`** | `true` (R8 / ProGuard)| `true` | Release Keystore required by Gradle gate | Production candidate |
+| **`hardenedRelease`** | `true` | `true` | Release Keystore required by Gradle gate | Hardened production candidate |
 
 ### Automated Quality & Release Gates:
-1. **`verifyTdlibAbiCoverage`**: Verifies that native `libtdjni.so` is present and non-empty. Specifically requires `arm64-v8a` support before any release artifact can be assembled.
+1. **`verifyTdlibAbiCoverage`**: Requires non-empty `libtdjni.so` files for `arm64-v8a` and `armeabi-v7a`. It checks presence, not provenance or runtime correctness.
 2. **Fail-Closed Release Signing Gate**: Release packaging fails closed if `RELEASE_STORE_FILE` and associated signing credentials are not supplied.
-3. **Dynamic APK Naming**: Built APKs are automatically named with the version name, variant, and ABI split (e.g., `Bousygram-v1.0-release-arm64-v8a.apk`).
+3. **Release ABI packaging**: Release APK tasks configure ARM ABI splits and a universal APK; actual output names and contents depend on the invoked task/configuration.
 
 ---
 
-## 7. Verification Audit Results (Session Execution)
+## 7. Historical Verification Claims (Not Evidence for the Audited Commit)
 
-During this repository audit, the build system, compilers, and test suites were executed on the host system:
+The following measurements and pass claims are historical material from an older checkout. They were not rerun in this documentation reconciliation and are not evidence for the audited base commit. The checked-in GitHub Actions workflow defines checks but is not a CI run report; see the commit-specific report at docs/engineering/E0_E1_SOURCE_AUDIT_4190b726.md.
 
-| Verification Stage | Command Executed | Result | Duration / Details |
+| Stage | Historical command | Historical result (not current-commit evidence) | Historical duration / details |
 |---|---|---|---|
 | **16 KB Page Alignment** | Native ELF Header Inspection | **PASSED** | All `arm64-v8a` native libraries (`libtdjni.so`, `libmpv.so`, `libavcodec.so`, etc.) verified aligned to `0x4000` (16,384 bytes). |
 | **TDLib ABI Coverage** | `.\gradlew.bat :app:verifyTdlibAbiCoverage` | **PASSED** | Verified `arm64-v8a` (21.4 MB) and `armeabi-v7a` (15.7 MB) native libraries. |
 | **Kotlin / Compose Compilation** | `.\gradlew.bat :app:compileDebugKotlin` | **PASSED** | 1m 39s. All Jetpack Compose TV screens, ViewModels, and data layers compiled cleanly with 4GB heap. |
-| **Android Unit Tests** | `.\gradlew.bat :app:testDebugUnitTest` | **PASSED** | All 154 unit tests (including `TelegramChunkSchedulerTest`, `PlaybackTelemetryRecorderTest`, `MediaTopicFilteringTest`, `PlaybackHelpersTest`, `SeriesMetadataParserTest`, `VoiceSearchAccessibilityTest`, etc.) passed with 100% success. |
+| **Android Unit Tests** | `.\gradlew.bat :app:testDebugUnitTest` | **Historical / not rerun** | The old 154 and 190 counts disagree; neither is an accepted current count or pass result. |
 | **Release Minified APK Assembly** | `.\gradlew.bat assembleRelease` | **PASSED** | 15m 55s. Full R8 code minification, resource shrinking, LintVital verification, ART profile compilation, and split APK packaging completed cleanly. |
 
-### Generated Release Artifacts
+### Historical Artifact Claims (Not Verified for This Commit)
 - **Directory**: `app/build/outputs/apk/release/`
 - **Split APKs**:
   - `Bousygram-v1.0-release-arm64-v8a.apk` (`55,111,094 bytes` ≈ 52.5 MB) — Tailored for modern Android TVs and 64-bit devices with full R8 minification and resource shrinking.
@@ -251,7 +249,7 @@ $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 # 1. Verify TDLib native library presence for both 32-bit and 64-bit ABIs
 .\gradlew.bat :app:verifyTdlibAbiCoverage
 
-# 2. Execute unit test suite (190 passing unit tests)
+# 2. Execute unit tests; record the commit SHA and actual Gradle result with every run
 .\gradlew.bat :app:testDebugUnitTest
 
 # 3. Fast iteration single-split dev build (targeting 32-bit Xiaomi TV A Pro in ~5 minutes)
@@ -279,7 +277,7 @@ Copy-Item app/build/outputs/apk/release/*.apk E:\AndroidTV\
 ## 10. Local Playback Telemetry Architecture
 
 ### 10.1 Telemetry Metrics & Schema
-Per-playback telemetry is captured in [PlaybackTelemetryRecord.kt](file:///c:/Users/Jech/Downloads/Tele-main--1-/app/src/main/java/com/vaydelux/bousygram/core/observability/PlaybackTelemetryRecorder.kt) without network upload:
+Per-playback telemetry is captured in `PlaybackTelemetryRecorder.kt` and stored in private app preferences. No direct Crashlytics dependency is declared in the version catalog, but `CrashReporter` reflectively invokes Crashlytics if present at runtime; therefore this checkout does not claim all diagnostics remain local without resolving the release runtime classpath.
 
 | Metric | Field | Source / Mechanism |
 |---|---|---|
@@ -295,12 +293,12 @@ Per-playback telemetry is captured in [PlaybackTelemetryRecord.kt](file:///c:/Us
 | **Failure Reason** | `failureReason` | `null` on normal completion/exit, or explicit error description on fatal failure. |
 
 ### 10.2 Local Storage & Privacy Guard
-- **Zero Network Upload:** All telemetry records remain strictly on-device in private app storage (`playback_telemetry` SharedPreferences).
+- **Local telemetry store:** The playback recorder persists its records in private `playback_telemetry` preferences. Diagnostics can be explicitly exported by the user. The separate crash-reporting adapter may call Crashlytics if that runtime class is included.
 - **50-Session FIFO Ring Buffer:** Oldest sessions are automatically evicted when total stored sessions exceed 50.
-- **Diagnostics Export:** Exported in [SettingsScreen.kt](file:///c:/Users/Jech/Downloads/Tele-main--1-/app/src/main/java/com/vaydelux/bousygram/presentation/settings/SettingsScreen.kt) through:
+- **Diagnostics Export:** Available in `SettingsScreen.kt` through:
   1. *Copy Diagnostic Report* (human-readable text report)
   2. *Export JSON* (full structured JSON array containing the 50 sessions)
   3. *View Details* (expandable in-app diagnostics accordion)
-- **Unit Test Coverage:** [PlaybackTelemetryRecorderTest.kt](file:///c:/Users/Jech/Downloads/Tele-main--1-/app/src/test/java/com/vaydelux/bousygram/core/observability/PlaybackTelemetryRecorderTest.kt) validates ring-buffer FIFO eviction, 10-field completeness, JSON round-trip serialization, and diagnostic formatting.
+- **Unit Test Coverage:** `PlaybackTelemetryRecorderTest.kt` contains serializer/storage tests. Its existence does not prove the suite passed at the audited commit.
 
 

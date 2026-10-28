@@ -46,7 +46,7 @@
 +-----------------------------------------------------------+-----------------------+
 |                             Local Streaming Layer                                 |
 |  - LocalStreamingServer (Ktor/Netty Loopback HTTP Server)                         |
-|  - StreamAccessRegistry (Single-Use Capability Tokens)                            |
+|  - StreamAccessRegistry (File-Scoped, Expiring Capabilities)                     |
 |  - TelegramChunkScheduler (Demand-Driven Range Fetching)                          |
 |  - TdLibClient (C++ TDLib Native JNI Core: armeabi-v7a / arm64-v8a)              |
 +-----------------------------------------------------------------------------------+
@@ -125,10 +125,12 @@ Monitors playback status every 500ms. If audio position is advancing (`> 1500ms`
 
 ## 6. Smart Caching & Quota Management (Fixing P-F)
 
-Budget TVs with 8 GB flash typically offer only ~3.0–3.8 GB of usable storage after the OS and system apps. Hardcoded 5 GB cache limits risk completely filling storage, crashing the system.
+The current runtime cache policy is a cleanup target of 15% of reported available bytes, with a 256 MiB minimum and 2 GiB ceiling. The policy samples `cacheDir`, while TDLib media payloads live under `filesDir/tdlib_files`; same-volume behavior is not checked. The quota is not a hard write cap and does not bound cumulative retained TDLib ranges. `TelegramCachePruner` still exposes stale 5 GiB/20% constants but delegates runtime quota calculation to `CacheManager`.
 
 ### Dynamic Quota Algorithm
-$$\text{Storage Quota} = \text{clamp}\Big(\text{Available Flash} \times 0.15,\; 256\text{ MB},\; 2048\text{ MB}\Big)$$
+$$\text{Cleanup Target} = \text{clamp}\Big(\text{available bytes sampled on cacheDir} \times 0.15,\; 256\text{ MiB},\; \min(2048\text{ MiB}, \text{managed preference})\Big)$$
+
+The no-managed-override path currently recurses through `EnterprisePreferences.cacheLimitBytes()` back into `CacheManager.calculateDynamicQuota()`. Until that is fixed and tested, treat the formula as the intended policy, not proof that the computed quota is reliable.
 
 ### Cache Eviction Phases
 1. **Phase 1 (Watched Media)**: Media with playback progress $\ge 90\%$ is automatically marked as watched and prioritized for immediate eviction.
@@ -139,12 +141,12 @@ $$\text{Storage Quota} = \text{clamp}\Big(\text{Available Flash} \times 0.15,\; 
    - Continue-watching items.
    - Files actively being downloaded.
 
-### Sliding Read-Ahead Window (32 MB)
-- Sequential prefetching is restricted to a 32 MB window forward from the playhead.
-- **Seek Invalidation**: When a user seeks, `CacheManager.onSeek` instructs `TelegramChunkScheduler` and `TelegramPreCacheEngine` to cancel all in-flight chunks outside `[newOffset - 2MB, newOffset + 32MB]`. Download bandwidth immediately concentrates on the new seek point.
+### Range Read-Ahead (Not a Disk Cap)
+- Normal cache-ahead requests use 32 MiB (up to 64 MiB); cellular requests use 4 MiB. The pre-cache engine separately primes 2 MiB at the head and, for larger files, 2 MiB at the tail.
+- **Seek invalidation**: Seek handling cancels selected out-of-window in-flight requests. It does not remove bytes TDLib has already retained, so distant seeks may increase cumulative file storage.
 
 ### Next-Episode Preload
-- When video playback reaches $\ge 80\%$ duration, `CacheManager.onPlaybackProgress` automatically primes the first 8 MB head of the next queued item, ensuring instant playback without buffering on episode transitions.
+- When video playback reaches $\ge 80\%$ duration, `CacheManager.onPlaybackProgress` invokes the pre-cache engine for the next item. Current pre-cache constants prime a 2 MiB head and may prime a 2 MiB tail; no 8 MiB head preload is implemented by that path. This can reduce startup delay but does not ensure instant playback.
 
 ---
 
@@ -157,7 +159,7 @@ $$\text{Storage Quota} = \text{clamp}\Big(\text{Available Flash} \times 0.15,\; 
 
 ---
 
-## 8. Verification Matrix
+## 8. Historical Verification Matrix (Commit Not Recorded)
 
 | Verification Target | Command / Tool | Status |
 | :--- | :--- | :--- |
@@ -165,3 +167,5 @@ $$\text{Storage Quota} = \text{clamp}\Big(\text{Available Flash} \times 0.15,\; 
 | **TDLib ABI Coverage** | `.\gradlew.bat :app:verifyTdlibAbiCoverage` | **armeabi-v7a & arm64-v8a Verified** |
 | **R8 Minification** | `.\gradlew.bat assembleRelease -PdevAbi=armeabi-v7a` | **Success (5m 31s, 46.6 MB APK)** |
 | **Android Lint** | `:app:lintVitalRelease` | **0 Errors, 0 Warnings** |
+
+These results are historical and have no recorded commit SHA. They are not evidence for current source or releases.

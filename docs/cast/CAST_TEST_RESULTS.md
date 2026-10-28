@@ -1,12 +1,16 @@
 # Cast test results
 
-## Current status
+## Recorded status from the prior Cast workstream
+
+This status block belongs to the prior Cast branch/worktree. It is not a fresh device assessment for the audited main commit.
 
 No physical Cast receiver or API 37 Android phone was available. Discovery, first-time connection, Default Media Receiver URL acceptance, real Telegram media startup, remote controls, seeking, screen-off streaming, Wi-Fi interruption, and capability expiry have not been tested on hardware.
 
 The Cast capability registry has unit coverage for independent random resources, exact resource/token matching, and revocation. External payload parsing has tests for exact deep-link paths, required message identity, negative positions, and title length. These unit tests do not prove LAN isolation or Cast receiver compatibility.
 
-## Build verification
+## Historical build verification (base commit not recorded)
+
+The run below was recorded on the prior `feat/google-cast-native-tdlib` worktree without a commit SHA. It is historical context only and is not evidence for the audited `main` commit 4190b726753f6ed4798d14767840f990b6c69caf. Do not reuse its 257-test result for current release decisions.
 
 Executed on branch `feat/google-cast-native-tdlib` with the project Gradle wrapper and JDK 21:
 
