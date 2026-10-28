@@ -18,8 +18,8 @@ public final class Client {
     static {
         boolean loaded = false;
         try {
-            System.loadLibrary("tdjni");
-            loaded = true;
+            System.loadLibrary("tdjson_bridge");
+            loaded = TdJsonNative.diagnostics().isEmpty();
         } catch (Throwable e) {
             loaded = false;
         }
@@ -115,7 +115,11 @@ public final class Client {
         if (resultHandler != null) {
             handlers.put(queryId, new Handler(resultHandler, exceptionHandler));
         }
-        nativeClientSend(nativeClientId, queryId, query);
+        try { TdJsonNative.send(nativeClientId, TdJsonCodec.encode(query, Long.toString(queryId))); }
+        catch (RuntimeException error) {
+            Handler failed = handlers.remove(queryId);
+            if (failed != null) dispatchException(failed, nativeClientId, error);
+        }
     }
 
     /**
@@ -147,7 +151,9 @@ public final class Client {
             }
             return (T) object;
         }
-        TdApi.Object object = nativeClientExecute(query);
+        TdApi.Object object;
+        try { object = TdJsonCodec.decodeEnvelope(TdJsonNative.execute(TdJsonCodec.encode(query, null))).object; }
+        catch (RuntimeException e) { object = new TdApi.Error(500, "JSON transport failure: " + e.getClass().getSimpleName()); }
         if (object instanceof TdApi.Error) {
             throw new ExecutionException((TdApi.Error) object);
         }
@@ -189,7 +195,7 @@ public final class Client {
         if (!NATIVE_AVAILABLE) {
             return;
         }
-        nativeClientSetLogMessageHandler(maxVerbosityLevel, logMessageHandler);
+        // JSON bridge does not expose TDLib log callbacks; no-op until safely supported.
     }
 
     private static class ResponseReceiver implements Runnable {
@@ -198,10 +204,23 @@ public final class Client {
         @Override
         public void run() {
             while (true) {
-                int resultN = nativeClientReceive(clientIds, eventIds, events, 100000.0 /*seconds*/);
-                for (int i = 0; i < resultN; i++) {
-                    processResult(clientIds[i], eventIds[i], events[i]);
-                    events[i] = null;
+                String response;
+                try { response = TdJsonNative.receive(1.0); }
+                catch (Throwable error) {
+                    isRun = false;
+                    reportTransportFailure(error);
+                    return;
+                }
+                if (response == null) continue;
+                try {
+                    TdJsonCodec.Envelope envelope = TdJsonCodec.decodeEnvelope(response);
+                    int clientId = envelope.clientId;
+                    if (clientId == 0) clientId = activeClientId;
+                    long correlation = 0L;
+                    if (envelope.extra != null) correlation = Long.parseLong(envelope.extra);
+                    processResult(clientId, correlation, envelope.object);
+                } catch (Throwable error) {
+                    reportTransportFailure(error);
                 }
             }
         }
@@ -253,6 +272,18 @@ public final class Client {
     private static final ConcurrentHashMap<Long, Handler> handlers = new ConcurrentHashMap<Long, Handler>();
     private static final AtomicLong currentQueryId = new AtomicLong();
     private static final AtomicLong clientCount = new AtomicLong();
+    private static volatile int activeClientId;
+    private static void dispatchException(Handler handler, int clientId, Throwable error) {
+        ExceptionHandler callback = handler.exceptionHandler != null ? handler.exceptionHandler : defaultExceptionHandlers.get(clientId);
+        if (callback != null) try { callback.onException(error); } catch (Throwable ignored) {}
+    }
+    private static void reportTransportFailure(Throwable error) {
+        for (java.util.Map.Entry<Integer, Handler> entry : updateHandlers.entrySet()) dispatchException(entry.getValue(), entry.getKey(), error);
+        for (java.util.Map.Entry<Long, Handler> entry : handlers.entrySet()) {
+            Handler removed = handlers.remove(entry.getKey());
+            if (removed != null) dispatchException(removed, activeClientId, error);
+        }
+    }
 
     private static final ResponseReceiver responseReceiver = new ResponseReceiver();
 
@@ -269,7 +300,8 @@ public final class Client {
     private Client(ResultHandler updateHandler, ExceptionHandler updateExceptionHandler, ExceptionHandler defaultExceptionHandler) {
         int nextId = (int) clientCount.incrementAndGet();
         if (NATIVE_AVAILABLE) {
-            nativeClientId = createNativeClient();
+            nativeClientId = TdJsonNative.create();
+            activeClientId = nativeClientId;
         } else {
             nativeClientId = nextId;
         }
@@ -286,13 +318,4 @@ public final class Client {
         }
     }
 
-    private static native int createNativeClient();
-
-    private static native void nativeClientSend(int nativeClientId, long eventId, TdApi.Function function);
-
-    private static native int nativeClientReceive(int[] clientIds, long[] eventIds, TdApi.Object[] events, double timeout);
-
-    private static native TdApi.Object nativeClientExecute(TdApi.Function function);
-
-    private static native void nativeClientSetLogMessageHandler(int maxVerbosityLevel, LogMessageHandler logMessageHandler);
 }
