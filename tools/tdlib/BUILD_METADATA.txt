@@ -1,0 +1,9 @@
+# TDLib JSON binary provenance — NOT VERIFIED
+Expected ABI files and SHA-256 values are pinned in tools/tdlib/verify_tdjson_binaries.py.
+This is an input manifest, NOT proof the files were inspected.
+Source TDLib commit: UNKNOWN (must match generated TdApi schema).
+NDK version: UNKNOWN.
+Build host/date: UNKNOWN.
+Build flags and upstream binary provider: UNKNOWN.
+Status: BLOCKED until provenance is supplied and all ABI/export checks pass.
+Never claim production verification from expected checksums alone.
