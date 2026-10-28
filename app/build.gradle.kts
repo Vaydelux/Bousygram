@@ -36,6 +36,7 @@ android {
     }
 
     val devAbi = project.findProperty("devAbi") as? String
+    val releaseVersionName = providers.gradleProperty("releaseVersionName").orElse("1.0.0").get()
 
     signingConfigs {
         create("release") {
@@ -53,7 +54,7 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 10
-        versionName = "1.0"
+        versionName = releaseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         if (!devAbi.isNullOrBlank()) {
@@ -300,6 +301,7 @@ tasks.register("verifyTdlibBindingCompatibility") {
     group = "verification"
     description = "Verify TdApi.java and every TDLib JNI binary come from one pinned revision"
     dependsOn("verifyTdlibAbiCoverage")
+    dependsOn("testTdlibBindingCompatibilityFixtures")
     val tdApiFile = file("src/main/java/org/drinkless/tdlib/TdApi.java")
     val metadataFile = rootProject.file("tools/tdlib/BUILD_METADATA.txt")
     val resolvedCommitFile = rootProject.file("build-tools/tdlib/RESOLVED_COMMIT.txt")
@@ -353,6 +355,35 @@ tasks.register("verifyTdlibBindingCompatibility") {
         }
         verificationFile.writeText(report.joinToString("\n") + "\n")
         logger.lifecycle(report.joinToString("; "))
+    }
+}
+
+tasks.register("testTdlibBindingCompatibilityFixtures") {
+    group = "verification"
+    description = "Exercise negative TDLib Java/JNI compatibility fixtures"
+    doLast {
+        val commit = "4c6377aa7386c39217878a9a56d581922ad37ca4"
+        fun validate(javaCommit: String, nativeCommit: String?, abi: String, elfClass: Int?, machine: Int?, markers: Set<String>, provenance: Boolean) {
+            require(provenance) { "invalid provenance" }
+            require(javaCommit == nativeCommit) { "revision mismatch" }
+            require(nativeCommit == commit) { "native revision mismatch" }
+            val expectedClass = if (abi == "arm64-v8a") 2 else 1
+            val expectedMachine = if (abi == "arm64-v8a") 183 else 40
+            require(elfClass == expectedClass && machine == expectedMachine) { "ELF architecture mismatch" }
+            listOf("JNI_OnLoad", "createNativeClient", "nativeClientSend", "nativeClientReceive", "nativeClientExecute", "nativeClientSetLogMessageHandler")
+                .forEach { require(it in markers) { "missing JNI marker $it" } }
+        }
+        fun fails(name: String, block: () -> Unit) {
+            runCatching { block() }.onSuccess { throw GradleException("Fixture '$name' unexpectedly passed") }
+        }
+        validate(commit, commit, "arm64-v8a", 2, 183, setOf("JNI_OnLoad", "createNativeClient", "nativeClientSend", "nativeClientReceive", "nativeClientExecute", "nativeClientSetLogMessageHandler"), true)
+        fails("incorrect Java commit") { validate("cb863c1600082404428f1a84e407b866b9d412a8", commit, "arm64-v8a", 2, 183, emptySet(), true) }
+        fails("incorrect ARM32 binary") { validate(commit, "cb863c1600082404428f1a84e407b866b9d412a8", "armeabi-v7a", 1, 40, emptySet(), true) }
+        fails("incorrect ARM64 binary") { validate(commit, "cb863c1600082404428f1a84e407b866b9d412a8", "arm64-v8a", 2, 183, emptySet(), true) }
+        fails("missing native binary") { validate(commit, null, "arm64-v8a", null, null, emptySet(), true) }
+        fails("wrong ELF architecture") { validate(commit, commit, "arm64-v8a", 1, 40, emptySet(), true) }
+        fails("missing JNI markers") { validate(commit, commit, "arm64-v8a", 2, 183, emptySet(), true) }
+        fails("invalid provenance") { validate(commit, commit, "arm64-v8a", 2, 183, emptySet(), false) }
     }
 }
 
@@ -510,6 +541,7 @@ tasks.matching {
     )
 }.configureEach {
     dependsOn("verifyTdlibAbiCoverage")
+    dependsOn("testTdlibBindingCompatibilityFixtures")
     dependsOn("verifyTdlibBindingCompatibility")
     dependsOn("verifyTvHardeningContract")
 }
