@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.observability
 
 import android.util.Log
+import com.vaydelux.bousygram.BuildConfig
 
 object CrashReporter {
     private const val TAG = "CrashReporter"
@@ -35,7 +36,7 @@ object CrashReporter {
 
     fun recordException(error: Throwable) {
         if (!invokeCrashlytics("recordException", arrayOf(Throwable::class.java), arrayOf(error))) {
-            Log.e(TAG, error.message.orEmpty(), error)
+            Log.e(TAG, "${error.javaClass.simpleName} (details redacted)")
         }
     }
 
@@ -43,10 +44,13 @@ object CrashReporter {
         methodName: String,
         parameterTypes: Array<Class<*>>,
         args: Array<Any?>
-    ): Boolean = runCatching {
-        val clazz = Class.forName("com.google.firebase.crashlytics.FirebaseCrashlytics")
-        val instance = clazz.getMethod("getInstance").invoke(null)
-        clazz.getMethod(methodName, *parameterTypes).invoke(instance, *args)
-        true
-    }.getOrDefault(false)
+    ): Boolean {
+        if (!BuildConfig.CRASH_REPORTING_ENABLED) return false
+        return runCatching {
+            val clazz = Class.forName("com.google.firebase.crashlytics.FirebaseCrashlytics")
+            val instance = clazz.getMethod("getInstance").invoke(null)
+            clazz.getMethod(methodName, *parameterTypes).invoke(instance, *args)
+            true
+        }.getOrDefault(false)
+    }
 }

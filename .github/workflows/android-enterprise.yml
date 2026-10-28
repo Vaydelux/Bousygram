@@ -30,7 +30,7 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - id: capabilities
         name: Detect optional protected jobs
         shell: bash
@@ -58,9 +58,24 @@ jobs:
           ./gradlew --no-daemon
           :app:verifyTdlibAbiCoverage
           :app:verifyTvHardeningContract
+          :app:verifyPrivateMediaCastReleaseGate
+          :app:verifySensitiveLogRedaction
+          :app:compileDebugKotlin
           :app:lintDebug
           :app:testDebugUnitTest
           :app:assembleDebug
+          :app:assembleDebugAndroidTest
+      - name: Archive verification reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-verification-reports
+          path: |
+            app/build/test-results/testDebugUnitTest/*.xml
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          if-no-files-found: warn
       - name: Archive debug APKs
         uses: actions/upload-artifact@v4
         with:
@@ -87,7 +102,7 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - name: Restore release keystore
         shell: bash
         run: |
@@ -135,7 +150,7 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - name: Build debug and Android tests
         run: ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Authenticate Google Cloud

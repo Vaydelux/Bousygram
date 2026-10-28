@@ -42,9 +42,10 @@ object CacheManager {
     private const val KEY_ACCESS_PREFIX = "access_time_"
 
     // Sizing constants
-    const val MAX_CACHE_LIMIT_BYTES = 2L * 1024L * 1024L * 1024L // 2 GB hard cap for safety on 8GB devices
-    const val MIN_CACHE_LIMIT_BYTES = 256L * 1024L * 1024L // 256 MB minimum floor
-    const val DEFAULT_STORAGE_FRACTION = 0.15 // 15% of available free flash
+    const val MAX_CACHE_LIMIT_BYTES = 2L * 1024L * 1024L * 1024L // Eviction target ceiling; not a TDLib write cap.
+    @Deprecated("The active quota has no minimum floor")
+    const val MIN_CACHE_LIMIT_BYTES = 256L * 1024L * 1024L // Legacy compatibility only.
+    const val DEFAULT_STORAGE_FRACTION = 0.15 // Fraction of available internal app-data storage.
     const val SLIDING_WINDOW_BYTES = 32L * 1024L * 1024L // 32 MB forward read-ahead window
     const val HEAD_PRELOAD_BYTES = 8L * 1024L * 1024L // 8 MB head preload for next episode
 
@@ -79,19 +80,21 @@ object CacheManager {
     // --- Dynamic Quota Calculation ---
 
     /**
-     * Dynamically calculates cache ceiling: min(2 GB, 15% of free flash), with a 256 MB minimum floor.
+     * Calculates the temporary-cache target from free space and an optional managed ceiling.
+     * The target never exceeds the free-space fraction; low storage is allowed to yield zero.
      */
     fun calculateDynamicQuota(context: Context? = null): Long {
-        return runCatching {
-            val ctx = context ?: runCatching { BousygramApp.instance }.getOrNull()
-            if (ctx == null) return@runCatching MAX_CACHE_LIMIT_BYTES
-            val stat = StatFs(ctx.cacheDir.absolutePath)
-            val availableBytes = stat.availableBytes
-            val calculatedBudget = (availableBytes * DEFAULT_STORAGE_FRACTION).toLong()
-            val userPreferenceLimit = runCatching { EnterprisePreferences.cacheLimitBytes() }.getOrDefault(MAX_CACHE_LIMIT_BYTES)
-            val dynamicCeiling = min(MAX_CACHE_LIMIT_BYTES, userPreferenceLimit)
-            calculatedBudget.coerceIn(MIN_CACHE_LIMIT_BYTES, dynamicCeiling)
-        }.getOrDefault(MAX_CACHE_LIMIT_BYTES)
+        val ctx = context ?: BousygramApp.instance
+        // TDLib media is stored under filesDir/tdlib_files. Stat the same app-data
+        // filesystem rather than assuming cacheDir is the storage target.
+        val availableBytes = StatFs(ctx.filesDir.absolutePath).availableBytes
+        return calculateQuota(availableBytes, EnterprisePreferences.cacheLimitBytes())
+    }
+
+    internal fun calculateQuota(availableBytes: Long, managedCeilingBytes: Long?): Long {
+        val storageBudget = (availableBytes.coerceAtLeast(0L) * DEFAULT_STORAGE_FRACTION).toLong()
+        val ceiling = min(MAX_CACHE_LIMIT_BYTES, managedCeilingBytes?.coerceAtLeast(0L) ?: MAX_CACHE_LIMIT_BYTES)
+        return min(storageBudget, ceiling)
     }
 
     // --- Offline Pinning ---

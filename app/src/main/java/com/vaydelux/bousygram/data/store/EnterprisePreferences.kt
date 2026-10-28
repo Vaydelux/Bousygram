@@ -171,8 +171,9 @@ object EnterprisePreferences {
         // No-op: automatic cache management is active
     }
 
+    /** Returns the managed ceiling, or the authoritative default ceiling when unmanaged. */
     fun cacheLimitBytes(): Long = ManagedAppConfiguration.cacheLimitBytes()
-        ?: com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner.calculateDynamicCacheLimit()
+        ?: com.vaydelux.bousygram.core.cache.CacheManager.MAX_CACHE_LIMIT_BYTES
 
     fun setLastError(message: String) = prefs.edit { putString(KEY_LAST_ERROR, message.take(400)) }
     fun lastError(): String = prefs.getString(KEY_LAST_ERROR, "None").orEmpty()

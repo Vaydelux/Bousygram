@@ -552,7 +552,7 @@ fun PlayerScreen(
             if (oldPrefix != newPrefix && oldPrefix.startsWith("http://127.0.0.1:") && newPrefix.startsWith("http://127.0.0.1:")) {
                 val query = currentUrl.substringAfter('?', "")
                 val hotSwappedUrl = "$newPrefix?$query"
-                Log.i("PlayerScreen", "Hot-swapping stream URL on proxy rebind: $hotSwappedUrl")
+                Log.i("PlayerScreen", "Rebinding the active local stream after proxy restart")
                 val pos = playerEngine.currentPositionMs
                 activeLocalStreamUrl = hotSwappedUrl
                 playerEngine.prepare(hotSwappedUrl)
@@ -579,7 +579,7 @@ fun PlayerScreen(
                         fileName = current.fileName,
                         token = newToken
                     )
-                    Log.i("PlayerScreen", "Refreshed stream token on Wi-Fi->Cellular transition: $newUrl")
+                    Log.i("PlayerScreen", "Rotated the active stream capability after network change")
                     activeLocalStreamUrl = newUrl
                     val pos = playerEngine.currentPositionMs
                     playerEngine.prepare(newUrl)

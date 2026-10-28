@@ -28,7 +28,7 @@ object TelegramLogWrapper {
 
     fun logError(queryName: String, error: TdApi.Error) {
         val message = error.message.orEmpty()
-        val normalized = "$queryName failed: code=${error.code} message=$message"
+        val normalized = "$queryName failed: code=${error.code}"
         Log.w(TAG, normalized)
         PlaybackDiagnostics.recordStreamError(normalized)
         CrashReporter.setKey("tdlib_query", queryName)

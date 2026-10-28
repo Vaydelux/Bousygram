@@ -1,4 +1,6 @@
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Properties
 
 plugins {
@@ -64,6 +66,7 @@ android {
         // Private-media Cast uses cleartext LAN HTTP until receiver-trusted TLS is verified.
         // Keep it available for development only; production variants stay fail-closed.
         buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
+        buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "false")
     }
 
     androidResources {
@@ -208,31 +211,87 @@ tasks.matching {
     dependsOn(verifyReleaseSigning)
 }
 
+tasks.matching {
+    it.name.startsWith("packageRelease") || it.name.startsWith("packageHardenedRelease")
+}.configureEach {
+    dependsOn("verifyPrivateMediaCastReleaseGate")
+    dependsOn("verifySensitiveLogRedaction")
+}
+
 tasks.register("verifyTdlibAbiCoverage") {
     group = "verification"
-    description = "Verify TDLib ABI coverage for release targets"
-    val abis = tdLibAvailableAbis
+    description = "Verify TDLib ABI coverage, ELF identity, JNI markers, and page alignment"
+    val nativeFiles = supportedTdLibAbis.associateWith { abi -> File(tdLibJniDir, "$abi/libtdjni.so") }
+    val metadataFile = rootProject.file("tools/tdlib/BUILD_METADATA.txt")
+    val resolvedCommitFile = rootProject.file("build-tools/tdlib/RESOLVED_COMMIT.txt")
+    inputs.files(nativeFiles.values + listOf(metadataFile, resolvedCommitFile))
     doLast {
-        if (abis.isEmpty()) {
-            throw GradleException(
-                "Missing TDLib native binaries. Expected non-empty libtdjni.so files under src/main/jniLibs/<abi>/."
+        val abiSpecs = mapOf(
+            "arm64-v8a" to Triple(2, 183, 16_384L),
+            "armeabi-v7a" to Triple(1, 40, 4_096L)
+        )
+        abiSpecs.forEach { (abi, spec) ->
+            val nativeFile = nativeFiles.getValue(abi)
+            require(nativeFile.isFile && nativeFile.length() >= 1_000_000L) {
+                "Missing, empty, or implausibly small TDLib library: ${nativeFile.absolutePath}"
+            }
+            val elf = nativeFile.readBytes()
+            require(elf.size >= 64 && elf.copyOfRange(0, 4).contentEquals(byteArrayOf(0x7f, 0x45, 0x4c, 0x46))) {
+                "${nativeFile.absolutePath} is not an ELF binary (or is a Git LFS pointer)."
+            }
+            require((elf[4].toInt() and 0xff) == spec.first && (elf[5].toInt() and 0xff) == 1) {
+                "${nativeFile.absolutePath} has the wrong ELF class or is not little-endian."
+            }
+            val header = ByteBuffer.wrap(elf).order(ByteOrder.LITTLE_ENDIAN)
+            require((header.getShort(18).toInt() and 0xffff) == spec.second) {
+                "${nativeFile.absolutePath} has an unexpected ELF machine type."
+            }
+            val is64Bit = spec.first == 2
+            val programOffset = if (is64Bit) header.getLong(32) else header.getInt(28).toLong() and 0xffff_ffffL
+            val programEntrySize = header.getShort(if (is64Bit) 54 else 42).toInt() and 0xffff
+            val programCount = header.getShort(if (is64Bit) 56 else 44).toInt() and 0xffff
+            val minimumEntrySize = if (is64Bit) 56 else 32
+            require(programOffset >= 0L && programEntrySize >= minimumEntrySize && programCount > 0) {
+                "${nativeFile.absolutePath} has an invalid ELF program-header table."
+            }
+            val loadAlignments = mutableListOf<Long>()
+            repeat(programCount) { index ->
+                val position = programOffset + index.toLong() * programEntrySize
+                require(position >= 0L && position + programEntrySize <= elf.size) {
+                    "${nativeFile.absolutePath} has a truncated ELF program-header table."
+                }
+                val offset = position.toInt()
+                if (header.getInt(offset) == 1) { // PT_LOAD
+                    val alignment = if (is64Bit) header.getLong(offset + 48) else header.getInt(offset + 28).toLong() and 0xffff_ffffL
+                    loadAlignments += alignment
+                }
+            }
+            require(loadAlignments.isNotEmpty() && loadAlignments.all { it >= spec.third }) {
+                "${nativeFile.absolutePath} PT_LOAD segments do not meet ${spec.third}-byte alignment: $loadAlignments"
+            }
+            val strings = String(elf, Charsets.ISO_8859_1)
+            val requiredJniMarkers = listOf(
+                "JNI_OnLoad",
+                "createNativeClient",
+                "nativeClientSend",
+                "nativeClientReceive",
+                "nativeClientExecute",
+                "nativeClientSetLogMessageHandler"
             )
+            require(requiredJniMarkers.all { marker -> strings.contains(marker) }) {
+                "${nativeFile.absolutePath} is missing one or more JNI markers for org.drinkless.tdlib.Client."
+            }
+            logger.lifecycle("Verified $abi ELF machine=${spec.second}, PT_LOAD alignments=$loadAlignments, JNI markers present")
         }
-        if (!abis.contains("arm64-v8a")) {
-            throw GradleException(
-                "Missing required arm64-v8a/libtdjni.so. Bousygram targets modern Android phones and TVs; " +
-                    "an APK without the arm64 TDLib runtime is not eligible for release. " +
-                    "Available ABIs: $abis"
-            )
+
+        require(metadataFile.isFile && resolvedCommitFile.isFile) {
+            "TDLib build metadata and resolved source commit record are required."
         }
-        if (!abis.contains("armeabi-v7a")) {
-            throw GradleException(
-                "Missing required armeabi-v7a/libtdjni.so. Bousygram targets 32-bit budget Android TVs; " +
-                    "an APK without the 32-bit ARM TDLib runtime is not eligible for release. " +
-                    "Available ABIs: $abis"
-            )
+        val metadata = metadataFile.readText()
+        val resolvedCommit = Regex("[0-9a-fA-F]{40}").find(resolvedCommitFile.readText())?.value
+        require(resolvedCommit != null && resolvedCommit in metadata) {
+            "TDLib source commit metadata does not match ${resolvedCommitFile.path}."
         }
-        logger.lifecycle("Verified non-empty TDLib native binaries for ABIs: $abis")
     }
 }
 
@@ -272,6 +331,108 @@ tasks.register("verifyTvHardeningContract") {
         }
         require("filterNot { it == com.vaydelux.bousygram.domain.model.MediaCategoryTab.SERIES }" in dashboard) {
             "The inferred Series category must remain hidden from TV navigation."
+        }
+    }
+}
+
+tasks.register("verifyPrivateMediaCastReleaseGate") {
+    group = "verification"
+    description = "Verify private-media Cast and diagnostic entry points remain disabled in production"
+    dependsOn(
+        "generateDebugBuildConfig",
+        "generateReleaseBuildConfig",
+        "generateHardenedReleaseBuildConfig",
+        "processReleaseMainManifest",
+        "processHardenedReleaseMainManifest"
+    )
+
+    val releaseConfig = layout.buildDirectory.file(
+        "generated/source/buildConfig/release/com/vaydelux/bousygram/BuildConfig.java"
+    ).get().asFile
+    val debugConfig = layout.buildDirectory.file(
+        "generated/source/buildConfig/debug/com/vaydelux/bousygram/BuildConfig.java"
+    ).get().asFile
+    val hardenedConfig = layout.buildDirectory.file(
+        "generated/source/buildConfig/hardenedRelease/com/vaydelux/bousygram/BuildConfig.java"
+    ).get().asFile
+    val releaseManifest = layout.buildDirectory.file(
+        "intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml"
+    ).get().asFile
+    val hardenedManifest = layout.buildDirectory.file(
+        "intermediates/merged_manifest/hardenedRelease/processHardenedReleaseMainManifest/AndroidManifest.xml"
+    ).get().asFile
+    val castServer = file("src/main/java/com/vaydelux/bousygram/core/cast/CastLanStreamingServer.kt")
+    val castController = file("src/main/java/com/vaydelux/bousygram/core/cast/CastSessionController.kt")
+    val castService = file("src/main/java/com/vaydelux/bousygram/core/cast/CastStreamingService.kt")
+    val playerScreen = file("src/main/java/com/vaydelux/bousygram/presentation/media/PlayerScreen.kt")
+    inputs.files(castServer, castController, castService, playerScreen)
+    outputs.upToDateWhen { false }
+
+    doLast {
+        listOf(releaseConfig, hardenedConfig).forEach { config ->
+            require(config.isFile && "PRIVATE_MEDIA_CAST_ENABLED = false" in config.readText()) {
+                "Private-media Cast must remain disabled in ${config.absolutePath}."
+            }
+        }
+        listOf(debugConfig, releaseConfig, hardenedConfig).forEach { config ->
+            require(config.isFile && "CRASH_REPORTING_ENABLED = false" in config.readText()) {
+                "External crash reporting must remain disabled in ${config.absolutePath}."
+            }
+        }
+        listOf(releaseManifest, hardenedManifest).forEach { manifestFile ->
+            val manifest = manifestFile.readText()
+            require(
+                Regex(
+                    """<activity\b(?=[^>]*android:name="com\.vaydelux\.bousygram\.presentation\.debug\.EngineLabActivity")(?=[^>]*android:enabled="false")[^>]*>"""
+                ).containsMatchIn(manifest)
+            ) {
+                "EngineLabActivity must be disabled in ${manifestFile.absolutePath}."
+            }
+        }
+        require("if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) return null" in castServer.readText()) {
+            "The LAN media server must reject release Cast requests."
+        }
+        require("if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED)" in castController.readText()) {
+            "The Cast session controller must reject release Cast requests."
+        }
+        require(
+            "!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED ||" in castService.readText() &&
+                "if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) return" in castService.readText()
+        ) {
+            "The Cast foreground service must reject release Cast starts."
+        }
+        require("BuildConfig.PRIVATE_MEDIA_CAST_ENABLED" in playerScreen.readText()) {
+            "The player UI must enforce the private-media Cast build gate."
+        }
+    }
+}
+
+tasks.register("verifySensitiveLogRedaction") {
+    group = "verification"
+    description = "Reject logging of URLs and bearer-bearing stream values"
+    val sources = listOf(
+        file("src/main/java/com/vaydelux/bousygram/presentation/media/PlayerScreen.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/media/MpvPlayerEngine.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/tdlib/utils/ThumbnailExtractor.kt"),
+        file("src/main/java/com/vaydelux/bousygram/data/repository/TmdbRepository.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/observability/CrashReporter.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/observability/StructuredPlaybackLogger.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/tdlib/server/TelegramLogWrapper.kt")
+    )
+    inputs.files(sources)
+    doLast {
+        val sensitiveNames = listOf("url", "newUrl", "hotSwappedUrl", "streamUrl", "imageUrl", "urlString")
+        val logCall = Regex("""Log\.(?:v|d|i|w|e)\s*\([^)]*\)""", RegexOption.DOT_MATCHES_ALL)
+        sources.forEach { source ->
+            logCall.findAll(source.readText()).forEach { match ->
+                require(sensitiveNames.none { name -> "\$$name" in match.value }) {
+                    "Potentially sensitive URL logged in ${source.path}."
+                }
+            }
+        }
+        require("if (!BuildConfig.CRASH_REPORTING_ENABLED) return false" in sources
+            .first { it.name == "CrashReporter.kt" }.readText()) {
+            "External crash reporting must require the explicit build flag."
         }
     }
 }

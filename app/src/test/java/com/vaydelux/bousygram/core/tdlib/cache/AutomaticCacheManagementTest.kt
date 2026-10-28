@@ -18,9 +18,13 @@ class AutomaticCacheManagementTest {
 
     @Test
     fun testDynamicCacheBudgetParameters() {
-        assertEquals("Dynamic cache limit must be 20% of free storage", 0.20, TelegramCachePruner.DEFAULT_STORAGE_FRACTION, 0.001)
-        assertEquals("Minimum cache limit floor must be 256MB", 256L * 1024L * 1024L, TelegramCachePruner.MIN_CACHE_LIMIT_BYTES)
-        assertEquals("Default cache ceiling must be 5GB", 5L * 1024L * 1024L * 1024L, TelegramCachePruner.DEFAULT_CACHE_CEILING_BYTES)
+        assertEquals(0.15, com.vaydelux.bousygram.core.cache.CacheManager.DEFAULT_STORAGE_FRACTION, 0.001)
+        assertEquals(2L * 1024L * 1024L * 1024L, com.vaydelux.bousygram.core.cache.CacheManager.MAX_CACHE_LIMIT_BYTES)
+        val availableBytes = 4L * 1024L * 1024L * 1024L
+        assertEquals(
+            (availableBytes * 0.15).toLong(),
+            com.vaydelux.bousygram.core.cache.CacheManager.calculateQuota(availableBytes, null)
+        )
     }
 
     @Test

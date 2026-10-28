@@ -15,10 +15,14 @@ import java.io.File
  */
 object TelegramCachePruner {
     private const val TAG = "TelegramCachePruner"
-    const val DEFAULT_CACHE_CEILING_BYTES = 5L * 1024L * 1024L * 1024L // 5 GB cap
-    const val DEFAULT_STORAGE_FRACTION = 0.20 // 20% of free storage
-    const val MIN_CACHE_LIMIT_BYTES = 256L * 1024L * 1024L // 256 MB minimum floor
-    const val MAX_CACHE_LIMIT_BYTES = 5L * 1024L * 1024L * 1024L // 5 GB cap
+    @Deprecated("Legacy display constant; runtime quota is calculated by CacheManager")
+    const val DEFAULT_CACHE_CEILING_BYTES = 5L * 1024L * 1024L * 1024L
+    @Deprecated("Legacy display constant; runtime quota is calculated by CacheManager")
+    const val DEFAULT_STORAGE_FRACTION = 0.20
+    @Deprecated("Legacy display constant; runtime quota has no minimum floor")
+    const val MIN_CACHE_LIMIT_BYTES = 256L * 1024L * 1024L
+    @Deprecated("Legacy display constant; runtime ceiling is CacheManager.MAX_CACHE_LIMIT_BYTES")
+    const val MAX_CACHE_LIMIT_BYTES = 5L * 1024L * 1024L * 1024L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

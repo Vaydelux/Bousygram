@@ -1,12 +1,13 @@
-# Release Status: Build Verified; Device Validation Pending (v1.0)
+# Historical Release Status Snapshot — Superseded
 
 **Last Updated**: 2026-10-27
-**Build Status**: GREEN (All 227 unit tests passed, lint passed, R8 hardened release assemble succeeded)
-**Target Performance Floor**: Xiaomi TV A Pro 55 2026 (Quad Cortex-A55 @ 1.5 GHz, Mali-G52 MC1 GPU, 2 GB RAM, 8 GB eMMC flash, 32-bit Android 11 OS)
+**Snapshot date**: 2026-10-27. The statements below are unverified historical claims without a recorded source commit or attached test/build artifacts.
+**Current release status**: BLOCKED. The working tree has 262 passing JVM tests and passing local lint/build checks, but no physical-device qualification, trusted Cast transport, verified release APKs/signature, or native reproducible provenance.
+**Target device**: The Xiaomi model below is a proposed performance floor only; no benchmark evidence is attached.
 
 ---
 
-## 1. Verified Release Deliverables (`dist/`)
+## 1. Historical Artifact Claims (`dist/` was not present in the audited checkout)
 
 The following production artifacts have been compiled, optimized with R8, verified for TDLib native coverage (`armeabi-v7a` and `arm64-v8a`), and staged in `dist/`:
 
@@ -18,7 +19,7 @@ The following production artifacts have been compiled, optimized with R8, verifi
 
 ---
 
-## 2. Test & Verification Matrix
+## 2. Historical Test & Verification Claims
 
 - **Unit Tests**: 227 / 227 passing (`:app:testDebugUnitTest`).
   - `PlaybackCoreLifecycleTest`: Single active session lifecycle, background pause, clean release.

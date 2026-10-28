@@ -302,7 +302,7 @@ class MpvPlayerEngine(
             _playWhenReady.value = true
             mpv.command(arrayOf("loadfile", streamUrl))
         } catch (e: Throwable) {
-            Log.e(TAG, "Error loading stream in mpv: $streamUrl", e)
+            Log.e(TAG, "MPV failed to load the active local stream (${e.javaClass.simpleName})")
             _playbackState.value = EnginePlaybackState.Error("Failed to load stream: ${e.message}", e)
         }
     }

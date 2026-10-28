@@ -5,7 +5,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import kotlin.math.min
 
 class CacheManagerTest {
 
@@ -18,9 +17,7 @@ class CacheManagerTest {
     fun dynamicQuota_largeStorage_cappedAt2GB() {
         // 50 GB free storage
         val availableBytes = 50L * 1024L * 1024L * 1024L
-        val calculatedBudget = (availableBytes * CacheManager.DEFAULT_STORAGE_FRACTION).toLong()
-        val quota = min(CacheManager.MAX_CACHE_LIMIT_BYTES, calculatedBudget)
-            .coerceAtLeast(CacheManager.MIN_CACHE_LIMIT_BYTES)
+        val quota = CacheManager.calculateQuota(availableBytes, null)
 
         assertEquals(2L * 1024L * 1024L * 1024L, quota)
     }
@@ -29,25 +26,29 @@ class CacheManagerTest {
     fun dynamicQuota_budgetTvStorage_calculatedTo15Percent() {
         // 4 GB free storage on Xiaomi TV A Pro
         val availableBytes = 4L * 1024L * 1024L * 1024L
-        val calculatedBudget = (availableBytes * CacheManager.DEFAULT_STORAGE_FRACTION).toLong() // 614.4 MB
-        val quota = min(CacheManager.MAX_CACHE_LIMIT_BYTES, calculatedBudget)
-            .coerceAtLeast(CacheManager.MIN_CACHE_LIMIT_BYTES)
+        val quota = CacheManager.calculateQuota(availableBytes, null)
 
         val expected = (4L * 1024L * 1024L * 1024L * 0.15).toLong()
         assertEquals(expected, quota)
         assertTrue(quota < CacheManager.MAX_CACHE_LIMIT_BYTES)
-        assertTrue(quota > CacheManager.MIN_CACHE_LIMIT_BYTES)
+        assertTrue(quota > 0L)
     }
 
     @Test
-    fun dynamicQuota_lowStorage_respectsMinimumFloor() {
-        // 500 MB free storage
+    fun dynamicQuota_lowStorage_neverExceedsFreeSpaceBudget() {
+        // 500 MB free storage must produce a 75 MB target, not a 256 MB floor.
         val availableBytes = 500L * 1024L * 1024L
-        val calculatedBudget = (availableBytes * CacheManager.DEFAULT_STORAGE_FRACTION).toLong() // 75 MB
-        val quota = min(CacheManager.MAX_CACHE_LIMIT_BYTES, calculatedBudget)
-            .coerceAtLeast(CacheManager.MIN_CACHE_LIMIT_BYTES)
+        val quota = CacheManager.calculateQuota(availableBytes, null)
 
-        assertEquals(CacheManager.MIN_CACHE_LIMIT_BYTES, quota) // 256 MB floor
+        assertEquals((availableBytes * CacheManager.DEFAULT_STORAGE_FRACTION).toLong(), quota)
+    }
+
+    @Test
+    fun dynamicQuota_managedCeilingAndZeroStorageAreRespected() {
+        val availableBytes = 10L * 1024L * 1024L * 1024L
+        assertEquals(300L * 1024L * 1024L, CacheManager.calculateQuota(availableBytes, 300L * 1024L * 1024L))
+        assertEquals(0L, CacheManager.calculateQuota(0L, null))
+        assertEquals(0L, CacheManager.calculateQuota(-1L, -1L))
     }
 
     @Test

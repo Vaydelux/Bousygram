@@ -174,7 +174,7 @@ class TelegramChunkSchedulerTest {
             bytes = bytes,
             completed = false,
             downloadOffset = 0L,
-            downloadedPrefixSize = 0L
+            downloadedPrefixSize = 2L * 1024L * 1024L
         )
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(55, totalSize.toLong())
@@ -328,7 +328,7 @@ class TelegramChunkSchedulerTest {
             bytes = bytes,
             completed = false,
             downloadOffset = 0L,
-            downloadedPrefixSize = 0L
+            downloadedPrefixSize = 2L * 1024L * 1024L
         )
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(70, totalSize.toLong())

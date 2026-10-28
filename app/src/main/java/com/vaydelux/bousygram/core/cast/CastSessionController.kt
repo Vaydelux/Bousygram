@@ -10,6 +10,7 @@ import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.ConnectionResult
+import com.vaydelux.bousygram.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,6 +60,10 @@ object CastSessionController {
 
     /** Call on the main thread before presenting a Cast control. */
     fun initialize(context: Context): Boolean {
+        if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) {
+            mutableState.value = CastSessionState(errorMessage = "Private-media Cast is disabled in this build")
+            return false
+        }
         if (initialized) return mutableState.value.supported
         val appContext = context.applicationContext
         if (GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(appContext) != ConnectionResult.SUCCESS) {
@@ -83,6 +88,7 @@ object CastSessionController {
     }
 
     fun loadMedia(url: String, title: String, contentType: String, durationMs: Long, positionMs: Long = 0L): Boolean {
+        if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) return false
         require(url.startsWith("http://") || url.startsWith("https://")) { "Cast media URL must be network reachable" }
         val client = remoteClient() ?: return false
         val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {

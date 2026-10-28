@@ -437,11 +437,11 @@ object TmdbRepository {
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 connection.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
             } else {
-                Log.d(TAG, "TMDB HTTP $responseCode for $urlString")
+                Log.d(TAG, "TMDB returned HTTP $responseCode")
                 null
             }
         } catch (e: Exception) {
-            Log.d(TAG, "TMDB network error: ${e.message}")
+            Log.d(TAG, "TMDB network error (${e.javaClass.simpleName})")
             null
         } finally {
             connection?.disconnect()
@@ -503,7 +503,7 @@ object TmdbRepository {
             }
         } catch (e: Exception) {
             tempFile.delete()
-            Log.d(TAG, "Failed downloading image $imageUrl: ${e.message}")
+            Log.d(TAG, "TMDB image download failed (${e.javaClass.simpleName})")
             null
         } finally {
             connection?.disconnect()

@@ -68,7 +68,7 @@ object ThumbnailExtractor {
 
         val retriever = MediaMetadataRetriever()
         try {
-            Log.d(TAG, "Extracting frame for fileId=$fileId from $streamUrl")
+            Log.d(TAG, "Extracting a frame from the authenticated local stream")
             retriever.setDataSource(streamUrl, HashMap<String, String>())
             // Retrieve frame at 5 seconds (5000000 microseconds)
             val bitmap = retriever.getFrameAtTime(5000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)

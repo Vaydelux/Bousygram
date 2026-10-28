@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.R
 
 /** Visible, user-initiated process protection while a remote receiver fetches media. */
@@ -26,7 +27,7 @@ class CastStreamingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action != ACTION_START) {
+        if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED || intent?.action != ACTION_START) {
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -49,6 +50,7 @@ class CastStreamingService : Service() {
         private const val ACTION_START = "com.vaydelux.bousygram.cast.START_STREAMING"
 
         fun start(context: Context) {
+            if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) return
             val intent = Intent(context, CastStreamingService::class.java).setAction(ACTION_START)
             ContextCompat.startForegroundService(context, intent)
         }

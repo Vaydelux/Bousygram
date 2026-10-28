@@ -495,18 +495,11 @@ internal object TelegramChunkScheduler {
         }
 
         if (tailLimit > 0 && tailOffset >= 0L) {
-            val startMs = System.currentTimeMillis()
             rememberWindow(effectiveId, tailOffset, tailOffset + tailLimit, TelegramChunkPurpose.Streaming)
             PlaybackTelemetryRecorder.recordSupersededWindow(effectiveId)
             startChunkDownload(effectiveId, offset = tailOffset, limit = tailLimit, priority = PLAYBACK_PRIORITY)
-            awaitPrefixReady(effectiveId, tailOffset, min(tailLimit, MIN_PARTIAL_BYTES), timeoutMs = TAIL_MAX_WAIT_MS)
-            PlaybackTelemetryRecorder.recordTailChunkTime(
-                effectiveId,
-                (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
-            )
-            readRange(effectiveId, tailOffset, min(tailLimit, CHUNK_SIZE_BYTES))?.let { bytes ->
-                savedTails[effectiveId] = SavedTail(tailOffset, bytes)
-            }
+            // Tail bytes are speculative. Do not hold playback startup for up to a minute
+            // while TDLib downloads them; a later range request waits for the bytes it needs.
         } else {
             PlaybackTelemetryRecorder.recordTailChunkTime(effectiveId, headElapsed)
         }

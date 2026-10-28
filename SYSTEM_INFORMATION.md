@@ -4,8 +4,8 @@
 **Package:** `com.vaydelux.bousygram`  
 **Version:** 1.0 (versionCode: 10)  
 **Last reconciled against source:** October 28, 2026
-**Repository Branch:** `main` (commit `4190b726753f6ed4798d14767840f990b6c69caf`)
-**Evidence boundary:** This checkout has not been tested as part of this documentation update. Historical test/build counts elsewhere in this file and in reports are not evidence for this commit. See `docs/engineering/E0_E1_SOURCE_AUDIT_4190b726.md`.
+**Repository base:** commit `b7fce6ba9b0c0f680658622a233360ae88af468e`; working branch `release/enterprise-hardening`
+**Evidence boundary:** Gradle checks were run against the modified worktree, which is not yet committed. These results do not attest the base commit or a release commit. See `docs/release/REPOSITORY_AUDIT.md`.
 
 ---
 
@@ -97,7 +97,7 @@ The project follows a modular Clean Architecture under package `com.vaydelux.bou
   - `core.tdlib.server.TelegramChunkScheduler`: Coalesces, prioritizes, and streams ordered byte chunks from TDLib without blocking the UI.
   - `core.tdlib.server.StreamAccessRegistry`: Issues random capability tokens scoped per file/resource, with expiry and explicit revocation on playback teardown/track changes. Backgrounding alone is not a general revocation event.
   - `core.tdlib.server.HttpRangeParser`: RFC-compliant byte range parser clamping unbounded ranges and rejecting multi-range/malformed requests.
-  - `CacheManager` / `OfflineCacheManager` / `TelegramNativeFileGc` / `TelegramCachePruner`: TDLib-aware tracked-file cleanup. Intended runtime target is 15% of available bytes with a 256 MiB floor and 2 GiB maximum; this is a cleanup target, not a hard write cap. The no-managed-override path currently recurses through the legacy quota facade; see the E0/E1 audit before relying on its computed value. `TelegramCachePruner`'s 5 GiB/20% constants are stale facade constants.
+  - `CacheManager` / `OfflineCacheManager` / `TelegramNativeFileGc` / `TelegramCachePruner`: TDLib-aware tracked-file cleanup. The runtime target is the lesser of 15% of currently available internal app-data storage and a 2 GiB or managed ceiling. It has no minimum floor and is an eviction target, not a hard write cap. The no-managed-override recursion was removed in the current worktree; native TDLib storage can still exceed the target between cleanup passes.
   - `core.tdlib.auth`: `TelegramAuthManager`, `AuthInputPolicy`, and `TdlibDatabaseKeyPolicy`.
 - **`core.network`**: `NetworkConnectivityObserver` monitoring WiFi/Ethernet status and signal strength.
 - **`core.observability`**: `StructuredPlaybackLogger`, `PlaybackErrorMapper`, and `CrashReporter`.
@@ -174,7 +174,7 @@ Configured in `app/build.gradle.kts`:
 | **`hardenedRelease`** | `true` | `true` | Release Keystore required by Gradle gate | Hardened production candidate |
 
 ### Automated Quality & Release Gates:
-1. **`verifyTdlibAbiCoverage`**: Requires non-empty `libtdjni.so` files for `arm64-v8a` and `armeabi-v7a`. It checks presence, not provenance or runtime correctness.
+1. **`verifyTdlibAbiCoverage`**: Checks ELF class/endian/machine, program-header integrity, ABI-specific load alignment, JNI markers, and TDLib commit metadata consistency for `libtdjni.so` in `arm64-v8a` and `armeabi-v7a`. It does not prove source/toolchain provenance or runtime correctness.
 2. **Fail-Closed Release Signing Gate**: Release packaging fails closed if `RELEASE_STORE_FILE` and associated signing credentials are not supplied.
 3. **Release ABI packaging**: Release APK tasks configure ARM ABI splits and a universal APK; actual output names and contents depend on the invoked task/configuration.
 
@@ -189,7 +189,7 @@ The following measurements and pass claims are historical material from an older
 | **16 KB Page Alignment** | Native ELF Header Inspection | **PASSED** | All `arm64-v8a` native libraries (`libtdjni.so`, `libmpv.so`, `libavcodec.so`, etc.) verified aligned to `0x4000` (16,384 bytes). |
 | **TDLib ABI Coverage** | `.\gradlew.bat :app:verifyTdlibAbiCoverage` | **PASSED** | Verified `arm64-v8a` (21.4 MB) and `armeabi-v7a` (15.7 MB) native libraries. |
 | **Kotlin / Compose Compilation** | `.\gradlew.bat :app:compileDebugKotlin` | **PASSED** | 1m 39s. All Jetpack Compose TV screens, ViewModels, and data layers compiled cleanly with 4GB heap. |
-| **Android Unit Tests** | `.\gradlew.bat :app:testDebugUnitTest` | **Historical / not rerun** | The old 154 and 190 counts disagree; neither is an accepted current count or pass result. |
+| **Android Unit Tests** | `.\gradlew.bat :app:testDebugUnitTest` | **Passed in modified worktree** | JUnit XML reports 262 tests, 0 failures, 0 errors, and 0 skipped; this worktree result is not a commit artifact. |
 | **Release Minified APK Assembly** | `.\gradlew.bat assembleRelease` | **PASSED** | 15m 55s. Full R8 code minification, resource shrinking, LintVital verification, ART profile compilation, and split APK packaging completed cleanly. |
 
 ### Historical Artifact Claims (Not Verified for This Commit)
@@ -277,7 +277,7 @@ Copy-Item app/build/outputs/apk/release/*.apk E:\AndroidTV\
 ## 10. Local Playback Telemetry Architecture
 
 ### 10.1 Telemetry Metrics & Schema
-Per-playback telemetry is captured in `PlaybackTelemetryRecorder.kt` and stored in private app preferences. No direct Crashlytics dependency is declared in the version catalog, but `CrashReporter` reflectively invokes Crashlytics if present at runtime; therefore this checkout does not claim all diagnostics remain local without resolving the release runtime classpath.
+Per-playback telemetry is captured in `PlaybackTelemetryRecorder.kt` and stored in private app preferences. `CrashReporter` uses reflection for Crashlytics, but its `CRASH_REPORTING_ENABLED` build flag is false in debug, release, and hardened-release; external reporting is disabled unless that gate is deliberately changed.
 
 | Metric | Field | Source / Mechanism |
 |---|---|---|
@@ -293,7 +293,7 @@ Per-playback telemetry is captured in `PlaybackTelemetryRecorder.kt` and stored 
 | **Failure Reason** | `failureReason` | `null` on normal completion/exit, or explicit error description on fatal failure. |
 
 ### 10.2 Local Storage & Privacy Guard
-- **Local telemetry store:** The playback recorder persists its records in private `playback_telemetry` preferences. Diagnostics can be explicitly exported by the user. The separate crash-reporting adapter may call Crashlytics if that runtime class is included.
+- **Local telemetry store:** The playback recorder persists its records in private `playback_telemetry` preferences. Diagnostics can be explicitly exported by the user. External crash reporting is build-gated off in all variants.
 - **50-Session FIFO Ring Buffer:** Oldest sessions are automatically evicted when total stored sessions exceed 50.
 - **Diagnostics Export:** Available in `SettingsScreen.kt` through:
   1. *Copy Diagnostic Report* (human-readable text report)
