@@ -57,6 +57,7 @@ jobs:
         run: >-
           ./gradlew --no-daemon
           :app:verifyTdlibAbiCoverage
+          :app:verifyTdlibBindingCompatibility
           :app:verifyTvHardeningContract
           :app:verifyPrivateMediaCastReleaseGate
           :app:verifySensitiveLogRedaction

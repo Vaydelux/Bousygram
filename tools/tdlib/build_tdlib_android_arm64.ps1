@@ -1,5 +1,5 @@
 param(
-    [string]$TdlibRef = "master",
+    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{40}$')][string]$TdlibRef,
     [string]$AndroidNdk = "",
     [string]$AndroidPlatform = "android-23",
     [string]$WorkRoot = "",
@@ -11,7 +11,15 @@ function Require-Tool([string]$name) {
     if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { throw "Required tool '$name' is not installed or not in PATH." }
 }
 Require-Tool "git"
+if (-not (Get-Command cmake -ErrorAction SilentlyContinue) -or -not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+    $sdkRoot = $env:ANDROID_SDK_ROOT
+    if ([string]::IsNullOrWhiteSpace($sdkRoot)) { $sdkRoot = $env:ANDROID_HOME }
+    $cmakeRoots = if ($sdkRoot) { Get-ChildItem (Join-Path $sdkRoot "cmake") -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending } else { @() }
+    $cmakeBin = $cmakeRoots | ForEach-Object { Join-Path $_.FullName "bin" } | Where-Object { Test-Path (Join-Path $_ "cmake.exe") -and (Test-Path (Join-Path $_ "ninja.exe")) } | Select-Object -First 1
+    if ($cmakeBin) { $env:PATH = "$cmakeBin;$env:PATH" }
+}
 Require-Tool "cmake"
+Require-Tool "ninja"
 $supportedAbis = @("arm64-v8a", "armeabi-v7a")
 if ($Abis.Count -eq 0 -or @($Abis | Where-Object { $_ -notin $supportedAbis }).Count -gt 0) { throw "Abis must be selected from: $($supportedAbis -join ', ')" }
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -40,6 +48,14 @@ if (-not (Test-Path $srcDir)) { git clone https://github.com/tdlib/td.git $srcDi
 Push-Location $srcDir
 try { git fetch --all --tags; git checkout $TdlibRef; $resolvedTdlibCommit = (git rev-parse HEAD).Trim() }
 finally { Pop-Location }
+if ($resolvedTdlibCommit.ToLowerInvariant() -ne $TdlibRef.ToLowerInvariant()) {
+    throw "TDLib resolved to $resolvedTdlibCommit, expected the pinned commit $TdlibRef."
+}
+$generationScript = Join-Path $PSScriptRoot "generate_tdlib_sources.ps1"
+& $generationScript -TdlibRef $resolvedTdlibCommit
+$generatedJava = Join-Path $srcDir "example\android\org\drinkless\tdlib\TdApi.java"
+if (-not (Test-Path $generatedJava)) { throw "Pinned TDLib Java generation did not produce TdApi.java." }
+$appJava = Join-Path $repoRoot "app\src\main\java\org\drinkless\tdlib\TdApi.java"
 # Override stock FindOpenSSL so Windows-host cross builds do not pull in
 # ws2_32/Crypt32/etc. TDLib sets CMAKE_MODULE_PATH to its own CMake/ folder.
 $customFindOpenSsl = Join-Path $PSScriptRoot "cmake\FindOpenSSL.cmake"
@@ -52,9 +68,11 @@ if ((Test-Path $tdlibFindOpenSsl) -and -not (Test-Path $tdlibFindOpenSslBackup))
 Copy-Item -Force $customFindOpenSsl $tdlibFindOpenSsl
 
 try {
+$stagingNativeRoot = Join-Path $WorkRoot "staging\native"
+if (Test-Path $stagingNativeRoot) { Remove-Item -LiteralPath $stagingNativeRoot -Recurse -Force }
 foreach ($abi in $Abis) {
     $buildDir = Join-Path $WorkRoot "build\$abi"
-    $outputDir = Join-Path $repoRoot "app\src\main\jniLibs\$abi"
+    $outputDir = Join-Path $stagingNativeRoot $abi
     New-Item -ItemType Directory -Force -Path $buildDir, $outputDir | Out-Null
     # TDLib's Android JNI target is defined by the Android example wrapper,
     # not by the top-level TDLib CMake project.
@@ -104,7 +122,23 @@ foreach ($abi in $Abis) {
         Remove-Item -Force $tdlibFindOpenSsl
     }
 }
+foreach ($abi in $Abis) {
+    $staged = Join-Path $stagingNativeRoot "$abi\libtdjni.so"
+    if (-not (Test-Path $staged)) { throw "Atomic TDLib staging is incomplete for $abi." }
+}
+foreach ($abi in $Abis) {
+    $destination = Join-Path $repoRoot "app\src\main\jniLibs\$abi"
+    New-Item -ItemType Directory -Force -Path $destination | Out-Null
+    Copy-Item -Force (Join-Path $stagingNativeRoot "$abi\libtdjni.so") (Join-Path $destination "libtdjni.so")
+}
+$nativeHashes = foreach ($abi in $Abis) {
+    $lib = Join-Path $repoRoot "app\src\main\jniLibs\$abi\libtdjni.so"
+    if (-not (Test-Path $lib)) { throw "Missing staged native library for $abi." }
+    "SHA256 $abi $((Get-FileHash $lib -Algorithm SHA256).Hash)"
+}
+Copy-Item -Force $generatedJava $appJava
 $metadata = Join-Path $repoRoot "tools\tdlib\BUILD_METADATA.txt"
-@("TDLib commit: $resolvedTdlibCommit", "NDK: $AndroidNdk", "Android platform: $AndroidPlatform", "ABIs: $($Abis -join ', ')", "Generated: $(Get-Date -Format o)") | Set-Content $metadata
+@("TDLib commit: $resolvedTdlibCommit", "NDK: $AndroidNdk", "Android platform: $AndroidPlatform", "ABIs: $($Abis -join ', ')", "Generated: $(Get-Date -Format o)") + $nativeHashes | Set-Content $metadata
+Set-Content (Join-Path $repoRoot "build-tools\tdlib\RESOLVED_COMMIT.txt") $resolvedTdlibCommit
 Write-Host "TDLib native libraries built for $($Abis -join ', ') from $resolvedTdlibCommit"
 Write-Host "Next: .\gradlew.bat :app:verifyTdlibAbiCoverage"

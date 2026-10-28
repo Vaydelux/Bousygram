@@ -1,29 +1,26 @@
 #!/usr/bin/env bash
-# Host-side TDLib source generation required before Android cross-compile.
 set -euo pipefail
 
-REPO="/c/Users/Jericho.Mosqueda/Downloads/Tele-main--1-"
-ANDROID_EXAMPLE="$REPO/build-tools/tdlib/src/td/example/android"
-CMAKE_BIN="$REPO/prerequisites/cmake-4.5.0-rc1-windows-x86_64/bin"
-NINJA_BIN="$REPO/prerequisites/ninja-win"
-NDK_MAKE="/c/ndk-r27d/prebuilt/windows-x86_64/bin"
-GPERF_BIN="$REPO/prerequisites/gperf"
+if [[ $# -ne 1 || ! "$1" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "Usage: $0 <40-character TDLib commit>" >&2
+  exit 2
+fi
 
-export PATH="$CMAKE_BIN:$NINJA_BIN:$NDK_MAKE:$GPERF_BIN:/usr/bin:$PATH"
-hash -r
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SRC="$ROOT/build-tools/tdlib/src/td"
+EXAMPLE="$SRC/example/android"
+BUILD="$ROOT/build-tools/tdlib/host-java-generation"
+mkdir -p "$(dirname "$SRC")"
+if [[ ! -d "$SRC/.git" ]]; then git clone https://github.com/tdlib/td.git "$SRC"; fi
+git -C "$SRC" fetch --tags origin "$1"
+git -C "$SRC" checkout --detach "$1"
+[[ "$(git -C "$SRC" rev-parse HEAD)" == "${1,,}" ]] || { echo "TDLib commit resolution failed" >&2; exit 1; }
 
-echo "cmake=$(command -v cmake)"
-echo "ninja=$(command -v ninja)"
-echo "make=$(command -v make)"
-echo "gperf=$(command -v gperf || true)"
-echo "php=$(command -v php || true)"
-
-cd "$ANDROID_EXAMPLE"
-rm -rf build-native-Java
-mkdir -p build-native-Java
-cd build-native-Java
-
-cmake -G Ninja -DTD_GENERATE_SOURCE_FILES=ON -DTD_ENABLE_JNI=ON ..
-cmake --build . --parallel
-
-echo "Native TDLib source generation finished."
+command -v cmake >/dev/null || { echo "cmake is required" >&2; exit 1; }
+command -v ninja >/dev/null || { echo "ninja is required" >&2; exit 1; }
+rm -rf "$BUILD"
+cmake -G Ninja -S "$EXAMPLE" -B "$BUILD" -DTD_GENERATE_SOURCE_FILES=ON -DTD_ENABLE_JNI=ON -DTD_ANDROID_JSON=OFF -DTD_ANDROID_JSON_JAVA=OFF
+cmake --build "$BUILD" --target tl_generate_java --parallel
+test -s "$EXAMPLE/org/drinkless/tdlib/TdApi.java"
+printf '%s\n' "${1,,}" > "$ROOT/build-tools/tdlib/RESOLVED_COMMIT.txt"
+echo "Generated TdApi.java from ${1,,} via tl_generate_java"

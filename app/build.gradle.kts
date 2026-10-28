@@ -1,6 +1,7 @@
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -295,6 +296,66 @@ tasks.register("verifyTdlibAbiCoverage") {
     }
 }
 
+tasks.register("verifyTdlibBindingCompatibility") {
+    group = "verification"
+    description = "Verify TdApi.java and every TDLib JNI binary come from one pinned revision"
+    dependsOn("verifyTdlibAbiCoverage")
+    val tdApiFile = file("src/main/java/org/drinkless/tdlib/TdApi.java")
+    val metadataFile = rootProject.file("tools/tdlib/BUILD_METADATA.txt")
+    val resolvedCommitFile = rootProject.file("build-tools/tdlib/RESOLVED_COMMIT.txt")
+    val verificationFile = rootProject.file("tools/tdlib/BUILD_VERIFICATION.txt")
+    val nativeFiles = supportedTdLibAbis.associateWith { abi -> File(tdLibJniDir, "$abi/libtdjni.so") }
+    inputs.files(tdApiFile, metadataFile, resolvedCommitFile, nativeFiles.values)
+    outputs.file(verificationFile)
+    doLast {
+        val commitPattern = Regex("[0-9a-fA-F]{40}")
+        val javaCommit = Regex("GIT_COMMIT_HASH\\s*=\\s*\\\"([0-9a-fA-F]{40})\\\"")
+            .find(tdApiFile.readText())?.groupValues?.get(1)?.lowercase()
+            ?: throw GradleException("TdApi.java does not contain a readable GIT_COMMIT_HASH.")
+        val resolvedCommit = commitPattern.find(resolvedCommitFile.readText())?.value?.lowercase()
+            ?: throw GradleException("RESOLVED_COMMIT.txt does not contain a 40-character commit.")
+        require(javaCommit == resolvedCommit) {
+            "TDLib Java/native mismatch: TdApi.java=$javaCommit, pinned native source=$resolvedCommit."
+        }
+        require("TDLib commit: $resolvedCommit" in metadataFile.readText()) {
+            "BUILD_METADATA.txt does not prove the pinned TDLib commit $resolvedCommit."
+        }
+        val report = mutableListOf("TDLib commit: $resolvedCommit", "Java commit: $javaCommit")
+        nativeFiles.forEach { (abi, nativeFile) ->
+            require(nativeFile.isFile && nativeFile.length() > 1_000_000L) {
+                "Missing or implausibly small TDLib JNI library for $abi: ${nativeFile.absolutePath}"
+            }
+            val bytes = nativeFile.readBytes()
+            val binaryText = String(bytes, Charsets.ISO_8859_1)
+            require(binaryText.contains(resolvedCommit)) {
+                "$abi libtdjni.so does not contain the pinned TDLib revision $resolvedCommit."
+            }
+            require(binaryText.contains("JNI_OnLoad")) { "$abi libtdjni.so is missing JNI_OnLoad." }
+            listOf("createNativeClient", "nativeClientSend", "nativeClientReceive", "nativeClientExecute", "nativeClientSetLogMessageHandler")
+                .forEach { symbol -> require(binaryText.contains(symbol)) { "$abi libtdjni.so is missing JNI marker $symbol." } }
+            val requiredDependencies = listOf("libc.so", "libdl.so", "liblog.so", "libm.so", "libz.so")
+            requiredDependencies.forEach { dependency ->
+                require(binaryText.contains(dependency)) {
+                    "$abi libtdjni.so does not advertise required ELF dependency $dependency."
+                }
+            }
+            val elfClass = bytes[4].toInt() and 0xff
+            val machine = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getShort(18).toInt() and 0xffff
+            val expectedClass = if (abi == "arm64-v8a") 2 else 1
+            val expectedMachine = if (abi == "arm64-v8a") 183 else 40
+            require(elfClass == expectedClass && machine == expectedMachine) {
+                "$abi libtdjni.so has ELF class=$elfClass machine=$machine; expected class=$expectedClass machine=$expectedMachine."
+            }
+            val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            report += "SHA256 $abi $hash"
+            report += "ELF $abi class=$elfClass machine=$machine size=${bytes.size}"
+            report += "JNI $abi markers=verified revision=embedded dependencies=${requiredDependencies.joinToString(",")}"
+        }
+        verificationFile.writeText(report.joinToString("\n") + "\n")
+        logger.lifecycle(report.joinToString("; "))
+    }
+}
+
 tasks.register("verifyTvHardeningContract") {
     group = "verification"
     description = "Verify Android TV playback/navigation product invariants"
@@ -439,6 +500,7 @@ tasks.register("verifySensitiveLogRedaction") {
 
 tasks.matching {
     it.name in listOf(
+        "preDebugBuild",
         "preReleaseBuild",
         "preHardenedReleaseBuild",
         "assembleRelease",
@@ -448,6 +510,7 @@ tasks.matching {
     )
 }.configureEach {
     dependsOn("verifyTdlibAbiCoverage")
+    dependsOn("verifyTdlibBindingCompatibility")
     dependsOn("verifyTvHardeningContract")
 }
 

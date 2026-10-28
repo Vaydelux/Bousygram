@@ -22,18 +22,20 @@ At runtime, Android loads native libs based on the process ABI. If `libtdjni.so`
 From repository root:
 
 ```powershell
-.\tools\tdlib\build_tdlib_android_arm64.ps1 -TdlibRef <pinned-commit> -AndroidNdk "C:\Users\<you>\AppData\Local\Android\Sdk\ndk\<version>" -OpenSslRoot "C:\path\to\openssl"
+.\tools\tdlib\build_tdlib_android_arm64.ps1 -TdlibRef 4c6377aa7386c39217878a9a56d581922ad37ca4 -AndroidNdk "C:\Users\<you>\AppData\Local\Android\Sdk\ndk\<version>" -OpenSslRoot "C:\path\to\openssl"
 ```
 
 If `ANDROID_NDK_HOME` is set, `-AndroidNdk` can be omitted.
 
 The script:
 
-1. clones `https://github.com/tdlib/td.git`
+1. clones `https://github.com/tdlib/td.git` and requires one explicit 40-character commit
 2. checks out one TDLib revision for both ABIs
 3. configures and builds `tdjni` for `arm64-v8a` and `armeabi-v7a`
 4. copies each resulting library to its matching `jniLibs` directory
-5. records the resolved commit, NDK, ABIs, and timestamp in `BUILD_METADATA.txt`
+5. runs the `tl_generate_java` target before native compilation
+6. stages both native ABIs and the Java binding before copying either into the app
+7. records the resolved commit, NDK, ABIs, timestamps, and SHA-256 hashes in `BUILD_METADATA.txt`
 
 The OpenSSL root must contain `arm64-v8a` and `armeabi-v7a` directories, each with
 `include/openssl/ssl.h` and `lib/libcrypto.a`. TDLib's `example/android/build-openssl.sh`
@@ -43,6 +45,7 @@ can produce these per-ABI static libraries when run in Git Bash or WSL.
 
 ```powershell
 .\gradlew :app:verifyTdlibAbiCoverage
+.\gradlew :app:verifyTdlibBindingCompatibility
 .\gradlew :app:assembleDebug
 ```
 

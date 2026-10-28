@@ -49,7 +49,7 @@ echo "OPENSSL_INSTALL_DIR=$OPENSSL_INSTALL_DIR"
 
 # Keep build scratch under a short path so Windows path conversion cannot
 # introduce sequences like "\tdlib" that confuse OpenSSL's Perl Configure.
-WORK_DIR="/c/tdlib-build/openssl-src"
+WORK_DIR="${TDLIB_OPENSSL_WORK_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../build-tools/tdlib" && pwd)/openssl-src}"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
