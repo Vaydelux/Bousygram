@@ -53,6 +53,10 @@ jobs:
           else
             echo "firebase_available=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Verify TDLib JSON native binaries
+        run: |
+          python3 -m pip install pyelftools==0.32
+          python3 tools/tdlib/verify_tdjson_binaries.py
       - name: Gradle checks
         run: >-
           ./gradlew --no-daemon
