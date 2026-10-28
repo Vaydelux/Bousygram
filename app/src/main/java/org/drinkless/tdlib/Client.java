@@ -102,13 +102,9 @@ public final class Client {
      */
     public void send(TdApi.Function query, ResultHandler resultHandler, ExceptionHandler exceptionHandler) {
         if (!NATIVE_AVAILABLE) {
-            Handler updateHandler = updateHandlers.get(nativeClientId);
-            com.vaydelux.bousygram.core.tdlib.client.TdLibFallbackEngine.send(
-                query,
-                resultHandler,
-                exceptionHandler,
-                updateHandler != null ? updateHandler.resultHandler : null
-            );
+            if (resultHandler != null) {
+                resultHandler.onResult(new TdApi.Error(503, "TDLib JSON native runtime unavailable"));
+            }
             return;
         }
         long queryId = currentQueryId.incrementAndGet();
@@ -145,11 +141,7 @@ public final class Client {
     @SuppressWarnings("unchecked")
     public static <T extends TdApi.Object> T execute(TdApi.Function<T> query) throws ExecutionException {
         if (!NATIVE_AVAILABLE) {
-            TdApi.Object object = com.vaydelux.bousygram.core.tdlib.client.TdLibFallbackEngine.execute(query);
-            if (object instanceof TdApi.Error) {
-                throw new ExecutionException((TdApi.Error) object);
-            }
-            return (T) object;
+            throw new ExecutionException(new TdApi.Error(503, "TDLib JSON native runtime unavailable"));
         }
         TdApi.Object object;
         try { object = TdJsonCodec.decodeEnvelope(TdJsonNative.execute(TdJsonCodec.encode(query, null))).object; }
@@ -314,7 +306,7 @@ public final class Client {
         if (NATIVE_AVAILABLE) {
             send(new TdApi.GetOption("version"), null, null);
         } else {
-            com.vaydelux.bousygram.core.tdlib.client.TdLibFallbackEngine.onClientCreated(updateHandler);
+            if (updateHandler != null) updateHandler.onResult(new TdApi.Error(503, "TDLib JSON native runtime unavailable"));
         }
     }
 
