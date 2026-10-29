@@ -1,0 +1,96 @@
+name: Android Emulator Cast Smoke
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/android-emulator-smoke.yml'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
+      - 'app/src/androidTest/**'
+      - 'app/src/main/res/values/themes.xml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-emulator-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cast-emulator:
+    name: Run Cast and media UI regressions on Android emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install Android build dependencies
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Enable KVM acceleration when available
+        shell: bash
+        run: |
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod a+rw /dev/kvm
+          else
+            echo '::warning::KVM unavailable; the emulator may run slowly.'
+          fi
+
+      - name: Build exact-commit debug APK and instrumentation APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
+          bash tools/ci/verify_debug_artifacts.sh
+
+      - name: Run real AndroidX MediaRouteButton and Cast-intent instrumentation
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_4
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r ci-artifacts/debug/Bousygram-debug.apk
+            adb install -r ci-artifacts/debug/Bousygram-debug-androidTest.apk
+            # Capture failures while the virtual device is still alive, even if the
+            # emulator runner tears it down before a subsequent workflow step.
+            trap 'timeout 15s adb logcat -d -t 2500 -v brief 2>/dev/null | grep -E "FATAL EXCEPTION|AndroidRuntime|MediaRouteButton|MediaRouterThemeHelper|Instrumentation" | head -n 100 > emulator-smoke-crash-summary.txt || true' EXIT
+            # This suite does not require Telegram credentials or ARM TDLib JNI.
+            timeout 240s adb shell am instrument -w -r -e class "com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest" "com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner" | tee emulator-smoke-results.txt
+            grep -Eq '^OK \([0-9]+ tests?\)' emulator-smoke-results.txt
+
+      - name: Capture sanitized emulator diagnostics after failures
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          timeout 15s adb logcat -d -t 4000 -v brief 2>/dev/null \
+            | grep -E 'FATAL EXCEPTION|AndroidRuntime|MediaRouteButton|MediaRouterThemeHelper|Instrumentation' \
+            | head -n 100 > emulator-smoke-crash-summary.txt || true
+
+      - name: Archive emulator smoke results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-emulator-cast-smoke-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            emulator-smoke-results.txt
+            emulator-smoke-crash-summary.txt
