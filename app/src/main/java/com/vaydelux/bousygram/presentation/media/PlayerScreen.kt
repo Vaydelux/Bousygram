@@ -881,16 +881,29 @@ fun PlayerScreen(
                         PlaybackTelemetryRecorder.recordFallback(playbackSessionId, fallbackReason)
                         PlaybackDiagnostics.recordStreamError("FallbackToMpv: $fallbackReason")
 
-                        val (fallback, pos) = PlayerEngineFactory.createFallback(context, playerEngine, speed)
-                        playerEngine = fallback
-                        pendingResumeMs = if (pos > 0L) pos else retryPosition
-                        lastGoodPosition = pendingResumeMs
-                        retryCount = 1
-                        isReconnecting = true
-                        isBuffering = true
-                        playbackError = null
-                        hudVisible = false
-                        reloadNonce++
+                        engineSwitcher.fallback {
+                            PlayerEngineFactory.createFallback(context, playerEngine, speed)
+                        }.fold(
+                            onSuccess = { (_, pos) ->
+                                pendingResumeMs = if (pos > 0L) pos else retryPosition
+                                lastGoodPosition = pendingResumeMs
+                                retryCount = 1
+                                isReconnecting = true
+                                isBuffering = true
+                                playbackError = null
+                                hudVisible = false
+                                reloadNonce++
+                            },
+                            onFailure = { failure ->
+                                // A missing/failed native decoder must not crash the Compose UI.
+                                // Keep the player open and offer its existing retry/exit actions.
+                                Log.e("PlayerScreen", "Automatic playback fallback failed", failure)
+                                isReconnecting = false
+                                isBuffering = false
+                                playbackError = "Unable to initialize a compatible video player. Try again."
+                                commitPlaybackTelemetry(fatalError = playbackError)
+                            }
+                        )
                     } else if (item != null && retryCount < MAX_AUTO_RETRIES) {
                         retryCount++
                         recordMetrics()
