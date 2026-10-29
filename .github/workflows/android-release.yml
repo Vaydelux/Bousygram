@@ -31,6 +31,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+    outputs:
+      ci_run_id: ${{ steps.verify-ci.outputs.run_id }}
     steps:
       - name: Check out requested commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,6 +41,7 @@ jobs:
           fetch-depth: 0
 
       - name: Validate tag, commit, and Gradle metadata
+        id: verify-ci
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -74,49 +77,59 @@ jobs:
           }
           mode="$(git ls-files --stage gradlew | awk '{print $1}')"
           [[ "$mode" == 100755 && -x ./gradlew ]] || { echo "gradlew is not tracked executable" >&2; exit 1; }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
   device-qualification:
     name: Require device qualification evidence
     needs: signed-build
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     environment: release-qualification
     steps:
-      - name: Download signed candidate for qualification identity check
+      - name: Check out exact verified release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Download signed release candidate
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-candidate-${{ inputs.tag }}-${{ inputs.source_sha }}
           path: release-artifacts
 
-      - name: Require protected qualification record
+      - name: Apply protected qualification using the tested manifest validator
+        shell: bash
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_SHA: ${{ inputs.source_sha }}
           QUALIFICATION_JSON: ${{ secrets.RELEASE_DEVICE_QUALIFICATION_JSON }}
         run: |
           set -euo pipefail
-          [[ -n "$QUALIFICATION_JSON" ]] || { echo 'Release blocked: protected qualification JSON is missing.' >&2; exit 1; }
+          [[ -n "$QUALIFICATION_JSON" ]] || { echo "Release blocked: protected device qualification is missing" >&2; exit 1; }
           printf '%s' "$QUALIFICATION_JSON" > qualification.json
-          jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" '
-            .status == "passed" and .tag == $tag and .commit == $sha and
-            .nativeTdlibRuntime == "passed" and .reviewerApproval == true and
-            (.evidenceUrl | startswith("https://")) and
-            (.apkSha256.arm32 | test("^[0-9a-fA-F]{64}$")) and
-            (.apkSha256.arm64 | test("^[0-9a-fA-F]{64}$")) and
-            (.apkSha256.universal | test("^[0-9a-fA-F]{64}$"))
-          ' qualification.json >/dev/null || { echo 'Release blocked: qualification is not commit/tag/runtime/artifact specific.' >&2; exit 1; }
-          sha256sum -c release-artifacts/SHA256SUMS.txt
-          arm32="$(sha256sum release-artifacts/*armeabi-v7a.apk | awk '{print tolower($1)}')"
-          arm64="$(sha256sum release-artifacts/*arm64-v8a.apk | awk '{print tolower($1)}')"
-          universal="$(sha256sum release-artifacts/*universal.apk | awk '{print tolower($1)}')"
-          jq -e --arg a "$arm32" --arg b "$arm64" --arg u "$universal" '((.apkSha256.arm32|ascii_downcase) == $a) and ((.apkSha256.arm64|ascii_downcase) == $b) and ((.apkSha256.universal|ascii_downcase) == $u)' qualification.json >/dev/null || {
-            echo 'Release blocked: device evidence hashes do not match the signed candidate APKs.' >&2; exit 1;
-          }
+          trap 'rm -f qualification.json' EXIT
+          bash tools/ci/qualify_release_manifest.sh release-artifacts qualification.json "$RELEASE_TAG" "$RELEASE_SHA"
+          jq -e --arg sha "$RELEASE_SHA" '
+            .commit == $sha and .deviceQualification.status == "passed" and
+            (.deviceQualificationEvidence | type == "string" and startswith("https://"))
+          ' release-artifacts/RELEASE_MANIFEST.json >/dev/null
           {
-            echo '## Device qualification'
+            echo "## Verified device qualification"
             echo "Commit: $RELEASE_SHA"
-            echo "Evidence: $(jq -r .evidenceUrl qualification.json)"
+            echo "Evidence: $(jq -r .deviceQualificationEvidence release-artifacts/RELEASE_MANIFEST.json)"
           } >> "$GITHUB_STEP_SUMMARY"
+          printf '\n## Approved device qualification\nEvidence: %s\n' \
+            "$(jq -r .deviceQualificationEvidence release-artifacts/RELEASE_MANIFEST.json)" \
+            >> release-artifacts/RELEASE_VERIFICATION.md
+
+      - name: Archive only the qualified signed release candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qualified-release-candidate-${{ inputs.tag }}-${{ inputs.source_sha }}
+          path: release-artifacts/
+          retention-days: 30
+          if-no-files-found: error
 
   signed-build:
     name: Build and verify signed APK matrix
@@ -129,6 +142,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_SHA: ${{ inputs.source_sha }}
+      VERIFIED_CI_RUN_ID: ${{ needs.validate-release-request.outputs.ci_run_id }}
       RELEASE_VERSION: ${{ inputs.tag }}
       RELEASE_STORE_FILE: ${{ github.workspace }}/.ci/bousygram-release.keystore
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
@@ -207,32 +221,25 @@ jobs:
             "$build_tools" \
             "$actual_version" \
             "$actual_version_code"
-          tdlib_commit="$(grep -oE '[0-9a-fA-F]{40}' build-tools/tdlib/RESOLVED_COMMIT.txt | head -1)"
-          cert="$(printf '%s' "$RELEASE_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
-          evidence_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          jq -n --arg tag "$RELEASE_TAG" --arg commit "$RELEASE_SHA" --arg version "$actual_version" \
-            --arg tdlib "$tdlib_commit" --arg cert "$cert" --arg evidence "$evidence_url" \
-            --arg versionCode "$actual_version_code" --arg runId "$GITHUB_RUN_ID" \
-            "{
-              tag: \$tag,
-              commit: \$commit,
-              versionName: \$version,
-              versionCode: (\$versionCode|tonumber),
-              tdlibCommit: \$tdlib,
-              signingCertificateSha256: \$cert,
-              ciVerification: {workflow: \"android-enterprise.yml\", runId: \$runId, job: \"Build and verify\"},
-              deviceQualificationEvidence: \$evidence,
-              disabledProductionFeatures: [\"private-media-cast\", \"crash-reporting\", \"engine-lab\", \"legacy-streaming-fallback\"]
-            }" \
-            > release-artifacts/RELEASE_MANIFEST.json
-          jq empty release-artifacts/RELEASE_MANIFEST.json
+          export RELEASE_VERSION="$actual_version"
+          export RELEASE_VERSION_CODE="$actual_version_code"
+          TDLIB_COMMIT="$(grep -oE '[0-9a-fA-F]{40}' build-tools/tdlib/RESOLVED_COMMIT.txt | head -1)"
+          export TDLIB_COMMIT
+          export CI_VERIFICATION_RUN_ID="$VERIFIED_CI_RUN_ID"
+          export CI_VERIFICATION_RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${VERIFIED_CI_RUN_ID}"
+          bash tools/ci/create_release_manifest.sh release-artifacts
+          jq -e --arg runId "$VERIFIED_CI_RUN_ID" --arg sha "$RELEASE_SHA" '
+            .commit == $sha and .ciVerification.sourceCommit == $sha and
+            (.ciVerification.runId | tostring) == $runId and
+            .deviceQualification.status == "pending" and .deviceQualificationEvidence == null
+          ' release-artifacts/RELEASE_MANIFEST.json >/dev/null
           sha256sum release-artifacts/*.apk > release-artifacts/SHA256SUMS.txt
           cp tools/tdlib/BUILD_METADATA.txt release-artifacts/TDLIB_BUILD_METADATA.txt
           cp tools/tdlib/BUILD_VERIFICATION.txt release-artifacts/TDLIB_BUILD_VERIFICATION.txt
           {
             printf '# Bousygram %s\n\n' "$RELEASE_TAG"
             printf -- "- Source commit: \`%s\`\n" "$RELEASE_SHA"
-            printf -- "- TDLib commit: \`%s\`\n" "$tdlib_commit"
+            printf -- "- TDLib commit: \`%s\`\n" "$TDLIB_COMMIT"
             printf -- '- Device qualification: protected commit-specific record\n'
             printf -- "- Signing certificate: verified against protected \`RELEASE_CERT_SHA256\`\n"
             printf -- "- APK matrix: ARM32, ARM64, universal\n"
@@ -254,7 +261,7 @@ jobs:
 
   create-draft:
     name: Create verified draft release
-    needs: device-qualification
+    needs: [validate-release-request, device-qualification]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release-draft
@@ -270,16 +277,38 @@ jobs:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
 
-      - name: Download signed candidate
+      - name: Download the protected, qualified signed candidate
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-candidate-${{ inputs.tag }}-${{ inputs.source_sha }}
+          name: qualified-release-candidate-${{ inputs.tag }}-${{ inputs.source_sha }}
           path: release-artifacts
 
       - name: Refuse overwrite and create draft
         shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.source_sha }}
+          VERIFIED_CI_RUN_ID: ${{ needs.validate-release-request.outputs.ci_run_id }}
         run: |
           set -euo pipefail
+          sha256sum -c release-artifacts/SHA256SUMS.txt
+          [[ "$VERIFIED_CI_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Missing verified Android Enterprise run identity" >&2; exit 1; }
+          jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" --arg ciRunId "$VERIFIED_CI_RUN_ID" '
+            .tag == $tag and .commit == $sha and
+            .ciVerification.workflow == "android-enterprise.yml" and
+            (.ciVerification.runId | tostring) == $ciRunId and
+            .ciVerification.sourceCommit == $sha and
+            .deviceQualification.status == "passed" and
+            (.deviceQualificationEvidence | type == "string" and startswith("https://"))
+          ' release-artifacts/RELEASE_MANIFEST.json >/dev/null
+          jq -e --slurpfile manifest release-artifacts/RELEASE_MANIFEST.json '
+            .status == "passed" and .commit == $manifest[0].commit and
+            .evidenceUrl == $manifest[0].deviceQualificationEvidence and
+            .apkSha256 == $manifest[0].apkSha256
+          ' release-artifacts/DEVICE_QUALIFICATION.json >/dev/null
+          for kind in armeabi-v7a arm64-v8a universal; do
+            mapfile -t apks < <(find release-artifacts -maxdepth 1 -type f -name "*-$kind.apk" -print)
+            [[ ${#apks[@]} -eq 1 ]] || { echo "Incorrect $kind artifact count" >&2; exit 1; }
+          done
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; refusing overwrite." >&2
             exit 1
@@ -292,6 +321,7 @@ jobs:
             release-artifacts/Bousygram-*.apk \
             release-artifacts/SHA256SUMS.txt \
             release-artifacts/RELEASE_MANIFEST.json \
+            release-artifacts/DEVICE_QUALIFICATION.json \
             release-artifacts/RELEASE_VERIFICATION.md \
             release-artifacts/TDLIB_BUILD_METADATA.txt \
             release-artifacts/TDLIB_BUILD_VERIFICATION.txt
