@@ -15,6 +15,14 @@ The dispatcher requires `GITHUB_TOKEN` permissions `contents: write` to create t
 
 Choosing `auto` does not bypass production signing, evidence collection, or manual publication approvals. The signed release is only published when **Android Controlled Release** passes its original gates.
 
+## APK upgrade-safe version codes
+
+The Gradle build derives Android `versionCode` from the same semantic `versionName` used in the signed release: `MAJOR × 1,000,000 + MINOR × 1,000 + PATCH`. This lets a new version install as an upgrade over the prior one without uninstalling and losing local Telegram data. For example, `v1.0.0` yields code `1000000` and `v1.0.1` yields `1000001`. The previous fixed debug code was `10`.
+
+Each minor and patch field is limited to 0–999, and major to 0–2099, preserving Android's 2,100,000,000 code limit. Invalid or out-of-range versions fail configuration rather than building an APK that cannot be upgraded. `verifyReleaseVersionPolicy` exercises the same Gradle function with positive and negative fixtures in CI.
+
+The existing production signing certificate must also match the previously installed production APK for an in-place update; a debug-signed APK cannot be upgraded to a differently signed production APK merely by increasing `versionCode`.
+
 ## Protected release stages
 
 `android-release.yml` is manual-only and can still be run directly by providing `tag` and `source_sha`. It verifies that the tag resolves to the exact requested SHA in `main` history, checks a successful exact-commit mainline Android Enterprise run, and enters the protected `production-signing` environment.

@@ -140,6 +140,8 @@ import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
 import com.vaydelux.bousygram.core.media.PlaybackSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.PlaybackEngineOwner
+import com.vaydelux.bousygram.core.media.PlaybackQueueCoordinator
+import com.vaydelux.bousygram.core.media.PlaybackEngineSwitchCoordinator
 import com.vaydelux.bousygram.core.media.PlayerEngine
 import com.vaydelux.bousygram.core.media.PlayerEngineFactory
 import com.vaydelux.bousygram.core.media.StreamingSessionManager
@@ -387,6 +389,34 @@ fun PlayerScreen(
         )
     }
     var playerEngine by engineOwner
+    val engineSwitcher = remember(engineOwner, context) {
+        PlaybackEngineSwitchCoordinator(engineOwner) { selection, selectedSpeed ->
+            PlayerEngineFactory.create(context, selection, selectedSpeed)
+        }
+    }
+    fun requestEngineSwitch(target: SelectedPlayerEngine, feedback: String) {
+        val resume = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
+        engineSwitcher.switchTo(target, speed).fold(
+            onSuccess = {
+                lastGoodPosition = resume
+                pendingResumeMs = resume
+                toastFeedbackText = feedback
+                hudVisible = true
+                reloadNonce++
+            },
+            onFailure = { failure ->
+                Log.e("PlayerScreen", "Engine switch failed", failure)
+                toastFeedbackText = "Unable to switch player. Try again."
+                hudVisible = true
+            }
+        )
+    }
+    fun togglePlayerEngine() {
+        val target = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.MPV
+                     else SelectedPlayerEngine.ExoPlayer
+        requestEngineSwitch(target, "Switching to ${target.name}…")
+    }
+
     val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
     var castWasConnected by remember { mutableStateOf(false) }
@@ -653,122 +683,47 @@ fun PlayerScreen(
         onExit()
     }
 
-    fun goToTrack(newIndex: Int) {
-        if (newIndex !in queue.indices || newIndex == queueIndex || playbackSession.isTransitioning) return
-        lastHandledEndedTrackIndex = queueIndex
-        StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
-        activeLocalStreamUrl = null
-        val oldItem = queue.getOrNull(queueIndex)
-        if (oldItem != null) {
-            StreamAccessRegistry.revokeFile(oldItem.fileId)
-            if (playerEngine.currentPositionMs > 0) {
-                PlaybackProgressTracker.saveMessagePosition(
-                    oldItem.chatId,
-                    oldItem.messageId,
-                    playerEngine.currentPositionMs.toInt(),
-                    duration,
-                    oldItem.fileId,
-                    oldItem.title
-                )
+    // Keep every queue operation on the same guarded path, without stopping the session.
+    val queueCoordinator = remember(playbackSession) { PlaybackQueueCoordinator(playbackSession) }
+    fun moveToTrack(index: Int): Boolean = queueCoordinator.moveTo(
+        index = index,
+        onLeaveCurrent = { old ->
+            lastHandledEndedTrackIndex = playbackSession.currentIndex.value
+            StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
+            activeLocalStreamUrl = null
+            StreamAccessRegistry.revokeFile(old.fileId)
+            val lastPosition = playerEngine.currentPositionMs
+            if (lastPosition > 0L) {
+                runCatching {
+                    PlaybackProgressTracker.saveMessagePosition(
+                        old.chatId, old.messageId, lastPosition.toInt(),
+                        duration, old.fileId, old.title
+                    )
+                }.onFailure { Log.w("PlayerScreen", "Could not persist episode progress", it) }
             }
+        },
+        onResetAndStop = {
+            reloadNonce = 0
+            retryCount = 0
+            pendingResumeMs = 0L
+            seekPreviewPositionMs = -1L
+            pendingSeekTargetMs = -1L
+            pendingSeekStartedAtMs = 0L
+            isReconnecting = false
+            firstFrameMs = 0L
+            isOpening = true
+            isBuffering = true
+            isPlaying = false
+            position = 0L
+            duration = 0L
+            playbackError = null
+            playerEngine.stop()
+            playerEngine.detachSurface()
         }
-        stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
-        reloadNonce = 0
-        retryCount = 0
-        pendingResumeMs = 0L
-        seekPreviewPositionMs = -1L
-        pendingSeekTargetMs = -1L
-        pendingSeekStartedAtMs = 0L
-        isReconnecting = false
-        firstFrameMs = 0L
-        isOpening = true
-        isBuffering = true
-        isPlaying = false
-        position = 0L
-        duration = 0L
-        playbackError = null
-        playerEngine.stop()
-        playerEngine.detachSurface()
-        playbackSession.goToIndex(newIndex)
-    }
-
-    fun skipNext(): Boolean {
-        if (!playbackSession.hasNext || playbackSession.isTransitioning) return false
-        lastHandledEndedTrackIndex = queueIndex
-        StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
-        activeLocalStreamUrl = null
-        val oldItem = queue.getOrNull(queueIndex)
-        if (oldItem != null) {
-            StreamAccessRegistry.revokeFile(oldItem.fileId)
-            if (playerEngine.currentPositionMs > 0) {
-                PlaybackProgressTracker.saveMessagePosition(
-                    oldItem.chatId,
-                    oldItem.messageId,
-                    playerEngine.currentPositionMs.toInt(),
-                    duration,
-                    oldItem.fileId,
-                    oldItem.title
-                )
-            }
-        }
-        stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
-        reloadNonce = 0
-        retryCount = 0
-        pendingResumeMs = 0L
-        seekPreviewPositionMs = -1L
-        pendingSeekTargetMs = -1L
-        pendingSeekStartedAtMs = 0L
-        isReconnecting = false
-        firstFrameMs = 0L
-        isOpening = true
-        isBuffering = true
-        isPlaying = false
-        position = 0L
-        duration = 0L
-        playbackError = null
-        playerEngine.stop()
-        playerEngine.detachSurface()
-        return playbackSession.next()
-    }
-
-    fun skipPrevious(): Boolean {
-        if (!playbackSession.hasPrevious || playbackSession.isTransitioning) return false
-        lastHandledEndedTrackIndex = queueIndex
-        StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
-        activeLocalStreamUrl = null
-        val oldItem = queue.getOrNull(queueIndex)
-        if (oldItem != null) {
-            StreamAccessRegistry.revokeFile(oldItem.fileId)
-            if (playerEngine.currentPositionMs > 0) {
-                PlaybackProgressTracker.saveMessagePosition(
-                    oldItem.chatId,
-                    oldItem.messageId,
-                    playerEngine.currentPositionMs.toInt(),
-                    duration,
-                    oldItem.fileId,
-                    oldItem.title
-                )
-            }
-        }
-        stopCurrentCache(PlaybackCacheStopReason.TrackSwitch)
-        reloadNonce = 0
-        retryCount = 0
-        pendingResumeMs = 0L
-        seekPreviewPositionMs = -1L
-        pendingSeekTargetMs = -1L
-        pendingSeekStartedAtMs = 0L
-        isReconnecting = false
-        firstFrameMs = 0L
-        isOpening = true
-        isBuffering = true
-        isPlaying = false
-        position = 0L
-        duration = 0L
-        playbackError = null
-        playerEngine.stop()
-        playerEngine.detachSurface()
-        return playbackSession.previous()
-    }
+    )
+    fun goToTrack(newIndex: Int) { moveToTrack(newIndex) }
+    fun skipNext(): Boolean = moveToTrack(playbackSession.currentIndex.value + 1)
+    fun skipPrevious(): Boolean = moveToTrack(playbackSession.currentIndex.value - 1)
 
     val mediaSessionBridge = remember(playerEngine) {
         UniversalMediaSessionBridge(
@@ -926,16 +881,29 @@ fun PlayerScreen(
                         PlaybackTelemetryRecorder.recordFallback(playbackSessionId, fallbackReason)
                         PlaybackDiagnostics.recordStreamError("FallbackToMpv: $fallbackReason")
 
-                        val (fallback, pos) = PlayerEngineFactory.createFallback(context, playerEngine, speed)
-                        playerEngine = fallback
-                        pendingResumeMs = if (pos > 0L) pos else retryPosition
-                        lastGoodPosition = pendingResumeMs
-                        retryCount = 1
-                        isReconnecting = true
-                        isBuffering = true
-                        playbackError = null
-                        hudVisible = false
-                        reloadNonce++
+                        engineSwitcher.fallback {
+                            PlayerEngineFactory.createFallback(context, playerEngine, speed)
+                        }.fold(
+                            onSuccess = { (_, pos) ->
+                                pendingResumeMs = if (pos > 0L) pos else retryPosition
+                                lastGoodPosition = pendingResumeMs
+                                retryCount = 1
+                                isReconnecting = true
+                                isBuffering = true
+                                playbackError = null
+                                hudVisible = false
+                                reloadNonce++
+                            },
+                            onFailure = { failure ->
+                                // A missing/failed native decoder must not crash the Compose UI.
+                                // Keep the player open and offer its existing retry/exit actions.
+                                Log.e("PlayerScreen", "Automatic playback fallback failed", failure)
+                                isReconnecting = false
+                                isBuffering = false
+                                playbackError = "Unable to initialize a compatible video player. Try again."
+                                commitPlaybackTelemetry(fatalError = playbackError)
+                            }
+                        )
                     } else if (item != null && retryCount < MAX_AUTO_RETRIES) {
                         retryCount++
                         recordMetrics()
@@ -1244,7 +1212,8 @@ fun PlayerScreen(
                 autoNextCardVisible = false
                 playerInputController.isAutoNextActive = false
                 if (!skipNext()) {
-                    exitPlayback()
+                    toastFeedbackText = "No next video"
+                    hudVisible = true
                 }
             }
         }
@@ -1342,13 +1311,7 @@ fun PlayerScreen(
                 }
                 BlackScreenRecoveryAction.SWITCH_TO_MPV_HW,
                 BlackScreenRecoveryAction.SWITCH_TO_MPV_SW -> {
-                    toastFeedbackText = "Switching player engine for video compatibility…"
-                    hudVisible = true
-                    val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
-                    lastGoodPosition = retryPos
-                    pendingResumeMs = retryPos
-                    playerEngine = PlayerEngineFactory.create(context, SelectedPlayerEngine.MPV, speed)
-                    reloadNonce++
+                    requestEngineSwitch(SelectedPlayerEngine.MPV, "Switching player engine for video compatibility…")
                 }
                 else -> {}
             }
@@ -1711,7 +1674,10 @@ fun PlayerScreen(
                 },
                 onSkipNext = {
                     hudInteractionTick++
-                    if (!skipNext()) exitPlayback()
+                    if (!skipNext()) {
+                        toastFeedbackText = "No next video"
+                        hudVisible = true
+                    }
                 },
                 onTracks = {
                     hudInteractionTick++
@@ -1739,14 +1705,7 @@ fun PlayerScreen(
                 },
                 onEpisodes = if (queue.size > 1) { { episodesDrawerVisible = !episodesDrawerVisible } } else null,
                 onSwitchEngine = {
-                    val target = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.MPV else SelectedPlayerEngine.ExoPlayer
-                    toastFeedbackText = "Switching to ${target.name}…"
-                    hudVisible = true
-                    val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
-                    lastGoodPosition = retryPos
-                    pendingResumeMs = retryPos
-                    playerEngine = PlayerEngineFactory.create(context, target, speed)
-                    reloadNonce++
+                    togglePlayerEngine()
                 },
                 playPauseFocusRequester = playPauseFocusRequester,
                 seekBarFocusRequester = seekBarFocusRequester,
@@ -1914,7 +1873,10 @@ fun PlayerScreen(
                             onClick = {
                                 autoNextCardVisible = false
                                 playerInputController.isAutoNextActive = false
-                                if (!skipNext()) exitPlayback()
+                                if (!skipNext()) {
+                                    toastFeedbackText = "No next video"
+                                    hudVisible = true
+                                }
                             },
                             selected = true,
                             modifier = Modifier.focusRequester(playNowFocusRequester)
@@ -2197,14 +2159,7 @@ fun PlayerScreen(
                 timeToFirstFrameMs = firstFrameMs,
                 visibleOverlays = if (visibleOverlaysList.isEmpty()) "None (Video Visible)" else visibleOverlaysList.joinToString(", "),
                 onSwitchEngine = {
-                    val target = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.MPV else SelectedPlayerEngine.ExoPlayer
-                    toastFeedbackText = "Switching to ${target.name}…"
-                    hudVisible = true
-                    val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
-                    lastGoodPosition = retryPos
-                    pendingResumeMs = retryPos
-                    playerEngine = PlayerEngineFactory.create(context, target, speed)
-                    reloadNonce++
+                    togglePlayerEngine()
                 },
                 onSwitchSurface = {
                     val next = !useTextureView
