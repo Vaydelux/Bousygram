@@ -104,6 +104,16 @@ private fun BousygramAppRoot(
     }
     var resumeSignal by remember { mutableIntStateOf(0) }
 
+    // Authentication changes invalidate the previous user's navigation and player
+    // destination. Never reopen a stale media request after logout or a new login.
+    LaunchedEffect(authState.step) {
+        if (authState.step != AuthStep.Authorized) {
+            appScreen = AppScreen.Home
+            searchFocus = SearchFocusState()
+            resumeSignal = 0
+        }
+    }
+
     val pendingCast by CastReceiverManager.pendingCastRequest.collectAsState()
     LaunchedEffect(pendingCast) {
         val payload = pendingCast ?: return@LaunchedEffect
