@@ -1170,14 +1170,6 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playbackError) {
-        if (playbackError != null) {
-            hudVisible = true
-            kotlinx.coroutines.delay(80L)
-            runCatching { retryFocusRequester.requestFocus() }
-        }
-    }
-
     LaunchedEffect(queueIndex, reloadNonce, isBuffering) {
         if (!isBuffering) return@LaunchedEffect
         delay(BUFFERING_STALL_MS)
@@ -1532,6 +1524,9 @@ fun PlayerScreen(
                         if (optionsPanelVisible) {
                             optionsPanelVisible = false
                             playerInputController.activeMenu = PlayerMenuType.NONE
+                        } else if (playbackError != null) {
+                            // Keep the visible Retry action accessible on failed playback.
+                            hudVisible = true
                         } else {
                             hudVisible = !hudVisible
                         }
@@ -1678,9 +1673,14 @@ fun PlayerScreen(
                 optionsVisible = optionsPanelVisible,
                 onOptionsToggle = {
                     hudInteractionTick++
-                    optionsPanelVisible = !optionsPanelVisible
+                    val openingOptions = !optionsPanelVisible
+                    if (openingOptions) {
+                        tracksPanelVisible = false
+                        episodesDrawerVisible = false
+                    }
+                    optionsPanelVisible = openingOptions
                     playerInputController.activeMenu =
-                        if (optionsPanelVisible) PlayerMenuType.OPTIONS else PlayerMenuType.NONE
+                        if (openingOptions) PlayerMenuType.OPTIONS else PlayerMenuType.NONE
                 },
                 onOptionsClose = {
                     hudInteractionTick++
@@ -1744,6 +1744,7 @@ fun PlayerScreen(
                 onTracks = {
                     hudInteractionTick++
                     optionsPanelVisible = false
+                    episodesDrawerVisible = false
                     tracksPanelVisible = true
                     playerInputController.activeMenu = PlayerMenuType.TRACKS
                     hudVisible = true
@@ -1770,6 +1771,7 @@ fun PlayerScreen(
                 onEpisodes = if (queue.size > 1) { {
                     hudInteractionTick++
                     optionsPanelVisible = false
+                    tracksPanelVisible = false
                     episodesDrawerVisible = !episodesDrawerVisible
                     playerInputController.activeMenu =
                         if (episodesDrawerVisible) PlayerMenuType.EPISODES else PlayerMenuType.NONE
@@ -2545,6 +2547,10 @@ private fun PlayerHud(
     }
     val edgePadding = if (compact) 12.dp else 32.dp
     val innerPadding = if (compact) 14.dp else 22.dp
+    val maxHudHeight = playerHudHeightLimit(
+        LocalConfiguration.current.screenHeightDp.takeIf { it > 0 } ?: 720,
+        compact
+    )
     val isPlayingOrPending = (state.playWhenReady && state.error == null) || state.isPlaying
     val statusText = when {
         state.error != null -> "Playback error"
@@ -2559,13 +2565,18 @@ private fun PlayerHud(
         modifier = modifier
             .fillMaxWidth()
             .padding(edgePadding)
+            .heightIn(max = maxHudHeight)
             .border(1.dp, Color(0x555A7998), hudShape),
         color = Color(0xF0111A28),
         contentColor = Color.White,
         shape = hudShape,
         shadowElevation = 14.dp
     ) {
-        Column(Modifier.padding(innerPadding)) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(innerPadding)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
