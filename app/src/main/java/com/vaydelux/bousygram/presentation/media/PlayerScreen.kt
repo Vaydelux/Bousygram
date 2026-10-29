@@ -1426,7 +1426,7 @@ fun PlayerScreen(
 
             override fun seekRelative(seconds: Int) {
                 hudInteractionTick++
-                val max = if (castState.connected) castState.durationMs else duration
+                val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                 if (max <= 0L) {
                     toastFeedbackText = "Seeking is available when video duration is ready"
                     hudVisible = true
@@ -1444,7 +1444,7 @@ fun PlayerScreen(
 
             override fun previewSeekRelative(seconds: Int) {
                 hudInteractionTick++
-                val max = if (castState.connected) castState.durationMs else duration
+                val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                 if (max <= 0L) {
                     seekPreviewPositionMs = -1L
                     seekFeedbackText = "Seeking is available when video duration is ready"
@@ -1460,7 +1460,7 @@ fun PlayerScreen(
 
             override fun confirmSeekPreview() {
                 val target = seekPreviewPositionMs
-                val max = if (castState.connected) castState.durationMs else duration
+                val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                 if (target < 0L || max <= 0L) return
                 seekPreviewPositionMs = -1L
                 playerInputController.resetSeekPreviewState()
@@ -1534,7 +1534,7 @@ fun PlayerScreen(
             .pointerInput(queueIndex, duration, playerEngine) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
-                        val max = if (castState.connected) castState.durationMs else duration
+                        val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                         if (max <= 0L || playbackError != null) {
                             toastFeedbackText = "Seeking is available when playback is ready"
                         } else {
@@ -1700,8 +1700,8 @@ fun PlayerScreen(
                     title = title,
                     fileName = fileName,
                     positionMs = if (castState.connected) castState.positionMs else position,
-                    durationMs = if (castState.connected) castState.durationMs else duration,
-                    durationTrusted = (if (castState.connected) castState.durationMs else duration) > 0L,
+                    durationMs = playerSeekDurationMs(duration, castState.durationMs, castState.connected),
+                    durationTrusted = (playerSeekDurationMs(duration, castState.durationMs, castState.connected)) > 0L,
                     speed = speed,
                     isPlaying = isPlaying,
                     playWhenReady = playerEngine.playWhenReady,
@@ -1761,7 +1761,7 @@ fun PlayerScreen(
                 },
                 onSeekBy = { delta ->
                     hudInteractionTick++
-                    val max = if (castState.connected) castState.durationMs else duration
+                    val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                     if (max <= 0L) {
                         toastFeedbackText = "Seeking is available when video duration is ready"
                     } else {
@@ -1777,7 +1777,7 @@ fun PlayerScreen(
                 },
                 onSeekTo = { target ->
                     hudInteractionTick++
-                    val max = if (castState.connected) castState.durationMs else duration
+                    val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                     if (max <= 0L) {
                         toastFeedbackText = "Seeking is available when video duration is ready"
                     } else {
