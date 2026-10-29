@@ -32,6 +32,12 @@ internal fun playerChromeLayout(isTv: Boolean, compact: Boolean): PlayerChromeLa
     else -> PlayerChromeLayout.TOUCH_WIDE
 }
 
+/** Keep the HUD inside the window even with expanded options and landscape keyboard/insets. */
+internal fun playerHudHeightLimit(windowHeightDp: Int, compact: Boolean): androidx.compose.ui.unit.Dp {
+    val verticalInsetDp = if (compact) 24 else 64
+    return (windowHeightDp - verticalInsetDp).coerceAtLeast(1).dp
+}
+
 /**
  * All buttons delegate to the real PlayerScreen playback callbacks. No local playback
  * state is stored here and the remote's input controller retains exclusive ownership
