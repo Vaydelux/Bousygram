@@ -53,17 +53,28 @@ fun bousygramVersionCode(version: String): Int {
 tasks.register("verifyReleaseVersionPolicy") {
     group = "verification"
     description = "Verify ordered Android APK versionCode mapping and reject invalid versions"
+    // Evaluate the pure Gradle policy at configuration time, but capture only serializable
+    // Booleans in the task action. Calling a script function from doLast captures the whole
+    // Gradle script instance and breaks Gradle 9's configuration cache.
+    val expected = mapOf(
+        "1.0.0" to 1_000_000,
+        "1.0.1" to 1_000_001,
+        "1.1.0" to 1_001_000,
+        "2.0.0" to 2_000_000,
+        "2099.999.999" to 2_099_999_999
+    )
+    val positiveFixturesPass = expected.all { (version, code) ->
+        bousygramVersionCode(version) == code
+    }
+    val negativeFixturesPass = listOf(
+        "0.0.0", "1.0.1000", "1.1000.0", "2100.0.0",
+        "v1.0.0", "01.0.0", "1.0.-1", "broken"
+    ).all { version -> runCatching { bousygramVersionCode(version) }.isFailure }
+    inputs.property("positiveFixturesPass", positiveFixturesPass)
+    inputs.property("negativeFixturesPass", negativeFixturesPass)
     doLast {
-        check(bousygramVersionCode("1.0.0") == 1_000_000)
-        check(bousygramVersionCode("1.0.1") == 1_000_001)
-        check(bousygramVersionCode("1.1.0") == 1_001_000)
-        check(bousygramVersionCode("2.0.0") == 2_000_000)
-        check(bousygramVersionCode("2099.999.999") == 2_099_999_999)
-        listOf("0.0.0", "1.0.1000", "1.1000.0", "2100.0.0", "v1.0.0", "01.0.0", "1.0.-1", "broken").forEach { bad ->
-            check(runCatching { bousygramVersionCode(bad) }.isFailure) {
-                "Invalid Android release version was accepted: $bad"
-            }
-        }
+        check(positiveFixturesPass) { "Valid release version mappings did not match expected Android codes" }
+        check(negativeFixturesPass) { "Invalid release version was accepted by the Android version policy" }
     }
 }
 
