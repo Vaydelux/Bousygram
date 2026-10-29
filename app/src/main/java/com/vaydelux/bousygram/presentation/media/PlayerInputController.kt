@@ -12,7 +12,8 @@ enum class PlayerMenuType {
     TRACKS,
     EPISODES,
     SPEED,
-    ASPECT
+    ASPECT,
+    OPTIONS
 }
 
 enum class PlayerFocusTarget {
@@ -27,6 +28,7 @@ enum class PlayerFocusTarget {
     BUTTON_ASPECT,
     BUTTON_EPISODES,
     BUTTON_RETRY,
+    BUTTON_OPTIONS,
     MENU_CONTENT,
     AUTO_NEXT_PLAY_NOW
 }
@@ -203,6 +205,7 @@ class PlayerInputController(
                     PlayerMenuType.SPEED -> PlayerFocusTarget.BUTTON_SPEED
                     PlayerMenuType.EPISODES -> PlayerFocusTarget.BUTTON_EPISODES
                     PlayerMenuType.ASPECT -> PlayerFocusTarget.BUTTON_ASPECT
+                    PlayerMenuType.OPTIONS -> PlayerFocusTarget.BUTTON_OPTIONS
                     else -> PlayerFocusTarget.BUTTON_PLAY_PAUSE
                 }
                 actions.showHud(returnTarget)
@@ -342,6 +345,7 @@ class PlayerInputController(
                     PlayerMenuType.SPEED -> PlayerFocusTarget.BUTTON_SPEED
                     PlayerMenuType.EPISODES -> PlayerFocusTarget.BUTTON_EPISODES
                     PlayerMenuType.ASPECT -> PlayerFocusTarget.BUTTON_ASPECT
+                    PlayerMenuType.OPTIONS -> PlayerFocusTarget.BUTTON_OPTIONS
                     else -> PlayerFocusTarget.BUTTON_PLAY_PAUSE
                 }
                 actions.showHud(returnTarget)
