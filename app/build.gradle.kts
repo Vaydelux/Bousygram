@@ -85,6 +85,12 @@ android {
     }
 
     val devAbi = project.findProperty("devAbi") as? String
+    // Debug APK previews must include only architectures with tested TDLib JNI.
+    // Normal debug APKs remain unfiltered so the x86_64 Android CI emulator works.
+    val debugPreviewArmOnly = providers.gradleProperty("debugPreviewArmOnly").orNull == "true"
+    require(!debugPreviewArmOnly || devAbi.isNullOrBlank()) {
+        "debugPreviewArmOnly and devAbi cannot be combined; request one ABI mode"
+    }
     val releaseVersionName = providers.gradleProperty("releaseVersionName").orElse("1.0.0").get()
     // A versionName-only update is not installable over the previous Android APK unless
     // versionCode also increases. Encode semver into an ordered, Play-compatible integer.
@@ -111,8 +117,15 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         if (!devAbi.isNullOrBlank()) {
+            require(devAbi in supportedTdLibAbis) {
+                "devAbi must be arm64-v8a or armeabi-v7a"
+            }
             ndk {
                 abiFilters += listOf(devAbi)
+            }
+        } else if (debugPreviewArmOnly) {
+            ndk {
+                abiFilters += supportedTdLibAbis
             }
         }
 
