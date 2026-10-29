@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing protected version tag to release (for example v1.0.0)
+        description: Existing version tag, e.g. v1.0.0 (prefer Release Bousygram APKs action)
         required: true
         type: string
       source_sha:
-        description: Exact commit SHA the tag must resolve to
+        description: Exact 40-character commit SHA (automatically resolved by Release Bousygram APKs action)
         required: true
         type: string
 
@@ -34,11 +34,28 @@ jobs:
     outputs:
       ci_run_id: ${{ steps.verify-ci.outputs.run_id }}
     steps:
-      - name: Check out requested commit
+      - name: Validate manual inputs before checkout
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error title=Invalid release tag::Enter an existing version tag such as v1.0.0. Create the tag on a CI-green main commit first." >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error title=Invalid source SHA::source_sha must be a full 40-character Git commit SHA, not a branch name or placeholder such as 'test'. Prefer Actions > Release Bousygram APKs: it resolves the SHA automatically from your version tag." >&2
+            exit 1
+          fi
+
+      - name: Check out main to validate the tag and commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate tag, commit, and Gradle metadata
         id: verify-ci
@@ -52,6 +69,10 @@ jobs:
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Release tag must be vMAJOR.MINOR.PATCH" >&2; exit 1; }
           [[ "$RELEASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "source_sha must be a full commit SHA" >&2; exit 1; }
           git fetch --tags --force origin
+          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG" || {
+            echo "::error title=Missing version tag::Tag $RELEASE_TAG does not exist. Create an annotated version tag on an exact CI-green main commit before requesting the protected release." >&2
+            exit 1
+          }
           resolved="$(git rev-parse "refs/tags/$RELEASE_TAG^{}")"
           [[ "$resolved" == "$RELEASE_SHA" ]] || { echo "Tag $RELEASE_TAG resolves to $resolved, not $RELEASE_SHA" >&2; exit 1; }
           git fetch origin main --force

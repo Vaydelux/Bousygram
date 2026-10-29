@@ -29,6 +29,14 @@ Its documented structure is in [RELEASE_DEVICE_QUALIFICATION_RECORD.md](RELEASE_
 
 Because the hashes are generated in the signing job, the qualification record must be prepared from **that exact candidate's verified checksums**, after real device checks. A prefilled generic qualification flag is insufficient.
 
+## Avoid the raw-SHA workflow for normal releases
+
+The **Android Controlled Release** workflow is the protected, internal downstream pipeline. Its two inputs require an **existing version tag** and the **full 40-character Git commit SHA** pointed to by that tag. A placeholder such as `test` is not a valid SHA and is rejected before checkout.
+
+For normal use, select **Actions → Release Bousygram APKs**, not **Android Controlled Release**. That one-input dispatcher resolves the SHA for you. It still requires a pre-existing tag and a CI-green `main` commit, plus signing, hardware qualification and reviewer approvals. It never publishes a release merely because the dispatcher succeeds.
+
+To obtain an installable, **debug-only** test APK without production signing or a version tag, open a successful **Android Enterprise Checks** run on `main` and download its `debug-apks-<commit>` artifact. Debug APKs are for development/testing only and must not be presented as production releases.
+
 ## How to request a release
 
 1. Obtain a green `Android Enterprise Checks` run for the commit on `main`.
