@@ -1,7 +1,6 @@
 package com.vaydelux.bousygram.presentation.media
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -86,7 +85,7 @@ class PlayerChromeInstrumentedTest {
         composeRule.onNodeWithTag("player_options_toggle").performClick()
         composeRule.onNodeWithTag("player_options_panel").assertExists()
         composeRule.onNodeWithText("Audio / CC").assertExists()
-        composeRule.onNodeWithText("✕ Done").performClick()
+        composeRule.onNodeWithTag("player_options_toggle").performClick()
         composeRule.onNodeWithTag("player_options_panel").assertDoesNotExist()
     }
 
