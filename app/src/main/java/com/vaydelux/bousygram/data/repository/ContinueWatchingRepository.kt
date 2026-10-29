@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.data.repository
 
 import android.content.Context
 import android.util.Log
+import android.util.AtomicFile
 import com.vaydelux.bousygram.app.BousygramApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,7 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileNotFoundException
 
 /**
  * Data model for an item in the Continue Watching rail.
@@ -55,11 +57,15 @@ object ContinueWatchingRepository {
     private val _railItems = MutableStateFlow<List<ContinueWatchingEntry>>(emptyList())
     val railItems: StateFlow<List<ContinueWatchingEntry>> = _railItems.asStateFlow()
 
-    init {
-        scope.launch {
-            loadFromDisk()
-            evictExpiredLocked()
-            updateRailFlowLocked()
+    // Initialize before any queued mutation, so an early progress save cannot be
+    // overwritten by a delayed disk load. All writers also acquire [mutex].
+    private val initializationJob = scope.launch {
+        mutex.withLock {
+            synchronized(entries) {
+                loadFromDisk()
+                evictExpiredLocked()
+                updateRailFlowLocked()
+            }
         }
     }
 
@@ -80,23 +86,26 @@ object ContinueWatchingRepository {
         val entryKey = key(chatId, messageId)
 
         scope.launch {
+            initializationJob.join()
             mutex.withLock {
-                val existing = entries[entryKey]
-                val updated = ContinueWatchingEntry(
-                    chatId = chatId,
-                    messageId = messageId,
-                    fileId = if (fileId > 0) fileId else (existing?.fileId ?: 0),
-                    title = title.ifBlank { existing?.title ?: "Video" },
-                    thumbnailPath = thumbnailPath ?: existing?.thumbnailPath,
-                    positionMs = positionMs,
-                    durationMs = if (durationMs > 0L) durationMs else (existing?.durationMs ?: 0L),
-                    updatedAt = System.currentTimeMillis(),
-                    completed = isCompleted
-                )
-                entries[entryKey] = updated
-                evictExpiredLocked()
+                synchronized(entries) {
+                    val existing = entries[entryKey]
+                    val updated = ContinueWatchingEntry(
+                        chatId = chatId,
+                        messageId = messageId,
+                        fileId = if (fileId > 0) fileId else (existing?.fileId ?: 0),
+                        title = title.ifBlank { existing?.title ?: "Video" },
+                        thumbnailPath = thumbnailPath ?: existing?.thumbnailPath,
+                        positionMs = positionMs,
+                        durationMs = if (durationMs > 0L) durationMs else (existing?.durationMs ?: 0L),
+                        updatedAt = System.currentTimeMillis(),
+                        completed = isCompleted
+                    )
+                    entries[entryKey] = updated
+                    evictExpiredLocked()
+                    updateRailFlowLocked()
+                }
                 saveToDiskLocked()
-                updateRailFlowLocked()
             }
         }
     }
@@ -104,14 +113,18 @@ object ContinueWatchingRepository {
     fun markCompleted(chatId: Long, messageId: Long) {
         val entryKey = key(chatId, messageId)
         scope.launch {
+            initializationJob.join()
             mutex.withLock {
-                val existing = entries[entryKey] ?: return@withLock
-                entries[entryKey] = existing.copy(
-                    completed = true,
-                    updatedAt = System.currentTimeMillis()
-                )
-                saveToDiskLocked()
-                updateRailFlowLocked()
+                val changed = synchronized(entries) {
+                    val existing = entries[entryKey] ?: return@synchronized false
+                    entries[entryKey] = existing.copy(
+                        completed = true,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    updateRailFlowLocked()
+                    true
+                }
+                if (changed) saveToDiskLocked()
             }
         }
     }
@@ -119,11 +132,14 @@ object ContinueWatchingRepository {
     fun removeEntry(chatId: Long, messageId: Long) {
         val entryKey = key(chatId, messageId)
         scope.launch {
+            initializationJob.join()
             mutex.withLock {
-                if (entries.remove(entryKey) != null) {
-                    saveToDiskLocked()
-                    updateRailFlowLocked()
+                val removed = synchronized(entries) {
+                    val changed = entries.remove(entryKey) != null
+                    if (changed) updateRailFlowLocked()
+                    changed
                 }
+                if (removed) saveToDiskLocked()
             }
         }
     }
@@ -231,12 +247,18 @@ object ContinueWatchingRepository {
                 }
                 jsonArray.put(obj)
             }
+
             val file = storageFile() ?: return
-            val temp = File(file.parentFile, "$FILE_NAME.tmp")
-            temp.writeText(jsonArray.toString())
-            if (!temp.renameTo(file)) {
-                file.delete()
-                temp.renameTo(file)
+            // AtomicFile preserves the last good version if a write or process dies midway.
+            // Avoid deleting the original before a replacement is durable.
+            val atomicFile = AtomicFile(file)
+            val stream = atomicFile.startWrite()
+            try {
+                stream.write(jsonArray.toString().toByteArray(Charsets.UTF_8))
+                atomicFile.finishWrite(stream)
+            } catch (error: Exception) {
+                atomicFile.failWrite(stream)
+                throw error
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist continue watching data", e)
@@ -245,12 +267,13 @@ object ContinueWatchingRepository {
 
     private fun loadFromDisk() {
         val file = storageFile() ?: return
-        if (!file.exists()) return
         try {
-            val content = file.readText()
+            val content = AtomicFile(file).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
             if (content.isBlank()) return
             val jsonArray = JSONArray(content)
-            entries.clear()
+            // Parse completely before replacing in-memory state. A malformed JSON record
+            // must not leave a half-populated map behind.
+            val loaded = LinkedHashMap<String, ContinueWatchingEntry>()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val entry = ContinueWatchingEntry(
@@ -265,10 +288,14 @@ object ContinueWatchingRepository {
                     completed = obj.optBoolean("completed", false)
                 )
                 if (entry.chatId != 0L && entry.messageId != 0L) {
-                    entries[key(entry.chatId, entry.messageId)] = entry
+                    loaded[key(entry.chatId, entry.messageId)] = entry
                 }
             }
+            entries.clear()
+            entries.putAll(loaded)
             Log.i(TAG, "Loaded ${entries.size} continue watching entries from disk")
+        } catch (_: FileNotFoundException) {
+            // Fresh installation: nothing to restore.
         } catch (e: Exception) {
             Log.e(TAG, "Failed to read continue watching data from disk", e)
         }
