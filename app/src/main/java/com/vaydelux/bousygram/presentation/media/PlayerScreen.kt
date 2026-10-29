@@ -1677,7 +1677,14 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         }
-        val loadingPhase = playerLoadingPhase(isOpening, isReconnecting, isBuffering, playbackError)
+        val loadingPhase = playerLoadingPhaseForSession(
+            castConnected = castState.connected,
+            castBuffering = castState.playbackStatus == CastPlaybackStatus.Buffering,
+            opening = isOpening,
+            reconnecting = isReconnecting,
+            buffering = isBuffering,
+            error = playbackError
+        )
         if (loadingPhase == PlayerLoadingPhase.OPENING) {
             PlayerOpeningSkeleton(compact = compactHud)
         }
@@ -1703,12 +1710,15 @@ fun PlayerScreen(
                     durationMs = playerSeekDurationMs(duration, castState.durationMs, castState.connected),
                     durationTrusted = (playerSeekDurationMs(duration, castState.durationMs, castState.connected)) > 0L,
                     speed = speed,
-                    isPlaying = isPlaying,
-                    playWhenReady = playerEngine.playWhenReady,
-                    isBuffering = isBuffering,
-                    isOpening = isOpening,
-                    isReconnecting = isReconnecting,
-                    retryCount = retryCount,
+                    isPlaying = if (castState.connected) castState.playbackStatus == CastPlaybackStatus.Playing else isPlaying,
+                    playWhenReady = if (castState.connected) {
+                        castState.playbackStatus == CastPlaybackStatus.Playing ||
+                            castState.playbackStatus == CastPlaybackStatus.Buffering
+                    } else playerEngine.playWhenReady,
+                    isBuffering = if (castState.connected) castState.playbackStatus == CastPlaybackStatus.Buffering else isBuffering,
+                    isOpening = !castState.connected && isOpening,
+                    isReconnecting = !castState.connected && isReconnecting,
+                    retryCount = if (castState.connected) 0 else retryCount,
                     error = playbackError,
                     trackLabel = "${queueIndex + 1} / ${queue.size}",
                     cacheStateLabel = cacheState.playerLabel(),
