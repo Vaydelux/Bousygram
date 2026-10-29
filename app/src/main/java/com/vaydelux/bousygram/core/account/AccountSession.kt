@@ -13,6 +13,9 @@ data class AccountSnapshot(val accountId: Long, val generation: Long)
  */
 open class AccountSessionController {
     private val lock = Any()
+    // Serializes complete invalidation transitions without holding the short-lived state
+    // lock while a media owner must synchronously release a player on the main thread.
+    private val invalidationLock = Any()
     @Volatile private var epoch = 0L
     private var cleanupComplete = true
     private val invalidationHandlers = mutableListOf<() -> Unit>()
@@ -24,18 +27,27 @@ open class AccountSessionController {
     fun isCurrent(snapshot: AccountSnapshot): Boolean =
         _state.value == snapshot && epoch == snapshot.generation
 
-    /** Cleanup completes under the transition lock before another identity may become active. */
-    fun invalidate(): Long = synchronized(lock) {
-        epoch += 1L
-        _state.value = null
-        cleanupComplete = false
+    /**
+     * Mark the session invalid under the short-lived state lock, then perform synchronous
+     * cleanup without holding that lock. Playback teardown can post to Android's main thread;
+     * that thread must still be able to ask isCurrent/runIfCurrent (and get false) without
+     * blocking behind cleanup. The separate invalidationLock serializes concurrent logouts.
+     * No new account can activate until every handler has succeeded.
+     */
+    fun invalidate(): Long = synchronized(invalidationLock) {
+        val (newGeneration, handlers) = synchronized(lock) {
+            epoch += 1L
+            _state.value = null
+            cleanupComplete = false
+            epoch to invalidationHandlers.toList()
+        }
         var failure: Throwable? = null
-        invalidationHandlers.forEach { handler ->
+        handlers.forEach { handler ->
             try { handler() } catch (error: Exception) { if (failure == null) failure = error }
         }
+        synchronized(lock) { cleanupComplete = failure == null }
         check(failure == null) { "Private account resources could not be invalidated" }
-        cleanupComplete = true
-        epoch
+        newGeneration
     }
 
     fun activate(accountId: Long, expectedGeneration: Long): AccountSnapshot? = synchronized(lock) {
