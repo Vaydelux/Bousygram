@@ -417,4 +417,28 @@ class PlayerInputControllerTest {
         sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
         assertEquals(listOf("previewSeekRelative:10"), recordedActions)
     }
+
+    @Test
+    fun optionsMenuBackClosesPanelAndRestoresOptionsFocus() {
+        controller.isHudVisible = true
+        controller.activeMenu = PlayerMenuType.OPTIONS
+
+        assertTrue(sendKey(KeyEvent.KEYCODE_BACK))
+        assertEquals(PlayerMenuType.NONE, controller.activeMenu)
+        assertEquals(PlayerFocusTarget.BUTTON_OPTIONS, lastFocusTarget)
+        assertTrue(recordedActions.contains("closeMenu"))
+        assertFalse(recordedActions.contains("exitPlayer"))
+        assertTrue(controller.isHudVisible)
+    }
+
+    @Test
+    fun optionsMenuAllowsDpadNavigationWithoutSkippingPlayback() {
+        controller.isHudVisible = true
+        controller.activeMenu = PlayerMenuType.OPTIONS
+        assertFalse(sendKey(KeyEvent.KEYCODE_DPAD_DOWN))
+        currentTimeMs += 100L
+        assertFalse(sendKey(KeyEvent.KEYCODE_DPAD_UP))
+        assertFalse(recordedActions.contains("skipNext"))
+        assertFalse(recordedActions.contains("skipPrevious"))
+    }
 }

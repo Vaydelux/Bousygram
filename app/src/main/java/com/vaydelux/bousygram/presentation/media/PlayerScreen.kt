@@ -198,6 +198,8 @@ fun PlayerScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasLocalNetworkPermission = granted }
     val adaptive = rememberAdaptiveMetrics()
+    // Both Leanback capability and TV UI mode are accepted for OEM Android TV devices.
+    val tvChrome = isAndroidTv || adaptive.isTv
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
@@ -238,7 +240,10 @@ fun PlayerScreen(
     val playNowFocusRequester = remember { FocusRequester() }
     val seekBarFocusRequester = remember { FocusRequester() }
     val playPauseFocusRequester = remember { FocusRequester() }
+    val optionsFocusRequester = remember { FocusRequester() }
+    val firstOptionFocusRequester = remember { FocusRequester() }
     val retryFocusRequester = remember { FocusRequester() }
+    var optionsPanelVisible by remember { mutableStateOf(false) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
     var episodesDrawerVisible by remember { mutableStateOf(false) }
     var showBrightnessHud by remember { mutableStateOf(false) }
@@ -1165,14 +1170,6 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playbackError) {
-        if (playbackError != null) {
-            hudVisible = true
-            kotlinx.coroutines.delay(80L)
-            runCatching { retryFocusRequester.requestFocus() }
-        }
-    }
-
     LaunchedEffect(queueIndex, reloadNonce, isBuffering) {
         if (!isBuffering) return@LaunchedEffect
         delay(BUFFERING_STALL_MS)
@@ -1188,14 +1185,29 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(hudVisible, tracksPanelVisible, episodesDrawerVisible, autoNextCardVisible) {
+    LaunchedEffect(hudVisible, tracksPanelVisible, episodesDrawerVisible, optionsPanelVisible, autoNextCardVisible) {
         playerInputController.isHudVisible = hudVisible
         playerInputController.activeMenu = when {
             tracksPanelVisible -> PlayerMenuType.TRACKS
             episodesDrawerVisible -> PlayerMenuType.EPISODES
+            optionsPanelVisible -> PlayerMenuType.OPTIONS
             else -> PlayerMenuType.NONE
         }
         playerInputController.isAutoNextActive = autoNextCardVisible
+    }
+
+    // A track transition or playback failure must not strand Retry behind Options.
+    LaunchedEffect(queueIndex) {
+        optionsPanelVisible = false
+    }
+    LaunchedEffect(playbackError) {
+        if (playbackError != null) {
+            optionsPanelVisible = false
+            hudVisible = true
+            playerInputController.activeMenu = PlayerMenuType.NONE
+            delay(80L)
+            runCatching { retryFocusRequester.requestFocus() }
+        }
     }
 
     LaunchedEffect(autoNextCardVisible) {
@@ -1219,8 +1231,8 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(hudVisible, isPlaying, isBuffering, playbackError, tracksPanelVisible, episodesDrawerVisible, autoNextCardVisible, queueIndex, hudInteractionTick) {
-        if (hudVisible && isPlaying && !isBuffering && playbackError == null && !tracksPanelVisible && !episodesDrawerVisible && !autoNextCardVisible) {
+    LaunchedEffect(hudVisible, isPlaying, isBuffering, playbackError, tracksPanelVisible, episodesDrawerVisible, optionsPanelVisible, autoNextCardVisible, queueIndex, hudInteractionTick) {
+        if (hudVisible && isPlaying && !isBuffering && playbackError == null && !tracksPanelVisible && !episodesDrawerVisible && !optionsPanelVisible && !autoNextCardVisible) {
             delay(4_000L)
             hudVisible = false
             playerInputController.isHudVisible = false
@@ -1351,6 +1363,7 @@ fun PlayerScreen(
                     when (target) {
                         PlayerFocusTarget.SEEK_BAR -> runCatching { seekBarFocusRequester.requestFocus() }
                         PlayerFocusTarget.BUTTON_PLAY_PAUSE -> runCatching { playPauseFocusRequester.requestFocus() }
+                        PlayerFocusTarget.BUTTON_OPTIONS -> runCatching { optionsFocusRequester.requestFocus() }
                         PlayerFocusTarget.BUTTON_RETRY -> runCatching { retryFocusRequester.requestFocus() }
                         PlayerFocusTarget.AUTO_NEXT_PLAY_NOW -> runCatching { playNowFocusRequester.requestFocus() }
                         else -> runCatching { playPauseFocusRequester.requestFocus() }
@@ -1368,6 +1381,7 @@ fun PlayerScreen(
                 when (menu) {
                     PlayerMenuType.TRACKS -> tracksPanelVisible = true
                     PlayerMenuType.EPISODES -> episodesDrawerVisible = true
+                    PlayerMenuType.OPTIONS -> optionsPanelVisible = true
                     else -> {}
                 }
                 hudVisible = true
@@ -1377,6 +1391,7 @@ fun PlayerScreen(
             override fun closeMenu() {
                 tracksPanelVisible = false
                 episodesDrawerVisible = false
+                optionsPanelVisible = false
                 hudInteractionTick++
             }
 
@@ -1506,7 +1521,15 @@ fun PlayerScreen(
                         hudInteractionTick++
                     },
                     onTap = {
-                        hudVisible = !hudVisible
+                        if (optionsPanelVisible) {
+                            optionsPanelVisible = false
+                            playerInputController.activeMenu = PlayerMenuType.NONE
+                        } else if (playbackError != null) {
+                            // Keep the visible Retry action accessible on failed playback.
+                            hudVisible = true
+                        } else {
+                            hudVisible = !hudVisible
+                        }
                         hudInteractionTick++
                     }
                 )
@@ -1646,6 +1669,28 @@ fun PlayerScreen(
                     mediaKey = "${queue.getOrNull(queueIndex)?.chatId}:${queue.getOrNull(queueIndex)?.messageId}"
                 ),
                 compact = compactHud,
+                isTv = tvChrome,
+                optionsVisible = optionsPanelVisible,
+                onOptionsToggle = {
+                    hudInteractionTick++
+                    val openingOptions = !optionsPanelVisible
+                    if (openingOptions) {
+                        tracksPanelVisible = false
+                        episodesDrawerVisible = false
+                    }
+                    optionsPanelVisible = openingOptions
+                    playerInputController.activeMenu =
+                        if (openingOptions) PlayerMenuType.OPTIONS else PlayerMenuType.NONE
+                },
+                onOptionsClose = {
+                    hudInteractionTick++
+                    optionsPanelVisible = false
+                    playerInputController.activeMenu = PlayerMenuType.NONE
+                    if (tvChrome) scope.launch {
+                        delay(50L)
+                        runCatching { optionsFocusRequester.requestFocus() }
+                    }
+                },
                 onExit = ::exitPlayback,
                 onRetry = {
                     hudInteractionTick++
@@ -1698,7 +1743,10 @@ fun PlayerScreen(
                 },
                 onTracks = {
                     hudInteractionTick++
+                    optionsPanelVisible = false
+                    episodesDrawerVisible = false
                     tracksPanelVisible = true
+                    playerInputController.activeMenu = PlayerMenuType.TRACKS
                     hudVisible = true
                 },
                 onToggleResizeMode = {
@@ -1720,11 +1768,22 @@ fun PlayerScreen(
                     toastFeedbackText = "Speed: ${speed}x"
                     hudVisible = true
                 },
-                onEpisodes = if (queue.size > 1) { { episodesDrawerVisible = !episodesDrawerVisible } } else null,
+                onEpisodes = if (queue.size > 1) { {
+                    hudInteractionTick++
+                    optionsPanelVisible = false
+                    tracksPanelVisible = false
+                    episodesDrawerVisible = !episodesDrawerVisible
+                    playerInputController.activeMenu =
+                        if (episodesDrawerVisible) PlayerMenuType.EPISODES else PlayerMenuType.NONE
+                } } else null,
                 onSwitchEngine = {
+                    optionsPanelVisible = false
+                    playerInputController.activeMenu = PlayerMenuType.NONE
                     togglePlayerEngine()
                 },
                 playPauseFocusRequester = playPauseFocusRequester,
+                optionsFocusRequester = optionsFocusRequester,
+                firstOptionFocusRequester = firstOptionFocusRequester,
                 seekBarFocusRequester = seekBarFocusRequester,
                 retryFocusRequester = retryFocusRequester,
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -2456,6 +2515,10 @@ private fun TrackChoice(
 private fun PlayerHud(
     state: PlayerHudState,
     compact: Boolean,
+    isTv: Boolean,
+    optionsVisible: Boolean,
+    onOptionsToggle: () -> Unit,
+    onOptionsClose: () -> Unit,
     onExit: () -> Unit,
     onRetry: () -> Unit,
     onPlayPause: () -> Unit,
@@ -2468,13 +2531,26 @@ private fun PlayerHud(
     onSpeed: () -> Unit,
     onEpisodes: (() -> Unit)? = null,
     onSwitchEngine: (() -> Unit)? = null,
-    playPauseFocusRequester: FocusRequester? = null,
+    playPauseFocusRequester: FocusRequester,
+    optionsFocusRequester: FocusRequester,
+    firstOptionFocusRequester: FocusRequester,
     seekBarFocusRequester: FocusRequester? = null,
     retryFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
+    val chromeLayout = playerChromeLayout(isTv, compact)
+    LaunchedEffect(optionsVisible, isTv) {
+        if (optionsVisible && isTv) {
+            delay(80L)
+            runCatching { firstOptionFocusRequester.requestFocus() }
+        }
+    }
     val edgePadding = if (compact) 12.dp else 32.dp
     val innerPadding = if (compact) 14.dp else 22.dp
+    val maxHudHeight = playerHudHeightLimit(
+        LocalConfiguration.current.screenHeightDp.takeIf { it > 0 } ?: 720,
+        compact
+    )
     val isPlayingOrPending = (state.playWhenReady && state.error == null) || state.isPlaying
     val statusText = when {
         state.error != null -> "Playback error"
@@ -2489,13 +2565,18 @@ private fun PlayerHud(
         modifier = modifier
             .fillMaxWidth()
             .padding(edgePadding)
+            .heightIn(max = maxHudHeight)
             .border(1.dp, Color(0x555A7998), hudShape),
         color = Color(0xF0111A28),
         contentColor = Color.White,
         shape = hudShape,
         shadowElevation = 14.dp
     ) {
-        Column(Modifier.padding(innerPadding)) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(innerPadding)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2579,45 +2660,48 @@ private fun PlayerHud(
                 modifier = if (seekBarFocusRequester != null) Modifier.focusRequester(seekBarFocusRequester) else Modifier
             )
             Spacer(Modifier.height(10.dp))
-            // The primary transport controls stay distinct and predictable for D-pad users.
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-            ) {
-                BousygramButton("⏮ Previous", onSkipPrevious)
-                BousygramButton("↶ 10s", { onSeekBy(-SEEK_INCREMENT_MS) })
-                val playPauseLabel = if (isPlayingOrPending) "❚❚ Pause" else "▶ Play"
-                BousygramButton(
-                    text = playPauseLabel,
-                    onClick = onPlayPause,
-                    selected = true,
-                    modifier = Modifier
-                        .widthIn(min = if (compact) 100.dp else 124.dp)
-                        .then(if (playPauseFocusRequester != null) Modifier.focusRequester(playPauseFocusRequester) else Modifier)
-                )
-                BousygramButton("10s ↷", { onSeekBy(SEEK_INCREMENT_MS) })
-                BousygramButton("Next ⏭", onSkipNext)
-            }
-            Spacer(Modifier.height(9.dp))
-            // Secondary controls live in a quieter row; actual decoder/track operations
-            // remain bound to the existing handlers and production release restrictions.
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            // Primary transport actions remain on a single focus row for Android TV.
+            // Compact phones have four large touch targets; less-frequent actions
+            // are grouped behind an explicit Options button instead of tiny icons.
+            PlayerTransportControls(
+                layout = chromeLayout,
+                isPlayingOrPending = isPlayingOrPending,
+                optionsExpanded = optionsVisible,
+                onPrevious = onSkipPrevious,
+                onSeekBack = { onSeekBy(-SEEK_INCREMENT_MS) },
+                onPlayPause = onPlayPause,
+                onSeekForward = { onSeekBy(SEEK_INCREMENT_MS) },
+                onNext = onSkipNext,
+                onOptions = onOptionsToggle,
+                playPauseFocusRequester = playPauseFocusRequester,
+                optionsFocusRequester = optionsFocusRequester
+            )
+            AnimatedVisibility(
+                visible = optionsVisible,
+                enter = fadeIn(),
+                exit = fadeOut()
             ) {
                 val aspectLabel = when (state.resizeMode) {
                     AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
                     AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
                     else -> "Fit"
                 }
-                BousygramButton("Audio / CC", onTracks)
-                BousygramButton("${speedLabel(state.speed)}x Speed", onSpeed)
-                BousygramButton(aspectLabel, onToggleResizeMode)
-                if (onEpisodes != null) BousygramButton("☰ Queue", onEpisodes)
-                if (onSwitchEngine != null) BousygramButton("⚙ Decoder", onSwitchEngine)
-                BousygramButton("↶ 30s", { onSeekBy(-30_000L) })
-                BousygramButton("30s ↷", { onSeekBy(30_000L) })
+                PlayerOptionsPanel(
+                    layout = chromeLayout,
+                    onTracks = onTracks,
+                    onSpeed = onSpeed,
+                    speedLabel = "${speedLabel(state.speed)}x",
+                    onAspect = onToggleResizeMode,
+                    aspectLabel = aspectLabel,
+                    onEpisodes = onEpisodes,
+                    onSwitchEngine = onSwitchEngine,
+                    onPrevious = onSkipPrevious,
+                    onNext = onSkipNext,
+                    onSeekBack30 = { onSeekBy(-30_000L) },
+                    onSeekForward30 = { onSeekBy(30_000L) },
+                    onClose = onOptionsClose,
+                    firstOptionFocusRequester = firstOptionFocusRequester
+                )
             }
             if (state.error != null) {
                 Spacer(Modifier.height(12.dp))
