@@ -58,7 +58,7 @@ class MainActivitySmokeTest {
         val packageName = instrumentation.targetContext.packageName
         val previewArg = if (preview) "--ez ${MainActivity.EXTRA_UI_PREVIEW} true" else ""
         return instrumentation.runShellCommand(
-            "am force-stop $packageName; am start -W -n $packageName/.app.MainActivity $previewArg"
+            "am start -W -n $packageName/.app.MainActivity $previewArg"
         )
     }
 

@@ -56,7 +56,7 @@ jobs:
           ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
           bash tools/ci/verify_debug_artifacts.sh
 
-      - name: Run real AndroidX MediaRouteButton and Cast-intent instrumentation
+      - name: Run media Cast, real-launch and D-pad instrumentation
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
@@ -72,8 +72,9 @@ jobs:
             # Capture failures while the virtual device is still alive, even if the
             # emulator runner tears it down before a subsequent workflow step.
             trap 'timeout 15s adb logcat -d -t 2500 -v brief 2>/dev/null | grep -E "FATAL EXCEPTION|AndroidRuntime|MediaRouteButton|MediaRouterThemeHelper|Instrumentation" | head -n 100 > emulator-smoke-crash-summary.txt || true' EXIT
-            # This suite does not require Telegram credentials or ARM TDLib JNI.
-            timeout 240s adb shell am instrument -w -r -e class "com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest" "com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner" | tee emulator-smoke-results.txt
+            # Cast and unauthenticated app-navigation checks need no Telegram credentials.
+            # Avoid am force-stop while instrumentation is running: it kills this test suite.
+            timeout 360s adb shell am instrument -w -r -e class "com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest,com.vaydelux.bousygram.app.MainActivitySmokeTest,com.vaydelux.bousygram.app.AndroidTvNavigationSmokeTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest" "com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner" | tee emulator-smoke-results.txt
             grep -Eq '^OK \([0-9]+ tests?\)' emulator-smoke-results.txt
 
       - name: Capture sanitized emulator diagnostics after failures

@@ -18,7 +18,7 @@ class AndroidTvNavigationSmokeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val packageName = instrumentation.targetContext.packageName
         val output = instrumentation.runShellCommand(
-            "am force-stop $packageName; am start -W -n $packageName/.app.MainActivity"
+            "am start -W -n $packageName/.app.MainActivity"
         )
         assertTrue(output, output.contains("Status: ok"))
 
@@ -39,7 +39,7 @@ class AndroidTvNavigationSmokeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val packageName = instrumentation.targetContext.packageName
         val output = instrumentation.runShellCommand(
-            "am force-stop $packageName; am start -W -n $packageName/.app.MainActivity " +
+            "am start -W -n $packageName/.app.MainActivity " +
                 "--ez ${MainActivity.EXTRA_UI_PREVIEW} true"
         )
         assertTrue(output, output.contains("Status: ok"))

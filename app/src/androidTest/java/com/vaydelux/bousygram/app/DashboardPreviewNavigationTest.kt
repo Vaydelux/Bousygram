@@ -21,7 +21,7 @@ class DashboardPreviewNavigationTest {
 
         // Launch app directly into preview dashboard
         val output = instrumentation.runShellCommand(
-            "am force-stop $packageName; am start -W -n $packageName/.app.MainActivity " +
+            "am start -W -n $packageName/.app.MainActivity " +
                 "--ez ${MainActivity.EXTRA_UI_PREVIEW} true"
         )
         assertTrue(output, output.contains("Status: ok"))
