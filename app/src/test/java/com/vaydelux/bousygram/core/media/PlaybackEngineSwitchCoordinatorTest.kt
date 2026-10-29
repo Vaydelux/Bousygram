@@ -72,6 +72,28 @@ class PlaybackEngineSwitchCoordinatorTest {
         assertEquals(1, releases)
     }
 
+    @Test fun fallbackAfterSessionDisposalReleasesCreatedDecoderWithoutChangingOwner() {
+        val session = PlaybackSessionController.start(fileId = 706)
+        var originalReleases = 0
+        val original = object : FakeTestEngine() { override fun release() { originalReleases++ } }
+        val owner = PlaybackEngineOwner(session, original, onOwnerThread = { it() })
+        owner.close()
+
+        val calls = mutableListOf<String>()
+        val candidate = object : FakeTestEngine() {
+            override fun detachSurface() { calls += "detach" }
+            override fun stop() { calls += "stop" }
+            override fun release() { calls += "release" }
+        }
+        val switcher = PlaybackEngineSwitchCoordinator(owner) { _, _ -> candidate }
+
+        assertTrue(switcher.fallback { candidate to 10_000L }.isFailure)
+        assertSame(original, owner.value)
+        assertEquals(listOf("detach", "stop", "release"), calls)
+        PlaybackSessionController.stop(session, PlaybackCacheStopReason.Back)
+        assertEquals(1, originalReleases)
+    }
+
     @Test fun fallbackSuccessReleasesOldOnceAndPreservesPosition() {
         val session = PlaybackSessionController.start(fileId = 705)
         var releases = 0
