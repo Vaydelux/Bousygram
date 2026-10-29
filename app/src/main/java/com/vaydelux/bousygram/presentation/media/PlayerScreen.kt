@@ -198,6 +198,8 @@ fun PlayerScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasLocalNetworkPermission = granted }
     val adaptive = rememberAdaptiveMetrics()
+    // Both Leanback capability and TV UI mode are accepted for OEM Android TV devices.
+    val tvChrome = isAndroidTv || adaptive.isTv
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
@@ -1667,7 +1669,7 @@ fun PlayerScreen(
                     mediaKey = "${queue.getOrNull(queueIndex)?.chatId}:${queue.getOrNull(queueIndex)?.messageId}"
                 ),
                 compact = compactHud,
-                isTv = isAndroidTv,
+                isTv = tvChrome,
                 optionsVisible = optionsPanelVisible,
                 onOptionsToggle = {
                     hudInteractionTick++
@@ -1679,7 +1681,7 @@ fun PlayerScreen(
                     hudInteractionTick++
                     optionsPanelVisible = false
                     playerInputController.activeMenu = PlayerMenuType.NONE
-                    if (isAndroidTv) scope.launch {
+                    if (tvChrome) scope.launch {
                         delay(50L)
                         runCatching { optionsFocusRequester.requestFocus() }
                     }
