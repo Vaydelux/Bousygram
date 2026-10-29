@@ -270,7 +270,7 @@ jobs:
 
   create-draft:
     name: Create verified draft release
-    needs: device-qualification
+    needs: [validate-release-request, device-qualification]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release-draft
