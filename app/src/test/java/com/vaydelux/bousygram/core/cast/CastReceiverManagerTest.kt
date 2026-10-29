@@ -133,7 +133,7 @@ class CastReceiverManagerTest {
 
     @Test
     fun oversizedJsonIsRejectedBeforeParsing() {
-        val json = "{\\"title\\":\\"" + "x".repeat(10_000) + "\\"}"
+        val json = org.json.JSONObject().put("title", "x".repeat(10_000)).toString()
         assertNull(CastReceiverManager.fromJson(json))
     }
 
