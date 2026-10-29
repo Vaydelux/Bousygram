@@ -322,7 +322,16 @@ tasks.register("verifyTdlibBindingCompatibility") {
         require("TDLib commit: $resolvedCommit" in metadataFile.readText()) {
             "BUILD_METADATA.txt does not prove the pinned TDLib commit $resolvedCommit."
         }
+        val provenance = metadataFile.readText()
+        val expectedHashes = Regex("(?m)^SHA256\\s+(\\S+)\\s+([0-9a-fA-F]{64})\\s*$")
+            .findAll(provenance).associate { it.groupValues[1] to it.groupValues[2].lowercase() }
+        val javaHash = MessageDigest.getInstance("SHA-256").digest(tdApiFile.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        require(expectedHashes["TdApi.java"] == javaHash) {
+            "TdApi.java does not match the complete generated API hash in BUILD_METADATA.txt. Regenerate from the pinned source."
+        }
         val report = mutableListOf("TDLib commit: $resolvedCommit", "Java commit: $javaCommit")
+        report += "SHA256 TdApi.java $javaHash"
         nativeFiles.forEach { (abi, nativeFile) ->
             require(nativeFile.isFile && nativeFile.length() > 1_000_000L) {
                 "Missing or implausibly small TDLib JNI library for $abi: ${nativeFile.absolutePath}"
@@ -349,6 +358,9 @@ tasks.register("verifyTdlibBindingCompatibility") {
                 "$abi libtdjni.so has ELF class=$elfClass machine=$machine; expected class=$expectedClass machine=$expectedMachine."
             }
             val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            require(expectedHashes[abi] == hash) {
+                "$abi libtdjni.so does not match the approved SHA-256 in BUILD_METADATA.txt."
+            }
             report += "SHA256 $abi $hash"
             report += "ELF $abi class=$elfClass machine=$machine size=${bytes.size}"
             report += "JNI $abi markers=verified revision=embedded dependencies=${requiredDependencies.joinToString(",")}"
@@ -457,7 +469,9 @@ tasks.register("verifyPrivateMediaCastReleaseGate") {
     val castController = file("src/main/java/com/vaydelux/bousygram/core/cast/CastSessionController.kt")
     val castService = file("src/main/java/com/vaydelux/bousygram/core/cast/CastStreamingService.kt")
     val playerScreen = file("src/main/java/com/vaydelux/bousygram/presentation/media/PlayerScreen.kt")
-    inputs.files(castServer, castController, castService, playerScreen)
+    val settingsScreen = file("src/main/java/com/vaydelux/bousygram/presentation/settings/SettingsScreen.kt")
+    val engineLabActivity = file("src/main/java/com/vaydelux/bousygram/presentation/debug/EngineLabActivity.kt")
+    inputs.files(castServer, castController, castService, playerScreen, settingsScreen, engineLabActivity)
     outputs.upToDateWhen { false }
 
     doLast {
@@ -496,6 +510,16 @@ tasks.register("verifyPrivateMediaCastReleaseGate") {
         require("BuildConfig.PRIVATE_MEDIA_CAST_ENABLED" in playerScreen.readText()) {
             "The player UI must enforce the private-media Cast build gate."
         }
+        require("if (BuildConfig.DEBUG && debugHudVisible)" in playerScreen.readText()) {
+            "The developer video HUD must be inaccessible in production."
+        }
+        require(
+            Regex("""if \(BuildConfig\.DEBUG\) \{\s*// Developer Tools Section""")
+                .containsMatchIn(settingsScreen.readText()) &&
+                "if (!BuildConfig.DEBUG)" in engineLabActivity.readText()
+        ) {
+            "Developer settings and Engine Lab entry must require the debug build flag."
+        }
     }
 }
 
@@ -509,16 +533,23 @@ tasks.register("verifySensitiveLogRedaction") {
         file("src/main/java/com/vaydelux/bousygram/data/repository/TmdbRepository.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/observability/CrashReporter.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/observability/StructuredPlaybackLogger.kt"),
-        file("src/main/java/com/vaydelux/bousygram/core/tdlib/server/TelegramLogWrapper.kt")
+        file("src/main/java/com/vaydelux/bousygram/core/tdlib/server/TelegramLogWrapper.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/tdlib/utils/QrCodeGenerator.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/cast/CastReceiverManager.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/tdlib/prefetch/FocusPrefetchManager.kt"),
+        file("src/main/java/com/vaydelux/bousygram/data/repository/SavedMessagesSubtitle.kt")
     )
     inputs.files(sources)
     doLast {
-        val sensitiveNames = listOf("url", "newUrl", "hotSwappedUrl", "streamUrl", "imageUrl", "urlString")
+        val sensitiveNames = listOf(
+            "url", "newUrl", "hotSwappedUrl", "streamUrl", "imageUrl", "urlString",
+            "text", "prefix", "fileName", "title", "payload.title", "item.title"
+        )
         val logCall = Regex("""Log\.(?:v|d|i|w|e)\s*\([^)]*\)""", RegexOption.DOT_MATCHES_ALL)
         sources.forEach { source ->
             logCall.findAll(source.readText()).forEach { match ->
-                require(sensitiveNames.none { name -> "\$$name" in match.value }) {
-                    "Potentially sensitive URL logged in ${source.path}."
+                require(sensitiveNames.none { name -> "\$$name" in match.value || "\${$name}" in match.value }) {
+                    "Potentially sensitive authentication or media value logged in ${source.path}."
                 }
             }
         }

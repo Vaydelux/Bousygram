@@ -64,6 +64,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         authManager.logout()
     }
 
+    fun retryInitialization() = authManager.retryInitialization()
+
     fun switchToPhoneLogin() {
         authManager.switchToPhoneLogin()
     }

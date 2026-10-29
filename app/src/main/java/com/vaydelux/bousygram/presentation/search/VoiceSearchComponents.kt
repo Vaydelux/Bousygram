@@ -141,7 +141,7 @@ class VoiceSearchController internal constructor(
     private val onStopAction: () -> Unit
 ) {
     fun toggleVoiceSearch() = onToggleAction()
-    fun startVoiceSearch() = onToggleAction()
+    fun startVoiceSearch() { if (!isListening) onToggleAction() }
     fun stopVoiceSearch() = onStopAction()
 }
 
@@ -161,14 +161,27 @@ fun rememberVoiceSearchController(
     val currentPromptProvider by rememberUpdatedState(promptProvider)
     val currentOnPartialText by rememberUpdatedState(onPartialText)
     val currentOnQueryRecognized by rememberUpdatedState(onQueryRecognized)
+    val session = remember { VoiceSearchSession() }
 
     var isListening by remember { mutableStateOf(false) }
     var partialTranscript by remember { mutableStateOf("") }
     var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
+    var pendingPermissionRequest by remember { mutableStateOf<Long?>(null) }
+    var pendingFallbackRequest by remember { mutableStateOf<Long?>(null) }
+
+    fun releaseRecognizer() {
+        val recognizer = speechRecognizer
+        speechRecognizer = null
+        runCatching { recognizer?.cancel() }
+        runCatching { recognizer?.destroy() }
+    }
 
     val intentFallbackLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        val request = pendingFallbackRequest
+        pendingFallbackRequest = null
+        if (request == null || !session.complete(request)) return@rememberLauncherForActivityResult
         isListening = false
         partialTranscript = ""
         if (result.resultCode == Activity.RESULT_OK) {
@@ -181,76 +194,90 @@ fun rememberVoiceSearchController(
         }
     }
 
-    fun launchIntentFallback() {
+    fun launchIntentFallback(previousRequest: Long) {
+        val request = session.replace(previousRequest) ?: return
+        if (pendingFallbackRequest != null) {
+            session.complete(request)
+            isListening = false
+            return
+        }
+        // Cancel direct recognition only after invalidating its callbacks.
+        releaseRecognizer()
         val intent = createSpeechRecognizerIntent(prompt = currentPromptProvider())
         try {
+            pendingFallbackRequest = request
             isListening = true
             intentFallbackLauncher.launch(intent)
         } catch (_: ActivityNotFoundException) {
-            isListening = false
-            Toast.makeText(context, "Voice search is not available on this device", Toast.LENGTH_SHORT).show()
+            pendingFallbackRequest = null
+            if (session.complete(request)) {
+                isListening = false
+                Toast.makeText(context, "Voice search is not available on this device", Toast.LENGTH_SHORT).show()
+            }
         } catch (_: Exception) {
-            isListening = false
-            Toast.makeText(context, "Unable to activate voice search", Toast.LENGTH_SHORT).show()
+            pendingFallbackRequest = null
+            if (session.complete(request)) {
+                isListening = false
+                Toast.makeText(context, "Unable to activate voice search", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     fun stopListeningInternal() {
+        session.cancel()
         isListening = false
         partialTranscript = ""
-        runCatching {
-            speechRecognizer?.stopListening()
-            speechRecognizer?.cancel()
-        }
+        releaseRecognizer()
     }
 
-    fun startMicrophoneCapture() {
+    fun startMicrophoneCapture(previousRequest: Long) {
+        val request = session.replace(previousRequest) ?: return
         val prompt = currentPromptProvider()
+        releaseRecognizer()
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
             try {
-                val recognizer = speechRecognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also {
+                val recognizer = SpeechRecognizer.createSpeechRecognizer(context).also {
                     speechRecognizer = it
                 }
                 recognizer.setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
-                        isListening = true
+                        if (session.isActive(request)) isListening = true
                     }
 
                     override fun onBeginningOfSpeech() {
-                        isListening = true
+                        if (session.isActive(request)) isListening = true
                     }
 
                     override fun onRmsChanged(rmsdB: Float) = Unit
-
                     override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-                    override fun onEndOfSpeech() {
-                        isListening = false
-                    }
+                    // Recognition remains pending until results or a terminal error arrive.
+                    override fun onEndOfSpeech() = Unit
 
                     override fun onError(error: Int) {
-                        isListening = false
+                        if (!session.isActive(request)) return
                         partialTranscript = ""
                         when (error) {
                             SpeechRecognizer.ERROR_NO_MATCH,
                             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                                session.complete(request)
+                                releaseRecognizer()
+                                isListening = false
                                 Toast.makeText(context, "Didn't catch that. Try speaking again.", Toast.LENGTH_SHORT).show()
                             }
                             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
+                                session.complete(request)
+                                releaseRecognizer()
+                                isListening = false
                                 Toast.makeText(context, "Microphone permission is required for voice search", Toast.LENGTH_SHORT).show()
                             }
-                            SpeechRecognizer.ERROR_CLIENT,
-                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
-                                // Fallback to system RecognizerIntent dialog
-                                launchIntentFallback()
-                            }
-                            else -> {
-                                launchIntentFallback()
-                            }
+                            else -> launchIntentFallback(request)
                         }
                     }
 
                     override fun onResults(results: Bundle?) {
+                        if (!session.complete(request)) return
+                        releaseRecognizer()
                         isListening = false
                         partialTranscript = ""
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -262,6 +289,7 @@ fun rememberVoiceSearchController(
                     }
 
                     override fun onPartialResults(partialResults: Bundle?) {
+                        if (!session.isActive(request)) return
                         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         val partial = extractRecognizedVoiceQuery(matches)
                         if (!partial.isNullOrBlank()) {
@@ -276,49 +304,55 @@ fun rememberVoiceSearchController(
                 partialTranscript = ""
                 recognizer.startListening(createSpeechRecognizerIntent(prompt = prompt))
             } catch (_: Exception) {
-                launchIntentFallback()
+                launchIntentFallback(request)
             }
         } else {
-            launchIntentFallback()
+            launchIntentFallback(request)
         }
     }
 
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
+        val request = pendingPermissionRequest
+        pendingPermissionRequest = null
+        if (request == null || !session.isActive(request)) return@rememberLauncherForActivityResult
         if (granted) {
-            startMicrophoneCapture()
+            startMicrophoneCapture(request)
         } else {
-            // Even if direct RECORD_AUDIO was denied, system RecognizerIntent activity may handle its own mic permission
             Toast.makeText(context, "Microphone permission is needed for direct voice search", Toast.LENGTH_SHORT).show()
-            launchIntentFallback()
+            launchIntentFallback(request)
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            runCatching {
-                speechRecognizer?.destroy()
-                speechRecognizer = null
-            }
+            session.dispose()
+            releaseRecognizer()
         }
     }
 
     val toggleAction = {
         if (isListening) {
             stopListeningInternal()
-        } else {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-            if (hasPermission) {
-                startMicrophoneCapture()
-            } else {
-                try {
-                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                } catch (_: Exception) {
-                    launchIntentFallback()
+        } else if (pendingPermissionRequest == null && pendingFallbackRequest == null) {
+            val request = session.begin()
+            if (request != null) {
+                isListening = true
+                val hasPermission = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+                if (hasPermission) {
+                    startMicrophoneCapture(request)
+                } else {
+                    try {
+                        pendingPermissionRequest = request
+                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    } catch (_: Exception) {
+                        pendingPermissionRequest = null
+                        launchIntentFallback(request)
+                    }
                 }
             }
         }

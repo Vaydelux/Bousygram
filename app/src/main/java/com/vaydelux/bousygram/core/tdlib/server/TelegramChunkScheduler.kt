@@ -202,7 +202,8 @@ internal object TelegramChunkScheduler {
 
     private val latestFiles = ConcurrentHashMap<Int, TelegramGatewayFile>()
     private val updateListeners = ConcurrentHashMap<Int, MutableSet<(TelegramGatewayFile) -> Unit>>()
-    private val prefetchJobs = ConcurrentHashMap<Int, Job>()
+    private val prefetchJobs = ConcurrentHashMap<Int, MutableSet<Job>>()
+    private val prefetchLock = Any()
     private val activePrefetchRanges = ConcurrentHashMap<Int, MutableList<Pair<LongRange, Job>>>()
 
     init {
@@ -295,13 +296,23 @@ internal object TelegramChunkScheduler {
         remappedFileIds.clear()
         latestFiles.clear()
         updateListeners.clear()
-        prefetchJobs.values.forEach { it.cancel() }
+        prefetchJobs.values.forEach { jobs -> jobs.toList().forEach { it.cancel() } }
         prefetchJobs.clear()
         activePrefetchRanges.clear()
         permitsByFile.clear()
         activeCounts.clear()
         activeLeases.clear()
         leaseCountsByFile.clear()
+    }
+
+    /** Drop every file-id namespace before a different TDLib account can be admitted. */
+    fun invalidateAccountResources() {
+        val files = (latestFiles.keys + fileSizes.keys + downloadWindows.keys + leaseCountsByFile.keys).toSet()
+        val client = if (files.isNotEmpty()) TdLibClient.client else null
+        resetForTests()
+        files.forEach { fileId ->
+            runCatching { client?.send(TdApi.CancelDownloadFile(fileId, false)) { } }
+        }
     }
 
     fun acquireLease(
@@ -511,7 +522,10 @@ internal object TelegramChunkScheduler {
 
     fun cancelPrefetch(fileId: Int) {
         val effectiveId = resolveEffectiveFileId(fileId)
-        prefetchJobs.remove(effectiveId)?.cancel()
+        synchronized(prefetchLock) {
+            prefetchJobs.remove(effectiveId)?.toList()?.forEach { it.cancel() }
+            activePrefetchRanges.remove(effectiveId)?.toList()?.forEach { (_, job) -> job.cancel() }
+        }
     }
 
     fun onClientDisconnected(fileId: Int, offset: Long = -1L) {
@@ -560,7 +574,9 @@ internal object TelegramChunkScheduler {
                         return@coroutineScope shared.copy(bytes = shared.bytes.copyOfRange(relativeStart, relativeEnd))
                     }
                 }
-                return@coroutineScope shared
+                // A covering *requested* range can complete with a short read. Never
+                // return its offset-zero bytes for a different requested offset.
+                if (shared !is TelegramChunkResult.Ready) return@coroutineScope shared
             }
             val candidate = async(Dispatchers.IO, start = CoroutineStart.LAZY) {
                 val semaphore = semaphoreForFile(effectiveRequest.fileId)
@@ -607,7 +623,7 @@ internal object TelegramChunkScheduler {
     ): Job {
         val effectiveId = resolveEffectiveFileId(fileId)
         val effectivePriority = if (isPlaybackPurpose(purpose)) PLAYBACK_PRIORITY else min(priority, PREFETCH_PRIORITY)
-        val job = scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             if (effectiveId <= 0 || length <= 0L) return@launch
             val endExclusive = offset.coerceAtLeast(0L) + length
             var currentOffset = offset.coerceAtLeast(0L)
@@ -639,7 +655,8 @@ internal object TelegramChunkScheduler {
                     is TelegramChunkResult.Ready -> {
                         failures = 0
                         PlaybackTelemetryRecorder.notifyFirstByte(effectiveId)
-                        currentOffset += result.bytes.size.coerceAtLeast(limit)
+                        if (result.bytes.isEmpty()) return@launch
+                        currentOffset += result.bytes.size
                         PlaybackDiagnostics.recordProxyState(
                             lastStalledOffset = currentOffset,
                             chunkRetryCount = result.retryCount,
@@ -668,14 +685,25 @@ internal object TelegramChunkScheduler {
                 markState(effectiveId, PlaybackCacheState.Cached)
             }
         }
-        prefetchJobs[effectiveId] = job
         val range = offset.coerceAtLeast(0L)..(offset.coerceAtLeast(0L) + length)
-        val rangeList = activePrefetchRanges.computeIfAbsent(effectiveId) { java.util.Collections.synchronizedList(mutableListOf()) }
+        val rangeList: MutableList<Pair<LongRange, Job>>
         val rangePair = range to job
-        rangeList.add(rangePair)
-        job.invokeOnCompletion {
-            rangeList.remove(rangePair)
+        synchronized(prefetchLock) {
+            prefetchJobs.computeIfAbsent(effectiveId) { ConcurrentHashMap.newKeySet() }.add(job)
+            rangeList = activePrefetchRanges.computeIfAbsent(effectiveId) { java.util.Collections.synchronizedList(mutableListOf()) }
+            rangeList.add(rangePair)
         }
+        job.invokeOnCompletion {
+            synchronized(prefetchLock) {
+                rangeList.remove(rangePair)
+                prefetchJobs[effectiveId]?.let { jobs ->
+                    jobs.remove(job)
+                    if (jobs.isEmpty()) prefetchJobs.remove(effectiveId, jobs)
+                }
+                if (rangeList.isEmpty()) activePrefetchRanges.remove(effectiveId, rangeList)
+            }
+        }
+        job.start()
         return job
     }
 

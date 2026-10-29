@@ -3,6 +3,8 @@ package com.vaydelux.bousygram.core.tdlib.server
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 
 /**
  * Short-lived capability URLs for loopback stream endpoints. A token authorizes exactly one
@@ -20,7 +22,7 @@ internal object StreamAccessRegistry {
     private val random = SecureRandom()
     private val grants = ConcurrentHashMap<String, Grant>()
 
-    private data class Grant(val resource: String, val expiresAtMs: Long)
+    private data class Grant(val resource: String, val expiresAtMs: Long, val owner: AccountSnapshot)
 
     fun issueFile(fileId: Int): String {
         require(fileId > 0) { "fileId must be positive" }
@@ -35,6 +37,7 @@ internal object StreamAccessRegistry {
     fun authorizesPlaylist(token: String?): Boolean = authorize(token, PLAYLIST_RESOURCE)
 
     private fun issue(resource: String): String = synchronized(grants) {
+        val owner = checkNotNull(AccountSession.current()) { "An authenticated account is required for private media" }
         val now = System.currentTimeMillis()
         grants.entries.removeIf { (_, grant) -> grant.expiresAtMs <= now }
         check(grants.size < MAX_TOKENS) {
@@ -49,7 +52,8 @@ internal object StreamAccessRegistry {
                 append(HEX[byte.toInt() and 0x0f])
             }
         }
-        grants[token] = Grant(resource, now + TOKEN_TTL_MS)
+        check(AccountSession.isCurrent(owner)) { "The authenticated account changed" }
+        grants[token] = Grant(resource, now + TOKEN_TTL_MS, owner)
         token
     }
 
@@ -95,19 +99,15 @@ internal object StreamAccessRegistry {
         before - grants.size
     }
 
+    fun revokeAll() = synchronized(grants) { grants.clear() }
+
     /**
-     * Rotates all current stream tokens on network transition.
-     * Existing tokens are given a brief 15-second grace window to let in-flight reads finish,
-     * while expiring stale tokens so they cannot survive the handoff.
+     * Loopback capabilities remain bound to their owning account/session across a network
+     * handoff. Expiring a still-owned URL here breaks mpv's next range request after reconnect.
+     * Session teardown and account invalidation revoke them independently of network state.
      */
     fun rotateTokens() = synchronized(grants) {
-        val graceExpiry = System.currentTimeMillis() + 15_000L
-        for ((token, grant) in grants) {
-            if (grant.expiresAtMs > graceExpiry) {
-                grants[token] = grant.copy(expiresAtMs = graceExpiry)
-            }
-        }
-        android.util.Log.i("StreamAccessRegistry", "Rotated ${grants.size} active stream tokens with 15s grace window")
+        purgeExpired()
     }
 
     private fun authorize(token: String?, expectedResource: String): Boolean {
@@ -118,6 +118,7 @@ internal object StreamAccessRegistry {
         } ?: return false
 
         val grant = grants[matchedKey] ?: return false
+        if (!AccountSession.isCurrent(grant.owner)) { grants.remove(matchedKey, grant); return false }
         if (grant.expiresAtMs <= System.currentTimeMillis()) {
             grants.remove(matchedKey, grant)
             return false

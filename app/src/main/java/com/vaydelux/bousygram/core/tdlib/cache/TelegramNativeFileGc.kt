@@ -32,10 +32,12 @@ object TelegramNativeFileGc {
     fun enableStorageOptimizer() {
         try {
             TdLibClient.client.send(
-                TdApi.SetOption("use_storage_optimizer", TdApi.OptionValueBoolean(true))
+                // Native automatic eviction cannot honor the app's offline pins and leases.
+                // Our managed sweeps delete eligible TDLib files through DeleteFile instead.
+                TdApi.SetOption("use_storage_optimizer", TdApi.OptionValueBoolean(false))
             ) { result ->
                 if (result is TdApi.Ok) {
-                    Log.i(TAG, "TDLib storage optimizer option enabled successfully")
+                    Log.i(TAG, "TDLib automatic eviction disabled; protected cache cleanup is active")
                 } else if (result is TdApi.Error) {
                     Log.w(TAG, "Failed to enable TDLib storage optimizer: ${result.message}")
                 }

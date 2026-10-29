@@ -13,7 +13,7 @@ class SavedMessagesRepository {
         const val TAG = "SavedMessagesRepo"
     }
 
-    internal val client = TdLibClient.client
+    internal val client = TdLibClient.accountClient()
     internal var cachedMeId: Long? = null
     internal var cachedSavedMessagesChatId: Long? = null
 

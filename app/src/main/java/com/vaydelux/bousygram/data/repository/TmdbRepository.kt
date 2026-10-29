@@ -4,16 +4,26 @@ import android.content.Context
 import android.util.Log
 import android.util.LruCache
 import com.vaydelux.bousygram.BuildConfig
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.media.SeriesMetadataParser
 import com.vaydelux.bousygram.domain.model.MediaItem
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.AtomicMoveNotSupportedException
+import java.text.Normalizer
+import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -49,6 +59,20 @@ object TmdbRepository {
 
     private const val CONNECT_TIMEOUT_MS = 6_000
     private const val READ_TIMEOUT_MS = 10_000
+    private const val MAX_METADATA_BYTES = 1_048_576
+    private const val MAX_IMAGE_BYTES = 8_388_608
+
+    private data class CacheScope(val account: AccountSnapshot, val root: File)
+
+    private fun cacheScope(context: Context?): CacheScope? {
+        val account = AccountSession.current() ?: return null
+        val base = testCacheDir ?: context?.cacheDir ?: return null
+        return CacheScope(account, File(base, "accounts/${account.accountId}"))
+    }
+
+    private fun ensureCurrent(account: AccountSnapshot) {
+        if (!AccountSession.isCurrent(account)) throw CancellationException("Account session ended")
+    }
 
     // In-memory cache to avoid disk reads during fast TV list scrolling
     private val memoryCache = LruCache<String, TmdbMetadata>(200)
@@ -64,6 +88,7 @@ object TmdbRepository {
      * Never blocks the UI thread.
      */
     suspend fun enrich(item: MediaItem, context: Context? = null): MediaItem = withContext(Dispatchers.IO) {
+        val account = AccountSession.current() ?: return@withContext item
         // If already enriched with TMDB poster or backdrop, return immediately
         if (!item.tmdbPosterPath.isNullOrBlank() || !item.tmdbTitle.isNullOrBlank()) {
             return@withContext item
@@ -96,12 +121,14 @@ object TmdbRepository {
             episodeNumber = episodeNum,
             context = context
         )
+        ensureCurrent(account)
 
         if (meta != null && meta.matched) {
             val localPoster = meta.localPosterPath
                 ?: meta.posterPath?.let { downloadImageToDisk(it, isPoster = true, context = context) }
             val localBackdrop = meta.localBackdropPath
                 ?: meta.backdropPath?.let { downloadImageToDisk(it, isPoster = false, context = context) }
+            ensureCurrent(account)
 
             item.copy(
                 releaseYear = meta.year ?: parsed.year ?: item.releaseYear,
@@ -144,31 +171,37 @@ object TmdbRepository {
         episodeNumber: Int? = null,
         context: Context? = null
     ): TmdbMetadata? = withContext(Dispatchers.IO) {
+        val scope = cacheScope(context) ?: return@withContext null
         val apiKey = BuildConfig.TMDB_API_KEY
         if (apiKey.isBlank() || apiKey == "TMDB_API_KEY_DEFAULT_VALUE") {
             return@withContext null
         }
 
         val cacheKey = generateCacheKey(title, year, isSeries, seasonNumber, episodeNumber)
+        val memoryKey = "${scope.account.accountId}:$cacheKey"
 
         // 1. Check in-memory cache
-        val memCached = memoryCache.get(cacheKey)
-        if (memCached != null) {
+        val memCached = memoryCache.get(memoryKey)
+        if (memCached != null && isFresh(memCached)) {
+            ensureCurrent(scope.account)
             return@withContext memCached
         }
+        memoryCache.remove(memoryKey)
 
         // 2. Check disk cache
-        val diskCached = readDiskCache(cacheKey, context)
+        val diskCached = readDiskCache(cacheKey, scope)
         if (diskCached != null) {
             val ttl = if (diskCached.matched) POSITIVE_CACHE_TTL_MS else NEGATIVE_CACHE_TTL_MS
             if (System.currentTimeMillis() - diskCached.timestamp <= ttl) {
-                memoryCache.put(cacheKey, diskCached)
+                ensureCurrent(scope.account)
+                memoryCache.put(memoryKey, diskCached)
                 return@withContext diskCached
             }
         }
 
         // 3. Query TMDB API
         val result = queryTmdb(title, year, isSeries, seasonNumber, episodeNumber, apiKey)
+        ensureCurrent(scope.account)
         val metadataToStore = if (result != null) {
             // Download images to disk cache
             val localPoster = result.posterPath?.let { downloadImageToDisk(it, isPoster = true, context = context) }
@@ -182,8 +215,9 @@ object TmdbRepository {
         }
 
         // 4. Save to disk cache and memory cache
-        writeDiskCache(cacheKey, metadataToStore, context)
-        memoryCache.put(cacheKey, metadataToStore)
+        ensureCurrent(scope.account)
+        writeDiskCache(cacheKey, metadataToStore, scope)
+        memoryCache.put(memoryKey, metadataToStore)
 
         return@withContext metadataToStore
     }
@@ -200,36 +234,13 @@ object TmdbRepository {
         apiKey: String
     ): TmdbMetadata? {
         try {
-            if (isSeries) {
-                // 1. Search TV with year
-                val tvWithYear = searchAndDetailTv(title, year, seasonNumber, episodeNumber, apiKey)
-                if (tvWithYear != null) return tvWithYear
-
-                // 2. Search TV without year if year was provided
-                if (year != null) {
-                    val tvWithoutYear = searchAndDetailTv(title, null, seasonNumber, episodeNumber, apiKey)
-                    if (tvWithoutYear != null) return tvWithoutYear
-                }
-
-                // 3. Fallback to Movie search in case it was a movie named like a series
-                return searchAndDetailMovie(title, year, apiKey) ?: searchAndDetailMovie(title, null, apiKey)
+            return if (isSeries) {
+                searchAndDetailTv(title, year, seasonNumber, episodeNumber, apiKey)
             } else {
-                // 1. Search Movie with year
-                val movieWithYear = searchAndDetailMovie(title, year, apiKey)
-                if (movieWithYear != null) return movieWithYear
-
-                // 2. Search Movie without year if year was provided
-                if (year != null) {
-                    val movieWithoutYear = searchAndDetailMovie(title, null, apiKey)
-                    if (movieWithoutYear != null) return movieWithoutYear
-                }
-
-                // 3. Fallback to TV search in case it was a TV show without SxxExx
-                return searchAndDetailTv(title, year, seasonNumber, episodeNumber, apiKey)
-                    ?: searchAndDetailTv(title, null, seasonNumber, episodeNumber, apiKey)
+                searchAndDetailMovie(title, year, apiKey)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to query TMDB for '$title': ${e.message}")
+            Log.w(TAG, "TMDB metadata lookup failed (${e.javaClass.simpleName})")
             return null
         }
     }
@@ -247,13 +258,8 @@ object TmdbRepository {
         }
 
         val searchJson = executeGet(searchUrl) ?: return null
-        val root = JSONObject(searchJson)
-        val results = root.optJSONArray("results") ?: return null
-        if (results.length() == 0) return null
-
-        val top = results.getJSONObject(0)
+        val top = selectMatchingResult(searchJson, title, year, isSeries = false) ?: return null
         val id = top.optInt("id", 0)
-        if (id <= 0) return parseMovieResponse(searchJson)
 
         // Query movie details endpoint for complete metadata
         val detailsUrl = "$TMDB_BASE_URL/movie/$id?api_key=$apiKey"
@@ -261,9 +267,36 @@ object TmdbRepository {
         return if (detailsJson != null) {
             parseMovieDetailsResponse(detailsJson)
         } else {
-            parseMovieResponse(searchJson)
+            parseMovieDetailsResponse(top.toString())
         }
     }
+
+    /** Ambiguous remakes and unrelated first results must retain Telegram's own metadata. */
+    internal fun selectMatchingResult(json: String, title: String, year: Int?, isSeries: Boolean): JSONObject? {
+        if (json.length > MAX_METADATA_BYTES) return null
+        val results = JSONObject(json).optJSONArray("results") ?: return null
+        val titleKey = normalizeTitle(title)
+        if (titleKey.isBlank()) return null
+        val titleField = if (isSeries) "name" else "title"
+        val originalField = if (isSeries) "original_name" else "original_title"
+        val dateField = if (isSeries) "first_air_date" else "release_date"
+        val matches = (0 until results.length()).mapNotNull { index ->
+            val candidate = results.optJSONObject(index) ?: return@mapNotNull null
+            if (candidate.optInt("id", 0) <= 0) return@mapNotNull null
+            val sameTitle = listOf(titleField, originalField).any {
+                normalizeTitle(candidate.optString(it)) == titleKey
+            }
+            val sameYear = year == null || candidate.optString(dateField).take(4).toIntOrNull() == year
+            candidate.takeIf { sameTitle && sameYear }
+        }.distinctBy { it.optInt("id") }
+        return matches.singleOrNull()
+    }
+
+    private fun normalizeTitle(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKD)
+        .replace("\\p{M}+".toRegex(), "")
+        .lowercase(Locale.ROOT)
+        .replace("[^\\p{L}\\p{N}]+".toRegex(), " ")
+        .trim()
 
     private fun searchAndDetailTv(
         title: String,
@@ -284,13 +317,8 @@ object TmdbRepository {
         }
 
         val searchJson = executeGet(searchUrl) ?: return null
-        val root = JSONObject(searchJson)
-        val results = root.optJSONArray("results") ?: return null
-        if (results.length() == 0) return null
-
-        val top = results.getJSONObject(0)
+        val top = selectMatchingResult(searchJson, title, year, isSeries = true) ?: return null
         val id = top.optInt("id", 0)
-        if (id <= 0) return parseTvResponse(searchJson)
 
         // Query TV show details endpoint
         val detailsUrl = "$TMDB_BASE_URL/tv/$id?api_key=$apiKey"
@@ -298,7 +326,7 @@ object TmdbRepository {
         val showMeta = if (detailsJson != null) {
             parseTvDetailsResponse(detailsJson)
         } else {
-            parseTvResponse(searchJson)
+            parseTvDetailsResponse(top.toString())
         } ?: return null
 
         // If season and episode are specified, query episode details endpoint for episode title
@@ -435,7 +463,7 @@ object TmdbRepository {
             }
             val responseCode = connection.responseCode
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                connection.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+                connection.inputStream.use { String(readBounded(it, MAX_METADATA_BYTES), StandardCharsets.UTF_8) }
             } else {
                 Log.d(TAG, "TMDB returned HTTP $responseCode")
                 null
@@ -456,21 +484,21 @@ object TmdbRepository {
 
     fun downloadImageToDisk(tmdbPath: String, isPoster: Boolean, context: Context?): String? {
         if (tmdbPath.isBlank()) return null
+        val scope = cacheScope(context) ?: return null
         val cleanPath = tmdbPath.removePrefix("/")
-        val base = testCacheDir ?: context?.cacheDir ?: File(System.getProperty("java.io.tmpdir"), "tmdb_test")
-        val cacheDir = File(base, "tmdb_images").apply { if (!exists()) mkdirs() }
+        if (!cleanPath.matches("[A-Za-z0-9_-]+\\.[A-Za-z0-9]+".toRegex())) return null
+        val cacheDir = File(scope.root, "tmdb_images").apply { if (!exists()) mkdirs() }
         val prefix = if (isPoster) "p_" else "b_"
         val safeFileName = prefix + cleanPath.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
         val targetFile = File(cacheDir, safeFileName)
 
         if (targetFile.exists() && targetFile.length() > 0L) {
+            ensureCurrent(scope.account)
             return targetFile.absolutePath
         }
 
         val baseUrl = if (isPoster) TMDB_IMAGE_BASE_POSTER else TMDB_IMAGE_BASE_BACKDROP
         val imageUrl = "$baseUrl/$cleanPath"
-        val tempFile = File(cacheDir, "$safeFileName.tmp")
-
         var connection: HttpURLConnection? = null
         return try {
             val url = URL(imageUrl)
@@ -481,28 +509,17 @@ object TmdbRepository {
                 setRequestProperty("User-Agent", "Bousygram/1.0 (Android TV)")
             }
             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                connection.inputStream.use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                if (tempFile.exists() && tempFile.length() > 0L) {
-                    if (targetFile.exists()) targetFile.delete()
-                    if (tempFile.renameTo(targetFile)) {
-                        targetFile.absolutePath
-                    } else {
-                        tempFile.absolutePath
-                    }
-                } else {
-                    tempFile.delete()
-                    null
-                }
+                val bytes = connection.inputStream.use { readBounded(it, MAX_IMAGE_BYTES) }
+                if (bytes.isEmpty()) return null
+                ensureCurrent(scope.account)
+                writeAtomically(targetFile, bytes)
+                ensureCurrent(scope.account)
+                targetFile.absolutePath
             } else {
-                tempFile.delete()
                 null
             }
         } catch (e: Exception) {
-            tempFile.delete()
+            if (e is CancellationException) throw e
             Log.d(TAG, "TMDB image download failed (${e.javaClass.simpleName})")
             null
         } finally {
@@ -512,23 +529,29 @@ object TmdbRepository {
 
     // Disk Cache Implementation (JSON metadata with TTL)
 
-    private fun getMetadataCacheDir(context: Context?): File {
-        val base = testCacheDir ?: context?.cacheDir ?: File(System.getProperty("java.io.tmpdir"), "tmdb_test")
-        val dir = File(base, "tmdb_cache")
+    private fun getMetadataCacheDir(scope: CacheScope): File {
+        val dir = File(scope.root, "tmdb_cache")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
 
     fun readDiskCache(cacheKey: String, context: Context?): TmdbMetadata? {
-        val file = File(getMetadataCacheDir(context), "$cacheKey.json")
+        val scope = cacheScope(context) ?: return null
+        return readDiskCache(cacheKey, scope)
+    }
+
+    private fun readDiskCache(cacheKey: String, scope: CacheScope): TmdbMetadata? {
+        if (!cacheKey.matches("[a-f0-9]{32}".toRegex())) return null
+        ensureCurrent(scope.account)
+        val file = File(getMetadataCacheDir(scope), "$cacheKey.json")
         if (!file.exists()) return null
         return try {
-            val text = file.readText(StandardCharsets.UTF_8)
+            val text = file.inputStream().use { String(readBounded(it, MAX_METADATA_BYTES), StandardCharsets.UTF_8) }
             val json = JSONObject(text)
             val matched = json.optBoolean("matched", false)
             val timestamp = json.optLong("timestamp", System.currentTimeMillis())
             val ttl = if (matched) POSITIVE_CACHE_TTL_MS else NEGATIVE_CACHE_TTL_MS
-            if (System.currentTimeMillis() - timestamp > ttl) {
+            if (timestamp <= 0 || timestamp > System.currentTimeMillis() || System.currentTimeMillis() - timestamp > ttl) {
                 file.delete()
                 return null
             }
@@ -566,8 +589,14 @@ object TmdbRepository {
     }
 
     fun writeDiskCache(cacheKey: String, metadata: TmdbMetadata, context: Context? = null) {
-        val file = File(getMetadataCacheDir(context), "$cacheKey.json")
-        val tempFile = File(getMetadataCacheDir(context), "$cacheKey.json.tmp")
+        val scope = cacheScope(context) ?: return
+        writeDiskCache(cacheKey, metadata, scope)
+    }
+
+    private fun writeDiskCache(cacheKey: String, metadata: TmdbMetadata, scope: CacheScope) {
+        if (!cacheKey.matches("[a-f0-9]{32}".toRegex())) return
+        ensureCurrent(scope.account)
+        val file = File(getMetadataCacheDir(scope), "$cacheKey.json")
         try {
             val json = JSONObject().apply {
                 put("matched", metadata.matched)
@@ -583,11 +612,12 @@ object TmdbRepository {
                 metadata.episodeTitle?.let { put("episodeTitle", it) }
                 put("timestamp", metadata.timestamp)
             }
-            tempFile.writeText(json.toString(), StandardCharsets.UTF_8)
-            if (file.exists()) file.delete()
-            tempFile.renameTo(file)
+            val bytes = json.toString().toByteArray(StandardCharsets.UTF_8)
+            require(bytes.size <= MAX_METADATA_BYTES) { "Metadata exceeds cache limit" }
+            ensureCurrent(scope.account)
+            writeAtomically(file, bytes)
         } catch (e: Exception) {
-            tempFile.delete()
+            if (e is CancellationException) throw e
             Log.w(TAG, "Error writing TMDB disk cache: ${e.message}")
         }
     }
@@ -610,5 +640,41 @@ object TmdbRepository {
 
     fun clearMemoryCache() {
         memoryCache.evictAll()
+    }
+
+    private fun isFresh(metadata: TmdbMetadata): Boolean {
+        val now = System.currentTimeMillis()
+        val ttl = if (metadata.matched) POSITIVE_CACHE_TTL_MS else NEGATIVE_CACHE_TTL_MS
+        return metadata.timestamp > 0 && metadata.timestamp <= now && now - metadata.timestamp <= ttl
+    }
+
+    internal fun readBounded(input: InputStream, maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) throw IOException("No progress reading metadata response")
+            if (count > maxBytes - output.size()) throw IOException("Metadata response exceeds limit")
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
+    }
+
+    private fun writeAtomically(target: File, bytes: ByteArray) {
+        val temporary = File.createTempFile("${target.name}-", ".tmp", target.parentFile)
+        try {
+            FileOutputStream(temporary).use { stream ->
+                stream.write(bytes)
+                stream.fd.sync()
+            }
+            try {
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            temporary.delete()
+        }
     }
 }

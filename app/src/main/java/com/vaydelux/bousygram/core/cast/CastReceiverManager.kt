@@ -54,7 +54,7 @@ object CastReceiverManager {
     val pendingCastRequest: StateFlow<CastMediaPayload?> = _pendingCastRequest.asStateFlow()
 
     fun emitCastRequest(payload: CastMediaPayload) {
-        Log.i(TAG, "Emitted incoming Cast payload: fileId=${payload.fileId} title=${payload.title} pos=${payload.positionMs}ms")
+        Log.i(TAG, "Received a Cast playback request")
         _pendingCastRequest.value = payload
     }
 

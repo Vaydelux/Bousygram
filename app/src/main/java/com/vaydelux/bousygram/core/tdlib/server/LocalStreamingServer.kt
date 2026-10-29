@@ -3,7 +3,6 @@ package com.vaydelux.bousygram.core.tdlib.server
 import android.media.MediaMetadataRetriever
 import android.util.Log
 import com.vaydelux.bousygram.BuildConfig
-import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
@@ -23,8 +22,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
@@ -52,7 +50,7 @@ object LocalStreamingServer {
     val port: Int get() = serverPort
     val actualPort: Int get() = serverPort
     @Volatile
-    private var executor: ExecutorService = createExecutor()
+    private var clientPool: BoundedSocketExecutor? = null
     private val fileStatusCache = ConcurrentHashMap<Int, CachedFileStatus>()
     private val recentWarmups = ConcurrentHashMap<Int, Long>()
     @Volatile
@@ -79,20 +77,25 @@ object LocalStreamingServer {
     @Synchronized
     fun start() {
         if (isRunning) return
-        if (executor.isShutdown || executor.isTerminated) executor = createExecutor()
+        val pool = BoundedSocketExecutor()
+        clientPool = pool
         try {
             val listeningSocket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
             serverSocket = listeningSocket
             serverPort = listeningSocket.localPort
             isRunning = true
-            val listenerExecutor = executor
-            listenerExecutor.execute { acceptConnections(listeningSocket, listenerExecutor) }
+            Thread({ acceptConnections(listeningSocket, pool) }, "Bousygram-LoopbackAccept").apply {
+                isDaemon = true
+                start()
+            }
             Log.i(TAG, "Local loopback streaming server started on port $serverPort")
         } catch (e: Exception) {
             isRunning = false
             runCatching { serverSocket?.close() }
             serverSocket = null
             serverPort = 0
+            pool.close()
+            clientPool = null
             Log.e(TAG, "Failed to start LocalStreamingServer", e)
             EnterprisePreferences.setLastError("Streaming server failed: ${e.message.orEmpty()}")
         }
@@ -109,15 +112,20 @@ object LocalStreamingServer {
         } catch (e: Exception) {
             Log.e(TAG, "Error closing server socket", e)
         }
-        executor.shutdownNow()
+        clientPool?.close()
+        clientPool = null
+    }
+
+    fun invalidateAccountResources() {
+        stop()
+        fileStatusCache.clear()
+        recentWarmups.clear()
+        currentPlaylist = null
     }
 
     /** Remaining time until [deadlineAtMs], capped at [cap]; never negative. */
     internal fun remainingWaitMs(deadlineAtMs: Long, cap: Long, nowMs: Long = System.currentTimeMillis()): Long =
         min(cap, (deadlineAtMs - nowMs).coerceAtLeast(0L))
-
-    private fun createExecutor(): ExecutorService =
-        Executors.newFixedThreadPool(max(6, Runtime.getRuntime().availableProcessors() * 2))
 
     fun getStreamUrl(
         fileId: Int,
@@ -257,9 +265,6 @@ object LocalStreamingServer {
         }
 
         val durationMs = extractDurationMs(path)
-        if (durationMs > 0L) {
-            MediaDurationResolver.rememberDuration(fileId, durationMs)
-        }
         return durationMs
     }
 
@@ -345,16 +350,13 @@ object LocalStreamingServer {
         return "http://127.0.0.1:$serverPort/playlist.m3u?token=$token"
     }
 
-    private fun acceptConnections(listeningSocket: ServerSocket, listenerExecutor: ExecutorService) {
+    private fun acceptConnections(listeningSocket: ServerSocket, pool: BoundedSocketExecutor) {
         while (isRunning && serverSocket === listeningSocket) {
             try {
                 val clientSocket = listeningSocket.accept()
-                try {
-                    listenerExecutor.execute { handleClient(clientSocket) }
-                } catch (rejected: java.util.concurrent.RejectedExecutionException) {
-                    runCatching { clientSocket.close() }
+                if (!pool.execute(clientSocket, ::handleClient)) {
                     if (isRunning && serverSocket === listeningSocket) {
-                        Log.w(TAG, "Rejected loopback client while streaming server is shutting down")
+                        Log.w(TAG, "Loopback client capacity reached or server is stopping")
                     }
                 }
             } catch (e: Exception) {
@@ -450,8 +452,7 @@ object LocalStreamingServer {
         }
         val title = params["title"] ?: ""
         val mimeParam = params["mime"]?.takeIf { it.isNotBlank() }
-        val contentType = mimeParam
-            ?: VideoFormatSupport.httpContentType(null, title, title)
+        val contentType = safeContentType(mimeParam ?: VideoFormatSupport.httpContentType(null, title, title))
 
         if (VERBOSE_STREAM_LOGS) Log.i(TAG, "Streaming fileId=$fileId size=$size MIME=$contentType range=$rangeHeader head=$isHead")
 
@@ -470,11 +471,31 @@ object LocalStreamingServer {
             buildPartialContentHeaders(contentType, rangeStart, rangeEnd, size, contentLength)
         }
 
+        val firstChunk = if (isHead) null else kotlinx.coroutines.runBlocking {
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                TelegramChunkScheduler.fetchChunk(TelegramChunkRequest(
+                    fileId, rangeStart, min(STREAM_READ_BUFFER_BYTES.toLong(), contentLength).toInt(),
+                    STREAM_FAST_PRIORITY, TelegramChunkPurpose.Streaming
+                ))
+            }
+        }
+        if (!isHead && (firstChunk !is TelegramChunkResult.Ready || firstChunk.bytes.isEmpty())) {
+            return send503(socket, "The requested media range is not ready; retry shortly")
+        }
+        if (!StreamAccessRegistry.authorizesFile(params["token"], fileId)) {
+            return send403(socket, "The stream authorization expired")
+        }
         writeHeaders(out, headers)
         if (!isHead) {
-            streamBytes(fileId, size, rangeStart, rangeEnd, out, socket)
+            streamRangeToOutput(fileId, size, rangeStart, rangeEnd, out,
+                firstChunk = (firstChunk as TelegramChunkResult.Ready).bytes,
+                clientOpen = { !socket.isClosed })
         }
     }
+
+    internal fun safeContentType(value: String): String =
+        value.takeIf { it.matches(Regex("[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+")) }
+            ?: "application/octet-stream"
 
     private fun writeHeaders(out: OutputStream, headers: String) {
         out.write(headers.toByteArray(Charsets.UTF_8))
@@ -602,6 +623,7 @@ object LocalStreamingServer {
         startPos: Long,
         endPos: Long,
         out: OutputStream,
+        firstChunk: ByteArray? = null,
         clientOpen: () -> Boolean = { true }
     ) {
         var currentOffset = startPos
@@ -614,6 +636,13 @@ object LocalStreamingServer {
         )
         var releaseReason = TelegramLeaseReleaseReason.Completed
         try {
+            if (firstChunk != null) {
+                if (firstChunk.isEmpty() || firstChunk.size > endPos - startPos + 1L) {
+                    throw IOException("Invalid initial media range")
+                }
+                out.write(firstChunk)
+                currentOffset += firstChunk.size
+            }
             while (currentOffset <= endPos && clientOpen()) {
                 val readSize = min(
                     STREAM_READ_BUFFER_BYTES.toLong(),
@@ -633,21 +662,20 @@ object LocalStreamingServer {
                 }
                 when (result) {
                     is TelegramChunkResult.Ready -> {
-                        if (result.bytes.isEmpty()) break
+                        if (result.bytes.isEmpty()) throw IOException("Media range ended before its declared length")
                         try {
                             PlaybackTelemetryRecorder.notifyFirstByte(fileId)
                             out.write(result.bytes)
                             currentOffset += result.bytes.size
                         } catch (e: Exception) {
                             releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
-                            Log.w(TAG, "Socket write error (client closed): ${e.message}")
-                            return
+                            throw IOException("Media client disconnected", e)
                         }
                     }
                     is TelegramChunkResult.FatalFailure -> {
                         releaseReason = TelegramLeaseReleaseReason.Failed
                         PlaybackDiagnostics.recordStreamError(result.message)
-                        return
+                        throw IOException("The media backend could not complete the requested range")
                     }
                     is TelegramChunkResult.RetryableFailure,
                     TelegramChunkResult.Pending -> {
@@ -655,10 +683,14 @@ object LocalStreamingServer {
                         val message = "Telegram stream stalled while caching fileId=$fileId at offset=$currentOffset"
                         EnterprisePreferences.setLastError(message)
                         PlaybackDiagnostics.recordStreamError(message)
-                        return
+                        throw IOException("The media backend stalled before the requested range completed")
                     }
                 }
             }
+            if (currentOffset <= endPos && clientOpen()) throw IOException("Media range was truncated")
+        } catch (error: IOException) {
+            if (releaseReason == TelegramLeaseReleaseReason.Completed) releaseReason = TelegramLeaseReleaseReason.Failed
+            throw error
         } finally {
             if (!clientOpen()) releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
             TelegramChunkScheduler.releaseLease(lease, releaseReason, currentOffset)
@@ -893,7 +925,10 @@ object LocalStreamingServer {
         try {
             PlaybackDiagnostics.recordStreamError(message)
             val out = socket.getOutputStream()
-            out.write("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\n$message".toByteArray())
+            val bytes = message.toByteArray(Charsets.UTF_8)
+            out.write(("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n" +
+                "Content-Length: ${bytes.size}\r\nRetry-After: 1\r\nConnection: close\r\n\r\n").toByteArray())
+            out.write(bytes)
             out.flush()
         } catch (_: Exception) {}
     }

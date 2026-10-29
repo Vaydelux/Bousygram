@@ -1,9 +1,11 @@
 package com.vaydelux.bousygram.data.repository
 
-import android.content.Context
+import android.util.AtomicFile
 import android.util.Log
 import android.util.AtomicFile
 import com.vaydelux.bousygram.app.BousygramApp
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,44 +20,30 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileNotFoundException
 
-/**
- * Data model for an item in the Continue Watching rail.
- */
 data class ContinueWatchingEntry(
-    val chatId: Long,
-    val messageId: Long,
-    val fileId: Int,
-    val title: String,
-    val thumbnailPath: String? = null,
-    val positionMs: Long,
-    val durationMs: Long,
-    val updatedAt: Long = System.currentTimeMillis(),
-    val completed: Boolean = false
+    val chatId: Long, val messageId: Long, val fileId: Int, val title: String,
+    val thumbnailPath: String? = null, val positionMs: Long, val durationMs: Long,
+    val updatedAt: Long = System.currentTimeMillis(), val completed: Boolean = false
 ) {
-    val progress: Float
-        get() = if (durationMs > 0L) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+    val progress: Float get() = if (durationMs > 0L)
+        (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
 }
 
-/**
- * Persists and provides access to the Continue Watching rail.
- * - Stores (chatId, messageId, fileId, title, thumbnailPath, positionMs, durationMs, updatedAt, completed)
- * - Exposes top 12 unfinished items ordered by updatedAt DESC
- * - Automatically evicts completed entries older than 30 days
- */
-object ContinueWatchingRepository {
-    private const val TAG = "ContinueWatchingRepo"
-    private const val FILE_NAME = "continue_watching.json"
-    private const val MAX_RAIL_ITEMS = 12
-    private const val COMPLETED_THRESHOLD_RATIO = 0.90f
-    private const val MIN_RESUME_MS = 5_000L
-    private const val THIRTY_DAYS_MS = 30L * 24L * 60L * 60L * 1000L
+internal interface ProgressPersistence {
+    suspend fun read(accountId: Long): List<ContinueWatchingEntry>
+    suspend fun write(accountId: Long, entries: List<ContinueWatchingEntry>)
+}
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+/** One mutex owns hydration and all mutations; readers receive immutable published snapshots. */
+internal class AccountProgressLedger(
+    private val persistence: ProgressPersistence,
+    private val isCurrent: (AccountSnapshot) -> Boolean,
+    private val publish: (AccountSnapshot, List<ContinueWatchingEntry>) -> Unit
+) {
     private val mutex = Mutex()
-    private val entries = LinkedHashMap<String, ContinueWatchingEntry>()
+    @Volatile private var loaded: Pair<AccountSnapshot, List<ContinueWatchingEntry>>? = null
 
-    private val _railItems = MutableStateFlow<List<ContinueWatchingEntry>>(emptyList())
-    val railItems: StateFlow<List<ContinueWatchingEntry>> = _railItems.asStateFlow()
+    suspend fun load(owner: AccountSnapshot) = mutex.withLock { loadLocked(owner) }
 
     // Initialize before any queued mutation, so an early progress save cannot be
     // overwritten by a delayed disk load. All writers also acquire [mutex].
@@ -67,23 +55,39 @@ object ContinueWatchingRepository {
                 updateRailFlowLocked()
             }
         }
+    private suspend fun loadLocked(owner: AccountSnapshot) {
+        if (!isCurrent(owner) || loaded?.first == owner) return
+        val rows = persistence.read(owner.accountId)
+        if (!isCurrent(owner)) return
+        val immutable = rows.toList()
+        loaded = owner to immutable
+        publish(owner, immutable)
     }
 
-    private fun key(chatId: Long, messageId: Long): String = "$chatId:$messageId"
+    suspend fun mutate(owner: AccountSnapshot, change: (MutableMap<String, ContinueWatchingEntry>) -> Unit) =
+        mutex.withLock {
+            loadLocked(owner)
+            val current = loaded ?: return@withLock
+            if (!isCurrent(owner) || current.first != owner) return@withLock
+            val next = current.second.associateBy { key(it.chatId, it.messageId) }.toMutableMap()
+            change(next)
+            val cutoff = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+            val rows = next.values.filterNot { it.completed && it.updatedAt < cutoff }.toList()
+            persistence.write(owner.accountId, rows)
+            // Failed writes never change the in-memory snapshot; old-account completions cannot publish.
+            if (!isCurrent(owner)) return@withLock
+            loaded = owner to rows
+            publish(owner, rows)
+        }
 
-    fun saveProgress(
-        chatId: Long,
-        messageId: Long,
-        fileId: Int,
-        title: String,
-        thumbnailPath: String? = null,
-        positionMs: Long,
-        durationMs: Long
-    ) {
-        if (chatId == 0L || messageId == 0L) return
+    fun snapshot(owner: AccountSnapshot?): List<ContinueWatchingEntry> {
+        if (owner == null || !isCurrent(owner)) return emptyList()
+        return loaded?.takeIf { it.first == owner }?.second.orEmpty()
+    }
 
-        val isCompleted = durationMs > 0L && positionMs >= (durationMs * COMPLETED_THRESHOLD_RATIO).toLong()
-        val entryKey = key(chatId, messageId)
+    fun invalidate() { loaded = null }
+    private fun key(chatId: Long, messageId: Long) = "$chatId:$messageId"
+}
 
         scope.launch {
             initializationJob.join()
@@ -138,91 +142,120 @@ object ContinueWatchingRepository {
                     val changed = entries.remove(entryKey) != null
                     if (changed) updateRailFlowLocked()
                     changed
+private class AccountProgressFiles : ProgressPersistence {
+    private fun file(accountId: Long): File {
+        val dir = File(BousygramApp.instance.filesDir, "accounts/$accountId")
+        check(dir.exists() || dir.mkdirs()) { "Account storage is unavailable" }
+        return File(dir, "continue_watching.json")
+    }
+
+    override suspend fun read(accountId: Long): List<ContinueWatchingEntry> {
+        val target = file(accountId)
+        val atomic = AtomicFile(target)
+        if (!target.exists() && !File(target.path + ".bak").exists()) return emptyList()
+        return try {
+            val bytes = atomic.openRead().use { stream ->
+                val out = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8_192)
+                while (true) {
+                    val read = stream.read(buffer)
+                    if (read < 0) break
+                    check(out.size() + read <= MAX_FILE_BYTES) { "Progress document is too large" }
+                    out.write(buffer, 0, read)
+                }
+                out.toByteArray()
+            }
+            val root = JSONObject(bytes.toString(Charsets.UTF_8))
+            check(root.getLong("accountId") == accountId && root.getInt("version") == 1)
+            val array = root.getJSONArray("entries")
+            check(array.length() <= MAX_ENTRIES)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val row = array.getJSONObject(i)
+                    val entry = ContinueWatchingEntry(
+                        row.getLong("chatId"), row.getLong("messageId"), row.optInt("fileId"),
+                        row.optString("title", "Video").take(1024),
+                        row.optString("thumbnailPath").takeIf { it.isNotBlank() }?.take(4096),
+                        row.getLong("positionMs").coerceAtLeast(0L),
+                        row.getLong("durationMs").coerceAtLeast(0L),
+                        row.optLong("updatedAt"), row.optBoolean("completed")
+                    )
+                    if (entry.chatId != 0L && entry.messageId != 0L) add(entry)
                 }
                 if (removed) saveToDiskLocked()
             }
+        } catch (error: Exception) {
+            // Preserve the entire unreadable original before allowing a clean ledger to be written.
+            val retained = File(target.parentFile, "continue_watching.unreadable." + System.currentTimeMillis() + ".json")
+            target.copyTo(retained, overwrite = false)
+            Log.w("ContinueWatchingRepo", "Unreadable progress retained for explicit recovery")
+            emptyList()
         }
     }
 
-    fun getEntry(chatId: Long, messageId: Long): ContinueWatchingEntry? {
-        val entryKey = key(chatId, messageId)
-        return synchronized(entries) { entries[entryKey] }
-    }
-
-    fun isWatched(chatId: Long, messageId: Long, durationMs: Long): Boolean {
-        val entry = getEntry(chatId, messageId) ?: return false
-        if (entry.completed) return true
-        if (durationMs > 0L && entry.positionMs >= (durationMs * COMPLETED_THRESHOLD_RATIO).toLong()) {
-            return true
+    override suspend fun write(accountId: Long, entries: List<ContinueWatchingEntry>) {
+        check(entries.size <= MAX_ENTRIES) { "Progress entry limit reached; existing data was preserved" }
+        val array = JSONArray()
+        entries.forEach { entry ->
+            array.put(JSONObject().apply {
+                put("chatId", entry.chatId); put("messageId", entry.messageId); put("fileId", entry.fileId)
+                put("title", entry.title.take(1024)); put("thumbnailPath", entry.thumbnailPath.orEmpty())
+                put("positionMs", entry.positionMs); put("durationMs", entry.durationMs)
+                put("updatedAt", entry.updatedAt); put("completed", entry.completed)
+            })
         }
-        return false
-    }
-
-    fun isWatched(fileId: Int): Boolean {
-        if (fileId <= 0) return false
-        val entry = synchronized(entries) { entries.values.firstOrNull { it.fileId == fileId } } ?: return false
-        if (entry.completed) return true
-        if (entry.durationMs > 0L && entry.positionMs >= (entry.durationMs * COMPLETED_THRESHOLD_RATIO).toLong()) {
-            return true
-        }
-        return false
-    }
-
-    /** Returns true if this fileId has an active, unfinished resume point in Continue Watching. */
-    fun isContinueWatching(fileId: Int): Boolean {
-        if (fileId <= 0) return false
-        return synchronized(entries) {
-            entries.values.any { entry ->
-                entry.fileId == fileId &&
-                    !entry.completed &&
-                    entry.positionMs >= MIN_RESUME_MS &&
-                    (entry.durationMs <= 0L || entry.positionMs < (entry.durationMs * COMPLETED_THRESHOLD_RATIO).toLong())
-            }
+        val bytes = JSONObject().put("version", 1).put("accountId", accountId).put("entries", array)
+            .toString().toByteArray(Charsets.UTF_8)
+        check(bytes.size <= MAX_FILE_BYTES) { "Progress document limit reached; existing data was preserved" }
+        val atomic = AtomicFile(file(accountId))
+        var stream: java.io.FileOutputStream? = null
+        try {
+            stream = atomic.startWrite()
+            stream.write(bytes)
+            atomic.finishWrite(stream)
+        } catch (error: Exception) {
+            stream?.let { atomic.failWrite(it) }
+            throw error
         }
     }
 
-    /** Returns set of fileIds currently active in Continue Watching. */
-    fun getContinueWatchingFileIds(): Set<Int> {
-        return synchronized(entries) {
-            entries.values
-                .filter { entry ->
-                    !entry.completed &&
-                        entry.positionMs >= MIN_RESUME_MS &&
-                        (entry.durationMs <= 0L || entry.positionMs < (entry.durationMs * COMPLETED_THRESHOLD_RATIO).toLong())
-                }
-                .map { it.fileId }
-                .filter { it > 0 }
-                .toSet()
+    private companion object { const val MAX_FILE_BYTES = 2 * 1024 * 1024; const val MAX_ENTRIES = 5_000 }
+}
+
+object ContinueWatchingRepository {
+    private const val MIN_RESUME_MS = 5_000L
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val _railItems = MutableStateFlow<List<ContinueWatchingEntry>>(emptyList())
+    val railItems: StateFlow<List<ContinueWatchingEntry>> = _railItems.asStateFlow()
+    private val ledger = AccountProgressLedger(AccountProgressFiles(), AccountSession::isCurrent) { owner, rows ->
+        AccountSession.runIfCurrent(owner) {
+            _railItems.value = rows.filter { !it.completed && it.positionMs >= MIN_RESUME_MS &&
+                (it.durationMs <= 0 || it.positionMs < (it.durationMs * 0.90).toLong()) }
+                .sortedByDescending { it.updatedAt }.take(12)
         }
     }
 
-    private fun evictExpiredLocked() {
-        val now = System.currentTimeMillis()
-        val iterator = entries.entries.iterator()
-        var evicted = 0
-        while (iterator.hasNext()) {
-            val (_, item) = iterator.next()
-            if (item.completed && (now - item.updatedAt) > THIRTY_DAYS_MS) {
-                iterator.remove()
-                evicted++
-            }
-        }
-        if (evicted > 0) {
-            Log.i(TAG, "Evicted $evicted completed continue-watching items older than 30 days")
+    suspend fun activateAccount(owner: AccountSnapshot) { ledger.load(owner) }
+    fun invalidateAccountResources() { ledger.invalidate(); _railItems.value = emptyList() }
+
+    fun saveProgress(chatId: Long, messageId: Long, fileId: Int, title: String, thumbnailPath: String? = null,
+        positionMs: Long, durationMs: Long, owner: AccountSnapshot? = AccountSession.current()) {
+        if (chatId == 0L || messageId == 0L || owner == null) return
+        mutate(owner) { rows ->
+            val key = "$chatId:$messageId"
+            val old = rows[key]
+            val duration = durationMs.takeIf { it > 0 } ?: old?.durationMs ?: 0L
+            val position = positionMs.coerceAtLeast(0)
+            rows[key] = ContinueWatchingEntry(chatId, messageId, fileId.takeIf { it > 0 } ?: old?.fileId ?: 0,
+                title.ifBlank { old?.title ?: "Video" }.take(1024), thumbnailPath ?: old?.thumbnailPath,
+                position, duration, completed = duration > 0 && position >= (duration * 0.90).toLong())
         }
     }
 
-    private fun updateRailFlowLocked() {
-        val unfinished = entries.values
-            .filter { entry ->
-                !entry.completed &&
-                    entry.positionMs >= MIN_RESUME_MS &&
-                    (entry.durationMs <= 0L || entry.positionMs < (entry.durationMs * COMPLETED_THRESHOLD_RATIO).toLong())
-            }
-            .sortedByDescending { it.updatedAt }
-            .take(MAX_RAIL_ITEMS)
-
-        _railItems.value = unfinished
+    fun markCompleted(chatId: Long, messageId: Long, owner: AccountSnapshot? = AccountSession.current()) {
+        if (owner == null) return
+        mutate(owner) { rows -> val key = "$chatId:$messageId"
+            rows[key]?.let { rows[key] = it.copy(completed = true, updatedAt = System.currentTimeMillis()) } }
     }
 
     private fun storageFile(): File? {
@@ -298,6 +331,23 @@ object ContinueWatchingRepository {
             // Fresh installation: nothing to restore.
         } catch (e: Exception) {
             Log.e(TAG, "Failed to read continue watching data from disk", e)
+    fun removeEntry(chatId: Long, messageId: Long) {
+        val owner = AccountSession.current() ?: return
+        mutate(owner) { it.remove("$chatId:$messageId") }
+    }
+    private fun mutate(owner: AccountSnapshot, change: (MutableMap<String, ContinueWatchingEntry>) -> Unit) {
+        scope.launch {
+            try { ledger.mutate(owner, change) }
+            catch (error: Exception) { Log.e("ContinueWatchingRepo", "Progress was not saved; previous data was preserved", error) }
         }
     }
+    private fun rows() = ledger.snapshot(AccountSession.current())
+    fun getEntry(chatId: Long, messageId: Long) = rows().firstOrNull { it.chatId == chatId && it.messageId == messageId }
+    fun isWatched(chatId: Long, messageId: Long, durationMs: Long): Boolean =
+        getEntry(chatId, messageId)?.let { it.completed || durationMs > 0 && it.positionMs >= (durationMs * 0.90).toLong() } ?: false
+    fun isWatched(fileId: Int): Boolean = rows().any { it.fileId == fileId && it.completed }
+    fun isContinueWatching(fileId: Int): Boolean = rows().any {
+        it.fileId == fileId && !it.completed && it.positionMs >= MIN_RESUME_MS }
+    fun getContinueWatchingFileIds(): Set<Int> = rows().filter {
+        !it.completed && it.positionMs >= MIN_RESUME_MS }.map { it.fileId }.filter { it > 0 }.toSet()
 }

@@ -2,7 +2,8 @@ package com.vaydelux.bousygram.data.database
 
 import android.content.Context
 import android.util.Log
-import com.vaydelux.bousygram.data.store.EnterprisePreferences
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,9 +12,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 data class RecentSearchQuery(
@@ -25,262 +27,134 @@ data class RecentSearchQuery(
     val timestampMs: Long = System.currentTimeMillis()
 )
 
+/** History belongs to the verified account's Room database. Legacy global history is retained unused. */
 object RecentSearchRepository {
     private const val TAG = "RecentSearchRepository"
-    private const val PREFS_NAME = "recent_search_room_state"
-    private const val KEY_USER_CLEARED = "user_cleared_recent_searches"
     const val MAX_RECENT_SEARCHES = 12
-
-    @Volatile
-    private var database: AppDatabase? = null
-    @Volatile
-    private var appContext: Context? = null
+    @Volatile private var appContext: Context? = null
+    @Volatile private var testDatabase: AppDatabase? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mutations = Mutex()
     private var roomObserveJob: Job? = null
-
     private val _recentSearches = MutableStateFlow<List<RecentSearchQuery>>(emptyList())
     val recentSearches: StateFlow<List<RecentSearchQuery>> = _recentSearches.asStateFlow()
 
-    fun init(context: Context) {
-        appContext = context.applicationContext
-        if (database == null) {
-            database = AppDatabase.getInstance(context)
-            startObservingRoom()
-            scope.launch {
-                migrateOrSeedIfNeeded(context.applicationContext)
-                refreshSnapshot()
-            }
-        }
-    }
+    fun init(context: Context) { appContext = context.applicationContext }
+    fun setDatabaseForTest(testDb: AppDatabase?) { testDatabase = testDb }
 
-    fun setDatabaseForTest(testDb: AppDatabase?) {
-        database = testDb
+    private fun database(owner: AccountSnapshot): AppDatabase? =
+        if (!AccountSession.isCurrent(owner)) null
+        else testDatabase ?: appContext?.let { AppDatabase.getInstance(it, owner.accountId) }
+
+    suspend fun activateAccount(owner: AccountSnapshot) = withContext(Dispatchers.IO) {
+        val db = database(owner) ?: return@withContext
         roomObserveJob?.cancel()
-        if (testDb != null) {
-            startObservingRoom()
-        }
-    }
-
-    fun observeRecentSearches(limit: Int = MAX_RECENT_SEARCHES): Flow<List<RecentSearchQuery>> {
-        val db = database
-        return if (db != null) {
-            db.recentSearchDao()
-                .observeRecentSearches(limit)
-                .map { list -> list.map { it.toDomain() } }
-                .catch { e ->
-                    Log.w(TAG, "Error observing recent searches from Room: ${e.message}")
-                    emit(_recentSearches.value.take(limit))
-                }
-        } else {
-            _recentSearches.map { it.take(limit) }
-        }
-    }
-
-    private fun startObservingRoom() {
-        val db = database ?: return
-        roomObserveJob?.cancel()
+        val initial = db.recentSearchDao().getRecentSearches(MAX_RECENT_SEARCHES).map { it.toDomain() }
+        AccountSession.runIfCurrent(owner) { _recentSearches.value = initial }
         roomObserveJob = scope.launch {
-            runCatching {
-                db.recentSearchDao()
-                    .observeRecentSearches(MAX_RECENT_SEARCHES)
-                    .collect { entities ->
-                        if (entities.isNotEmpty() || isUserCleared()) {
-                            _recentSearches.value = entities.map { it.toDomain() }
-                        }
-                    }
-            }.onFailure { e ->
-                Log.w(TAG, "Room Flow observation failed: ${e.message}")
+            try {
+                db.recentSearchDao().observeRecentSearches(MAX_RECENT_SEARCHES).collect { rows ->
+                    AccountSession.runIfCurrent(owner) { _recentSearches.value = rows.map { it.toDomain() } }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (AccountSession.isCurrent(owner)) Log.w(TAG, "Could not observe account search history", error)
             }
         }
     }
 
-    private fun isUserCleared(): Boolean {
-        val ctx = appContext ?: return false
-        return runCatching {
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(KEY_USER_CLEARED, false)
-        }.getOrDefault(false)
+    fun invalidateAccountResources() {
+        roomObserveJob?.cancel()
+        roomObserveJob = null
+        _recentSearches.value = emptyList()
     }
 
-    private fun setUserCleared(cleared: Boolean) {
-        val ctx = appContext ?: return
-        runCatching {
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_USER_CLEARED, cleared)
-                .apply()
+    fun observeRecentSearches(limit: Int = MAX_RECENT_SEARCHES): Flow<List<RecentSearchQuery>> =
+        recentSearches.map { it.take(limit.coerceIn(0, MAX_RECENT_SEARCHES)) }
+
+    suspend fun getRecentSearches(chatId: Long? = null, limit: Int = MAX_RECENT_SEARCHES): List<RecentSearchQuery> {
+        val owner = AccountSession.current() ?: return emptyList()
+        return withContext(Dispatchers.IO) {
+            val dao = database(owner)?.recentSearchDao() ?: return@withContext emptyList()
+            val count = limit.coerceIn(0, MAX_RECENT_SEARCHES)
+            val rows = if (chatId == null) dao.getRecentSearches(count) else dao.getRecentSearchesForChat(chatId, count)
+            if (AccountSession.isCurrent(owner)) rows.map { it.toDomain() } else emptyList()
         }
     }
 
-    private suspend fun migrateOrSeedIfNeeded(context: Context) = withContext(Dispatchers.IO) {
-        val db = database ?: return@withContext
-        runCatching {
-            val dao = db.recentSearchDao()
-            if (dao.getRecentSearchCount() == 0) {
-                val legacyQueries = runCatching { EnterprisePreferences.recentQueries() }.getOrDefault(emptyList())
-                val now = System.currentTimeMillis()
-                if (legacyQueries.isNotEmpty()) {
-                    val entities = legacyQueries.mapIndexedNotNull { index, raw ->
-                        val clean = raw.trim()
-                        if (clean.isBlank()) null
-                        else RecentSearchEntity(
-                            clean.lowercase(),
-                            clean,
-                            null,
-                            null,
-                            0,
-                            now - (index * 1000L)
-                        )
+    suspend fun recordSearchQuery(query: String, chatId: Long? = null, chatTitle: String? = null, resultCount: Int = 0) {
+        val owner = AccountSession.current() ?: return
+        record(owner, query, chatId, chatTitle, resultCount)
+    }
+
+    private suspend fun record(owner: AccountSnapshot, query: String, chatId: Long?, chatTitle: String?, resultCount: Int) =
+        withContext(Dispatchers.IO) {
+            val clean = query.trim().take(512)
+            if (clean.isBlank()) return@withContext
+            mutations.withLock {
+                val db = database(owner) ?: return@withLock
+                val entry = RecentSearchQuery(clean, clean.lowercase(), chatId, chatTitle?.take(512),
+                    resultCount.coerceAtLeast(0), System.currentTimeMillis())
+                AccountSession.runIfCurrent(owner) {
+                    db.runInTransaction {
+                        db.recentSearchDao().insertRecentSearch(entry.toEntity())
+                        db.recentSearchDao().trimToMaxCount(MAX_RECENT_SEARCHES)
                     }
-                    if (entities.isNotEmpty()) {
-                        dao.insertRecentSearches(entities)
-                        dao.trimToMaxCount(MAX_RECENT_SEARCHES)
-                    }
+                    _recentSearches.value = db.recentSearchDao().getRecentSearches(MAX_RECENT_SEARCHES).map { it.toDomain() }
                 }
             }
-        }.onFailure { e ->
-            Log.w(TAG, "Could not migrate or seed recent search queries: ${e.message}")
         }
+
+    fun recordSearchQueryAsync(query: String, chatId: Long? = null, chatTitle: String? = null, resultCount: Int = 0) {
+        val owner = AccountSession.current() ?: return
+        scope.launch { record(owner, query, chatId, chatTitle, resultCount) }
     }
 
-    suspend fun getRecentSearches(
-        chatId: Long? = null,
-        limit: Int = MAX_RECENT_SEARCHES
-    ): List<RecentSearchQuery> = withContext(Dispatchers.IO) {
-        val db = database
-        if (db == null) {
-            return@withContext _recentSearches.value
-                .filter { chatId == null || it.chatId == null || it.chatId == chatId }
-                .take(limit)
-        }
-        runCatching {
-            val dao = db.recentSearchDao()
-            val entities = if (chatId != null) {
-                dao.getRecentSearchesForChat(chatId, limit)
-            } else {
-                dao.getRecentSearches(limit)
+    suspend fun removeSearchQuery(query: String) {
+        val owner = AccountSession.current() ?: return
+        remove(owner, query)
+    }
+
+    private suspend fun remove(owner: AccountSnapshot, query: String) = withContext(Dispatchers.IO) {
+        mutations.withLock {
+            val db = database(owner) ?: return@withLock
+            AccountSession.runIfCurrent(owner) {
+                db.recentSearchDao().deleteRecentSearch(query.trim().lowercase())
+                _recentSearches.value = db.recentSearchDao().getRecentSearches(MAX_RECENT_SEARCHES).map { it.toDomain() }
             }
-            entities.map { it.toDomain() }
-        }.getOrElse { e ->
-            Log.w(TAG, "Error loading recent searches from Room: ${e.message}")
-            _recentSearches.value.take(limit)
-        }
-    }
-
-    suspend fun recordSearchQuery(
-        query: String,
-        chatId: Long? = null,
-        chatTitle: String? = null,
-        resultCount: Int = 0
-    ) = withContext(Dispatchers.IO) {
-        val clean = query.trim()
-        if (clean.isBlank()) return@withContext
-        setUserCleared(false)
-        val normalized = clean.lowercase()
-        val now = System.currentTimeMillis()
-        val existing = _recentSearches.value.firstOrNull { it.normalizedQuery == normalized }
-        val resolvedCount = if (resultCount > 0) resultCount else (existing?.resultCount ?: 0)
-        val entry = RecentSearchQuery(
-            query = clean,
-            normalizedQuery = normalized,
-            chatId = chatId ?: existing?.chatId,
-            chatTitle = chatTitle?.takeIf { it.isNotBlank() } ?: existing?.chatTitle,
-            resultCount = resolvedCount.coerceAtLeast(0),
-            timestampMs = now
-        )
-
-        // Update in-memory StateFlow immediately for responsive UI
-        val updated = (listOf(entry) + _recentSearches.value.filterNot { it.normalizedQuery == normalized })
-            .take(MAX_RECENT_SEARCHES)
-        _recentSearches.value = updated
-
-        runCatching { EnterprisePreferences.rememberQuery(clean) }
-
-        val db = database ?: return@withContext
-        runCatching {
-            val dao = db.recentSearchDao()
-            dao.insertRecentSearch(entry.toEntity())
-            dao.trimToMaxCount(MAX_RECENT_SEARCHES)
-            _recentSearches.value = dao.getRecentSearches(MAX_RECENT_SEARCHES).map { it.toDomain() }
-        }.onFailure { e ->
-            Log.w(TAG, "Failed to persist recent search query to Room: ${e.message}")
-        }
-    }
-
-    fun recordSearchQueryAsync(
-        query: String,
-        chatId: Long? = null,
-        chatTitle: String? = null,
-        resultCount: Int = 0
-    ) {
-        scope.launch {
-            recordSearchQuery(query, chatId, chatTitle, resultCount)
-        }
-    }
-
-    suspend fun removeSearchQuery(query: String) = withContext(Dispatchers.IO) {
-        val normalized = query.trim().lowercase()
-        if (normalized.isBlank()) return@withContext
-        val remaining = _recentSearches.value.filterNot { it.normalizedQuery == normalized }
-        if (remaining.isEmpty()) setUserCleared(true)
-        _recentSearches.value = remaining
-        val db = database ?: return@withContext
-        runCatching {
-            val dao = db.recentSearchDao()
-            dao.deleteRecentSearch(normalized)
-            _recentSearches.value = dao.getRecentSearches(MAX_RECENT_SEARCHES).map { it.toDomain() }
-        }.onFailure { e ->
-            Log.w(TAG, "Failed to delete recent search query from Room: ${e.message}")
         }
     }
 
     fun removeSearchQueryAsync(query: String) {
-        scope.launch {
-            removeSearchQuery(query)
-        }
+        val owner = AccountSession.current() ?: return
+        scope.launch { remove(owner, query) }
     }
 
-    suspend fun clearRecentSearches() = withContext(Dispatchers.IO) {
-        setUserCleared(true)
-        _recentSearches.value = emptyList()
-        runCatching { EnterprisePreferences.clearRecentQueries() }
-        val db = database ?: return@withContext
-        runCatching {
-            db.recentSearchDao().clearAllRecentSearches()
-        }.onFailure { e ->
-            Log.w(TAG, "Failed to clear recent searches from Room: ${e.message}")
+    suspend fun clearRecentSearches() {
+        val owner = AccountSession.current() ?: return
+        clear(owner)
+    }
+
+    private suspend fun clear(owner: AccountSnapshot) = withContext(Dispatchers.IO) {
+        mutations.withLock {
+            val db = database(owner) ?: return@withLock
+            AccountSession.runIfCurrent(owner) {
+                db.recentSearchDao().clearAllRecentSearches()
+                _recentSearches.value = emptyList()
+            }
         }
     }
 
     fun clearRecentSearchesAsync() {
-        scope.launch {
-            clearRecentSearches()
-        }
-    }
-
-    private suspend fun refreshSnapshot() = withContext(Dispatchers.IO) {
-        val db = database ?: return@withContext
-        runCatching {
-            val list = db.recentSearchDao().getRecentSearches(MAX_RECENT_SEARCHES).map { it.toDomain() }
-            _recentSearches.value = list
-        }
+        val owner = AccountSession.current() ?: return
+        scope.launch { clear(owner) }
     }
 }
 
 fun RecentSearchEntity.toDomain(): RecentSearchQuery = RecentSearchQuery(
-    query = query,
-    normalizedQuery = normalizedQuery,
-    chatId = chatId,
-    chatTitle = chatTitle,
-    resultCount = resultCount,
-    timestampMs = timestampMs
+    query, normalizedQuery, chatId, chatTitle, resultCount, timestampMs
 )
-
 fun RecentSearchQuery.toEntity(): RecentSearchEntity = RecentSearchEntity(
-    normalizedQuery,
-    query,
-    chatId,
-    chatTitle,
-    resultCount,
-    timestampMs
+    normalizedQuery, query, chatId, chatTitle, resultCount, timestampMs
 )

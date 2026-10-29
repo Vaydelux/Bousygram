@@ -4,6 +4,9 @@ import android.util.Log
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 
 object TdLibClient {
     private const val TAG = "TdLibClient"
@@ -37,6 +40,33 @@ object TdLibClient {
 
     @Volatile
     private var instance: Client? = null
+    private val clientGeneration = AtomicLong(0L)
+
+    /** A repository binds this facade once; it can never silently become another account's client. */
+    class AccountClient internal constructor(private val owner: AccountSnapshot?) {
+        fun send(query: TdApi.Function<*>, handler: (TdApi.Object?) -> Unit) {
+            val snapshot = owner ?: return
+            if (!AccountSession.isCurrent(snapshot)) return
+            sendCurrent(query) { result ->
+                if (AccountSession.isCurrent(snapshot)) handler(result)
+            }
+        }
+    }
+
+    fun accountClient(): AccountClient = AccountClient(AccountSession.current())
+
+    /** Authentication requests are also rejected when their native client has been replaced. */
+    fun sendCurrent(query: TdApi.Function<*>, handler: (TdApi.Object?) -> Unit) {
+        val connection: Client
+        val generation: Long
+        synchronized(this) {
+            connection = client
+            generation = clientGeneration.get()
+        }
+        connection.send(query) { result ->
+            if (clientGeneration.get() == generation) handler(result)
+        }
+    }
 
     val client: Client
         get() = synchronized(this) {
@@ -48,9 +78,11 @@ object TdLibClient {
         instance!!
     }
 
-    private fun createNewClient(): Client =
-        Client.create(
+    private fun createNewClient(): Client {
+        val generation = clientGeneration.incrementAndGet()
+        return Client.create(
             { update ->
+                if (clientGeneration.get() != generation) return@create
                 try {
                     updateHandlers.dispatch(update)
                     when (update) {
@@ -62,6 +94,7 @@ object TdLibClient {
                 }
             },
             { error ->
+                if (clientGeneration.get() != generation) return@create
                 try {
                     errorHandlers.dispatch(error)
                 } catch (e: Exception) {
@@ -70,6 +103,7 @@ object TdLibClient {
             },
             null
         )
+    }
 
     fun addUpdateHandler(handler: (TdApi.Object?) -> Unit) = updateHandlers.add(handler)
     fun removeUpdateHandler(handler: (TdApi.Object?) -> Unit) = updateHandlers.remove(handler)

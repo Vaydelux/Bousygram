@@ -26,6 +26,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Semaphore
+import java.io.IOException
 import java.net.URLEncoder
 import kotlin.coroutines.coroutineContext
 import kotlin.math.min
@@ -63,6 +66,7 @@ object TelegramProxyManager {
     private const val PRE_FLIGHT_RETRY_AFTER_SECONDS = "1"
     @Volatile
     private var server: NettyApplicationEngine? = null
+    private val streamPermits = Semaphore(4)
 
     init {
         System.setProperty("io.netty.transport.noNative", "true")
@@ -184,6 +188,15 @@ object TelegramProxyManager {
     }
 
     private suspend fun handleStream(call: ApplicationCall) {
+        if (!streamPermits.tryAcquire()) {
+            call.response.header(HttpHeaders.RetryAfter, PRE_FLIGHT_RETRY_AFTER_SECONDS)
+            call.respond(HttpStatusCode.ServiceUnavailable, "The media server is busy; retry shortly")
+            return
+        }
+        try { handleAuthorizedStream(call) } finally { streamPermits.release() }
+    }
+
+    private suspend fun handleAuthorizedStream(call: ApplicationCall) {
         val fileId = call.request.queryParameters["fileId"]?.toIntOrNull()
         if (fileId == null || fileId <= 0) {
             call.respond(HttpStatusCode.BadRequest, "Missing fileId")
@@ -220,9 +233,20 @@ object TelegramProxyManager {
         }
         val contentLength = range.endInclusive - range.start + 1
         val isPartial = range.isPartial
-        // Headers go out before any Telegram read. Holding them until the first chunk arrives
-        // made ExoPlayer hit its connect timeout, cancel the download, and report the file
-        // as unavailable even when the network was fine.
+        // Preflight is bounded: unavailable data receives a retryable status before a
+        // successful fixed-length response is committed. ExoPlayer uses the direct source.
+        val firstChunk = withTimeoutOrNull(2_000L) {
+            fetchReadyChunkForStream(fileId, range.start,
+                min(CHUNK_SIZE_BYTES.toLong(), contentLength).toInt(), TelegramChunkPurpose.Streaming)
+        }
+        if (firstChunk == null || firstChunk.isEmpty()) {
+            respondRangeNotReady(call, fileId, range.start)
+            return
+        }
+        if (!StreamAccessRegistry.authorizesFile(call.request.queryParameters["token"], fileId)) {
+            call.respond(HttpStatusCode.Forbidden, "The stream authorization expired")
+            return
+        }
         call.response.header(HttpHeaders.AcceptRanges, "bytes")
         call.response.header(HttpHeaders.ContentLength, contentLength.toString())
         call.response.header("X-Content-Type-Options", "nosniff")
@@ -244,7 +268,8 @@ object TelegramProxyManager {
                 streamTelegramFileSequentially(
                     fileId,
                     HttpByteRange(range.start, range.endInclusive),
-                    this
+                    this,
+                    firstChunk
                 )
             }
         } catch (e: Exception) {
@@ -322,17 +347,15 @@ object TelegramProxyManager {
             priority = STREAM_PRIORITY
         )
         var releaseReason = TelegramLeaseReleaseReason.Completed
-        if (firstChunk != null) {
-            channel.writeFully(firstChunk, 0, firstChunk.size)
-            channel.flush()
-            expectedOffset += firstChunk.size
-            if (expectedOffset > range.end) {
-                TelegramChunkScheduler.releaseLease(lease, TelegramLeaseReleaseReason.Completed, expectedOffset)
-                return@coroutineScope
-            }
-        }
-
         try {
+            if (firstChunk != null) {
+                if (firstChunk.isEmpty() || firstChunk.size > range.end - range.start + 1L) {
+                    throw IOException("Invalid initial media range")
+                }
+                channel.writeFully(firstChunk, 0, firstChunk.size)
+                channel.flush()
+                expectedOffset += firstChunk.size
+            }
             while (expectedOffset <= range.end) {
                 coroutineContext.ensureActive()
                 val limit = min(CHUNK_SIZE_BYTES.toLong(), range.end - expectedOffset + 1L).toInt()
@@ -343,10 +366,7 @@ object TelegramProxyManager {
                     limit = limit,
                     purpose = TelegramChunkPurpose.Streaming
                 )
-                if (chunk == null) {
-                    Log.w(TAG, "Stream chunk unavailable fileId=$fileId offset=$expectedOffset; terminating stream gracefully")
-                    break
-                }
+                if (chunk == null || chunk.isEmpty()) throw IOException("The media backend could not complete the requested range")
                 channel.writeFully(chunk, 0, chunk.size)
                 channel.flush()
                 expectedOffset += chunk.size
@@ -354,8 +374,9 @@ object TelegramProxyManager {
         } catch (e: Throwable) {
             if (expectedOffset <= range.end) {
                 Log.d(TAG, "Client cancelled mid-range fileId=$fileId offset=$expectedOffset: ${e.message}")
-                releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
+                releaseReason = if (e is IOException) TelegramLeaseReleaseReason.Failed else TelegramLeaseReleaseReason.ConsumerClosed
             }
+            channel.close(e)
             throw e
         } finally {
             TelegramChunkScheduler.releaseLease(lease, releaseReason, expectedOffset)
