@@ -122,6 +122,22 @@ class CastReceiverManagerTest {
     }
 
     @Test
+    fun excessiveDurationAndPositionBeyondDurationAreRejected() {
+        assertNull(CastReceiverManager.fromJson(
+            """{"chatId":9,"messageId":3,"fileId":12,"durationMs":2147483648000}"""
+        ))
+        assertNull(CastReceiverManager.fromJson(
+            """{"chatId":9,"messageId":3,"fileId":12,"durationMs":1000,"positionMs":1001}"""
+        ))
+    }
+
+    @Test
+    fun oversizedJsonIsRejectedBeforeParsing() {
+        val json = "{\\"title\\":\\"" + "x".repeat(10_000) + "\\"}"
+        assertNull(CastReceiverManager.fromJson(json))
+    }
+
+    @Test
     fun toPlaybackRequest_mapsCorrectFields() {
         val payload = CastMediaPayload(
             chatId = 112233L,
