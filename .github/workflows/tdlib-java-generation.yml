@@ -1,0 +1,77 @@
+name: TDLib Java API generation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tdlib-java-generation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: Generate pinned TDLib Java API on Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out Bousygram
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install TDLib host build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential cmake gperf libssl-dev ninja-build php-cli zlib1g-dev
+
+      - name: Check out exact TDLib source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: tdlib/td
+          ref: 4c6377aa7386c39217878a9a56d581922ad37ca4
+          path: tdlib-source
+          persist-credentials: false
+
+      - name: Configure Linux host generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p generation-artifacts
+          resolved="$(git -C tdlib-source rev-parse HEAD)"
+          [[ "$resolved" == 4c6377aa7386c39217878a9a56d581922ad37ca4 ]]
+          printf 'TDLib commit: %s\n' "$resolved" | tee generation-artifacts/REVISION.txt
+          unset ANDROID_HOME ANDROID_SDK_ROOT ANDROID_NDK_HOME ANDROID_NDK_ROOT ANDROID_ABI ANDROID_PLATFORM CMAKE_TOOLCHAIN_FILE
+          cmake -S tdlib-source/example/android -B tdlib-host-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTD_GENERATE_SOURCE_FILES=ON \
+            -DTD_ENABLE_JNI=ON \
+            -DTD_ANDROID_JSON=OFF \
+            -DTD_ANDROID_JSON_JAVA=OFF \
+            2>&1 | tee generation-artifacts/cmake-configure.log
+
+      - name: Build Java generator and generate TdApi.java
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset ANDROID_HOME ANDROID_SDK_ROOT ANDROID_NDK_HOME ANDROID_NDK_ROOT ANDROID_ABI ANDROID_PLATFORM CMAKE_TOOLCHAIN_FILE
+          cmake --build tdlib-host-build --target tl_generate_java --parallel "$(nproc)" \
+            2>&1 | tee generation-artifacts/cmake-build.log
+          generated=tdlib-source/example/android/org/drinkless/tdlib/TdApi.java
+          test -s "$generated"
+          grep -Fq 'package org.drinkless.tdlib;' "$generated"
+          cp "$generated" generation-artifacts/TdApi.java
+          sha256sum "$generated" | tee generation-artifacts/TdApi.sha256
+          git diff --no-index -- app/src/main/java/org/drinkless/tdlib/TdApi.java "$generated" \
+            > generation-artifacts/TdApi.diff || status=$?
+          if [[ "${status:-0}" -gt 1 ]]; then exit "$status"; fi
+
+      - name: Upload generated API and complete build logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tdlib-java-generation-${{ github.run_id }}
+          path: generation-artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
