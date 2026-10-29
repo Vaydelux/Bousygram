@@ -2484,12 +2484,6 @@ private fun PlayerHud(
         isPlayingOrPending -> "Playing"
         else -> "Paused"
     }
-    val statusLine = listOfNotNull(
-        statusText,
-        state.retryCount.takeIf { it > 0 }?.let { "retry $it/$MAX_AUTO_RETRIES" },
-        state.trackLabel,
-        state.cacheStateLabel
-    ).joinToString(" · ")
     val hudShape = RoundedCornerShape(if (compact) 18.dp else 26.dp)
     Surface(
         modifier = modifier
@@ -2533,15 +2527,18 @@ private fun PlayerHud(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (state.isBuffering && state.error == null) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(if (compact) 16.dp else 18.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
+                PlayerStatusChip(
+                    label = statusText,
+                    isError = state.error != null,
+                    isBusy = state.isOpening || state.isBuffering || state.isReconnecting
+                )
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    statusLine,
+                    listOfNotNull(
+                        state.retryCount.takeIf { it > 0 }?.let { "retry $it/$MAX_AUTO_RETRIES" },
+                        state.trackLabel,
+                        state.cacheStateLabel
+                    ).joinToString(" · "),
                     modifier = Modifier.weight(1f),
                     style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2571,7 +2568,7 @@ private fun PlayerHud(
                 maxLines = if (compact) 2 else 3,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(if (compact) 10.dp else 15.dp))
             PlayerSeekBar(
                 mediaKey = state.mediaKey,
                 positionMs = state.positionMs,
@@ -2588,7 +2585,7 @@ private fun PlayerHud(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
             ) {
-                BousygramButton("⏮ Prev", onSkipPrevious)
+                BousygramButton("⏮ Previous", onSkipPrevious)
                 BousygramButton("↶ 10s", { onSeekBy(-SEEK_INCREMENT_MS) })
                 val playPauseLabel = if (isPlayingOrPending) "❚❚ Pause" else "▶ Play"
                 BousygramButton(
