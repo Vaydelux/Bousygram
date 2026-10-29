@@ -29,6 +29,55 @@ val hasReleaseSigning = releaseStoreFile.isNotBlank() &&
     file(releaseStoreFile).exists()
 
 
+// Android accepts version codes <= 2_100_000_000. Reserving three digits for
+// minor and patch keeps each future tag strictly greater than the previous one.
+fun bousygramVersionCode(version: String): Int {
+    val parts = version.split(".")
+    require(parts.size == 3 && parts.all { it.matches(Regex("(0|[1-9][0-9]*)")) }) {
+        "releaseVersionName must be numeric MAJOR.MINOR.PATCH with no leading zeros"
+    }
+    val major = parts[0].toLongOrNull()
+    val minor = parts[1].toLongOrNull()
+    val patch = parts[2].toLongOrNull()
+    require(major != null && major in 0L..2099L &&
+        minor != null && minor in 0L..999L &&
+        patch != null && patch in 0L..999L
+    ) { "Release version exceeds Android versionCode limits (major<=2099, minor/patch<=999)" }
+    val code = major * 1_000_000L + minor * 1_000L + patch
+    require(code in 1L..2_100_000_000L) { "Android versionCode must be positive and <= 2100000000" }
+    return code.toInt()
+}
+
+// Exercise actual Gradle version mapping, including negative fixtures. The release task
+// uses the identical function, so these checks cannot accidentally diverge from packaging.
+tasks.register("verifyReleaseVersionPolicy") {
+    group = "verification"
+    description = "Verify ordered Android APK versionCode mapping and reject invalid versions"
+    // Evaluate the pure Gradle policy at configuration time, but capture only serializable
+    // Booleans in the task action. Calling a script function from doLast captures the whole
+    // Gradle script instance and breaks Gradle 9's configuration cache.
+    val expected = mapOf(
+        "1.0.0" to 1_000_000,
+        "1.0.1" to 1_000_001,
+        "1.1.0" to 1_001_000,
+        "2.0.0" to 2_000_000,
+        "2099.999.999" to 2_099_999_999
+    )
+    val positiveFixturesPass = expected.all { (version, code) ->
+        bousygramVersionCode(version) == code
+    }
+    val negativeFixturesPass = listOf(
+        "0.0.0", "1.0.1000", "1.1000.0", "2100.0.0",
+        "v1.0.0", "01.0.0", "1.0.-1", "broken"
+    ).all { version -> runCatching { bousygramVersionCode(version) }.isFailure }
+    inputs.property("positiveFixturesPass", positiveFixturesPass)
+    inputs.property("negativeFixturesPass", negativeFixturesPass)
+    doLast {
+        check(positiveFixturesPass) { "Valid release version mappings did not match expected Android codes" }
+        check(negativeFixturesPass) { "Invalid release version was accepted by the Android version policy" }
+    }
+}
+
 android {
     namespace = "com.vaydelux.bousygram"
     compileSdk {
@@ -37,6 +86,10 @@ android {
 
     val devAbi = project.findProperty("devAbi") as? String
     val releaseVersionName = providers.gradleProperty("releaseVersionName").orElse("1.0.0").get()
+    // A versionName-only update is not installable over the previous Android APK unless
+    // versionCode also increases. Encode semver into an ordered, Play-compatible integer.
+    // v1.0.0 = 1_000_000, v1.0.1 = 1_000_001, v1.1.0 = 1_001_000.
+    val releaseVersionCode = bousygramVersionCode(releaseVersionName)
 
     signingConfigs {
         create("release") {
@@ -53,7 +106,7 @@ android {
         applicationId = "com.vaydelux.bousygram"
         minSdk = 26
         targetSdk = 37
-        versionCode = 10
+        versionCode = releaseVersionCode
         versionName = releaseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

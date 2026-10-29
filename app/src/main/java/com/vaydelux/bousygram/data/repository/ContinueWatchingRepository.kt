@@ -77,6 +77,30 @@ internal class AccountProgressLedger(
     private fun key(chatId: Long, messageId: Long) = "$chatId:$messageId"
 }
 
+/**
+ * Preserve the only available copy of a damaged progress document. AtomicFile may have
+ * a backup without a primary when a write is interrupted. Never overwrite evidence.
+ *
+ * File operations are kept independent of Android so the backup-only case is JVM-testable.
+ */
+internal fun retainUnreadableProgress(target: File, timestampMs: Long = System.currentTimeMillis()): File {
+    val backup = File(target.path + ".bak")
+    val source = when {
+        target.isFile -> target
+        backup.isFile -> backup
+        else -> throw java.io.FileNotFoundException("No unreadable progress data remains")
+    }
+    val dir = checkNotNull(target.parentFile) { "Progress storage directory is unavailable" }
+    var index = 0
+    var retained = File(dir, "continue_watching.unreadable.${timestampMs}.json")
+    while (retained.exists()) {
+        index += 1
+        retained = File(dir, "continue_watching.unreadable.${timestampMs}.${index}.json")
+    }
+    source.copyTo(retained, overwrite = false)
+    return retained
+}
+
 private class AccountProgressFiles : ProgressPersistence {
     private fun file(accountId: Long): File {
         val dir = File(BousygramApp.instance.filesDir, "accounts/$accountId")
@@ -119,9 +143,10 @@ private class AccountProgressFiles : ProgressPersistence {
                 }
             }
         } catch (error: Exception) {
-            // Preserve the entire unreadable original before allowing a clean ledger to be written.
-            val retained = File(target.parentFile, "continue_watching.unreadable." + System.currentTimeMillis() + ".json")
-            target.copyTo(retained, overwrite = false)
+            // openRead may fail while only its .bak exists. Preserve whichever original
+            // still exists before allowing a clean ledger to overwrite corrupted data.
+            // If preservation fails, abort activation instead of losing the only copy.
+            retainUnreadableProgress(target)
             Log.w("ContinueWatchingRepo", "Unreadable progress retained for explicit recovery")
             emptyList()
         }
