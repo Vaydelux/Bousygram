@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
 import androidx.media3.common.MimeTypes
+import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.media.TelegramProxyPlayerFactory
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.domain.model.MediaAlternativeVideo
@@ -17,11 +18,19 @@ class HlsAndMp4StreamingTest {
 
     @Test
     fun progressiveStreamUrlIsAuthorizedForItsFile() {
-        val url = TelegramProxyManager.baseStreamUrl(101)
-        assertTrue(url.contains("/stream?fileId=101&token="))
-        val token = url.substringAfter("token=").substringBefore('&')
-        assertTrue(StreamAccessRegistry.authorizesFile(token, 101))
-        assertTrue(!StreamAccessRegistry.authorizesFile(token, 102))
+        // Private loopback URLs must only be minted for a verified Telegram account.
+        AccountSession.invalidate()
+        checkNotNull(AccountSession.activate(101L, AccountSession.generation()))
+        try {
+            val url = TelegramProxyManager.baseStreamUrl(101)
+            assertTrue(url.contains("/stream?fileId=101&token="))
+            val token = url.substringAfter("token=").substringBefore('&')
+            assertTrue(StreamAccessRegistry.authorizesFile(token, 101))
+            assertTrue(!StreamAccessRegistry.authorizesFile(token, 102))
+        } finally {
+            AccountSession.invalidate()
+            StreamAccessRegistry.revokeAll()
+        }
     }
 
     @Test
