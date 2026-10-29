@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
+import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.media.EnginePlaybackState
 import com.vaydelux.bousygram.core.media.PlayerEngine
 import com.vaydelux.bousygram.core.media.PlayerEngineFactory
@@ -61,6 +62,10 @@ class EngineLabActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!BuildConfig.DEBUG) {
+            finish()
+            return
+        }
         val initialUrl = intent.getStringExtra("url") ?: intent.dataString ?: ""
 
         setContent {

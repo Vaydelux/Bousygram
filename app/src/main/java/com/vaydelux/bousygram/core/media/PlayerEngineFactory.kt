@@ -52,7 +52,8 @@ object PlayerEngineFactory {
     ): Pair<PlayerEngine, Long> {
         val position = failedEngine.currentPositionMs
         Log.w(TAG, "Initiating fallback engine transition from position $position ms (failed: ${failedEngine::class.simpleName})")
-        failedEngine.release()
+        // The session's PlaybackEngineOwner closes the failed engine only after a
+        // replacement has initialized successfully.
         val isCellular = NetworkConnectivityObserver.isCellular
         val fallback = if (failedEngine is ExoPlayerEngine) {
             try {

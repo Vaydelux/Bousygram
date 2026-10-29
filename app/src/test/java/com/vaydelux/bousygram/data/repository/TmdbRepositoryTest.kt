@@ -2,6 +2,9 @@ package com.vaydelux.bousygram.data.repository
 
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
+import com.vaydelux.bousygram.core.account.AccountSession
+import java.io.ByteArrayInputStream
+import java.io.IOException
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -24,6 +27,8 @@ class TmdbRepositoryTest {
 
     @Before
     fun setUp() {
+        AccountSession.invalidate()
+        AccountSession.activate(101L, AccountSession.generation())
         cacheDir = tempFolder.newFolder("app_cache")
         TmdbRepository.setTestCacheDir(cacheDir)
         TmdbRepository.clearMemoryCache()
@@ -33,6 +38,7 @@ class TmdbRepositoryTest {
     fun tearDown() {
         TmdbRepository.setTestCacheDir(null)
         TmdbRepository.clearMemoryCache()
+        AccountSession.invalidate()
     }
 
     @Test
@@ -152,5 +158,57 @@ class TmdbRepositoryTest {
 
         assertEquals(3, result.seasonNumber)
         assertEquals(7, result.episodeNumber)
+    }
+
+    @Test
+    fun accountSwitchCannotReadAnotherAccountsMetadataAndRetainsOriginal() {
+        val key = TmdbRepository.generateCacheKey("Private family media", null, false)
+        TmdbRepository.writeDiskCache(key, TmdbMetadata(matched = false, title = "Account A private title"))
+        AccountSession.invalidate()
+        AccountSession.activate(202L, AccountSession.generation())
+        assertNull(TmdbRepository.readDiskCache(key, null))
+        TmdbRepository.writeDiskCache(key, TmdbMetadata(matched = false, title = "Account B title"))
+        AccountSession.invalidate()
+        assertNull(TmdbRepository.readDiskCache(key, null))
+        AccountSession.activate(101L, AccountSession.generation())
+        assertEquals("Account A private title", TmdbRepository.readDiskCache(key, null)?.title)
+    }
+
+    @Test
+    fun unownedLegacyCacheIsNotAssignedToAuthenticatedAccount() {
+        val key = TmdbRepository.generateCacheKey("Legacy", null, false)
+        val legacy = File(cacheDir, "tmdb_cache/$key.json")
+        legacy.parentFile!!.mkdirs()
+        legacy.writeText("""{"matched":false,"title":"unowned private title","timestamp":${System.currentTimeMillis()}}""")
+        assertNull(TmdbRepository.readDiskCache(key, null))
+        assertTrue("Legacy data must be retained without exposing it", legacy.exists())
+    }
+
+    @Test
+    fun matchingIgnoresUnrelatedFirstResultAndRejectsAmbiguousRemakes() {
+        val results = """{"results":[{"id":1,"title":"Unrelated","release_date":"2010-01-01"},{"id":2,"title":"Inception","release_date":"2010-01-01"}]}"""
+        assertEquals(2, TmdbRepository.selectMatchingResult(results, "INCEPTION", 2010, false)?.getInt("id"))
+        assertNull(TmdbRepository.selectMatchingResult(results, "Inception", 2011, false))
+        val remakes = """{"results":[{"id":1,"title":"Dune","release_date":"1984-01-01"},{"id":2,"title":"Dune","release_date":"2021-01-01"}]}"""
+        assertNull(TmdbRepository.selectMatchingResult(remakes, "Dune", null, false))
+        assertEquals(2, TmdbRepository.selectMatchingResult(remakes, "Dune", 2021, false)?.getInt("id"))
+    }
+
+    @Test
+    fun boundedReadRejectsOversizedAndStalledResponses() {
+        assertEquals(8, TmdbRepository.readBounded(ByteArrayInputStream(ByteArray(8)), 8).size)
+        assertTrue(runCatching { TmdbRepository.readBounded(ByteArrayInputStream(ByteArray(9)), 8) }.exceptionOrNull() is IOException)
+        val stalled = object : java.io.InputStream() {
+            override fun read(): Int = 0
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int = 0
+        }
+        assertTrue(runCatching { TmdbRepository.readBounded(stalled, 8) }.exceptionOrNull() is IOException)
+    }
+
+    @Test
+    fun cacheKeysCannotTraverseOutsideAccountDirectory() {
+        TmdbRepository.writeDiskCache("../../escape", TmdbMetadata(false, title = "private"))
+        assertNull(TmdbRepository.readDiskCache("../../escape", null))
+        assertFalse(File(cacheDir, "escape.json").exists())
     }
 }

@@ -508,6 +508,8 @@ private fun AuthStepFields(state: AuthUiState, viewModel: AuthViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error
             )
+            PrimaryAction(text = "Retry connection", loading = state.isLoading,
+                onClick = viewModel::retryInitialization)
         }
         AuthStep.EnterApiKeys -> ApiKeysForm(state, viewModel)
         AuthStep.EnterPhone -> PhoneForm(state, viewModel)

@@ -16,7 +16,7 @@ fun SavedMessagesRepository.findSidecarSubtitle(
         return
     }
 
-    Log.d("SubtitleSearch", "Searching for sidecar subtitles matching prefix: '$prefix' in chatId=$chatId")
+    Log.d("SubtitleSearch", "Searching for matching sidecar subtitles")
 
     // Search chat messages for document filter with the video title prefix
     val query = TdApi.SearchChatMessages(
@@ -53,7 +53,7 @@ fun SavedMessagesRepository.findSidecarSubtitle(
                             subKey.startsWith("${videoKey}_") ||
                             subKey.startsWith("${videoKey}-")
                         if (matches) {
-                            Log.i("SubtitleSearch", "Found matching sidecar subtitle: $fileName, fileId=${doc.document?.id}")
+                            Log.i("SubtitleSearch", "Found a matching sidecar subtitle")
                             onResult(doc.document?.id, fileName)
                             return@send
                         }

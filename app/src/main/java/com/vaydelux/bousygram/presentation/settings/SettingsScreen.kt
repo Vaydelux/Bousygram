@@ -454,203 +454,206 @@ fun SettingsScreen(
 
                                 Spacer(Modifier.height(12.dp))
 
-                                // Developer Tools Section
-                                Text(
-                                    "Developer Tools (In-App Video Debug)",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                if (BuildConfig.DEBUG) {
+                                    // Developer Tools Section
+                                    Text(
+                                        "Developer Tools (In-App Video Debug)",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
 
-                                // Live Video Debug HUD Toggle
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                    // Live Video Debug HUD Toggle
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                            Text(
+                                                "Live Video Debug HUD",
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                "Displays 10-ft readable real-time overlay in the player (Engine, Surface, Decoders, Drop counters, Overlays). Toggle with remote Yellow or Info key.",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        Switch(
+                                            checked = videoDebugHud,
+                                            onCheckedChange = {
+                                                videoDebugHud = it
+                                                EnterprisePreferences.setVideoDebugHudEnabled(it)
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                                uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                            )
+                                        )
+                                    }
+
+                                    // Player Engine Switcher
+                                    Column(modifier = Modifier.fillMaxWidth()) {
                                         Text(
-                                            "Live Video Debug HUD",
+                                            "Playback Engine",
                                             color = MaterialTheme.colorScheme.onSurface,
                                             style = MaterialTheme.typography.bodyLarge,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                         Text(
-                                            "Displays 10-ft readable real-time overlay in the player (Engine, Surface, Decoders, Drop counters, Overlays). Toggle with remote Yellow or Info key.",
+                                            "Select player engine without restarting",
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             style = MaterialTheme.typography.bodySmall
                                         )
-                                    }
-                                    Switch(
-                                        checked = videoDebugHud,
-                                        onCheckedChange = {
-                                            videoDebugHud = it
-                                            EnterprisePreferences.setVideoDebugHudEnabled(it)
-                                        },
-                                        colors = SwitchDefaults.colors(
-                                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                            checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
-                                        )
-                                    )
-                                }
-
-                                // Player Engine Switcher
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    Text(
-                                        "Playback Engine",
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        "Select player engine without restarting",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Spacer(Modifier.height(6.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        SelectedPlayerEngine.entries.forEach { engine ->
-                                            BousygramChip(
-                                                text = engine.name,
-                                                selected = playerEngine == engine,
-                                                onClick = {
-                                                    playerEngine = engine
-                                                    EnterprisePreferences.setSelectedPlayerEngine(engine)
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Surface Type Switcher
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    Text(
-                                        "Surface Presentation Mode",
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        "Switch between SurfaceView (hardware overlay) and TextureView (composited view)",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Spacer(Modifier.height(6.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf("auto" to "Auto", "surfaceview" to "SurfaceView", "textureview" to "TextureView").forEach { (type, label) ->
-                                            BousygramChip(
-                                                text = label,
-                                                selected = surfaceType == type,
-                                                onClick = {
-                                                    surfaceType = type
-                                                    EnterprisePreferences.setSurfaceTypePreference(type)
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // MPV HWDEC / VO Mode Switcher
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    Text(
-                                        "MPV Hardware Decoder & VO Mode",
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        "mediacodec-copy works reliably on Mali-G52 GPU. mediacodec is direct embed.",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Spacer(Modifier.height(6.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf(
-                                            "mediacodec-copy" to "vo=gpu (mediacodec-copy)",
-                                            "mediacodec" to "vo=mediacodec_embed",
-                                            "no" to "vo=gpu (Software)"
-                                        ).forEach { (mode, label) ->
-                                            BousygramChip(
-                                                text = label,
-                                                selected = mpvHwDecMode == mode,
-                                                onClick = {
-                                                    mpvHwDecMode = mode
-                                                    EnterprisePreferences.setMpvHwDecMode(mode)
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Open Engine Lab Button
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                                        Text(
-                                            "Engine Lab Diagnostic Activity",
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            "Live engine comparison with surface and buffer telemetry.",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                    BousygramButton(
-                                        text = "Open Lab",
-                                        onClick = {
-                                            context.startActivity(Intent(context, com.vaydelux.bousygram.presentation.debug.EngineLabActivity::class.java))
-                                        }
-                                    )
-                                }
-
-                                Spacer(Modifier.height(8.dp))
-
-                                // Export Diagnostics
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                                        Text(
-                                            "Diagnostics & Health",
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            "Export streaming telemetry, player buffer stats, and session logs.",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                    BousygramButton(
-                                        text = "Export",
-                                        onClick = {
-                                            clipboard?.setPrimaryClip(
-                                                ClipData.newPlainText("Bousygram Diagnostics", diagnosticsText)
-                                            )
-                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                putExtra(Intent.EXTRA_TEXT, diagnosticsText)
-                                                type = "text/plain"
+                                        Spacer(Modifier.height(6.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            SelectedPlayerEngine.entries.forEach { engine ->
+                                                BousygramChip(
+                                                    text = engine.name,
+                                                    selected = playerEngine == engine,
+                                                    onClick = {
+                                                        playerEngine = engine
+                                                        EnterprisePreferences.setSelectedPlayerEngine(engine)
+                                                    }
+                                                )
                                             }
-                                            val chooser = Intent.createChooser(sendIntent, "Export diagnostics")
-                                            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(chooser)
-                                            Toast.makeText(context, "Diagnostics copied to clipboard", Toast.LENGTH_SHORT).show()
                                         }
-                                    )
-                                }
+                                    }
 
-                                Spacer(Modifier.height(8.dp))
+                                    // Surface Type Switcher
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            "Surface Presentation Mode",
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            "Switch between SurfaceView (hardware overlay) and TextureView (composited view)",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Spacer(Modifier.height(6.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            listOf("auto" to "Auto", "surfaceview" to "SurfaceView", "textureview" to "TextureView").forEach { (type, label) ->
+                                                BousygramChip(
+                                                    text = label,
+                                                    selected = surfaceType == type,
+                                                    onClick = {
+                                                        surfaceType = type
+                                                        EnterprisePreferences.setSurfaceTypePreference(type)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // MPV HWDEC / VO Mode Switcher
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            "MPV Hardware Decoder & VO Mode",
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            "mediacodec-copy works reliably on Mali-G52 GPU. mediacodec is direct embed.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Spacer(Modifier.height(6.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            listOf(
+                                                "mediacodec-copy" to "vo=gpu (mediacodec-copy)",
+                                                "mediacodec" to "vo=mediacodec_embed",
+                                                "no" to "vo=gpu (Software)"
+                                            ).forEach { (mode, label) ->
+                                                BousygramChip(
+                                                    text = label,
+                                                    selected = mpvHwDecMode == mode,
+                                                    onClick = {
+                                                        mpvHwDecMode = mode
+                                                        EnterprisePreferences.setMpvHwDecMode(mode)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Open Engine Lab Button
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                            Text(
+                                                "Engine Lab Diagnostic Activity",
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                "Live engine comparison with surface and buffer telemetry.",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        BousygramButton(
+                                            text = "Open Lab",
+                                            onClick = {
+                                                context.startActivity(Intent(context, com.vaydelux.bousygram.presentation.debug.EngineLabActivity::class.java))
+                                            }
+                                        )
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+
+                                    // Export Diagnostics
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                            Text(
+                                                "Diagnostics & Health",
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                "Export streaming telemetry, player buffer stats, and session logs.",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        BousygramButton(
+                                            text = "Export",
+                                            onClick = {
+                                                clipboard?.setPrimaryClip(
+                                                    ClipData.newPlainText("Bousygram Diagnostics", diagnosticsText)
+                                                )
+                                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                    putExtra(Intent.EXTRA_TEXT, diagnosticsText)
+                                                    type = "text/plain"
+                                                }
+                                                val chooser = Intent.createChooser(sendIntent, "Export diagnostics")
+                                                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                context.startActivity(chooser)
+                                                Toast.makeText(context, "Diagnostics copied to clipboard", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+
+                                }
 
                                 // About
                                 Row(

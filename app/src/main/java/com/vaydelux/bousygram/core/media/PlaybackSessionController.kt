@@ -55,6 +55,7 @@ object PlaybackSessionController {
     private val nextSessionNumber = AtomicLong(1L)
     private val activeSessionsByFile = ConcurrentHashMap<Int, Int>()
     private val activeSessions = ConcurrentHashMap.newKeySet<PlaybackSession>()
+    private val resourceOwners = ConcurrentHashMap<PlaybackSession, () -> Unit>()
     private val isVideoPlayingFlag = AtomicBoolean(false)
 
     fun setVideoPlaying(playing: Boolean) {
@@ -66,6 +67,23 @@ object PlaybackSessionController {
 
     /** Returns true if video playback is currently active. */
     fun isVideoPlaying(): Boolean = isVideoPlayingFlag.get() || !activeSessionsByFile.isEmpty()
+
+    /** The screen owns its engine; account invalidation can synchronously close that owner. */
+    fun registerResourceOwner(session: PlaybackSession, close: () -> Unit): () -> Unit {
+        check(!session.isStopped()) { "Cannot attach resources to a stopped playback session" }
+        resourceOwners[session] = close
+        return { resourceOwners.remove(session, close) }
+    }
+
+    fun stopAll(reason: PlaybackCacheStopReason = PlaybackCacheStopReason.Dispose) {
+        var failure: Throwable? = null
+        activeSessions.toList().forEach { session ->
+            runCatching { stop(session, reason) }.onFailure { failure = failure ?: it }
+        }
+        activeSessionsByFile.clear()
+        isVideoPlayingFlag.set(false)
+        failure?.let { throw it }
+    }
 
     fun bindActiveFile(fileId: Int) {
         if (fileId > 0) {
@@ -243,16 +261,13 @@ object PlaybackSessionController {
 
     fun stop(session: PlaybackSession?, reason: PlaybackCacheStopReason, cancelTdLibDownload: Boolean = true) {
         session ?: return
-        if (!session.markStoppedOnce()) return
-        activeSessions.remove(session)
-        if (session.fileId > 0) {
-            unbindActiveFile(session.fileId)
-        }
-        session.queue.forEach { item ->
-            if (item.fileId > 0) {
-                unbindActiveFile(item.fileId)
-            }
-        }
+        val wasRegistered = activeSessions.remove(session)
+        val firstStop = session.markStoppedOnce()
+        if (!wasRegistered && !firstStop) return
+        // A caller may already have released the session. Registration still has to be
+        // removed exactly once, otherwise direct reads and cache protection remain live.
+        if (wasRegistered) session.queue.forEach { item -> unbindActiveFile(item.fileId) }
+        val ownerFailure = runCatching { resourceOwners.remove(session)?.invoke() }.exceptionOrNull()
         session.lastStopReason = reason
         session.lastStallReason = when (reason) {
             PlaybackCacheStopReason.Back -> PlaybackStallReason.UserExit
@@ -266,7 +281,9 @@ object PlaybackSessionController {
             com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.cancelPrefetch(session.fileId)
         }
         session.release()
+        if (activeSessions.isEmpty()) isVideoPlayingFlag.set(false)
         record(session)
+        ownerFailure?.let { throw it }
     }
 
     fun positionToOffset(totalSize: Long, positionMs: Long, durationMs: Long): Long {

@@ -5,6 +5,7 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.util.Log
 import android.util.LruCache
+import com.vaydelux.bousygram.core.account.AccountSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -26,13 +27,17 @@ object SeekThumbnailManager {
         }
     }
 
+    fun invalidateAccountResources() = memoryCache.evictAll()
+
+    private fun scopedKey(key: String): String? = AccountSession.current()?.let { "${it.accountId}:$key" }
+
     fun getCachedSnapshots(key: String): List<Bitmap>? {
-        return memoryCache.get(key)
+        return scopedKey(key)?.let(memoryCache::get)
     }
 
     fun getSnapshotAt(key: String, positionMs: Long, durationMs: Long): Bitmap? {
         if (durationMs <= 0L) return null
-        val snapshots = memoryCache.get(key) ?: return null
+        val snapshots = getCachedSnapshots(key) ?: return null
         if (snapshots.isEmpty()) return null
         val fraction = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 0.999f)
         val index = (fraction * snapshots.size).toInt().coerceIn(0, snapshots.lastIndex)
@@ -44,9 +49,11 @@ object SeekThumbnailManager {
         filePathOrUrl: String,
         durationMs: Long
     ): List<Bitmap> = withContext(Dispatchers.IO) {
-        val cached = memoryCache.get(key)
+        val owner = AccountSession.current() ?: return@withContext emptyList()
+        val accountKey = "${owner.accountId}:$key"
+        val cached = memoryCache.get(accountKey)
         if (cached != null && cached.isNotEmpty()) {
-            return@withContext cached
+            return@withContext cached.takeIf { AccountSession.isCurrent(owner) } ?: emptyList()
         }
 
         if (filePathOrUrl.isBlank() || durationMs <= 0L) {
@@ -69,6 +76,7 @@ object SeekThumbnailManager {
             val stepUs = durationUs / SNAPSHOT_COUNT
 
             for (i in 0 until SNAPSHOT_COUNT) {
+                if (!AccountSession.isCurrent(owner)) return@withContext emptyList()
                 val timeUs = (i * stepUs).coerceIn(0L, durationUs)
                 val scaledFrame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                     runCatching {
@@ -90,13 +98,14 @@ object SeekThumbnailManager {
                 }
             }
 
+            if (!AccountSession.isCurrent(owner)) return@withContext emptyList()
             if (list.isNotEmpty()) {
-                memoryCache.put(key, list)
-                Log.i(TAG, "Generated ${list.size} seek snapshots for $key")
+                memoryCache.put(accountKey, list)
+                Log.d(TAG, "Generated ${list.size} seek snapshots")
             }
             list
         } catch (e: Throwable) {
-            Log.w(TAG, "Could not generate seek preview thumbnails for $key: ${e.message}")
+            Log.w(TAG, "Could not generate seek previews (${e.javaClass.simpleName})")
             emptyList()
         } finally {
             runCatching { retriever.release() }

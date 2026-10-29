@@ -44,7 +44,7 @@ object QrCodeGenerator {
             bitmap.setPixels(pixels, 0, matrixWidth, 0, 0, matrixWidth, matrixHeight)
             bitmap
         } catch (e: Throwable) {
-            Log.e(TAG, "Failed to generate QR code for '$text'", e)
+            Log.e(TAG, "QR code generation failed (${e.javaClass.simpleName})")
             null
         }
     }
