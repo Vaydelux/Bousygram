@@ -210,11 +210,20 @@ jobs:
           tdlib_commit="$(grep -oE '[0-9a-fA-F]{40}' build-tools/tdlib/RESOLVED_COMMIT.txt | head -1)"
           cert="$(printf '%s' "$RELEASE_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           evidence_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          # shellcheck disable=SC2016
           jq -n --arg tag "$RELEASE_TAG" --arg commit "$RELEASE_SHA" --arg version "$actual_version" \
             --arg tdlib "$tdlib_commit" --arg cert "$cert" --arg evidence "$evidence_url" \
             --arg versionCode "$actual_version_code" --arg runId "$GITHUB_RUN_ID" \
-            '{tag:$tag, commit:$commit, versionName:$version, versionCode:($versionCode|tonumber), tdlibCommit:$tdlib, signingCertificateSha256:$cert, ciVerification:{workflow:"android-enterprise.yml",runId:$runId,job:"Build and verify"}, deviceQualificationEvidence:$evidence, disabledProductionFeatures:["private-media-cast","crash-reporting","engine-lab","legacy-streaming-fallback"]}' \
+            "{
+              tag: \$tag,
+              commit: \$commit,
+              versionName: \$version,
+              versionCode: (\$versionCode|tonumber),
+              tdlibCommit: \$tdlib,
+              signingCertificateSha256: \$cert,
+              ciVerification: {workflow: \"android-enterprise.yml\", runId: \$runId, job: \"Build and verify\"},
+              deviceQualificationEvidence: \$evidence,
+              disabledProductionFeatures: [\"private-media-cast\", \"crash-reporting\", \"engine-lab\", \"legacy-streaming-fallback\"]
+            }" \
             > release-artifacts/RELEASE_MANIFEST.json
           jq empty release-artifacts/RELEASE_MANIFEST.json
           sha256sum release-artifacts/*.apk > release-artifacts/SHA256SUMS.txt
