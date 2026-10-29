@@ -3,6 +3,8 @@ package com.vaydelux.bousygram.core.media
 import android.os.Handler
 import android.os.Looper
 import com.vaydelux.bousygram.core.cache.CacheManager
+import com.vaydelux.bousygram.core.cast.CastLanStreamingServer
+import com.vaydelux.bousygram.core.cast.CastReceiverManager
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc
 import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
@@ -21,6 +23,10 @@ object AccountMediaResources {
         var failure: Throwable? = null
         fun invalidate(action: () -> Unit) { runCatching(action).onFailure { failure = failure ?: it } }
         invalidate { StreamAccessRegistry.revokeAll() }
+        // Cast can serve private bytes over a LAN in debug builds. A logout must
+        // close that listener and invalidate pending receiver intents as well.
+        invalidate { CastLanStreamingServer.stop() }
+        invalidate { CastReceiverManager.clearPendingRequest() }
         invalidate { LocalStreamingServer.invalidateAccountResources() }
         invalidate { TelegramProxyManager.stopProxy() }
         invalidate { FocusPrefetchManager.cancelAll() }

@@ -20,6 +20,9 @@ import java.io.File
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.data.database.RecentSearchRepository
 import com.vaydelux.bousygram.data.repository.ContinueWatchingRepository
+import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
+import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
+import com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -339,13 +342,34 @@ class TelegramAuthManager(private val context: Context) {
         _uiState.update { it.copy(connectionStatus = statusText) }
     }
 
+    /** Invalidating a private session may fail (e.g. an Android media owner cannot close).
+     * Surface that condition without crashing the TDLib callback or allowing new login.
+     */
+    private fun invalidateOrLockSession(): Boolean = try {
+        AccountSession.invalidate()
+        true
+    } catch (error: Exception) {
+        Log.e(TAG, "Private session cleanup failed; account remains locked", error)
+        _uiState.update {
+            it.copy(
+                step = AuthStep.Unavailable,
+                isLoading = false,
+                qrCodeLink = null,
+                code = "",
+                password = "",
+                message = "Private playback resources could not be closed safely. Force-stop and restart Bousygram before reconnecting."
+            )
+        }
+        false
+    }
+
     private fun handleAuthState(state: TdApi.AuthorizationState?) {
         Log.d(TAG, "Auth state: ${state?.javaClass?.simpleName}")
         val ready = state is TdApi.AuthorizationStateReady
         if (!ready && authorizationReady) {
             authorizationReady = false
             identityRequestInFlight = false
-            AccountSession.invalidate()
+            if (!invalidateOrLockSession()) return
         } else authorizationReady = ready
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> setTdlibParameters()
@@ -397,7 +421,7 @@ class TelegramAuthManager(private val context: Context) {
                 synchronized(authLock) { authSubmitInFlight = false }
                 identityRequestInFlight = false
                 _uiState.update { it.copy(step = AuthStep.Loading, message = "Reconnecting…", isLoading = true, qrCodeLink = null) }
-                AccountSession.invalidate()
+                if (!invalidateOrLockSession()) return
                 TdLibClient.restartClient()
                 TdLibClient.sendCurrent(TdApi.GetAuthorizationState()) { res ->
                     when (res) {
@@ -431,6 +455,13 @@ class TelegramAuthManager(private val context: Context) {
                     val owner = AccountSession.activate(result.id, epoch) ?: return@launch
                     RecentSearchRepository.activateAccount(owner)
                     ContinueWatchingRepository.activateAccount(owner)
+                    // Invalidation deliberately shuts down private servers and cache jobs.
+                    // A subsequent login must restore them before exposing the new account.
+                    AccountSession.runIfCurrent(owner) {
+                        LocalStreamingServer.start()
+                        TelegramProxyManager.startProxy()
+                        TelegramNativeFileGc.startPeriodicGc(intervalMinutes = 30)
+                    }
                     AccountSession.runIfCurrent(owner) {
                         if (authorizationReady) {
                             pendingPhone = null
@@ -443,8 +474,7 @@ class TelegramAuthManager(private val context: Context) {
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    if (AccountSession.generation() == epoch) {
-                        AccountSession.invalidate()
+                    if (AccountSession.generation() == epoch && invalidateOrLockSession()) {
                         _uiState.update { it.copy(step = AuthStep.Unavailable, isLoading = false,
                             message = "Private account storage could not be opened. Existing local data was preserved. Retry after checking device storage.") }
                     }
@@ -570,7 +600,7 @@ class TelegramAuthManager(private val context: Context) {
         identityRequestInFlight = false
         _uiState.update { it.copy(step = AuthStep.Loading, isLoading = true, phone = "", code = "",
             password = "", qrCodeLink = null, message = "Logging out…") }
-        AccountSession.invalidate()
+        if (!invalidateOrLockSession()) return
         TdLibClient.sendCurrent(TdApi.LogOut()) { result ->
             if (result is TdApi.Error) {
                 Log.w(TAG, "LogOut error: ${result.message}")

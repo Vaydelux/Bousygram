@@ -44,6 +44,28 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
+    fun queueNavigationKeepsSameSessionAliveUntilExplicitStop() {
+        val session = PlaybackSessionController.start(
+            queue = listOf(
+                com.vaydelux.bousygram.presentation.media.PlaybackQueueItem(
+                    chatId = 101L, messageId = 11L, title = "Episode 1", fileId = 301
+                ),
+                com.vaydelux.bousygram.presentation.media.PlaybackQueueItem(
+                    chatId = 101L, messageId = 12L, title = "Episode 2", fileId = 302
+                )
+            )
+        )
+        assertTrue(session.next())
+        assertFalse(session.isStopped())
+        assertEquals(302, session.fileId)
+        session.finishTransition()
+        assertTrue(session.previous())
+        assertFalse(session.isStopped())
+        PlaybackSessionController.stop(session, PlaybackCacheStopReason.Back)
+        assertTrue(session.isStopped())
+    }
+
+    @Test
     fun byteOffsetUsesDurationWhenKnown() {
         assertEquals(
             500_000L,

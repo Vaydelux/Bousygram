@@ -6,6 +6,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AccountSessionControllerTest {
     @Test
@@ -36,6 +39,66 @@ class AccountSessionControllerTest {
         session.invalidate()
         assertFalse(session.runIfCurrent(accountA) { commits++ })
         assertEquals(1, commits)
+    }
+
+    @Test
+    fun everyCleanupRunsAndOldCallbacksCannotCommitAcrossAccounts() {
+        val session = AccountSessionController()
+        val oldOwner = session.activate(101L, session.generation())!!
+        val cleanup = mutableListOf<String>()
+        session.registerInvalidationHandler { cleanup += "streams" }
+        session.registerInvalidationHandler { cleanup += "storage" }
+        val nextGeneration = session.invalidate()
+
+        assertEquals(listOf("streams", "storage"), cleanup)
+        assertNull(session.current())
+        assertFalse(session.runIfCurrent(oldOwner) { cleanup += "stale callback" })
+        val nextOwner = session.activate(202L, nextGeneration)
+        assertEquals(202L, nextOwner?.accountId)
+        assertEquals(listOf("streams", "storage"), cleanup)
+    }
+
+    @Test
+    fun failureDoesNotSkipRemainingCleanupAndRetryMayRestoreAccess() {
+        val session = AccountSessionController()
+        val original = session.activate(101L, session.generation())!!
+        var shouldFail = true
+        var otherCleanupCalls = 0
+        session.registerInvalidationHandler {
+            if (shouldFail) throw IllegalStateException("resource still open")
+        }
+        session.registerInvalidationHandler { otherCleanupCalls++ }
+
+        assertTrue(runCatching { session.invalidate() }.exceptionOrNull() is IllegalStateException)
+        assertEquals(1, otherCleanupCalls)
+        assertFalse(session.isCurrent(original))
+        assertNull(session.activate(202L, session.generation()))
+
+        shouldFail = false
+        val generation = session.invalidate()
+        assertEquals(2, otherCleanupCalls)
+        assertEquals(202L, session.activate(202L, generation)?.accountId)
+    }
+
+    @Test
+    fun cleanupCanWaitForOtherThreadsWithoutDeadlockingSessionState() {
+        val session = AccountSessionController()
+        val owner = session.activate(101L, session.generation())!!
+        val finished = CountDownLatch(1)
+        val acceptedOldAccount = AtomicBoolean(true)
+        session.registerInvalidationHandler {
+            // Simulates an Android player owner releasing on the main thread. The
+            // thread checks account validity while the logout thread waits for it.
+            Thread {
+                acceptedOldAccount.set(session.runIfCurrent(owner) {})
+                finished.countDown()
+            }.apply { isDaemon = true; start() }
+            assertTrue("Cleanup must not hold the session state lock", finished.await(2, TimeUnit.SECONDS))
+        }
+        val generation = session.invalidate()
+        assertFalse(acceptedOldAccount.get())
+        assertNull(session.current())
+        assertEquals(202L, session.activate(202L, generation)?.accountId)
     }
 
     @Test
