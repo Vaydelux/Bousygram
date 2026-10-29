@@ -54,6 +54,7 @@ jobs:
           git fetch origin main --force
           git merge-base --is-ancestor "$RELEASE_SHA" origin/main || { echo 'Release commit is not in protected origin/main lineage' >&2; exit 1; }
           runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/android-enterprise.yml/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100")"
+          # shellcheck disable=SC2016
           run_id="$(jq -r --arg sha "$RELEASE_SHA" '
             [.workflow_runs[] | select(
               .head_sha == $sha and .event == "push" and .status == "completed" and
@@ -67,7 +68,6 @@ jobs:
             echo 'The exact-commit Android Enterprise run lacks its successful required Build and verify job.' >&2
             exit 1
           }
-          version="${RELEASE_TAG#v}"
           grep -Fq 'gradleProperty("releaseVersionName")' app/build.gradle.kts || {
             echo "Gradle does not expose controlled release version metadata" >&2
             exit 1
