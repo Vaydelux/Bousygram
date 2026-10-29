@@ -1529,7 +1529,12 @@ fun PlayerScreen(
                         hudInteractionTick++
                     },
                     onTap = {
-                        hudVisible = !hudVisible
+                        if (optionsPanelVisible) {
+                            optionsPanelVisible = false
+                            playerInputController.activeMenu = PlayerMenuType.NONE
+                        } else {
+                            hudVisible = !hudVisible
+                        }
                         hudInteractionTick++
                     }
                 )
