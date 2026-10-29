@@ -62,6 +62,20 @@ internal fun playerLoadingPhase(
     else -> PlayerLoadingPhase.NONE
 }
 
+/** When casting, the remote session—not the local decoder—owns the visible loading state. */
+internal fun playerLoadingPhaseForSession(
+    castConnected: Boolean,
+    castBuffering: Boolean,
+    opening: Boolean,
+    reconnecting: Boolean,
+    buffering: Boolean,
+    error: String?
+): PlayerLoadingPhase = if (castConnected) {
+    if (castBuffering) PlayerLoadingPhase.BUFFERING else PlayerLoadingPhase.NONE
+} else {
+    playerLoadingPhase(opening, reconnecting, buffering, error)
+}
+
 internal data class PlayerLoadingCopy(val title: String, val detail: String)
 
 /** Never invent a percentage: the TDLib stream can seek and buffer discontinuous ranges. */

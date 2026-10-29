@@ -1,0 +1,190 @@
+name: Bousygram Debug APK Prereleases
+
+on:
+  workflow_run:
+    workflows:
+      - Android Enterprise Checks
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: bousygram-debug-prerelease-publisher
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: Build verified ABI APKs and publish a debug prerelease
+    if: >-
+      github.repository == 'Vaydelux/Bousygram' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ANDROID_API: '37'
+      BUILD_TOOLS_VERSION: 35.0.0
+    steps:
+      - name: Resolve exact successful mainline Android CI
+        id: source
+        shell: bash
+        env:
+          EVENT_TYPE: ${{ github.event_name }}
+          EVENT_CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_TYPE" == 'workflow_run' ]]; then
+            run_id="$EVENT_CI_RUN_ID"
+            source_sha="$EVENT_SOURCE_SHA"
+          else
+            [[ "$GITHUB_REF" == 'refs/heads/main' ]] || {
+              echo '::error::Manual preview releases must run on main.' >&2
+              exit 1
+            }
+            source_sha="$MANUAL_SOURCE_SHA"
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-enterprise.yml/runs?head_sha=$source_sha&event=push&per_page=100")"
+            # shellcheck disable=SC2016
+            run_id="$(jq -r --arg sha "$source_sha" '[.workflow_runs[] | select(
+              .head_sha == $sha and .head_branch == "main" and .event == "push" and
+              .status == "completed" and .conclusion == "success"
+            )] | sort_by(.run_number) | last | .id // empty' <<< "$runs")"
+          fi
+          [[ "$run_id" =~ ^[1-9][0-9]*$ && "$source_sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
+            echo '::error::No successful exact-commit mainline CI for this release.' >&2
+            exit 1
+          }
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+          jq -e --arg sha "$source_sha" --arg repo "$GITHUB_REPOSITORY" '
+            .head_sha == $sha and .head_branch == "main" and .event == "push" and
+            .status == "completed" and .conclusion == "success" and
+            .head_repository.full_name == $repo and
+            .path == ".github/workflows/android-enterprise.yml"
+          ' <<< "$run" >/dev/null
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100")"
+          jq -e '[.jobs[] | select(
+            .name == "Build and verify" and .status == "completed" and .conclusion == "success"
+          )] | length == 1' <<< "$jobs" >/dev/null
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "ci_run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Verified exact mainline commit $source_sha with CI run $run_id"
+
+      - name: Check out exact CI-approved source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm commit remains on main
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]] || exit 1
+          git fetch origin main --force
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || {
+            echo '::error::CI source is no longer on main.' >&2
+            exit 1
+          }
+
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install Android SDK dependencies
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Verify native and debug build matrix
+        id: apks
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+          CI_VERIFICATION_RUN_ID: ${{ steps.source.outputs.ci_run_id }}
+        run: |
+          set -euo pipefail
+          bash tools/ci/build_debug_preview.sh ci-artifacts/debug-preview
+          ( cd ci-artifacts/debug-preview && sha256sum --check SHA256SUMS.txt )
+          [[ "$(find ci-artifacts/debug-preview -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 3 ]]
+
+      - name: Upload APKs to Actions artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bousygram-debug-${{ steps.apks.outputs.version }}-${{ steps.source.outputs.ci_run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: ci-artifacts/debug-preview/
+
+      - name: Publish versioned GitHub debug prerelease
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          CI_RUN_ID: ${{ steps.source.outputs.ci_run_id }}
+          VERSION: ${{ steps.apks.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION-debug.$CI_RUN_ID"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-debug\.[1-9][0-9]*$ ]] || exit 1
+          git fetch origin --tags --force
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            [[ "$(git rev-parse "refs/tags/$tag^{}")" == "$SOURCE_SHA" ]] || {
+              echo '::error::Version tag already points to another commit.' >&2
+              exit 1
+            }
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              --raw-field "ref=refs/tags/$tag" \
+              --raw-field "sha=$SOURCE_SHA" >/dev/null
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Verified prerelease $tag already published; refusing to overwrite it."
+            exit 0
+          fi
+          cat > ci-artifacts/debug-preview/RELEASE_NOTES.md <<EOF
+          # Bousygram $tag — debug prerelease
+
+          These APKs are **debug builds for testing**, not production-signed releases.
+          Tested source commit: \`$SOURCE_SHA\`
+          Required Android Enterprise CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID
+
+          | File suffix | Device architecture |
+          | --- | --- |
+          | \`arm64-v8a.apk\` | Modern 64-bit Android phones and Android TV |
+          | \`armeabi-v7a.apk\` | Older 32-bit ARM devices |
+          | \`universal.apk\` | Includes both supported ARM ABIs |
+
+          The SHA256SUMS.txt file verifies exact APK downloads.
+          Debug APKs use ephemeral Android debug signing; uninstall any APK signed with a
+          different debug certificate before installing another build.
+          Production releases remain protected by signing and device-qualification gates.
+          EOF
+          gh release create "$tag" \
+            --verify-tag \
+            --prerelease \
+            --latest=false \
+            --title "Bousygram $tag (Debug)" \
+            --notes-file ci-artifacts/debug-preview/RELEASE_NOTES.md \
+            ci-artifacts/debug-preview/Bousygram-debug-*.apk \
+            ci-artifacts/debug-preview/SHA256SUMS.txt \
+            ci-artifacts/debug-preview/BUILD_INFO.txt
+          {
+            echo "### Published GitHub debug prerelease"
+            echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+            echo "Debug APKs are not production-signed or device-qualified."
+          } >> "$GITHUB_STEP_SUMMARY"

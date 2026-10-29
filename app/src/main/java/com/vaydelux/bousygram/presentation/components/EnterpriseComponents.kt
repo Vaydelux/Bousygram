@@ -1675,8 +1675,35 @@ fun EmptyStateView(
     }
 }
 
+/** Android's Remove Animations preference sets the global animator scale to zero. */
+internal fun shouldAnimateShimmer(animatorScale: Float): Boolean =
+    animatorScale.isFinite() && animatorScale > 0f
+
 @Composable
 fun rememberShimmerBrush(): Brush {
+    val colors = MaterialTheme.colorScheme
+    val baseColor = colors.surfaceVariant.copy(alpha = 0.36f)
+    val highlightColor = colors.primary.copy(alpha = 0.22f)
+    val midColor = colors.surfaceVariant.copy(alpha = 0.68f)
+    val context = LocalContext.current
+    val animationsEnabled = remember(context) {
+        val scale = runCatching {
+            android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            )
+        }.getOrDefault(1f)
+        shouldAnimateShimmer(scale)
+    }
+    if (!animationsEnabled) {
+        // No looping transition or moving shimmer while system animations are disabled.
+        return Brush.linearGradient(
+            colors = listOf(baseColor, midColor, highlightColor, midColor, baseColor),
+            start = Offset.Zero,
+            end = Offset(480f, 150f)
+        )
+    }
     val transition = rememberInfiniteTransition(label = "shimmerSweep")
     val translateAnim by transition.animateFloat(
         initialValue = -400f,
@@ -1687,10 +1714,6 @@ fun rememberShimmerBrush(): Brush {
         ),
         label = "shimmerTranslate"
     )
-    val colors = MaterialTheme.colorScheme
-    val baseColor = colors.surfaceVariant.copy(alpha = 0.36f)
-    val highlightColor = colors.primary.copy(alpha = 0.22f)
-    val midColor = colors.surfaceVariant.copy(alpha = 0.68f)
     return Brush.linearGradient(
         colors = listOf(baseColor, midColor, highlightColor, midColor, baseColor),
         start = Offset(translateAnim - 300f, translateAnim - 150f),
