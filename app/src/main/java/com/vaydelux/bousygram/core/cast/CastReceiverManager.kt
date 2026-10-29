@@ -49,12 +49,13 @@ object CastReceiverManager {
     const val EXTRA_TITLE = "title"
     const val EXTRA_POSITION_MS = "position_ms"
     const val EXTRA_DURATION_MS = "duration_ms"
+    private const val MAX_PAYLOAD_JSON_CHARS = 8_192
 
     private val _pendingCastRequest = MutableStateFlow<CastMediaPayload?>(null)
     val pendingCastRequest: StateFlow<CastMediaPayload?> = _pendingCastRequest.asStateFlow()
 
     fun emitCastRequest(payload: CastMediaPayload) {
-        Log.i(TAG, "Emitted incoming Cast payload: fileId=${payload.fileId} title=${payload.title} pos=${payload.positionMs}ms")
+        Log.i(TAG, "Incoming media handoff payload received")
         _pendingCastRequest.value = payload
     }
 
@@ -72,42 +73,44 @@ object CastReceiverManager {
         return file.fileId == payload.fileId || file.fileId == effectiveId
     }
 
+    /**
+     * Accept only the declared media handoff actions. Validate all payload formats
+     * identically; malformed extras must not bypass URI/JSON input constraints.
+     */
     fun parseIntent(intent: Intent?): CastMediaPayload? {
-        if (intent == null) return null
-        val action = intent.action
+        if (intent == null || (intent.action != ACTION_CAST_LOAD && intent.action != Intent.ACTION_VIEW)) {
+            return null
+        }
+        return runCatching { parseValidatedIntent(intent) }.getOrNull()
+    }
 
-        // 1. Check direct JSON extra
+    private fun parseValidatedIntent(intent: Intent): CastMediaPayload? {
         val jsonStr = intent.getStringExtra(EXTRA_PAYLOAD_JSON)
         if (!jsonStr.isNullOrBlank()) {
-            val parsed = fromJson(jsonStr)
-            if (parsed != null) return parsed
+            // An invalid supplied JSON payload must not silently fall back to other extras.
+            return fromJson(jsonStr)
         }
 
-        // 2. Check explicit extras
         val fileIdExtra = intent.getIntExtra(EXTRA_FILE_ID, 0)
         if (fileIdExtra > 0) {
-            val chatId = intent.getLongExtra(EXTRA_CHAT_ID, 0L)
-            val messageId = intent.getLongExtra(EXTRA_MESSAGE_ID, 0L)
-            val title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Cast Media" }
-            val posMs = intent.getLongExtra(EXTRA_POSITION_MS, 0L)
-            val durMs = intent.getLongExtra(EXTRA_DURATION_MS, 0L)
-            return CastMediaPayload(
-                chatId = chatId,
-                messageId = messageId,
-                fileId = fileIdExtra,
-                title = title,
-                positionMs = posMs,
-                durationMs = durMs
+            return validPayload(
+                CastMediaPayload(
+                    chatId = intent.getLongExtra(EXTRA_CHAT_ID, 0L),
+                    messageId = intent.getLongExtra(EXTRA_MESSAGE_ID, 0L),
+                    fileId = fileIdExtra,
+                    title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Cast Media" },
+                    positionMs = intent.getLongExtra(EXTRA_POSITION_MS, 0L),
+                    durationMs = intent.getLongExtra(EXTRA_DURATION_MS, 0L)
+                )
             )
         }
 
-        // 3. Check data URI (bousygram://cast/load?fileId=...&chatId=...)
-        val data: Uri? = intent.data
-        if (data != null && data.scheme == URI_SCHEME && data.host == URI_HOST) {
-            return fromUri(data)
+        val data = intent.data
+        return if (data != null && data.scheme == URI_SCHEME && data.host == URI_HOST) {
+            fromUri(data)
+        } else {
+            null
         }
-
-        return null
     }
 
     fun fromUri(uri: Uri): CastMediaPayload? {
@@ -184,6 +187,7 @@ object CastReceiverManager {
     }
 
     fun fromJson(jsonStr: String): CastMediaPayload? {
+        if (jsonStr.length > MAX_PAYLOAD_JSON_CHARS) return null
         return runCatching {
             val json = JSONObject(jsonStr)
             val fileId = json.optInt("fileId", 0)
@@ -245,6 +249,8 @@ object CastReceiverManager {
     private fun validPayload(payload: CastMediaPayload): CastMediaPayload? = payload.takeIf {
         it.fileId > 0 && it.chatId != 0L && it.messageId > 0L &&
             it.positionMs >= 0L && it.durationMs >= 0L &&
+            it.durationMs <= Int.MAX_VALUE.toLong() * 1000L &&
+            (it.durationMs == 0L || it.positionMs <= it.durationMs) &&
             it.title.length <= 256 && it.version == CastMediaPayload.CURRENT_VERSION
     }
 }
