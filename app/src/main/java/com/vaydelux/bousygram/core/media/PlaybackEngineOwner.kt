@@ -13,7 +13,8 @@ class PlaybackEngineOwner(
     private val state = mutableStateOf(initialEngine)
     private val closed = AtomicBoolean(false)
     private var engineResource: (() -> Unit)? = null
-    private val unregister = PlaybackSessionController.registerResourceOwner(session) { close() }
+    // Explicit function type breaks recursive inference: the registered callback calls close().
+    private val unregisterOwner: () -> Unit = PlaybackSessionController.registerResourceOwner(session) { close() }
 
     override var value: PlayerEngine
         get() = state.value
@@ -41,7 +42,7 @@ class PlaybackEngineOwner(
 
     fun close() = onOwnerThread {
         if (closed.compareAndSet(false, true)) {
-            unregister()
+            unregisterOwner()
             var failure: Throwable? = null
             runCatching { engineResource?.invoke() }.onFailure { failure = it }
             engineResource = null
