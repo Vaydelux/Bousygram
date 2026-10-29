@@ -73,10 +73,7 @@ jobs:
             # emulator runner tears it down before a subsequent workflow step.
             trap 'timeout 15s adb logcat -d -t 2500 -v brief 2>/dev/null | grep -E "FATAL EXCEPTION|AndroidRuntime|MediaRouteButton|MediaRouterThemeHelper|Instrumentation" | head -n 100 > emulator-smoke-crash-summary.txt || true' EXIT
             # This suite does not require Telegram credentials or ARM TDLib JNI.
-            timeout 240s adb shell am instrument -w -r -e class \
-              com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest \
-              com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner \
-              | tee emulator-smoke-results.txt
+            timeout 240s adb shell am instrument -w -r -e class "com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest" "com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner" | tee emulator-smoke-results.txt
             grep -Eq '^OK \([0-9]+ tests?\)' emulator-smoke-results.txt
 
       - name: Capture sanitized emulator diagnostics after failures
