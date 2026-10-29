@@ -4,6 +4,8 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 
 /** Short lived media capabilities scoped to one Cast session and one Telegram file. */
 internal object CastAccessRegistry {
@@ -13,23 +15,29 @@ internal object CastAccessRegistry {
     private const val SESSION_TTL_MS = 2L * 60L * 60L * 1000L
     private val random = SecureRandom()
     private val grants = ConcurrentHashMap<String, Grant>()
-    private data class Grant(val fileId: Int, val token: String, val expiresAtMs: Long)
+    private data class Grant(val fileId: Int, val token: String, val expiresAtMs: Long, val owner: AccountSnapshot)
     class Capability internal constructor(val resourceId: String, val token: String, val fileId: Int)
 
     @Synchronized
     fun issue(fileId: Int): Capability {
         require(fileId > 0)
+        val owner = checkNotNull(AccountSession.current()) { "Verified Telegram account required for Cast" }
         purgeExpired()
         check(grants.size < MAX_GRANTS) { "Cast stream resource limit reached" }
         val resourceId = randomToken(18)
         val token = randomToken(TOKEN_BYTES)
-        grants[resourceId] = Grant(fileId, token, System.currentTimeMillis() + SESSION_TTL_MS)
+        check(AccountSession.isCurrent(owner)) { "Telegram account changed during Cast authorization" }
+        grants[resourceId] = Grant(fileId, token, System.currentTimeMillis() + SESSION_TTL_MS, owner)
         return Capability(resourceId, token, fileId)
     }
 
     fun authorize(resourceId: String?, token: String?): Int? {
         if (resourceId.isNullOrBlank() || resourceId.length > 64 || token.isNullOrBlank() || token.length > 64) return null
         val grant = grants[resourceId] ?: return null
+        if (!AccountSession.isCurrent(grant.owner)) {
+            grants.remove(resourceId, grant)
+            return null
+        }
         if (grant.expiresAtMs <= System.currentTimeMillis()) {
             grants.remove(resourceId, grant)
             return null

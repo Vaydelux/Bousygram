@@ -1,6 +1,8 @@
 package com.vaydelux.bousygram.core.cast
 
+import com.vaydelux.bousygram.core.account.AccountSession
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -8,7 +10,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CastAccessRegistryTest {
-    @After fun tearDown() = CastAccessRegistry.revokeAll()
+    @Before
+    fun setUp() {
+        CastAccessRegistry.revokeAll()
+        AccountSession.invalidate()
+        checkNotNull(AccountSession.activate(101L, AccountSession.generation()))
+    }
+
+    @After
+    fun tearDown() {
+        AccountSession.invalidate()
+        CastAccessRegistry.revokeAll()
+    }
 
     @Test
     fun capabilityIsRandomAndScopedToItsMediaResource() {
@@ -27,6 +40,24 @@ class CastAccessRegistryTest {
         assertTrue(CastAccessRegistry.authorize(grant.resourceId, grant.token) == 7)
         CastAccessRegistry.revoke(grant.resourceId)
         assertNull(CastAccessRegistry.authorize(grant.resourceId, grant.token))
+    }
+
+    @Test
+    fun noCastCapabilityMayBeIssuedWhileLoggedOut() {
+        AccountSession.invalidate()
+        assertTrue(runCatching { CastAccessRegistry.issue(19) }.exceptionOrNull() is IllegalStateException)
+    }
+
+    @Test
+    fun oldCastCapabilityIsRejectedAcrossLogoutAndAccountSwitch() {
+        val old = CastAccessRegistry.issue(21)
+        assertEquals(21, CastAccessRegistry.authorize(old.resourceId, old.token))
+        AccountSession.invalidate()
+        assertNull(CastAccessRegistry.authorize(old.resourceId, old.token))
+        checkNotNull(AccountSession.activate(202L, AccountSession.generation()))
+        assertNull(CastAccessRegistry.authorize(old.resourceId, old.token))
+        val fresh = CastAccessRegistry.issue(21)
+        assertEquals(21, CastAccessRegistry.authorize(fresh.resourceId, fresh.token))
     }
 
     @Test
