@@ -41,6 +41,7 @@ import com.vaydelux.bousygram.presentation.settings.SettingsScreen
 import com.vaydelux.bousygram.presentation.search.TvVideoSearchScreen
 import com.vaydelux.bousygram.presentation.about.AboutScreen
 import com.vaydelux.bousygram.core.cast.CastReceiverManager
+import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
@@ -104,10 +105,23 @@ private fun BousygramAppRoot(
     }
     var resumeSignal by remember { mutableIntStateOf(0) }
 
+    // The previous account's player request must never survive logout and re-login.
+    // The navigation state is deliberately session-local, not persisted across identities.
+    LaunchedEffect(authState.step) {
+        if (authState.step != AuthStep.Authorized) {
+            appScreen = AppScreen.Home
+            searchFocus = SearchFocusState()
+            resumeSignal = 0
+            CastReceiverManager.clearPendingRequest()
+        }
+    }
+
     val pendingCast by CastReceiverManager.pendingCastRequest.collectAsState()
-    LaunchedEffect(pendingCast) {
+    LaunchedEffect(pendingCast, authState.step) {
         val payload = pendingCast ?: return@LaunchedEffect
-        if (authState.step != AuthStep.Authorized || !CastReceiverManager.isAuthorizedTelegramMedia(payload)) {
+        val owner = AccountSession.current()
+        if (owner == null || authState.step != AuthStep.Authorized ||
+            !CastReceiverManager.isAuthorizedTelegramMedia(payload) || !AccountSession.isCurrent(owner)) {
             CastReceiverManager.clearPendingRequest()
             android.widget.Toast.makeText(context, "This Cast link is not authorized for the current Telegram session", android.widget.Toast.LENGTH_LONG).show()
             return@LaunchedEffect
@@ -119,6 +133,10 @@ private fun BousygramAppRoot(
             chatId = payload.chatId,
             messageId = payload.messageId
         )
+        if (!AccountSession.isCurrent(owner)) {
+            CastReceiverManager.clearPendingRequest()
+            return@LaunchedEffect
+        }
         val req = CastReceiverManager.toPlaybackRequest(payload, preparation?.url)
         appScreen = AppScreen.Player(req, returnTo = AppScreen.Home)
         CastReceiverManager.clearPendingRequest()

@@ -1,12 +1,28 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
+import com.vaydelux.bousygram.core.account.AccountSession
+import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class StreamAccessRegistryTest {
+    @Before
+    fun setUp() {
+        StreamAccessRegistry.revokeAll()
+        AccountSession.invalidate()
+        checkNotNull(AccountSession.activate(101L, AccountSession.generation()))
+    }
+
+    @After
+    fun tearDown() {
+        AccountSession.invalidate()
+        StreamAccessRegistry.revokeAll()
+    }
+
     @Test
     fun tokensAreDifferentForTheSameFile() {
         val first = StreamAccessRegistry.issueFile(17)
@@ -56,5 +72,28 @@ class StreamAccessRegistryTest {
         assertTrue(StreamAccessRegistry.authorizesFile(other, 322))
         assertFalse(StreamAccessRegistry.revokeFromUrl("https://example.invalid/stream?fileId=321&token=$other"))
         assertTrue(StreamAccessRegistry.authorizesFile(other, 322))
+    }
+
+    @Test
+    fun unauthenticatedCallerCannotMintFileOrPlaylistTokens() {
+        AccountSession.invalidate()
+        assertTrue(runCatching { StreamAccessRegistry.issueFile(23) }.exceptionOrNull() is IllegalStateException)
+        assertTrue(runCatching { StreamAccessRegistry.issuePlaylist() }.exceptionOrNull() is IllegalStateException)
+    }
+
+    @Test
+    fun tokensFromPreviousAccountAreRejectedAfterAccountSwitch() {
+        val oldFileToken = StreamAccessRegistry.issueFile(23)
+        val oldPlaylistToken = StreamAccessRegistry.issuePlaylist()
+        AccountSession.invalidate()
+        assertFalse(StreamAccessRegistry.authorizesFile(oldFileToken, 23))
+        assertFalse(StreamAccessRegistry.authorizesPlaylist(oldPlaylistToken))
+
+        checkNotNull(AccountSession.activate(202L, AccountSession.generation()))
+        assertFalse(StreamAccessRegistry.authorizesFile(oldFileToken, 23))
+        assertFalse(StreamAccessRegistry.authorizesPlaylist(oldPlaylistToken))
+        val newFileToken = StreamAccessRegistry.issueFile(23)
+        assertTrue(StreamAccessRegistry.authorizesFile(newFileToken, 23))
+        assertFalse(StreamAccessRegistry.authorizesFile(oldFileToken, 23))
     }
 }
