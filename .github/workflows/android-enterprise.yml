@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ANDROID_PLATFORM: android-37
-  ANDROID_BUILD_TOOLS: 35.0.0
+  ANDROID_API: '37'
+  BUILD_TOOLS_VERSION: 35.0.0
 
 jobs:
   build:
@@ -51,18 +51,7 @@ jobs:
 
       - name: Install Android SDK dependencies
         shell: bash
-        run: |
-          set -euo pipefail
-          set +o pipefail
-          yes | sdkmanager --licenses >/tmp/bousygram-sdk-licenses.log 2>&1
-          sdk_status=${PIPESTATUS[1]}
-          set -o pipefail
-          cat /tmp/bousygram-sdk-licenses.log
-          (( sdk_status == 0 )) || exit "$sdk_status"
-          sdkmanager "platform-tools" "platforms;${ANDROID_PLATFORM}" "build-tools;${ANDROID_BUILD_TOOLS}"
-          test -d "$ANDROID_HOME/platforms/$ANDROID_PLATFORM"
-          test -x "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt2"
-          test -x "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/apksigner"
+        run: bash tools/ci/setup_android_sdk.sh
 
       - name: Run required Gradle verification
         shell: bash
