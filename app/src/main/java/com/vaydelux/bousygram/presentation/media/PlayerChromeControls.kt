@@ -53,6 +53,13 @@ internal fun shouldAutoHidePlayerHud(
 ): Boolean = visible && playing && !buffering && !hasError &&
     !menuOpen && !scrubbing && !autoNextVisible
 
+/** Never substitute a stale local duration for an active Cast session. */
+internal fun playerSeekDurationMs(
+    localDurationMs: Long,
+    castDurationMs: Long,
+    castConnected: Boolean
+): Long = (if (castConnected) castDurationMs else localDurationMs).coerceAtLeast(0L)
+
 /**
  * The seek thumb is presentation state, not a download percentage. Clamp only finite,
  * valid playback targets, and never generate a fake seek for unknown-duration streams.
