@@ -56,7 +56,8 @@ package_one() {
 
 # Each native filter is applied by Gradle at packaging time: never rename a
 # universal APK to masquerade as a CPU-specific APK.
-./gradlew --no-daemon --console=plain :app:verifyTdlibAbiCoverage :app:verifyTdlibBindingCompatibility :app:assembleDebug
+./gradlew --no-daemon --console=plain -PdebugPreviewArmOnly=true \
+  :app:verifyTdlibAbiCoverage :app:verifyTdlibBindingCompatibility :app:assembleDebug
 package_one universal
 ./gradlew --no-daemon --console=plain -PdevAbi=arm64-v8a :app:assembleDebug
 package_one arm64-v8a
