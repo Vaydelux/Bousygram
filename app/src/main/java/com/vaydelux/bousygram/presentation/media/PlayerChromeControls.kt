@@ -39,6 +39,30 @@ internal fun playerHudHeightLimit(windowHeightDp: Int, compact: Boolean): androi
 }
 
 /**
+ * Player auto-hide is only permitted during uninterrupted playback. Menus, a pending
+ * touch scrub, playback errors, and countdown prompts always keep controls available.
+ */
+internal fun shouldAutoHidePlayerHud(
+    visible: Boolean,
+    playing: Boolean,
+    buffering: Boolean,
+    hasError: Boolean,
+    menuOpen: Boolean,
+    scrubbing: Boolean,
+    autoNextVisible: Boolean
+): Boolean = visible && playing && !buffering && !hasError &&
+    !menuOpen && !scrubbing && !autoNextVisible
+
+/**
+ * The seek thumb is presentation state, not a download percentage. Clamp only finite,
+ * valid playback targets, and never generate a fake seek for unknown-duration streams.
+ */
+internal fun playerScrubTarget(fraction: Float, durationMs: Long): Long? {
+    if (durationMs <= 0L || !fraction.isFinite()) return null
+    return (fraction.coerceIn(0f, 1f) * durationMs.toDouble()).toLong().coerceIn(0L, durationMs)
+}
+
+/**
  * All buttons delegate to the real PlayerScreen playback callbacks. No local playback
  * state is stored here and the remote's input controller retains exclusive ownership
  * of hidden-HUD seek preview and Back behavior.
