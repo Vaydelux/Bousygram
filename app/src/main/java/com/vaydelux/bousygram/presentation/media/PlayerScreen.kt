@@ -31,6 +31,7 @@ import com.vaydelux.bousygram.core.media.TdLibDataSource
 import com.vaydelux.bousygram.core.cast.CastLanStreamingServer
 import com.vaydelux.bousygram.core.cast.CastPlaybackStatus
 import com.vaydelux.bousygram.core.cast.CastSessionController
+import com.vaydelux.bousygram.core.cast.CastRouteButtonFactory
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.data.store.SessionHealthRecord
 import com.vaydelux.bousygram.data.store.StreamHealthTelemetry
@@ -1750,7 +1751,7 @@ fun PlayerScreen(
                     AndroidView(
                         modifier = Modifier.size(48.dp),
                         factory = { viewContext ->
-                            androidx.mediarouter.app.MediaRouteButton(viewContext).also { button ->
+                            CastRouteButtonFactory.create(viewContext).also { button ->
                                 com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(
                                     viewContext.applicationContext,
                                     button
