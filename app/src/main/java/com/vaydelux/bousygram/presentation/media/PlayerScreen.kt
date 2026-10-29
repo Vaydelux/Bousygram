@@ -1338,7 +1338,8 @@ fun PlayerScreen(
     val onSkipNextAction: () -> Boolean = { skipNext() }
     val onSkipPreviousAction: () -> Boolean = { skipPrevious() }
 
-    val playerInputActions = remember(queue, queueIndex, duration, fileSizeBytes) {
+    // Rebind callbacks when the engine is replaced, so remote keys never use a released engine.
+    val playerInputActions = remember(queue, queueIndex, duration, fileSizeBytes, playerEngine) {
         object : PlayerInputActions {
             override fun showHud(target: PlayerFocusTarget) {
                 hudVisible = true
@@ -1383,6 +1384,18 @@ fun PlayerScreen(
                 hudVisible = true
             }
 
+            override fun play() {
+                hudInteractionTick++
+                if (!playerEngine.isPlaying) playerEngine.play()
+                hudVisible = true
+            }
+
+            override fun pause() {
+                hudInteractionTick++
+                if (playerEngine.isPlaying) playerEngine.pause()
+                hudVisible = true
+            }
+
             override fun seekRelative(seconds: Int) {
                 hudInteractionTick++
                 val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
@@ -1424,7 +1437,10 @@ fun PlayerScreen(
 
             override fun skipNext() {
                 hudInteractionTick++
-                if (!onSkipNextAction()) exitPlayback()
+                if (!onSkipNextAction()) {
+                    toastFeedbackText = "No next video"
+                    hudVisible = true
+                }
             }
 
             override fun skipPrevious() {
@@ -1448,7 +1464,8 @@ fun PlayerScreen(
                 autoNextCardVisible = false
                 playerInputController.isAutoNextActive = false
                 if (!onSkipNextAction()) {
-                    exitPlayback()
+                    toastFeedbackText = "No next video"
+                    hudVisible = true
                 }
             }
         }
@@ -1471,14 +1488,16 @@ fun PlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(queueIndex, duration) {
+            .pointerInput(queueIndex, duration, playerEngine) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
                         val delta = if (offset.x < size.width / 2f) -SEEK_INCREMENT_MS else SEEK_INCREMENT_MS
                         val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
                         val newPos = (playerEngine.currentPositionMs + delta).coerceIn(0L, max)
                         performTrackedSeek(newPos)
-                        CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
+                        queue.getOrNull(queueIndex)?.let { current ->
+                            CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, duration)
+                        }
                         seekFeedbackText = if (delta < 0) "-10s" else "+10s"
                         seekFeedbackSide = if (delta < 0) -1 else 1
                         hudVisible = true
@@ -1513,7 +1532,10 @@ fun PlayerScreen(
                             if (currentAudioManager != null) {
                                 val maxVol = currentAudioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                                 val current = currentAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                                val delta = (-dragAmount / (size.height / (maxVol * 1.5f))).toInt()
+                                // Some audio routes have zero volume steps; avoid divide-by-zero gestures.
+                                val delta = if (maxVol > 0 && size.height > 0) {
+                                    (-dragAmount / (size.height / (maxVol * 1.5f))).toInt()
+                                } else 0
                                 if (delta != 0) {
                                     val next = (current + delta).coerceIn(0, maxVol)
                                     currentAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
@@ -1536,18 +1558,23 @@ fun PlayerScreen(
                 }
                 when (event.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_PROG_GREEN -> {
-                        val nextMode = when (effectiveResizeMode) {
-                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        // Compose receives both DOWN and UP; changing aspect on both
+                        // makes one remote press cycle twice and appear unreliable.
+                        if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
+                            false
+                        } else {
+                            val nextMode = when (effectiveResizeMode) {
+                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            }
+                            userSelectedResizeMode = nextMode
+                            toastFeedbackText = "Aspect: " + formatResizeMode(nextMode)
+                            hudVisible = true
+                            hudInteractionTick++
+                            true
                         }
-                        userSelectedResizeMode = nextMode
-                        toastFeedbackText = "Aspect: " + formatResizeMode(nextMode)
-                        hudVisible = true
-                        hudInteractionTick++
-                        true
                     }
-                    KeyEvent.KEYCODE_INFO,
                     KeyEvent.KEYCODE_PROG_YELLOW,
                     KeyEvent.KEYCODE_D -> {
                         if (!BuildConfig.DEBUG) {
@@ -1623,7 +1650,9 @@ fun PlayerScreen(
                     val newPos = (basePosition + delta).coerceIn(0L, max)
                     if (castState.connected) CastSessionController.seekTo(newPos) else {
                         performTrackedSeek(newPos)
-                        CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
+                        queue.getOrNull(queueIndex)?.let { current ->
+                            CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, duration)
+                        }
                     }
                 },
                 onSeekTo = { target ->
@@ -1632,7 +1661,9 @@ fun PlayerScreen(
                     val newPos = target.coerceIn(0L, max)
                     if (castState.connected) CastSessionController.seekTo(newPos) else {
                         performTrackedSeek(newPos)
-                        CacheManager.onSeek(queue[queueIndex].fileId, newPos, fileSizeBytes, duration)
+                        queue.getOrNull(queueIndex)?.let { current ->
+                            CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, duration)
+                        }
                     }
                 },
                 onSkipPrevious = {

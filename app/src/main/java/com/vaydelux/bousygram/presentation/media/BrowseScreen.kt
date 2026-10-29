@@ -393,7 +393,7 @@ fun BrowseScreen(
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         if (state.isLoading && videos.isEmpty()) {
                             BrowseGridShimmerSkeleton(
-                                columns = GridCells.Fixed(3),
+                                columns = GridCells.Adaptive(minSize = posterMin),
                                 itemCount = 9,
                                 spacing = 8.dp
                             )
@@ -429,7 +429,7 @@ fun BrowseScreen(
                         } else {
                             LazyVerticalGrid(
                                 state = libraryGridState,
-                                columns = GridCells.Fixed(3),
+                                columns = GridCells.Adaptive(minSize = posterMin),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)

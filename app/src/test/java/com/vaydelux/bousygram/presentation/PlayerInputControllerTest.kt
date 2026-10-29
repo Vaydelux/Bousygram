@@ -44,6 +44,14 @@ class PlayerInputControllerTest {
             recordedActions.add("togglePlayPause")
         }
 
+        override fun play() {
+            recordedActions.add("play")
+        }
+
+        override fun pause() {
+            recordedActions.add("pause")
+        }
+
         override fun seekRelative(seconds: Int) {
             recordedActions.add("seekRelative:$seconds")
             lastSeekRelativeSeconds = seconds
@@ -225,6 +233,38 @@ class PlayerInputControllerTest {
         currentTimeMs += 100L
         sendKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
         assertTrue(recordedActions.contains("skipPrevious"))
+    }
+
+    @Test
+    fun dedicatedMediaKeysAreIdempotentInsteadOfToggling() {
+        controller.isHudVisible = false
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PLAY))
+        currentTimeMs += 60
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PLAY))
+        currentTimeMs += 60
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PAUSE))
+        currentTimeMs += 60
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PAUSE))
+        assertEquals(listOf("play", "play", "pause", "pause"), recordedActions)
+        assertFalse(recordedActions.contains("togglePlayPause"))
+    }
+
+    @Test
+    fun differentRemoteKeysAreNotMistakenForBounce() {
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PAUSE))
+        currentTimeMs += 10
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PLAY))
+        currentTimeMs += 10
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PAUSE))
+        assertEquals(listOf("pause", "play", "pause"), recordedActions)
+    }
+
+    @Test
+    fun sameRemoteKeyRapidBounceIsStillDebounced() {
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PLAY))
+        currentTimeMs += 10
+        assertTrue(sendKey(KeyEvent.KEYCODE_MEDIA_PLAY))
+        assertEquals(listOf("play"), recordedActions)
     }
 
     @Test

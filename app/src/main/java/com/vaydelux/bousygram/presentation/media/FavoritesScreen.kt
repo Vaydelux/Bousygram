@@ -73,12 +73,8 @@ fun FavoritesScreen(
                 modifier = Modifier.fillMaxSize().padding(horizontal = horizontalPadding, vertical = if (adaptive.isCompact) 12.dp else 20.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column {
                     Text(
                         "Favorites",
                         color = androidx.compose.material3.MaterialTheme.colorScheme.onBackground,
@@ -91,27 +87,36 @@ fun FavoritesScreen(
                     Text(
                         text = if (state.isLoading) "Loading your saved videos…" else "${state.items.size} saved ${if (state.items.size == 1) "video" else "videos"}",
                         color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = if (adaptive.isCompact) {
-                            androidx.compose.material3.MaterialTheme.typography.bodySmall
-                        } else {
-                            androidx.compose.material3.MaterialTheme.typography.bodyMedium
-                        }
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
                     )
                 }
-                if (state.items.isNotEmpty()) {
+                // Keep navigation available on phones and TVs; avoid crowding the phone title.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BousygramButton("Back", onClick = { if (!launcher.cancel()) onBack() })
+                    BousygramButton("Search", onOpenSearch)
+                    BousygramButton("Refresh", viewModel::refresh, enabled = !state.isLoading)
+                    if (!adaptive.isCompact && state.items.isNotEmpty()) {
+                        BousygramButton(
+                            text = "▶ Play All",
+                            onClick = { state.items.firstOrNull()?.let { launcher.launch(it, state.items) } },
+                            selected = true,
+                            enabled = !state.isLoading && !launcher.isPending
+                        )
+                    }
+                }
+                if (adaptive.isCompact && state.items.isNotEmpty()) {
                     BousygramButton(
                         text = "▶ Play All",
-                        onClick = {
-                            val first = state.items.firstOrNull() ?: return@BousygramButton
-                            launcher.launch(first, state.items)
-                        },
-                        selected = true
+                        onClick = { state.items.firstOrNull()?.let { launcher.launch(it, state.items) } },
+                        selected = true,
+                        enabled = !state.isLoading && !launcher.isPending,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-                if (!adaptive.isCompact) {
-                    BousygramButton("Search", onOpenSearch)
-                }
-                BousygramButton("Refresh", viewModel::refresh)
             }
 
             if (state.unavailableCount > 0 && !state.isLoading) {
@@ -121,11 +126,20 @@ fun FavoritesScreen(
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
                 )
             }
-            state.error?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
+            if (state.error != null && state.items.isNotEmpty()) {
+                Text(state.error.orEmpty(), color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+            }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.isLoading && state.items.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    state.error != null && state.items.isEmpty() -> EmptyStateView(
+                        title = "Couldn't load favorites",
+                        message = state.error.orEmpty(),
+                        actionText = "Try again",
+                        onAction = viewModel::refresh,
+                        modifier = Modifier.fillMaxSize()
+                    )
                     state.items.isEmpty() -> EmptyStateView(
                         title = "No favorites yet",
                         message = "Favorite a video from Home or your Telegram library. Your saved items will appear here across sources.",

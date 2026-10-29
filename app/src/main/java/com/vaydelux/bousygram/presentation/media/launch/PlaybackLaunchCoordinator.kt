@@ -126,7 +126,8 @@ class PlaybackLaunchCoordinator(
                 _state.value = LaunchState()
                 pendingCallback = null
                 lastOpenAtMs = clock()
-                onBeforeOpen(item)
+                // Optional progress persistence must not make playable media fail to open.
+                runCatching { onBeforeOpen(item) }
                 onOutcome(
                     LaunchOutcome.Open(
                         request = buildPlaybackRequest(item, url, queueWithSelected(item, queue)),

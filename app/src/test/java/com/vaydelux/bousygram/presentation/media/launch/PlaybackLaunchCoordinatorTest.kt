@@ -125,6 +125,20 @@ class PlaybackLaunchCoordinatorTest {
     }
 
     @Test
+    fun preferenceWriteFailureDoesNotStopVideoNavigation() = runTest {
+        val coordinator = PlaybackLaunchCoordinator(
+            preflight = StreamPreflight { _, _ -> null },
+            onBeforeOpen = { throw IllegalStateException("Storage temporarily unavailable") }
+        )
+        val item = sampleItem()
+        var outcome: LaunchOutcome? = null
+        coordinator.launch(this, item, listOf(item)) { outcome = it }
+        advanceTimeBy(50)
+        assertTrue(outcome is LaunchOutcome.Open)
+        assertFalse(coordinator.state.value.isPending)
+    }
+
+    @Test
     fun missingFileId_rejected() = runTest {
         val coordinator = PlaybackLaunchCoordinator(
             preflight = StreamPreflight { _, _ -> "http://stream" }
