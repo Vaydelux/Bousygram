@@ -1606,6 +1606,23 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         }
+        val loadingPhase = playerLoadingPhase(isOpening, isReconnecting, isBuffering, playbackError)
+        if (loadingPhase == PlayerLoadingPhase.OPENING) {
+            PlayerOpeningSkeleton(compact = compactHud)
+        }
+        if (hudVisible) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(if (compactHud) 270.dp else 340.dp)
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.54f))
+                        )
+                    )
+            )
+        }
         if (hudVisible) {
             PlayerHud(
                 state = PlayerHudState(
@@ -1722,38 +1739,16 @@ fun PlayerScreen(
             )
         }
 
-        // Clear Buffering Indicator
-        if (isBuffering && playbackError == null) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF0B131E).copy(alpha = 0.88f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                    shadowElevation = 12.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 3.dp
-                        )
-                        Text(
-                            text = "Buffering…",
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
-        }
+        // A small, non-modal status banner replaces the large centered spinner.
+        // Leave Retry, seek controls, Cast, and Android TV focus untouched.
+        PlayerLoadingBanner(
+            phase = loadingPhase,
+            compact = compactHud,
+            retryCount = retryCount,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = if (compactHud) 70.dp else 26.dp)
+        )
 
         if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED && !isAndroidTv && castState.supported) {
             Row(
@@ -2495,16 +2490,16 @@ private fun PlayerHud(
         state.trackLabel,
         state.cacheStateLabel
     ).joinToString(" · ")
-    val hudShape = RoundedCornerShape(24.dp)
+    val hudShape = RoundedCornerShape(if (compact) 18.dp else 26.dp)
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .padding(edgePadding)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, hudShape),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
+            .border(1.dp, Color(0x555A7998), hudShape),
+        color = Color(0xF0111A28),
+        contentColor = Color.White,
         shape = hudShape,
-        tonalElevation = 8.dp
+        shadowElevation = 14.dp
     ) {
         Column(Modifier.padding(innerPadding)) {
             Row(
@@ -2531,7 +2526,7 @@ private fun PlayerHud(
                         )
                     }
                 }
-                BousygramButton("Back", onExit)
+                BousygramButton("✕ Close", onExit)
             }
             Spacer(Modifier.height(6.dp))
             Row(
@@ -2587,38 +2582,45 @@ private fun PlayerHud(
                 modifier = if (seekBarFocusRequester != null) Modifier.focusRequester(seekBarFocusRequester) else Modifier
             )
             Spacer(Modifier.height(10.dp))
+            // The primary transport controls stay distinct and predictable for D-pad users.
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState())
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
             ) {
-                BousygramButton("-30s", { onSeekBy(-30_000L) })
-                BousygramButton("-10s", { onSeekBy(-SEEK_INCREMENT_MS) })
-                val playPauseLabel = if (isPlayingOrPending) "Pause" else "Play"
+                BousygramButton("⏮ Prev", onSkipPrevious)
+                BousygramButton("↶ 10s", { onSeekBy(-SEEK_INCREMENT_MS) })
+                val playPauseLabel = if (isPlayingOrPending) "❚❚ Pause" else "▶ Play"
                 BousygramButton(
                     text = playPauseLabel,
                     onClick = onPlayPause,
                     selected = true,
                     modifier = Modifier
-                        .widthIn(min = 76.dp)
+                        .widthIn(min = if (compact) 100.dp else 124.dp)
                         .then(if (playPauseFocusRequester != null) Modifier.focusRequester(playPauseFocusRequester) else Modifier)
                 )
-                BousygramButton("+10s", { onSeekBy(SEEK_INCREMENT_MS) })
-                BousygramButton("+30s", { onSeekBy(30_000L) })
-                BousygramButton("Prev", onSkipPrevious)
-                BousygramButton("Next", onSkipNext)
+                BousygramButton("10s ↷", { onSeekBy(SEEK_INCREMENT_MS) })
+                BousygramButton("Next ⏭", onSkipNext)
+            }
+            Spacer(Modifier.height(9.dp))
+            // Secondary controls live in a quieter row; actual decoder/track operations
+            // remain bound to the existing handlers and production release restrictions.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            ) {
                 val aspectLabel = when (state.resizeMode) {
                     AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
                     AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
                     else -> "Fit"
                 }
+                BousygramButton("Audio / CC", onTracks)
+                BousygramButton("${speedLabel(state.speed)}x Speed", onSpeed)
                 BousygramButton(aspectLabel, onToggleResizeMode)
-                BousygramButton("${speedLabel(state.speed)}x", onSpeed)
-                if (onEpisodes != null) {
-                    BousygramButton("Queue ☰", onEpisodes)
-                }
-                if (onSwitchEngine != null) {
-                    BousygramButton("Engine ⚙", onSwitchEngine)
-                }
+                if (onEpisodes != null) BousygramButton("☰ Queue", onEpisodes)
+                if (onSwitchEngine != null) BousygramButton("⚙ Decoder", onSwitchEngine)
+                BousygramButton("↶ 30s", { onSeekBy(-30_000L) })
+                BousygramButton("30s ↷", { onSeekBy(30_000L) })
             }
             if (state.error != null) {
                 Spacer(Modifier.height(12.dp))
@@ -2701,7 +2703,7 @@ private fun PlayerSeekBar(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(34.dp)
+                .height(44.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .border(
                     width = if (barFocused) 1.5.dp else 0.dp,
@@ -2752,7 +2754,7 @@ private fun PlayerSeekBar(
                 enabled = enabled,
                 modifier = Modifier.fillMaxWidth().align(Alignment.Center),
                 colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.secondary,
+                    thumbColor = MaterialTheme.colorScheme.primary,
                     activeTrackColor = MaterialTheme.colorScheme.primary,
                     inactiveTrackColor = Color.Transparent
                 )

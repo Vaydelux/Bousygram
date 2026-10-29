@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.CircularProgressIndicator
+import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -132,7 +132,11 @@ fun FavoritesScreen(
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
-                    state.isLoading && state.items.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    state.isLoading && state.items.isEmpty() -> BrowseGridShimmerSkeleton(
+                        columns = GridCells.Adaptive(minSize = if (adaptive.isCompact) 160.dp else 240.dp),
+                        modifier = Modifier.fillMaxSize(),
+                        itemCount = if (adaptive.isCompact) 6 else 9
+                    )
                     state.error != null && state.items.isEmpty() -> EmptyStateView(
                         title = "Couldn't load favorites",
                         message = state.error.orEmpty(),
