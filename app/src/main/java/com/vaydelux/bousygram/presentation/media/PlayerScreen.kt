@@ -1403,31 +1403,40 @@ fun PlayerScreen(
 
             override fun togglePlayPause() {
                 hudInteractionTick++
-                if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                if (castState.connected) {
+                    if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
+                    else CastSessionController.play()
+                } else if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
                 hudVisible = true
             }
 
             override fun play() {
                 hudInteractionTick++
-                if (!playerEngine.isPlaying) playerEngine.play()
+                if (castState.connected) CastSessionController.play()
+                else if (!playerEngine.isPlaying) playerEngine.play()
                 hudVisible = true
             }
 
             override fun pause() {
                 hudInteractionTick++
-                if (playerEngine.isPlaying) playerEngine.pause()
+                if (castState.connected) CastSessionController.pause()
+                else if (playerEngine.isPlaying) playerEngine.pause()
                 hudVisible = true
             }
 
             override fun seekRelative(seconds: Int) {
                 hudInteractionTick++
-                val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
-                val deltaMs = seconds * 1000L
-                val newPos = (playerEngine.currentPositionMs + deltaMs).coerceIn(0L, max)
-                performTrackedSeek(newPos)
-                val currentItem = queue.getOrNull(queueIndex)
-                if (currentItem != null) {
-                    CacheManager.onSeek(currentItem.fileId, newPos, fileSizeBytes, duration)
+                val max = if (castState.connected) castState.durationMs else duration
+                if (max <= 0L) {
+                    toastFeedbackText = "Seeking is available when video duration is ready"
+                    hudVisible = true
+                    return
+                }
+                val base = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
+                val newPos = (base + seconds * 1000L).coerceIn(0L, max)
+                if (castState.connected) CastSessionController.seekTo(newPos) else {
+                    performTrackedSeek(newPos)
+                    queue.getOrNull(queueIndex)?.let { CacheManager.onSeek(it.fileId, newPos, fileSizeBytes, max) }
                 }
                 seekFeedbackText = if (seconds > 0) "+${seconds}s" else "${seconds}s"
                 seekFeedbackSide = if (seconds > 0) 1 else -1
@@ -1435,8 +1444,15 @@ fun PlayerScreen(
 
             override fun previewSeekRelative(seconds: Int) {
                 hudInteractionTick++
-                val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
-                val base = seekPreviewPositionMs.takeIf { it >= 0L } ?: playerEngine.currentPositionMs
+                val max = if (castState.connected) castState.durationMs else duration
+                if (max <= 0L) {
+                    seekPreviewPositionMs = -1L
+                    seekFeedbackText = "Seeking is available when video duration is ready"
+                    hudVisible = true
+                    return
+                }
+                val base = seekPreviewPositionMs.takeIf { it >= 0L }
+                    ?: if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
                 seekPreviewPositionMs = (base + seconds * 1000L).coerceIn(0L, max)
                 seekFeedbackText = "Seek ${formatMs(seekPreviewPositionMs)} · OK to confirm · Back to cancel"
                 seekFeedbackSide = if (seconds > 0) 1 else -1
@@ -1444,12 +1460,16 @@ fun PlayerScreen(
 
             override fun confirmSeekPreview() {
                 val target = seekPreviewPositionMs
-                if (target < 0L) return
+                val max = if (castState.connected) castState.durationMs else duration
+                if (target < 0L || max <= 0L) return
                 seekPreviewPositionMs = -1L
                 playerInputController.resetSeekPreviewState()
-                performTrackedSeek(target)
-                queue.getOrNull(queueIndex)?.let { CacheManager.onSeek(it.fileId, target, fileSizeBytes, duration) }
-                seekFeedbackText = "Seeking to ${formatMs(target)}"
+                val safeTarget = target.coerceIn(0L, max)
+                if (castState.connected) CastSessionController.seekTo(safeTarget) else {
+                    performTrackedSeek(safeTarget)
+                    queue.getOrNull(queueIndex)?.let { CacheManager.onSeek(it.fileId, safeTarget, fileSizeBytes, max) }
+                }
+                seekFeedbackText = "Seeking to ${formatMs(safeTarget)}"
             }
 
             override fun cancelSeekPreview() {
@@ -1514,15 +1534,22 @@ fun PlayerScreen(
             .pointerInput(queueIndex, duration, playerEngine) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
-                        val delta = if (offset.x < size.width / 2f) -SEEK_INCREMENT_MS else SEEK_INCREMENT_MS
-                        val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
-                        val newPos = (playerEngine.currentPositionMs + delta).coerceIn(0L, max)
-                        performTrackedSeek(newPos)
-                        queue.getOrNull(queueIndex)?.let { current ->
-                            CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, duration)
+                        val max = if (castState.connected) castState.durationMs else duration
+                        if (max <= 0L || playbackError != null) {
+                            toastFeedbackText = "Seeking is available when playback is ready"
+                        } else {
+                            val delta = if (offset.x < size.width / 2f) -SEEK_INCREMENT_MS else SEEK_INCREMENT_MS
+                            val base = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
+                            val newPos = (base + delta).coerceIn(0L, max)
+                            if (castState.connected) CastSessionController.seekTo(newPos) else {
+                                performTrackedSeek(newPos)
+                                queue.getOrNull(queueIndex)?.let { current ->
+                                    CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, max)
+                                }
+                            }
+                            seekFeedbackText = if (delta < 0) "-10s" else "+10s"
+                            seekFeedbackSide = if (delta < 0) -1 else 1
                         }
-                        seekFeedbackText = if (delta < 0) "-10s" else "+10s"
-                        seekFeedbackSide = if (delta < 0) -1 else 1
                         hudVisible = true
                         hudInteractionTick++
                     },
@@ -1672,9 +1699,9 @@ fun PlayerScreen(
                 state = PlayerHudState(
                     title = title,
                     fileName = fileName,
-                    positionMs = position,
-                    durationMs = duration,
-                    durationTrusted = duration > 0L,
+                    positionMs = if (castState.connected) castState.positionMs else position,
+                    durationMs = if (castState.connected) castState.durationMs else duration,
+                    durationTrusted = (if (castState.connected) castState.durationMs else duration) > 0L,
                     speed = speed,
                     isPlaying = isPlaying,
                     playWhenReady = playerEngine.playWhenReady,
@@ -1685,7 +1712,7 @@ fun PlayerScreen(
                     error = playbackError,
                     trackLabel = "${queueIndex + 1} / ${queue.size}",
                     cacheStateLabel = cacheState.playerLabel(),
-                    bufferedPositionMs = playerEngine.bufferedPositionMs,
+                    bufferedPositionMs = if (castState.connected) 0L else playerEngine.bufferedPositionMs,
                     resizeMode = effectiveResizeMode,
                     mediaKey = "${queue.getOrNull(queueIndex)?.chatId}:${queue.getOrNull(queueIndex)?.messageId}"
                 ),
@@ -1734,24 +1761,32 @@ fun PlayerScreen(
                 },
                 onSeekBy = { delta ->
                     hudInteractionTick++
-                    val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
-                    val basePosition = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
-                    val newPos = (basePosition + delta).coerceIn(0L, max)
-                    if (castState.connected) CastSessionController.seekTo(newPos) else {
-                        performTrackedSeek(newPos)
-                        queue.getOrNull(queueIndex)?.let { current ->
-                            CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, duration)
+                    val max = if (castState.connected) castState.durationMs else duration
+                    if (max <= 0L) {
+                        toastFeedbackText = "Seeking is available when video duration is ready"
+                    } else {
+                        val basePosition = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
+                        val newPos = (basePosition + delta).coerceIn(0L, max)
+                        if (castState.connected) CastSessionController.seekTo(newPos) else {
+                            performTrackedSeek(newPos)
+                            queue.getOrNull(queueIndex)?.let { current ->
+                                CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, max)
+                            }
                         }
                     }
                 },
                 onSeekTo = { target ->
                     hudInteractionTick++
-                    val max = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
-                    val newPos = target.coerceIn(0L, max)
-                    if (castState.connected) CastSessionController.seekTo(newPos) else {
-                        performTrackedSeek(newPos)
-                        queue.getOrNull(queueIndex)?.let { current ->
-                            CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, duration)
+                    val max = if (castState.connected) castState.durationMs else duration
+                    if (max <= 0L) {
+                        toastFeedbackText = "Seeking is available when video duration is ready"
+                    } else {
+                        val newPos = target.coerceIn(0L, max)
+                        if (castState.connected) CastSessionController.seekTo(newPos) else {
+                            performTrackedSeek(newPos)
+                            queue.getOrNull(queueIndex)?.let { current ->
+                                CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, max)
+                            }
                         }
                     }
                 },
