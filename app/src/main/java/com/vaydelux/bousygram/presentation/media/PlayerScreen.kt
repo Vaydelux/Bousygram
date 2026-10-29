@@ -97,6 +97,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -234,6 +235,7 @@ fun PlayerScreen(
     val sessionState by playbackSession.state.collectAsState()
     var hudVisible by remember { mutableStateOf(true) }
     var hudInteractionTick by remember { mutableIntStateOf(0) }
+    var seekScrubbing by remember { mutableStateOf(false) }
     val playerInputController = remember { PlayerInputController() }
     var autoNextCardVisible by remember { mutableStateOf(false) }
     var autoNextCountdown by remember { mutableIntStateOf(5) }
@@ -1231,11 +1233,15 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(hudVisible, isPlaying, isBuffering, playbackError, tracksPanelVisible, episodesDrawerVisible, optionsPanelVisible, autoNextCardVisible, queueIndex, hudInteractionTick) {
-        if (hudVisible && isPlaying && !isBuffering && playbackError == null && !tracksPanelVisible && !episodesDrawerVisible && !optionsPanelVisible && !autoNextCardVisible) {
+    val menuOpen = tracksPanelVisible || episodesDrawerVisible || optionsPanelVisible
+    LaunchedEffect(hudVisible, isPlaying, isBuffering, playbackError, menuOpen, seekScrubbing, autoNextCardVisible, queueIndex, hudInteractionTick) {
+        if (shouldAutoHidePlayerHud(hudVisible, isPlaying, isBuffering, playbackError != null, menuOpen, seekScrubbing, autoNextCardVisible)) {
             delay(4_000L)
-            hudVisible = false
-            playerInputController.isHudVisible = false
+            // State keys cancel the timer on interaction, scrub, buffering, or menu changes.
+            if (shouldAutoHidePlayerHud(hudVisible, isPlaying, isBuffering, playbackError != null, menuOpen, seekScrubbing, autoNextCardVisible)) {
+                hudVisible = false
+                playerInputController.isHudVisible = false
+            }
         }
     }
 
@@ -1575,6 +1581,21 @@ fun PlayerScreen(
             }
             .focusRequester(focusRequester)
             .focusable()
+            .onPreviewKeyEvent { event ->
+                // Refresh the idle timer even when a focused child consumes D-pad navigation.
+                if (tvChrome && event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT,
+                        KeyEvent.KEYCODE_DPAD_RIGHT,
+                        KeyEvent.KEYCODE_DPAD_UP,
+                        KeyEvent.KEYCODE_DPAD_DOWN,
+                        KeyEvent.KEYCODE_DPAD_CENTER,
+                        KeyEvent.KEYCODE_ENTER,
+                        KeyEvent.KEYCODE_NUMPAD_ENTER -> hudInteractionTick++
+                    }
+                }
+                false
+            }
             .onKeyEvent { event ->
                 val handled = playerInputController.handleKeyEvent(event, playerInputActions)
                 if (handled) {
@@ -1671,6 +1692,10 @@ fun PlayerScreen(
                 compact = compactHud,
                 isTv = tvChrome,
                 optionsVisible = optionsPanelVisible,
+                onScrubActiveChanged = { active ->
+                    seekScrubbing = active
+                    hudInteractionTick++
+                },
                 onOptionsToggle = {
                     hudInteractionTick++
                     val openingOptions = !optionsPanelVisible
@@ -2517,6 +2542,7 @@ private fun PlayerHud(
     compact: Boolean,
     isTv: Boolean,
     optionsVisible: Boolean,
+    onScrubActiveChanged: (Boolean) -> Unit,
     onOptionsToggle: () -> Unit,
     onOptionsClose: () -> Unit,
     onExit: () -> Unit,
@@ -2657,6 +2683,7 @@ private fun PlayerHud(
                 durationMs = state.durationMs,
                 enabled = state.durationTrusted && state.durationMs > 0L,
                 onSeekTo = onSeekTo,
+                onScrubActiveChanged = onScrubActiveChanged,
                 modifier = if (seekBarFocusRequester != null) Modifier.focusRequester(seekBarFocusRequester) else Modifier
             )
             Spacer(Modifier.height(10.dp))
@@ -2730,10 +2757,16 @@ private fun PlayerSeekBar(
     durationMs: Long,
     enabled: Boolean,
     onSeekTo: (Long) -> Unit,
+    onScrubActiveChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var dragging by remember { mutableStateOf(false) }
-    var dragPosition by remember { mutableLongStateOf(positionMs) }
+    var dragging by remember(mediaKey) { mutableStateOf(false) }
+    var dragPosition by remember(mediaKey) { mutableLongStateOf(positionMs) }
+    LaunchedEffect(mediaKey, enabled) {
+        // A track change or unknown duration must release any prior scrub lock.
+        dragging = false
+        onScrubActiveChanged(false)
+    }
     var barFocused by remember { mutableStateOf(false) }
     val shown = if (dragging) dragPosition else positionMs
     val fraction = if (enabled && durationMs > 0L) (shown.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
@@ -2825,12 +2858,17 @@ private fun PlayerSeekBar(
                 value = fraction,
                 onValueChange = { value ->
                     if (!enabled) return@Slider
-                    dragging = true
-                    dragPosition = (value * durationMs).toLong().coerceIn(0L, durationMs)
+                    val target = playerScrubTarget(value, durationMs) ?: return@Slider
+                    if (!dragging) {
+                        dragging = true
+                        onScrubActiveChanged(true)
+                    }
+                    dragPosition = target
                 },
                 onValueChangeFinished = {
-                    if (enabled) onSeekTo(dragPosition)
+                    if (enabled && dragging) onSeekTo(dragPosition)
                     dragging = false
+                    onScrubActiveChanged(false)
                 },
                 enabled = enabled,
                 modifier = Modifier.fillMaxWidth().align(Alignment.Center),
