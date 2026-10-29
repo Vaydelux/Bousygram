@@ -33,17 +33,11 @@ jobs:
 
       - name: Validate Gradle wrapper
         shell: bash
-        run: |
-          set -euo pipefail
-          mode="$(git ls-files --stage gradlew | awk '{print $1}')"
-          [[ "$mode" == "100755" ]] || { echo "gradlew must be tracked as executable (mode 100755), found $mode" >&2; exit 1; }
-          [[ -x ./gradlew ]] || { echo "gradlew is not executable after checkout" >&2; exit 1; }
-          test -s gradle/wrapper/gradle-wrapper.jar
-          unzip -tq gradle/wrapper/gradle-wrapper.jar
-          grep -Fq 'distributionUrl=https\\://services.gradle.org/distributions/gradle-9.4.1-bin.zip' gradle/wrapper/gradle-wrapper.properties
-          grep -Fq 'distributionSha256Sum=2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb' gradle/wrapper/gradle-wrapper.properties
-          echo "Gradle wrapper mode: $mode"
-          sha256sum gradle/wrapper/gradle-wrapper.jar | tee -a "$GITHUB_STEP_SUMMARY"
+        run: bash tools/ci/verify_gradle_wrapper.sh
+
+      - name: Run Gradle wrapper negative fixtures
+        shell: bash
+        run: bash tools/ci/test_gradle_wrapper_validation.sh
 
       - name: Set up Java
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
@@ -59,7 +53,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null
+          set +o pipefail
+          yes | sdkmanager --licenses >/tmp/bousygram-sdk-licenses.log 2>&1
+          sdk_status=${PIPESTATUS[1]}
+          set -o pipefail
+          cat /tmp/bousygram-sdk-licenses.log
+          (( sdk_status == 0 )) || exit "$sdk_status"
           sdkmanager "platform-tools" "platforms;${ANDROID_PLATFORM}" "build-tools;${ANDROID_BUILD_TOOLS}"
           test -d "$ANDROID_HOME/platforms/$ANDROID_PLATFORM"
           test -x "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt2"
