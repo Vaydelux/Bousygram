@@ -630,6 +630,20 @@ fun PlayerScreen(
     }
 
     fun exitPlayback() {
+        // Record the position before the engine is closed, not from a disposed player.
+        runCatching { commitPlaybackTelemetry() }
+            .onFailure { Log.w("BousygramPlayer", "Unable to record exit metrics", it) }
+        queue.getOrNull(queueIndex)?.let { item ->
+            runCatching {
+                val last = playerEngine.currentPositionMs
+                if (last > 0L) {
+                    PlaybackProgressTracker.saveMessagePosition(
+                        item.chatId, item.messageId, last.toInt(), duration,
+                        item.fileId, item.title
+                    )
+                }
+            }.onFailure { Log.w("BousygramPlayer", "Unable to persist exit position", it) }
+        }
         PlaybackSessionController.setVideoPlaying(false)
         revokeLocalPlaybackCapabilities()
         // Session stop invokes PlaybackEngineOwner.close(), which is idempotent.
@@ -994,8 +1008,11 @@ fun PlayerScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            commitPlaybackTelemetry()
-            val current = queue.getOrNull(activeLifecycleQueueIndex)
+            // Explicit Back/logout may already have disposed the player engine.
+            if (!playbackSession.isStopped()) {
+                runCatching { commitPlaybackTelemetry() }
+                    .onFailure { Log.w("BousygramPlayer", "Unable to record disposal metrics", it) }
+                val current = queue.getOrNull(activeLifecycleQueueIndex)
             val totalPlayTime = System.currentTimeMillis() - playerSessionStartMs
             if (current != null && totalPlayTime > 1_000L) {
                 val rebufferTime = rebufferCount * 1_500L
@@ -1037,6 +1054,7 @@ fun PlayerScreen(
                         thumbnailPath = null
                     )
                 }
+            }
             }
             // Controller invokes the engine owner's once-only shutdown; do not release
             // the same engine a second time or mark the session stopped on fallback.
