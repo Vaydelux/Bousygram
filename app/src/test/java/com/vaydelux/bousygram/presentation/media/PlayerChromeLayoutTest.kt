@@ -57,4 +57,11 @@ class PlayerChromeLayoutTest {
         assertEquals(null, playerScrubTarget(Float.POSITIVE_INFINITY, 100_000L))
     }
 
+    @Test fun connectedCastUsesOnlyRemoteDuration() {
+        assertEquals(120_000L, playerSeekDurationMs(80_000L, 120_000L, true))
+        assertEquals(0L, playerSeekDurationMs(80_000L, -1L, true))
+        assertEquals(80_000L, playerSeekDurationMs(80_000L, 120_000L, false))
+        assertEquals(0L, playerSeekDurationMs(0L, 120_000L, false))
+    }
+
 }
