@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build-and-publish:
-    name: Build verified ABI APKs and publish a debug prerelease
+    name: Publish exact CI-verified debug prerelease APKs
     if: >-
       github.repository == 'Vaydelux/Bousygram' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -26,11 +26,9 @@ jobs:
        github.event.workflow_run.head_repository.full_name == github.repository &&
        github.event.workflow_run.conclusion == 'success'))
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
-      ANDROID_API: '37'
-      BUILD_TOOLS_VERSION: 35.0.0
     steps:
       - name: Resolve exact successful mainline Android CI
         id: source
@@ -70,9 +68,11 @@ jobs:
             .path == ".github/workflows/android-enterprise.yml"
           ' <<< "$run" >/dev/null
           jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100")"
+          # Require successful native ABI packaging, not only a passing Kotlin build.
           jq -e '[.jobs[] | select(
-            .name == "Build and verify" and .status == "completed" and .conclusion == "success"
-          )] | length == 1' <<< "$jobs" >/dev/null
+            (.name == "Build and verify" or .name == "Verify debug APK ABI matrix") and
+            .status == "completed" and .conclusion == "success"
+          )] | length == 2' <<< "$jobs" >/dev/null
           echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "ci_run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "Verified exact mainline commit $source_sha with CI run $run_id"
@@ -97,21 +97,16 @@ jobs:
             exit 1
           }
 
-      - name: Set up Java
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - name: Download exact CI-verified ARM APK matrix
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
+          name: debug-preview-apks-${{ steps.source.outputs.sha }}
+          run-id: ${{ steps.source.outputs.ci_run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          path: ci-artifacts/debug-preview/
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
-
-      - name: Install Android SDK dependencies
-        shell: bash
-        run: bash tools/ci/setup_android_sdk.sh
-
-      - name: Verify native and debug build matrix
+      - name: Check APK digests and exact build provenance
         id: apks
         shell: bash
         env:
@@ -119,17 +114,8 @@ jobs:
           CI_VERIFICATION_RUN_ID: ${{ steps.source.outputs.ci_run_id }}
         run: |
           set -euo pipefail
-          bash tools/ci/build_debug_preview.sh ci-artifacts/debug-preview
-          ( cd ci-artifacts/debug-preview && sha256sum --check SHA256SUMS.txt )
-          [[ "$(find ci-artifacts/debug-preview -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 3 ]]
-
-      - name: Upload APKs to Actions artifacts
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: bousygram-debug-${{ steps.apks.outputs.version }}-${{ steps.source.outputs.ci_run_id }}
-          retention-days: 30
-          if-no-files-found: error
-          path: ci-artifacts/debug-preview/
+          bash tools/ci/verify_debug_preview_publication.sh \
+            ci-artifacts/debug-preview "$RELEASE_SHA" "$CI_VERIFICATION_RUN_ID"
 
       - name: Publish versioned GitHub debug prerelease
         shell: bash
@@ -169,7 +155,7 @@ jobs:
           | \`armeabi-v7a.apk\` | Older 32-bit ARM devices |
           | \`universal.apk\` | Includes both supported ARM ABIs |
 
-          The SHA256SUMS.txt file verifies exact APK downloads.
+          These APK files are byte-for-byte identical to the verified Android Enterprise CI artifacts.\n          The SHA256SUMS.txt file verifies exact APK downloads.
           Debug APKs use ephemeral Android debug signing; uninstall any APK signed with a
           different debug certificate before installing another build.
           Production releases remain protected by signing and device-qualification gates.

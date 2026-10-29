@@ -59,6 +59,10 @@ jobs:
         shell: bash
         run: bash tools/ci/test_release_tag_policy.sh
 
+      - name: Test prerelease source identity and APK checksum failures
+        shell: bash
+        run: bash tools/ci/test_debug_preview_publication.sh
+
       - name: Validate Gradle wrapper
         shell: bash
         run: bash tools/ci/verify_gradle_wrapper.sh
