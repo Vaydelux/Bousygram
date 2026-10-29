@@ -18,7 +18,7 @@ class AndroidTvNavigationSmokeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val packageName = instrumentation.targetContext.packageName
         val output = instrumentation.runShellCommand(
-            "am force-stop $packageName; am start -W -n $packageName/.app.MainActivity"
+            "am start -W -n $packageName/.app.MainActivity"
         )
         assertTrue(output, output.contains("Status: ok"))
 
@@ -39,14 +39,14 @@ class AndroidTvNavigationSmokeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val packageName = instrumentation.targetContext.packageName
         val output = instrumentation.runShellCommand(
-            "am force-stop $packageName; am start -W -n $packageName/.app.MainActivity " +
+            "am start -W -n $packageName/.app.MainActivity " +
                 "--ez ${MainActivity.EXTRA_UI_PREVIEW} true"
         )
         assertTrue(output, output.contains("Status: ok"))
 
         val device = UiDevice.getInstance(instrumentation)
         assertTrue("Dashboard heading should be visible", device.wait(Until.hasObject(By.text("Bousygram")), 5_000))
-        assertTrue("Favorites navigation should be visible", device.wait(Until.hasObject(By.text("Favorites")), 5_000))
+        assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Library")), 5_000))
 
         repeat(4) { device.pressDPadDown() }
         repeat(3) { device.pressDPadRight() }

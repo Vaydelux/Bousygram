@@ -48,7 +48,7 @@ class MainActivitySmokeTest {
 
         val device = UiDevice.getInstance(instrumentation)
         assertTrue("Preview dashboard heading should be visible", device.wait(Until.hasObject(By.text("Bousygram")), 5_000))
-        assertTrue("Favorites navigation should be visible", device.wait(Until.hasObject(By.text("Favorites")), 5_000))
+        assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Library")), 5_000))
     }
 
     private fun launchMainActivity(
@@ -58,7 +58,7 @@ class MainActivitySmokeTest {
         val packageName = instrumentation.targetContext.packageName
         val previewArg = if (preview) "--ez ${MainActivity.EXTRA_UI_PREVIEW} true" else ""
         return instrumentation.runShellCommand(
-            "am force-stop $packageName; am start -W -n $packageName/.app.MainActivity $previewArg"
+            "am start -W -n $packageName/.app.MainActivity $previewArg"
         )
     }
 
