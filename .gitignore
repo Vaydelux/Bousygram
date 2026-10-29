@@ -105,3 +105,7 @@ $RECYCLE.BIN/
 *.swp
 *~
 /.codex-checkpoints/
+
+# Generated TDLib Java comparison outputs belong in CI artifacts, not source control.
+/tdlib-java-generation-*/
+/tdlib-java-generation-*.zip
