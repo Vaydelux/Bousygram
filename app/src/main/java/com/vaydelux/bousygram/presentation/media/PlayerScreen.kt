@@ -1549,13 +1549,17 @@ fun PlayerScreen(
                     KeyEvent.KEYCODE_INFO,
                     KeyEvent.KEYCODE_PROG_YELLOW,
                     KeyEvent.KEYCODE_D -> {
-                        if (event.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
-                            val next = !debugHudVisible
-                            debugHudVisible = next
-                            EnterprisePreferences.setVideoDebugHudEnabled(next)
-                            toastFeedbackText = if (next) "Video Debug HUD: ON" else "Video Debug HUD: OFF"
+                        if (!BuildConfig.DEBUG) {
+                            false
+                        } else {
+                            if (event.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                                val next = !debugHudVisible
+                                debugHudVisible = next
+                                EnterprisePreferences.setVideoDebugHudEnabled(next)
+                                toastFeedbackText = if (next) "Video Debug HUD: ON" else "Video Debug HUD: OFF"
+                            }
+                            true
                         }
-                        true
                     }
                     else -> false
                 }
@@ -2078,7 +2082,7 @@ fun PlayerScreen(
             }
         }
 
-        if (debugHudVisible) {
+        if (BuildConfig.DEBUG && debugHudVisible) {
             val display = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 runCatching { context.display }.getOrNull()
             } else {
