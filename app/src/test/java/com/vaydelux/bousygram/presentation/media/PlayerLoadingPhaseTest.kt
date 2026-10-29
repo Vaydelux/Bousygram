@@ -33,4 +33,32 @@ class PlayerLoadingPhaseTest {
     @Test fun readyAndPausedStatesShowNoLoadingOverlay() {
         assertEquals(PlayerLoadingPhase.NONE, playerLoadingPhase(false, false, false, null))
     }
+    @Test fun castLoadingIsOwnedByRemoteState() {
+        assertEquals(
+            PlayerLoadingPhase.NONE,
+            playerLoadingPhaseForSession(
+                castConnected = true, castBuffering = false,
+                opening = true, reconnecting = true, buffering = true, error = null
+            )
+        )
+        assertEquals(
+            PlayerLoadingPhase.BUFFERING,
+            playerLoadingPhaseForSession(
+                castConnected = true, castBuffering = true,
+                opening = false, reconnecting = false, buffering = false, error = null
+            )
+        )
+    }
+
+    @Test fun localPlayerStillPreservesRetryAndErrorPriority() {
+        assertEquals(
+            PlayerLoadingPhase.RECONNECTING,
+            playerLoadingPhaseForSession(false, false, true, true, true, null)
+        )
+        assertEquals(
+            PlayerLoadingPhase.NONE,
+            playerLoadingPhaseForSession(false, false, true, false, true, "Playback failed")
+        )
+    }
+
 }
