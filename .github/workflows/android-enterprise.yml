@@ -51,6 +51,10 @@ jobs:
             git diff --check "$GITHUB_SHA^" "$GITHUB_SHA"
           fi
 
+      - name: Exercise release identity and qualification failure fixtures
+        shell: bash
+        run: bash tools/ci/test_release_manifest.sh
+
       - name: Validate Gradle wrapper
         shell: bash
         run: bash tools/ci/verify_gradle_wrapper.sh
