@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 
@@ -59,44 +61,56 @@ internal fun PlayerTransportControls(
     ) {
         if (isWide) {
             BousygramButton(
-                text = if (isTv) "⏮ Previous" else "⏮",
+                text = if (isTv) "⏮ Prev" else "⏮",
                 onClick = onPrevious,
-                modifier = Modifier.weight(1f).heightIn(min = touchMin).testTag("player_previous")
+                modifier = Modifier.weight(1f).heightIn(min = touchMin)
+                    .semantics { contentDescription = "Previous video" }
+                    .testTag("player_previous")
             )
         }
         BousygramButton(
-            text = "↶ 10s",
+            text = if (isTv) "↶ 10s" else "−10",
             onClick = onSeekBack,
-            modifier = Modifier.weight(1f).heightIn(min = touchMin).testTag("player_seek_back")
+            modifier = Modifier.weight(1f).heightIn(min = touchMin)
+                .semantics { contentDescription = "Seek backward 10 seconds" }
+                .testTag("player_seek_back")
         )
         BousygramButton(
-            text = if (isPlayingOrPending) "❚❚ Pause" else "▶ Play",
+            text = if (isTv) {
+                if (isPlayingOrPending) "❚❚ Pause" else "▶ Play"
+            } else if (isPlayingOrPending) "❚❚" else "▶",
             onClick = onPlayPause,
             selected = true,
             modifier = Modifier
                 .weight(if (isTv) 1.5f else 1.3f)
                 .heightIn(min = touchMin)
                 .focusRequester(playPauseFocusRequester)
+                .semantics { contentDescription = if (isPlayingOrPending) "Pause playback" else "Play video" }
                 .testTag("player_toggle_playback")
         )
         BousygramButton(
-            text = "10s ↷",
+            text = if (isTv) "10s ↷" else "+10",
             onClick = onSeekForward,
-            modifier = Modifier.weight(1f).heightIn(min = touchMin).testTag("player_seek_forward")
+            modifier = Modifier.weight(1f).heightIn(min = touchMin)
+                .semantics { contentDescription = "Seek forward 10 seconds" }
+                .testTag("player_seek_forward")
         )
         if (isWide) {
             BousygramButton(
-                text = if (isTv) "Next ⏭" else "⏭",
+                text = if (isTv) "⏭ Next" else "⏭",
                 onClick = onNext,
-                modifier = Modifier.weight(1f).heightIn(min = touchMin).testTag("player_next")
+                modifier = Modifier.weight(1f).heightIn(min = touchMin)
+                    .semantics { contentDescription = "Next video" }
+                    .testTag("player_next")
             )
         }
         BousygramButton(
-            text = if (isTv) "⚙ Options" else "⋯ More",
+            text = if (isTv) "⚙ More" else "⋯",
             onClick = onOptions,
             selected = optionsExpanded,
             modifier = Modifier.weight(1f).heightIn(min = touchMin)
                 .focusRequester(optionsFocusRequester)
+                .semantics { contentDescription = if (optionsExpanded) "Close playback options" else "More playback options" }
                 .testTag("player_options_toggle")
         )
     }
