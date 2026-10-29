@@ -1,0 +1,189 @@
+package com.vaydelux.bousygram.presentation.media
+
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import com.vaydelux.bousygram.presentation.components.BousygramButton
+
+/**
+ * Layout choice follows input hardware, not simply screen width: a TV must never receive
+ * touch-first overflowing primary transport controls just because its screen is small.
+ */
+internal enum class PlayerChromeLayout { TV, TOUCH_COMPACT, TOUCH_WIDE }
+
+internal fun playerChromeLayout(isTv: Boolean, compact: Boolean): PlayerChromeLayout = when {
+    isTv -> PlayerChromeLayout.TV
+    compact -> PlayerChromeLayout.TOUCH_COMPACT
+    else -> PlayerChromeLayout.TOUCH_WIDE
+}
+
+/**
+ * All buttons delegate to the real PlayerScreen playback callbacks. No local playback
+ * state is stored here and the remote's input controller retains exclusive ownership
+ * of hidden-HUD seek preview and Back behavior.
+ */
+@Composable
+internal fun PlayerTransportControls(
+    layout: PlayerChromeLayout,
+    isPlayingOrPending: Boolean,
+    optionsExpanded: Boolean,
+    onPrevious: () -> Unit,
+    onSeekBack: () -> Unit,
+    onPlayPause: () -> Unit,
+    onSeekForward: () -> Unit,
+    onNext: () -> Unit,
+    onOptions: () -> Unit,
+    playPauseFocusRequester: FocusRequester,
+    optionsFocusRequester: FocusRequester
+) {
+    val isTv = layout == PlayerChromeLayout.TV
+    val isWide = layout != PlayerChromeLayout.TOUCH_COMPACT
+    val touchMin = if (isTv) 56.dp else 52.dp
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("player_transport_controls"),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 6.dp)
+    ) {
+        if (isWide) {
+            BousygramButton(
+                text = if (isTv) "⏮ Previous" else "⏮",
+                onClick = onPrevious,
+                modifier = Modifier.weight(1f).heightIn(min = touchMin).testTag("player_previous")
+            )
+        }
+        BousygramButton(
+            text = "↶ 10s",
+            onClick = onSeekBack,
+            modifier = Modifier.weight(1f).heightIn(min = touchMin).testTag("player_seek_back")
+        )
+        BousygramButton(
+            text = if (isPlayingOrPending) "❚❚ Pause" else "▶ Play",
+            onClick = onPlayPause,
+            selected = true,
+            modifier = Modifier
+                .weight(if (isTv) 1.5f else 1.3f)
+                .heightIn(min = touchMin)
+                .focusRequester(playPauseFocusRequester)
+                .testTag("player_toggle_playback")
+        )
+        BousygramButton(
+            text = "10s ↷",
+            onClick = onSeekForward,
+            modifier = Modifier.weight(1f).heightIn(min = touchMin).testTag("player_seek_forward")
+        )
+        if (isWide) {
+            BousygramButton(
+                text = if (isTv) "Next ⏭" else "⏭",
+                onClick = onNext,
+                modifier = Modifier.weight(1f).heightIn(min = touchMin).testTag("player_next")
+            )
+        }
+        BousygramButton(
+            text = if (isTv) "⚙ Options" else "⋯ More",
+            onClick = onOptions,
+            selected = optionsExpanded,
+            modifier = Modifier.weight(1f).heightIn(min = touchMin)
+                .focusRequester(optionsFocusRequester)
+                .testTag("player_options_toggle")
+        )
+    }
+}
+
+/**
+ * Advanced controls are reachable through one explicit focus target on TV, and one
+ * touch target on phones. Never trap D-pad focus inside a horizontally scrolling row.
+ */
+@Composable
+internal fun PlayerOptionsPanel(
+    layout: PlayerChromeLayout,
+    onTracks: () -> Unit,
+    onSpeed: () -> Unit,
+    speedLabel: String,
+    onAspect: () -> Unit,
+    aspectLabel: String,
+    onEpisodes: (() -> Unit)?,
+    onSwitchEngine: (() -> Unit)?,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeekBack30: () -> Unit,
+    onSeekForward30: () -> Unit,
+    onClose: () -> Unit,
+    firstOptionFocusRequester: FocusRequester
+) {
+    val isTv = layout == PlayerChromeLayout.TV
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+            .testTag("player_options_panel"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            if (isTv) "Playback options  ·  Back to return to controls" else "More playback controls",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = if (isTv) Modifier.fillMaxWidth() else Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            BousygramButton(
+                "Audio / CC", onTracks,
+                modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                    .focusRequester(firstOptionFocusRequester)
+            )
+            BousygramButton(
+                "$speedLabel Speed", onSpeed,
+                modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+            )
+            BousygramButton(
+                aspectLabel, onAspect,
+                modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+            )
+            if (onEpisodes != null) {
+                BousygramButton(
+                    "☰ Queue", onEpisodes,
+                    modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                )
+            }
+            BousygramButton(
+                "✕ Done", onClose,
+                modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+            )
+        }
+        Row(
+            modifier = if (isTv) Modifier.fillMaxWidth() else Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (!isTv) {
+                BousygramButton("⏮ Previous", onPrevious, modifier = Modifier.heightIn(min = 48.dp))
+                BousygramButton("Next ⏭", onNext, modifier = Modifier.heightIn(min = 48.dp))
+            }
+            BousygramButton(
+                "↶ 30s", onSeekBack30,
+                modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+            )
+            BousygramButton(
+                "30s ↷", onSeekForward30,
+                modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+            )
+            if (onSwitchEngine != null) {
+                BousygramButton(
+                    "⚙ Decoder", onSwitchEngine,
+                    modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                )
+            }
+        }
+    }
+}
