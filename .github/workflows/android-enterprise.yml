@@ -132,6 +132,49 @@ jobs:
           if-no-files-found: error
           path: ci-artifacts/debug/
 
+
+  verify-debug-preview-matrix:
+    name: Verify debug APK ABI matrix
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install Android SDK dependencies
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Build all supported debug APK architectures
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          CI_VERIFICATION_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          bash tools/ci/build_debug_preview.sh ci-artifacts/debug-preview
+          ( cd ci-artifacts/debug-preview && sha256sum --check SHA256SUMS.txt )
+          [[ "$(find ci-artifacts/debug-preview -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 3 ]]
+
+      - name: Archive validated debug APK matrix
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-preview-apks-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ci-artifacts/debug-preview/
+
   firebase-not-configured:
     name: Firebase Test Lab not configured
     needs: build
