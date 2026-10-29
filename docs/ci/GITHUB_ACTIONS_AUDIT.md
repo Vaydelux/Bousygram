@@ -1,27 +1,26 @@
 # GitHub Actions Audit
 
-Audited checkout HEAD: `e173a68462983c00bb34a371c474c753dd826ddb`.
+Latest audited checkout HEAD: `e11e09705361b7ad203566fb9a02aac1039c29f0` (2026-10-29). Latest enterprise run: [40817939430](https://github.com/Vaydelux/Bousygram/actions/runs/40817939430).
 
-## Existing remote evidence
+## Latest remote evidence
 
-The referenced run [`40711655913`](https://github.com/Vaydelux/Bousygram/actions/runs/40711655913) ran workflow `android-enterprise.yml` on commit `a53784eed482b88e035c892f7243a959a7386d88` and failed in `build` with exit code 126. The first failure was the non-executable tracked `gradlew` wrapper; dependent signing and Firebase jobs were skipped. The run also reported Node 20 action deprecations and no diagnostic artifacts.
+Wrapper integrity, wrapper negative fixtures, SDK installation, and the API 37 pre-build probe passed. The Gradle verification step failed at `verifyTdlibBindingCompatibility`: checked-in `TdApi.java` uses `cb863c1600082404428f1a84e407b866b9d412a8`, while native metadata pins `4c6377aa7386c39217878a9a56d581922ad37ca4`. ABI coverage, TV hardening, log redaction, and mismatch fixtures passed before that failure. Diagnostic reports were uploaded; debug APK normalization and upload were skipped. Firebase reported `NOT CONFIGURED`; instrumentation was skipped.
 
 ## Findings
 
-| Area | Finding | Correction |
+| Area | Finding | Current handling |
 |---|---|---|
-| Wrapper | `gradlew` was tracked as mode `100644`. | Restored mode `100755` and added an early mode/integrity check. |
-| SDK | Workflow relied on runner-installed SDK state. | Explicitly installs platform 37, platform-tools, and pinned build-tools. |
-| Gradle | Required checks were not independently bounded or clearly staged. | Uses one fail-closed `--console=plain` verification invocation. |
-| TDLib | Existing compatibility gate rejects `TdApi.java=cb863c…` versus native `4c6377…`. | Gate remains mandatory before assembly; release remains blocked until regenerated bindings are committed. |
-| Debug APKs | Firebase searched for `*debug-universal.apk`, which ordinary debug assembly does not guarantee. | Normalizes exactly one discovered app/test APK using validated directory contents. |
-| Firebase | Hardcoded device IDs and optional credentials were ambiguous. | Configuration is explicit; devices are queried before execution; absent configuration is reported NOT CONFIGURED. |
-| Signing | Signing was conditionally embedded in ordinary CI. | Moved production signing and publishing to protected release environments. |
-| Publishing | No separate controlled release workflow existed. | Added manual, tag/commit-validated draft-then-publish workflow. |
+| Wrapper | Gradle wrapper integrity and negative fixtures pass remotely. | Required before SDK installation. |
+| SDK | Hosted SDK advertises API 37 as `platforms;android-37.0`. | Shared resolver installs and verifies the discovered platform and Build Tools; SDK fixtures are now a required enterprise step. |
+| TDLib | Java binding and JNI native source revisions differ. | Compatibility gate fails before application compilation and APK packaging. |
+| Debug APKs | APK artifacts must not be called verified after a failed Gradle gate. | Normalize and upload only on full job success; retain diagnostics with `always()`. |
+| Firebase | Current remote run has no Firebase configuration. | Explicit `NOT CONFIGURED` job; this is not hardware qualification. |
+| Signing | Normal CI does not need release signing credentials. | Signing stays inside the protected production-signing job. |
+| Publishing | Release is separate from ordinary CI. | Draft and publish are protected manual stages; publication has not been run. |
 
-## Workflow inventory
+## Workflow inventory and local audit
 
-- `android-enterprise.yml`: pull requests, protected branch pushes, and manual verification.
-- `android-release.yml`: manual controlled release only; no ordinary branch push trigger.
+- `android-enterprise.yml`: pull requests, mainline/release pushes, and manual verification. Read-only repository permissions; action references use full commit SHAs; diagnostics and APK artifacts use separate success conditions.
+- `android-release.yml`: manual-only. It validates a protected tag and exact source SHA, requires the exact successful mainline workflow run and its `Build and verify` job, signs in the protected environment, binds qualification to candidate APK hashes, and gates publishing through a separate protected environment.
 
-Action references are pinned to full commit SHAs. Actionlint 1.7.12 passes both workflow files.
+The workflow edits in this working tree have not run remotely. Actionlint is not installed in this Windows environment. No release was drafted or published.

@@ -1,0 +1,8 @@
+TDLib commit: 4c6377aa7386c39217878a9a56d581922ad37ca4
+Java commit: 4c6377aa7386c39217878a9a56d581922ad37ca4
+SHA256 arm64-v8a 205be77ab847adf1cabeadbb2b004d7153c15839ad85e4e5e9707d1bd1679c19
+ELF arm64-v8a class=2 machine=183 size=34033264
+JNI arm64-v8a markers=verified revision=embedded dependencies=libc.so,libdl.so,liblog.so,libm.so,libz.so
+SHA256 armeabi-v7a 2c8d3a9d2f049d3eeaf028271954fd89f9fa315426be52bc4d1fb44e91969d7b
+ELF armeabi-v7a class=1 machine=40 size=26069872
+JNI armeabi-v7a markers=verified revision=embedded dependencies=libc.so,libdl.so,liblog.so,libm.so,libz.so

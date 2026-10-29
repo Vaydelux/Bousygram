@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  checks: read
 
 concurrency:
   group: android-release-${{ inputs.tag }}
@@ -29,6 +28,9 @@ jobs:
     name: Validate release request
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Check out requested commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,9 +53,21 @@ jobs:
           [[ "$resolved" == "$RELEASE_SHA" ]] || { echo "Tag $RELEASE_TAG resolves to $resolved, not $RELEASE_SHA" >&2; exit 1; }
           git fetch origin main --force
           git merge-base --is-ancestor "$RELEASE_SHA" origin/main || { echo 'Release commit is not in protected origin/main lineage' >&2; exit 1; }
-          checks="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_SHA}/check-runs?per_page=100" --jq '.check_runs[] | select(.name == "Build and verify") | .conclusion')"
-          grep -qx 'success' <<<"$checks" || { echo 'No successful Build and verify check exists for the exact release commit' >&2; exit 1; }
-          version="${RELEASE_TAG#v}"
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/android-enterprise.yml/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100")"
+          # shellcheck disable=SC2016
+          run_id="$(jq -r --arg sha "$RELEASE_SHA" '
+            [.workflow_runs[] | select(
+              .head_sha == $sha and .event == "push" and .status == "completed" and
+              .conclusion == "success" and .path == ".github/workflows/android-enterprise.yml" and
+              .head_branch == "main"
+            )] | sort_by(.run_number) | last | .id // empty
+          ' <<<"$runs")"
+          [[ -n "$run_id" ]] || { echo 'No successful Android Enterprise workflow run exists for this exact mainline commit.' >&2; exit 1; }
+          jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          jq -e '[.jobs[] | select(.name == "Build and verify" and .status == "completed" and .conclusion == "success")] | length == 1' <<<"$jobs" >/dev/null || {
+            echo 'The exact-commit Android Enterprise run lacks its successful required Build and verify job.' >&2
+            exit 1
+          }
           grep -Fq 'gradleProperty("releaseVersionName")' app/build.gradle.kts || {
             echo "Gradle does not expose controlled release version metadata" >&2
             exit 1
@@ -179,20 +193,37 @@ jobs:
           set -euo pipefail
           version="${RELEASE_TAG#v}"
           export RELEASE_VERSION="$version"
+          mapfile -t metadata_files < <(find app/build/outputs/apk/hardenedRelease -maxdepth 2 -name output-metadata.json -type f -print)
+          [[ ${#metadata_files[@]} -eq 1 ]] || { echo "Expected one AGP output-metadata.json, found ${#metadata_files[@]}" >&2; exit 1; }
+          metadata="${metadata_files[0]}"
+          actual_version="$(jq -er '[.elements[].versionName] | unique | if length == 1 then .[0] else error("APK outputs disagree on versionName") end' "$metadata")"
+          actual_version_code="$(jq -er '[.elements[].versionCode] | unique | if length == 1 then .[0] else error("APK outputs disagree on versionCode") end' "$metadata")"
+          [[ "$actual_version" == "$version" ]] || { echo "Built version $actual_version does not match requested $version" >&2; exit 1; }
           build_tools="$ANDROID_BUILD_TOOLS_DIR"
           bash tools/ci/verify_release_apks.sh \
             app/build/outputs/apk/hardenedRelease \
             release-artifacts \
             "$RELEASE_CERT_SHA256" \
             "$build_tools" \
-            "$version" \
-            "$(grep -E '^versionCode[[:space:]]*=' app/build.gradle.kts | head -1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')"
+            "$actual_version" \
+            "$actual_version_code"
           tdlib_commit="$(grep -oE '[0-9a-fA-F]{40}' build-tools/tdlib/RESOLVED_COMMIT.txt | head -1)"
           cert="$(printf '%s' "$RELEASE_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
-          evidence_url="${RELEASE_DEVICE_QUALIFICATION_URL:-protected-record}"
-          jq -n --arg tag "$RELEASE_TAG" --arg commit "$RELEASE_SHA" --arg version "$version" \
+          evidence_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -n --arg tag "$RELEASE_TAG" --arg commit "$RELEASE_SHA" --arg version "$actual_version" \
             --arg tdlib "$tdlib_commit" --arg cert "$cert" --arg evidence "$evidence_url" \
-            '{tag:$tag, commit:$commit, versionName:$version, tdlibCommit:$tdlib, signingCertificateSha256:$cert, deviceQualificationEvidence:$evidence}' \
+            --arg versionCode "$actual_version_code" --arg runId "$GITHUB_RUN_ID" \
+            "{
+              tag: \$tag,
+              commit: \$commit,
+              versionName: \$version,
+              versionCode: (\$versionCode|tonumber),
+              tdlibCommit: \$tdlib,
+              signingCertificateSha256: \$cert,
+              ciVerification: {workflow: \"android-enterprise.yml\", runId: \$runId, job: \"Build and verify\"},
+              deviceQualificationEvidence: \$evidence,
+              disabledProductionFeatures: [\"private-media-cast\", \"crash-reporting\", \"engine-lab\", \"legacy-streaming-fallback\"]
+            }" \
             > release-artifacts/RELEASE_MANIFEST.json
           jq empty release-artifacts/RELEASE_MANIFEST.json
           sha256sum release-artifacts/*.apk > release-artifacts/SHA256SUMS.txt
@@ -200,11 +231,11 @@ jobs:
           cp tools/tdlib/BUILD_VERIFICATION.txt release-artifacts/TDLIB_BUILD_VERIFICATION.txt
           {
             printf '# Bousygram %s\n\n' "$RELEASE_TAG"
-            printf -- '- Source commit: `%s`\n' "$RELEASE_SHA"
-            printf -- '- TDLib commit: `%s`\n' "$tdlib_commit"
+            printf -- "- Source commit: \`%s\`\n" "$RELEASE_SHA"
+            printf -- "- TDLib commit: \`%s\`\n" "$tdlib_commit"
             printf -- '- Device qualification: protected commit-specific record\n'
-            printf -- '- Signing certificate: verified against protected `RELEASE_CERT_SHA256`\n'
-            printf -- '- APK matrix: ARM32, ARM64, universal\n'
+            printf -- "- Signing certificate: verified against protected \`RELEASE_CERT_SHA256\`\n"
+            printf -- "- APK matrix: ARM32, ARM64, universal\n"
           } > release-artifacts/RELEASE_VERIFICATION.md
           printf 'Bousygram %s hardened release\n' "$RELEASE_TAG" > release-artifacts/RELEASE_NOTES.md
 
