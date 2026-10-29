@@ -1,21 +1,19 @@
 # Release Pipeline
 
-## One-input release request
+## Automatic release versioning
 
-After this change is merged to `main`, open **Actions → Release Bousygram APKs → Run workflow**. Select `main` and enter an **existing protected version tag**, such as `v1.0.0`.
+Open **Actions → Release Bousygram APKs → Run workflow**, select `main`, and keep the version field as `auto` (the default). You do **not** need to create or name a version tag manually.
 
-The request workflow validates the tag, resolves the exact commit SHA, checks for successful commit-matched Android Enterprise CI, refuses to overwrite an existing release, and dispatches `android-release.yml`. It does not independently build, sign, publish, or bypass any production gate. The **Android Controlled Release** run is the authoritative record of whether a release was actually created.
+The action verifies the exact `main` commit has green Android Enterprise CI, chooses a semantic version tag, creates an immutable annotated Git tag when missing, and dispatches the existing protected `android-release.yml` workflow.
 
-Create the annotated tag on an already CI-green commit using an authorized account, under your repository's protected tag policy:
+- First version is `v1.0.0`; future releases increment the patch (`v1.0.1`, `v1.0.2`, ...).
+- If a previous failed release created an unreleased tag on the same commit, `auto` reuses it rather than creating another.
+- You may enter an explicit version like `v2.0.0`; existing tags are reused only when they already target the same exact commit.
+- GitHub Releases and tags are never overwritten or force-moved. A signing or hardware-qualification failure can leave an unreleased tag.
 
-```bash
-git checkout main
-git pull --ff-only origin main
-git tag -a v1.0.0 -m "Bousygram v1.0.0"
-git push origin v1.0.0
-```
+The dispatcher requires `GITHUB_TOKEN` permissions `contents: write` to create tags and `actions: write` to start the downstream action. Protected tag policies may require authorization for the GitHub Actions actor.
 
-Do not recreate, retarget, or force-push an existing version tag. If the tag points to a commit without successful mainline CI, the request is rejected.
+Choosing `auto` does not bypass production signing, evidence collection, or manual publication approvals. The signed release is only published when **Android Controlled Release** passes its original gates.
 
 ## Protected release stages
 
