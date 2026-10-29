@@ -231,11 +231,11 @@ jobs:
           cp tools/tdlib/BUILD_VERIFICATION.txt release-artifacts/TDLIB_BUILD_VERIFICATION.txt
           {
             printf '# Bousygram %s\n\n' "$RELEASE_TAG"
-            printf -- '- Source commit: `%s`\n' "$RELEASE_SHA"
-            printf -- '- TDLib commit: `%s`\n' "$tdlib_commit"
+            printf -- "- Source commit: \`%s\`\n" "$RELEASE_SHA"
+            printf -- "- TDLib commit: \`%s\`\n" "$tdlib_commit"
             printf -- '- Device qualification: protected commit-specific record\n'
-            printf -- '- Signing certificate: verified against protected `RELEASE_CERT_SHA256`\n'
-            printf -- '- APK matrix: ARM32, ARM64, universal\n'
+            printf -- "- Signing certificate: verified against protected \`RELEASE_CERT_SHA256\`\n"
+            printf -- "- APK matrix: ARM32, ARM64, universal\n"
           } > release-artifacts/RELEASE_VERIFICATION.md
           printf 'Bousygram %s hardened release\n' "$RELEASE_TAG" > release-artifacts/RELEASE_NOTES.md
 
