@@ -44,6 +44,17 @@ for apk in "${APKS[@]}"; do
   elif [[ $has32 -eq 1 ]]; then kind=armeabi-v7a
   elif [[ $has64 -eq 1 ]]; then kind=arm64-v8a
   else echo "Unknown APK ABI layout: $apk" >&2; exit 1; fi
+  case "$kind" in
+    armeabi-v7a) expected_abis=$'armeabi-v7a\n' ;;
+    arm64-v8a) expected_abis=$'arm64-v8a\n' ;;
+    universal) expected_abis=$'arm64-v8a\narmeabi-v7a\n' ;;
+  esac
+  [[ "$native_abis"$'\n' == "$expected_abis" ]] || { echo "Unexpected native ABI set in $apk: $native_abis" >&2; exit 1; }
+  while IFS= read -r abi; do
+    [[ -n "$abi" ]] || continue
+    grep -qx "lib/$abi/libtdjni.so" <<<"$libs" || { echo "TDLib JNI missing for $abi in $apk" >&2; exit 1; }
+    grep -qx "lib/$abi/libmpv.so" <<<"$libs" || { echo "libmpv missing for $abi in $apk" >&2; exit 1; }
+  done <<<"$native_abis"
   [[ -z "${FOUND[$kind]:-}" ]] || { echo "Duplicate $kind APKs" >&2; exit 1; }
   FOUND[$kind]="$apk"
 done

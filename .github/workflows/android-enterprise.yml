@@ -31,6 +31,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install workflow lint tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y shellcheck
+
+      - name: Lint workflows and shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/android-enterprise.yml .github/workflows/android-release.yml .github/workflows/tdlib-java-generation.yml
+          shellcheck tools/ci/*.sh tools/tdlib/*.sh
+          bash -n tools/ci/*.sh tools/tdlib/*.sh
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            base_sha="$(jq -er '.pull_request.base.sha' "$GITHUB_EVENT_PATH")"
+            git diff --check "$base_sha...$GITHUB_SHA"
+          else
+            git diff --check "$GITHUB_SHA^" "$GITHUB_SHA"
+          fi
+
       - name: Validate Gradle wrapper
         shell: bash
         run: bash tools/ci/verify_gradle_wrapper.sh
@@ -52,6 +72,10 @@ jobs:
       - name: Install Android SDK dependencies
         shell: bash
         run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Run Android SDK resolver negative fixtures
+        shell: bash
+        run: bash tools/ci/test_android_sdk_setup.sh
 
       - name: Run required Gradle verification
         shell: bash
