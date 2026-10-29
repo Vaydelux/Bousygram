@@ -51,6 +51,8 @@ interface PlayerInputActions {
     fun openMenu(menu: PlayerMenuType)
     fun closeMenu()
     fun togglePlayPause()
+    fun play()
+    fun pause()
     fun seekRelative(seconds: Int)
     fun previewSeekRelative(seconds: Int)
     fun confirmSeekPreview()
@@ -93,6 +95,7 @@ class PlayerInputController(
     var currentFocusRow: Int = 1 // 0: Seek Bar, 1: Button Row
 
     private var lastKeyDownTimeMs: Long = -1_000L
+    private var lastKeyCode: Int = KeyEvent.KEYCODE_UNKNOWN
     private var lastSeekKeyTimeMs: Long = -10_000L
     private var lastSeekDirection: Int = 0
     private var seekStepIndex: Int = 0
@@ -119,15 +122,25 @@ class PlayerInputController(
         if (action != KeyEvent.ACTION_DOWN) return false
 
         val now = clock()
-        if (lastKeyDownTimeMs >= 0L && (now - lastKeyDownTimeMs) in 0 until DEBOUNCE_THRESHOLD_MS) {
-            return true // Ignore key bounce
+        if (nativeKeyCode == lastKeyCode &&
+            lastKeyDownTimeMs >= 0L &&
+            (now - lastKeyDownTimeMs) in 0 until DEBOUNCE_THRESHOLD_MS
+        ) {
+            return true // Ignore repeated presses of this key, not a different remote action.
         }
         lastKeyDownTimeMs = now
+        lastKeyCode = nativeKeyCode
 
         // 1. Dedicated Media Keys (Act immediately in all states)
         when (nativeKeyCode) {
-            KeyEvent.KEYCODE_MEDIA_PLAY,
-            KeyEvent.KEYCODE_MEDIA_PAUSE,
+            KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                actions.play()
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                actions.pause()
+                return true
+            }
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                 actions.togglePlayPause()
                 return true
