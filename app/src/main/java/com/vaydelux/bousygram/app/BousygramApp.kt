@@ -12,6 +12,11 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
 import com.vaydelux.bousygram.core.tdlib.utils.ThumbnailExtractor
 import com.vaydelux.bousygram.data.store.ManagedAppConfiguration
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.media.AccountMediaResources
+import com.vaydelux.bousygram.data.database.AppDatabase
+import com.vaydelux.bousygram.data.database.RecentSearchRepository
+import com.vaydelux.bousygram.data.repository.ContinueWatchingRepository
 import java.io.File
 
 class BousygramApp : Application(), DefaultLifecycleObserver {
@@ -28,6 +33,20 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
         System.setProperty("io.netty.transport.noNative", "true")
         super<Application>.onCreate()
         instance = this
+        // Install the process-lifetime privacy barrier before TDLib, playback or auth starts.
+        // Logout and authorization loss synchronously revoke resources BEFORE another
+        // Telegram identity can be activated. Never register this per Activity/login.
+        AccountSession.registerInvalidationHandler {
+            var failure: Throwable? = null
+            fun close(action: () -> Unit) {
+                runCatching(action).onFailure { failure = failure ?: it }
+            }
+            close { AccountMediaResources.invalidateAccountResources() }
+            close { RecentSearchRepository.invalidateAccountResources() }
+            close { ContinueWatchingRepository.invalidateAccountResources() }
+            close { AppDatabase.closeAccountDatabases() }
+            failure?.let { throw IllegalStateException("Account resources could not be fully closed", it) }
+        }
         ManagedAppConfiguration.refresh(this)
         try {
             System.loadLibrary("tdjni")

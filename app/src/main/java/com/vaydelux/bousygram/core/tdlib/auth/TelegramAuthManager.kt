@@ -20,6 +20,9 @@ import java.io.File
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.data.database.RecentSearchRepository
 import com.vaydelux.bousygram.data.repository.ContinueWatchingRepository
+import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
+import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
+import com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -431,6 +434,13 @@ class TelegramAuthManager(private val context: Context) {
                     val owner = AccountSession.activate(result.id, epoch) ?: return@launch
                     RecentSearchRepository.activateAccount(owner)
                     ContinueWatchingRepository.activateAccount(owner)
+                    // Invalidation deliberately shuts down private servers and cache jobs.
+                    // A subsequent login must restore them before exposing the new account.
+                    AccountSession.runIfCurrent(owner) {
+                        LocalStreamingServer.start()
+                        TelegramProxyManager.startProxy()
+                        TelegramNativeFileGc.startPeriodicGc(intervalMinutes = 30)
+                    }
                     AccountSession.runIfCurrent(owner) {
                         if (authorizationReady) {
                             pendingPhone = null

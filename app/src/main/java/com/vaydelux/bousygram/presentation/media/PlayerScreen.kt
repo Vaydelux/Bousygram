@@ -83,6 +83,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -138,6 +139,7 @@ import com.vaydelux.bousygram.core.media.MpvPlayerEngine
 import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
 import com.vaydelux.bousygram.core.media.PlaybackSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.media.PlaybackEngineOwner
 import com.vaydelux.bousygram.core.media.PlayerEngine
 import com.vaydelux.bousygram.core.media.PlayerEngineFactory
 import com.vaydelux.bousygram.core.media.StreamingSessionManager
@@ -372,15 +374,19 @@ fun PlayerScreen(
     var debugHudVisible by remember { mutableStateOf(EnterprisePreferences.videoDebugHudEnabled()) }
     val blackScreenDetector = remember { BlackScreenDetector() }
 
-    var playerEngine by remember {
-        mutableStateOf(
-            PlayerEngineFactory.create(
+    // One lifecycle owner releases each engine exactly once, including fallback switches,
+    // UI exit, and synchronous account invalidation.
+    val engineOwner = remember(playbackSession) {
+        PlaybackEngineOwner(
+            session = playbackSession,
+            initialEngine = PlayerEngineFactory.create(
                 context = context,
                 preferredEngine = initialProbe?.recommendedEngine ?: EnterprisePreferences.selectedPlayerEngine(),
                 preferredSpeed = speed
             )
         )
     }
+    var playerEngine by engineOwner
     val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
     var castWasConnected by remember { mutableStateOf(false) }
@@ -603,7 +609,18 @@ fun PlayerScreen(
     }
 
     fun stopCurrentCache(reason: PlaybackCacheStopReason) {
-        PlaybackSessionController.stop(playbackSession, reason)
+        when (reason) {
+            // Track transitions keep the same session alive. PlaybackSession.next/previous/
+            // goToIndex already cancels the old file through onCancelDownloads.
+            PlaybackCacheStopReason.TrackSwitch -> Unit
+            PlaybackCacheStopReason.LifecycleStop -> {
+                // Backgrounding can pause prefetch without destroying the current episode.
+                queue.getOrNull(queueIndex)?.let {
+                    TelegramPreCacheEngine.stopCaching(it.fileId, cancelTdLibDownload = false)
+                }
+            }
+            else -> PlaybackSessionController.stop(playbackSession, reason)
+        }
     }
 
     fun revokeLocalPlaybackCapabilities() {
@@ -614,11 +631,8 @@ fun PlayerScreen(
 
     fun exitPlayback() {
         PlaybackSessionController.setVideoPlaying(false)
-        playerEngine.detachSurface()
-        playerEngine.stop()
-        playerEngine.release()
-        playbackSession.release()
         revokeLocalPlaybackCapabilities()
+        // Session stop invokes PlaybackEngineOwner.close(), which is idempotent.
         stopCurrentCache(PlaybackCacheStopReason.Back)
         streamingSessionManager.releaseLocks()
         audioFocusController.abandon()
@@ -759,6 +773,13 @@ fun PlayerScreen(
                 skipPrevious()
             }
         )
+    }
+
+    // Release the old MediaSession before its player engine is replaced; release again
+    // on composition disposal is safe because registerEngineResource returns a once-only closer.
+    DisposableEffect(engineOwner, playerEngine, mediaSessionBridge) {
+        val closeBridge = engineOwner.registerEngineResource(playerEngine) { mediaSessionBridge.release() }
+        onDispose { closeBridge() }
     }
 
     LaunchedEffect(isPlaying, position, speed, title, duration) {
@@ -933,30 +954,36 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(lifecycleOwner, playerEngine, streamingSessionManager) {
+    // Session-level resources must not be torn down when ExoPlayer swaps to mpv.
+    // Updated state gives the stable observer the newest engine and queue position.
+    val activeLifecycleEngine by rememberUpdatedState(playerEngine)
+    val activeLifecycleQueueIndex by rememberUpdatedState(queueIndex)
+    val activeLifecycleDuration by rememberUpdatedState(duration)
+    val activeLifecycleIsPlaying by rememberUpdatedState(isPlaying)
+    DisposableEffect(lifecycleOwner, playbackSession, streamingSessionManager) {
         streamingSessionManager.acquireLocks()
         val activity = context as? androidx.activity.ComponentActivity
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> streamingSessionManager.acquireLocks()
                 Lifecycle.Event.ON_PAUSE -> {
-                    if (playerEngine.isPlaying) {
-                        playerEngine.pause()
+                    if (activeLifecycleEngine.isPlaying) {
+                        activeLifecycleEngine.pause()
                     }
-                    queue.getOrNull(queueIndex)?.let { current ->
-                        if (playerEngine.currentPositionMs > 0) {
+                    queue.getOrNull(activeLifecycleQueueIndex)?.let { current ->
+                        if (activeLifecycleEngine.currentPositionMs > 0) {
                             PlaybackProgressTracker.saveMessagePosition(
                                 current.chatId,
                                 current.messageId,
-                                playerEngine.currentPositionMs.toInt(),
-                                duration,
+                                activeLifecycleEngine.currentPositionMs.toInt(),
+                                activeLifecycleDuration,
                                 current.fileId,
                                 current.title
                             )
                         }
                     }
                 }
-                Lifecycle.Event.ON_RESUME -> if (isPlaying) playerEngine.play()
+                Lifecycle.Event.ON_RESUME -> if (activeLifecycleIsPlaying) activeLifecycleEngine.play()
                 Lifecycle.Event.ON_STOP -> {
                     stopCurrentCache(PlaybackCacheStopReason.LifecycleStop)
                     streamingSessionManager.releaseLocks()
@@ -968,7 +995,7 @@ fun PlayerScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             commitPlaybackTelemetry()
-            val current = queue.getOrNull(queueIndex)
+            val current = queue.getOrNull(activeLifecycleQueueIndex)
             val totalPlayTime = System.currentTimeMillis() - playerSessionStartMs
             if (current != null && totalPlayTime > 1_000L) {
                 val rebufferTime = rebufferCount * 1_500L
@@ -984,17 +1011,17 @@ fun PlayerScreen(
                         rebufferRatio = rebufferRatio,
                         networkType = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) "Cellular" else "WiFi",
                         decoderName = decoderName,
-                        engine = if (playerEngine is ExoPlayerEngine) "ExoPlayer" else "libmpv",
-                        bufferConfig = playerEngine.bufferConfigDescription.takeIf { it.isNotBlank() }
+                        engine = if (activeLifecycleEngine is ExoPlayerEngine) "ExoPlayer" else "libmpv",
+                        bufferConfig = activeLifecycleEngine.bufferConfigDescription.takeIf { it.isNotBlank() }
                     )
                 )
             }
-            if (current != null && playerEngine.currentPositionMs > 0) {
+            if (current != null && activeLifecycleEngine.currentPositionMs > 0) {
                 PlaybackProgressTracker.saveMessagePosition(
                     current.chatId,
                     current.messageId,
-                    playerEngine.currentPositionMs.toInt(),
-                    duration,
+                    activeLifecycleEngine.currentPositionMs.toInt(),
+                    activeLifecycleDuration,
                     current.fileId,
                     current.title
                 )
@@ -1005,22 +1032,19 @@ fun PlayerScreen(
                         messageId = current.messageId,
                         fileId = current.fileId,
                         title = current.title,
-                        currentPositionMs = playerEngine.currentPositionMs,
-                        durationMs = duration,
+                        currentPositionMs = activeLifecycleEngine.currentPositionMs,
+                        durationMs = activeLifecycleDuration,
                         thumbnailPath = null
                     )
                 }
             }
-            playerEngine.detachSurface()
-            playerEngine.stop()
-            playerEngine.release()
-            playbackSession.release()
+            // Controller invokes the engine owner's once-only shutdown; do not release
+            // the same engine a second time or mark the session stopped on fallback.
             PlaybackSessionController.setVideoPlaying(false)
             revokeLocalPlaybackCapabilities()
             stopCurrentCache(PlaybackCacheStopReason.Dispose)
             streamingSessionManager.releaseLocks()
             audioFocusController.abandon()
-            mediaSessionBridge.release()
             com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner.pruneCacheIfNecessary(
                 context = context,
                 tdLibCacheDir = java.io.File(context.filesDir, "tdlib_files")
@@ -1305,9 +1329,6 @@ fun PlayerScreen(
                     val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
                     lastGoodPosition = retryPos
                     pendingResumeMs = retryPos
-                    playerEngine.detachSurface()
-                    playerEngine.stop()
-                    playerEngine.release()
                     playerEngine = PlayerEngineFactory.create(context, SelectedPlayerEngine.MPV, speed)
                     reloadNonce++
                 }
@@ -1706,9 +1727,6 @@ fun PlayerScreen(
                     val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
                     lastGoodPosition = retryPos
                     pendingResumeMs = retryPos
-                    playerEngine.detachSurface()
-                    playerEngine.stop()
-                    playerEngine.release()
                     playerEngine = PlayerEngineFactory.create(context, target, speed)
                     reloadNonce++
                 },
@@ -2167,9 +2185,6 @@ fun PlayerScreen(
                     val retryPos = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
                     lastGoodPosition = retryPos
                     pendingResumeMs = retryPos
-                    playerEngine.detachSurface()
-                    playerEngine.stop()
-                    playerEngine.release()
                     playerEngine = PlayerEngineFactory.create(context, target, speed)
                     reloadNonce++
                 },

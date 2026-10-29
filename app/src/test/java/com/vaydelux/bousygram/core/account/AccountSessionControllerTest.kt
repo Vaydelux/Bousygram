@@ -39,6 +39,45 @@ class AccountSessionControllerTest {
     }
 
     @Test
+    fun everyCleanupRunsAndOldCallbacksCannotCommitAcrossAccounts() {
+        val session = AccountSessionController()
+        val oldOwner = session.activate(101L, session.generation())!!
+        val cleanup = mutableListOf<String>()
+        session.registerInvalidationHandler { cleanup += "streams" }
+        session.registerInvalidationHandler { cleanup += "storage" }
+        val nextGeneration = session.invalidate()
+
+        assertEquals(listOf("streams", "storage"), cleanup)
+        assertNull(session.current())
+        assertFalse(session.runIfCurrent(oldOwner) { cleanup += "stale callback" })
+        val nextOwner = session.activate(202L, nextGeneration)
+        assertEquals(202L, nextOwner?.accountId)
+        assertEquals(listOf("streams", "storage"), cleanup)
+    }
+
+    @Test
+    fun failureDoesNotSkipRemainingCleanupAndRetryMayRestoreAccess() {
+        val session = AccountSessionController()
+        val original = session.activate(101L, session.generation())!!
+        var shouldFail = true
+        var otherCleanupCalls = 0
+        session.registerInvalidationHandler {
+            if (shouldFail) throw IllegalStateException("resource still open")
+        }
+        session.registerInvalidationHandler { otherCleanupCalls++ }
+
+        assertTrue(runCatching { session.invalidate() }.exceptionOrNull() is IllegalStateException)
+        assertEquals(1, otherCleanupCalls)
+        assertFalse(session.isCurrent(original))
+        assertNull(session.activate(202L, session.generation()))
+
+        shouldFail = false
+        val generation = session.invalidate()
+        assertEquals(2, otherCleanupCalls)
+        assertEquals(202L, session.activate(202L, generation)?.accountId)
+    }
+
+    @Test
     fun failedResourceInvalidationBlocksSubsequentAccountActivation() {
         val session = AccountSessionController()
         session.activate(101L, session.generation())
