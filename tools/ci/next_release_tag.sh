@@ -14,5 +14,5 @@ elif [[ -z "$latest" ]]; then
   echo v1.0.0
 else
   [[ "$latest" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || exit 1
-  printf 'v%s.%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$(( ${BASH_REMATCH[3]} + 1 ))"
+  printf 'v%s.%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$(( BASH_REMATCH[3] + 1 ))"
 fi
