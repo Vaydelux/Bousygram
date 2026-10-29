@@ -64,7 +64,11 @@ done
 hashes="$dir/SHA256SUMS.txt"
 [[ "$(wc -l < "$hashes")" -eq 3 ]] || { echo 'Checksum record count mismatch' >&2; exit 1; }
 # SHA256SUMS may only name the three exact APKs; reject path traversal/extra assets.
-mapfile -t hashed_names < <(awk '{if (NF != 2 || $1 !~ /^[0-9a-f]{64}$/) exit 1; print $2}' "$hashes" | sort)
+hash_names="$(awk '{if (NF != 2 || length($1) != 64 || $1 !~ /^[0-9a-f]+$/) exit 1; print $2}' "$hashes")" || {
+  echo 'Malformed checksum record' >&2
+  exit 1
+}
+mapfile -t hashed_names < <(printf '%s\n' "$hash_names" | sort)
 [[ "${#hashed_names[@]}" -eq 3 ]] || { echo 'Invalid checksum records' >&2; exit 1; }
 for i in 0 1 2; do
   [[ "${hashed_names[i]}" == "${allowed_names[i]}" ]] || {
