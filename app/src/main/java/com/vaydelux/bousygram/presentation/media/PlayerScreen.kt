@@ -1202,6 +1202,20 @@ fun PlayerScreen(
         playerInputController.isAutoNextActive = autoNextCardVisible
     }
 
+    // A track transition or playback failure must not strand Retry behind Options.
+    LaunchedEffect(queueIndex) {
+        optionsPanelVisible = false
+    }
+    LaunchedEffect(playbackError) {
+        if (playbackError != null) {
+            optionsPanelVisible = false
+            hudVisible = true
+            playerInputController.activeMenu = PlayerMenuType.NONE
+            delay(80L)
+            runCatching { retryFocusRequester.requestFocus() }
+        }
+    }
+
     LaunchedEffect(autoNextCardVisible) {
         if (autoNextCardVisible) {
             autoNextCountdown = 5
