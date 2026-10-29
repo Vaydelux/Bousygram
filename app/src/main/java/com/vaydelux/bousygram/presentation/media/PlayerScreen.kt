@@ -1558,18 +1558,23 @@ fun PlayerScreen(
                 }
                 when (event.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_PROG_GREEN -> {
-                        val nextMode = when (effectiveResizeMode) {
-                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        // Compose receives both DOWN and UP; changing aspect on both
+                        // makes one remote press cycle twice and appear unreliable.
+                        if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
+                            false
+                        } else {
+                            val nextMode = when (effectiveResizeMode) {
+                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            }
+                            userSelectedResizeMode = nextMode
+                            toastFeedbackText = "Aspect: " + formatResizeMode(nextMode)
+                            hudVisible = true
+                            hudInteractionTick++
+                            true
                         }
-                        userSelectedResizeMode = nextMode
-                        toastFeedbackText = "Aspect: " + formatResizeMode(nextMode)
-                        hudVisible = true
-                        hudInteractionTick++
-                        true
                     }
-                    KeyEvent.KEYCODE_INFO,
                     KeyEvent.KEYCODE_PROG_YELLOW,
                     KeyEvent.KEYCODE_D -> {
                         if (!BuildConfig.DEBUG) {
