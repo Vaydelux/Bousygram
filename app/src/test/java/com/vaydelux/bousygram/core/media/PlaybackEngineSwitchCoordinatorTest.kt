@@ -76,7 +76,7 @@ class PlaybackEngineSwitchCoordinatorTest {
         val session = PlaybackSessionController.start(fileId = 705)
         var releases = 0
         val old = object : FakeTestEngine() { override fun release() { releases++ } }
-        val next = object : FakeTestEngine()
+        val next = object : FakeTestEngine() {}
         val owner = PlaybackEngineOwner(session, old, onOwnerThread = { it() })
 
         val result = PlaybackEngineSwitchCoordinator(owner) { _, _ -> next }
