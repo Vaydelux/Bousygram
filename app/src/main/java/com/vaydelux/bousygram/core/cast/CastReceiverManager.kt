@@ -56,6 +56,7 @@ object CastReceiverManager {
 
     fun emitCastRequest(payload: CastMediaPayload) {
         Log.i(TAG, "Incoming media handoff payload received")
+        Log.i(TAG, "Received a Cast playback request")
         _pendingCastRequest.value = payload
     }
 

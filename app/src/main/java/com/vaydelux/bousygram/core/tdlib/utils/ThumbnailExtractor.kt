@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.util.Log
+import android.util.AtomicFile
 import androidx.core.graphics.scale
+import com.vaydelux.bousygram.core.account.AccountSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -26,10 +28,20 @@ object ThumbnailExtractor {
     private val maxThumbnailCache = if (isLowRam) 16 else 48
     private val maxPreviewCache = if (isLowRam) 24 else 80
 
-    private val memoryCache = android.util.LruCache<Int, Bitmap>(maxThumbnailCache) // Cache by fileId
+    private data class ThumbnailKey(val accountId: Long, val fileId: Int)
+    private val memoryCache = android.util.LruCache<ThumbnailKey, Bitmap>(maxThumbnailCache)
 
-    data class PreviewKey(val fileId: Int, val timeBucketMs: Long)
+    data class PreviewKey(val accountId: Long, val fileId: Int, val timeBucketMs: Long)
     private val previewCache = android.util.LruCache<PreviewKey, Bitmap>(maxPreviewCache)
+    private val diskWriteLock = Any()
+
+    fun invalidateAccountResources() { memoryCache.evictAll(); previewCache.evictAll() }
+
+    internal fun accountCachePath(accountId: Long, kind: String): String {
+        require(accountId > 0L)
+        require(kind == "video_thumbnails" || kind == "seek_previews")
+        return "accounts/$accountId/$kind"
+    }
 
     fun trimMemory(critical: Boolean) {
         if (critical) {
@@ -46,10 +58,12 @@ object ThumbnailExtractor {
         fileId: Int,
         streamUrl: String
     ): Bitmap? = withContext(Dispatchers.IO) {
-        memoryCache.get(fileId)?.let { return@withContext it }
+        val owner = AccountSession.current() ?: return@withContext null
+        val key = ThumbnailKey(owner.accountId, fileId)
+        memoryCache.get(key)?.let { return@withContext it.takeIf { AccountSession.isCurrent(owner) } }
 
         // Check if there is a cached file on disk
-        val cacheDir = File(context.cacheDir, "video_thumbnails")
+        val cacheDir = File(context.cacheDir, accountCachePath(owner.accountId, "video_thumbnails"))
         if (!cacheDir.exists()) {
             cacheDir.mkdirs()
         }
@@ -57,8 +71,8 @@ object ThumbnailExtractor {
         if (diskFile.exists()) {
             try {
                 val bitmap = android.graphics.BitmapFactory.decodeFile(diskFile.absolutePath)
-                if (bitmap != null) {
-                    memoryCache.put(fileId, bitmap)
+                if (bitmap != null && AccountSession.isCurrent(owner)) {
+                    memoryCache.put(key, bitmap)
                     return@withContext bitmap
                 }
             } catch (e: Exception) {
@@ -72,18 +86,25 @@ object ThumbnailExtractor {
             retriever.setDataSource(streamUrl, HashMap<String, String>())
             // Retrieve frame at 5 seconds (5000000 microseconds)
             val bitmap = retriever.getFrameAtTime(5000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-            if (bitmap != null) {
+            if (bitmap != null && AccountSession.isCurrent(owner)) {
                 // Resize for efficiency on TV layout
                 val scaled = bitmap.scale(320, 180, true)
                 // Cache to disk
-                FileOutputStream(diskFile).use { out ->
-                    scaled.compress(Bitmap.CompressFormat.PNG, 90, out)
+                synchronized(diskWriteLock) {
+                    if (!AccountSession.isCurrent(owner)) return@withContext null
+                    val atomic = AtomicFile(diskFile)
+                    val out = atomic.startWrite()
+                    try {
+                        check(scaled.compress(Bitmap.CompressFormat.PNG, 90, out))
+                        atomic.finishWrite(out)
+                    } catch (failure: Throwable) { atomic.failWrite(out); throw failure }
                 }
-                memoryCache.put(fileId, scaled)
+                if (!AccountSession.isCurrent(owner)) return@withContext null
+                memoryCache.put(key, scaled)
                 return@withContext scaled
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "Failed to extract thumbnail for fileId=$fileId: ${e.message}")
+            Log.w(TAG, "Could not extract a media thumbnail (${e.javaClass.simpleName})")
         } finally {
             try { retriever.release() } catch (_: Exception) {}
         }
@@ -97,11 +118,12 @@ object ThumbnailExtractor {
         timeMs: Long,
         durationMs: Long = 0L
     ): Bitmap? = withContext(Dispatchers.IO) {
+        val owner = AccountSession.current() ?: return@withContext null
         val timeBucketMs = (timeMs / 10000L) * 10000L // 10-second buckets
-        val key = PreviewKey(fileId, timeBucketMs)
-        previewCache.get(key)?.let { return@withContext it }
+        val key = PreviewKey(owner.accountId, fileId, timeBucketMs)
+        previewCache.get(key)?.let { return@withContext it.takeIf { AccountSession.isCurrent(owner) } }
 
-        val cacheDir = File(context.cacheDir, "seek_previews")
+        val cacheDir = File(context.cacheDir, accountCachePath(owner.accountId, "seek_previews"))
         if (!cacheDir.exists()) {
             cacheDir.mkdirs()
         }
@@ -109,7 +131,7 @@ object ThumbnailExtractor {
         if (diskFile.exists()) {
             try {
                 val bitmap = android.graphics.BitmapFactory.decodeFile(diskFile.absolutePath)
-                if (bitmap != null) {
+                if (bitmap != null && AccountSession.isCurrent(owner)) {
                     previewCache.put(key, bitmap)
                     return@withContext bitmap
                 }
@@ -123,16 +145,23 @@ object ThumbnailExtractor {
             Log.d(TAG, "Extracting seek preview for fileId=$fileId at ${timeBucketMs}ms duration=$durationMs")
             retriever.setDataSource(streamUrl, HashMap<String, String>())
             val bitmap = retriever.getFrameAtTime(timeBucketMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-            if (bitmap != null) {
+            if (bitmap != null && AccountSession.isCurrent(owner)) {
                 val scaled = bitmap.scale(320, 180, true)
-                FileOutputStream(diskFile).use { out ->
-                    scaled.compress(Bitmap.CompressFormat.PNG, 85, out)
+                synchronized(diskWriteLock) {
+                    if (!AccountSession.isCurrent(owner)) return@withContext null
+                    val atomic = AtomicFile(diskFile)
+                    val out = atomic.startWrite()
+                    try {
+                        check(scaled.compress(Bitmap.CompressFormat.PNG, 85, out))
+                        atomic.finishWrite(out)
+                    } catch (failure: Throwable) { atomic.failWrite(out); throw failure }
                 }
+                if (!AccountSession.isCurrent(owner)) return@withContext null
                 previewCache.put(key, scaled)
                 return@withContext scaled
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "Failed to extract seek preview for fileId=$fileId timeMs=$timeMs: ${e.message}")
+            Log.w(TAG, "Could not extract a seek preview (${e.javaClass.simpleName})")
         } finally {
             try { retriever.release() } catch (_: Exception) {}
         }

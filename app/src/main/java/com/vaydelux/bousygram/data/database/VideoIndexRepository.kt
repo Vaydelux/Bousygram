@@ -12,26 +12,34 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 
 object VideoIndexRepository {
     private const val TAG = "VideoIndexRepository"
-    private var database: AppDatabase? = null
+    @Volatile private var appContext: Context? = null
+    @Volatile private var testDatabase: AppDatabase? = null
     private val indexScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun init(context: Context) {
-        if (database == null) {
-            database = AppDatabase.getInstance(context)
-        }
+        appContext = context.applicationContext
         RecentSearchRepository.init(context)
     }
 
     fun setDatabaseForTest(testDb: AppDatabase) {
-        database = testDb
+        testDatabase = testDb
         RecentSearchRepository.setDatabaseForTest(testDb)
     }
 
-    suspend fun getIndexedVideosForChat(chatId: Long?, topicId: Long?): List<MediaItem> = withContext(Dispatchers.IO) {
-        val db = database ?: return@withContext emptyList()
+    private fun database(owner: AccountSnapshot): AppDatabase? {
+        if (!AccountSession.isCurrent(owner)) return null
+        return testDatabase ?: appContext?.let { AppDatabase.getInstance(it, owner.accountId) }
+    }
+
+    suspend fun getIndexedVideosForChat(chatId: Long?, topicId: Long?): List<MediaItem> {
+        val owner = AccountSession.current() ?: return emptyList()
+        return withContext(Dispatchers.IO) {
+        val db = database(owner) ?: return@withContext emptyList()
         val dao = db.videoDao()
         val entities = when {
             chatId != null && topicId != null && topicId > 0L -> {
@@ -44,11 +52,14 @@ object VideoIndexRepository {
                 dao.getRecentVideos(100, 0)
             }
         }
-        entities.map { it.toMediaItem() }
+        if (AccountSession.isCurrent(owner)) entities.map { it.toMediaItem() } else emptyList()
+        }
     }
 
-    suspend fun searchIndexedVideos(query: String, chatId: Long?, limit: Int = 50): List<MediaItem> = withContext(Dispatchers.IO) {
-        val db = database ?: return@withContext emptyList()
+    suspend fun searchIndexedVideos(query: String, chatId: Long?, limit: Int = 50): List<MediaItem> {
+        val owner = AccountSession.current() ?: return emptyList()
+        return withContext(Dispatchers.IO) {
+        val db = database(owner) ?: return@withContext emptyList()
         if (query.isBlank()) return@withContext emptyList()
         val dao = db.videoDao()
         val entities = if (chatId != null) {
@@ -56,11 +67,17 @@ object VideoIndexRepository {
         } else {
             dao.searchVideos(query.trim(), limit)
         }
-        entities.map { it.toMediaItem() }
+        if (AccountSession.isCurrent(owner)) entities.map { it.toMediaItem() } else emptyList()
+        }
     }
 
-    suspend fun indexMediaItems(items: List<MediaItem>) = withContext(Dispatchers.IO) {
-        val db = database ?: return@withContext
+    suspend fun indexMediaItems(items: List<MediaItem>) {
+        val owner = AccountSession.current() ?: return
+        indexMediaItems(owner, items)
+    }
+
+    private suspend fun indexMediaItems(owner: AccountSnapshot, items: List<MediaItem>) = withContext(Dispatchers.IO) {
+        val db = database(owner) ?: return@withContext
         if (items.isEmpty()) return@withContext
         val entities = items
             .filter { it.type == MediaType.Video || it.fileId != null }
@@ -70,17 +87,19 @@ object VideoIndexRepository {
 
         entities.chunked(25).forEach { chunk ->
             while (PlaybackSessionController.isVideoPlaying()) {
+                if (!AccountSession.isCurrent(owner)) return@withContext
                 delay(1000L)
             }
-            db.videoDao().insertVideos(chunk)
+            if (!AccountSession.runIfCurrent(owner) { db.videoDao().insertVideos(chunk) }) return@withContext
         }
     }
 
     fun indexMediaItemsAsync(items: List<MediaItem>) {
         if (items.isEmpty()) return
+        val owner = AccountSession.current() ?: return
         indexScope.launch {
             try {
-                indexMediaItems(items)
+                indexMediaItems(owner, items)
             } catch (e: Exception) {
                 Log.w(TAG, "Error indexing media items: ${e.message}")
             }

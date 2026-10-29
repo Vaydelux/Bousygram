@@ -139,7 +139,7 @@ object FocusPrefetchManager {
             try {
                 semaphore.withPermit {
                     if (!isActive || PlaybackSessionController.isVideoPlaying()) return@withPermit
-                    Log.i(TAG, "Starting focus prefetch for fileId=$fileId title='${item.title}'")
+                    Log.i(TAG, "Starting focus prefetch")
 
                     // Track file access in offline cache manager
                     runCatching { OfflineCacheManager.markFileAccessed(fileId) }

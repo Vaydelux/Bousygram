@@ -6,6 +6,8 @@ import android.os.StatFs
 import android.util.Log
 import androidx.core.content.edit
 import com.vaydelux.bousygram.app.BousygramApp
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
@@ -53,7 +55,6 @@ object CacheManager {
     private const val MAX_TRACKED_FILES_PER_SWEEP = 256
     private const val MAX_PINNED_FILES_TO_INSPECT = 64
     private const val RECENT_ACCESS_PROTECTION_MS = 2 * 60 * 1000L
-    private const val IMMUNITY_DELAY_SECONDS = 3600 // 1 hour immunity in native TDLib storage optimizer
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val cleanupExecutor = Executors.newSingleThreadExecutor()
@@ -61,20 +62,37 @@ object CacheManager {
 
     private val prefs: SharedPreferences?
         get() = runCatching {
-            BousygramApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val account = AccountSession.current() ?: return@runCatching null
+            BousygramApp.instance.getSharedPreferences("${PREFS_NAME}_${account.accountId}", Context.MODE_PRIVATE)
         }.getOrNull()
 
     private val pinnedFiles = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
     private val preloadedNextEpisodes = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
     private val isEvictionScheduled = AtomicBoolean(false)
-    private var isPinnedInitialized = false
+    private var pinnedAccountId: Long? = null
 
+    @Synchronized
     private fun ensurePinnedLoaded() {
-        if (!isPinnedInitialized) {
+        val accountId = AccountSession.current()?.accountId
+        if (pinnedAccountId != accountId) {
+            pinnedFiles.clear()
+            pinnedAccountId = accountId
+        }
+        if (accountId != null && pinnedFiles.isEmpty()) {
             val pinnedStrSet = prefs?.getStringSet(KEY_PINNED, emptySet()) ?: emptySet()
             pinnedStrSet.forEach { it.toIntOrNull()?.let(pinnedFiles::add) }
-            isPinnedInitialized = true
         }
+    }
+
+    @Synchronized
+    fun invalidateAccountResources() {
+        if (pinnedFiles.isNotEmpty()) {
+            val client = TdLibClient.client
+            pinnedFiles.toList().forEach { id -> runCatching { client.send(TdApi.CancelDownloadFile(id, false)) { } } }
+        }
+        pinnedFiles.clear()
+        pinnedAccountId = null
+        preloadedNextEpisodes.clear()
     }
 
     // --- Dynamic Quota Calculation ---
@@ -107,11 +125,13 @@ object CacheManager {
     @Synchronized
     fun pinFile(fileId: Int) {
         if (fileId <= 0) return
+        val account = AccountSession.current() ?: return
         ensurePinnedLoaded()
         pinnedFiles.add(fileId)
         savePinned()
         Log.i(TAG, "Pinning file $fileId for offline playback")
         TdLibClient.client.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { result ->
+            if (!AccountSession.isCurrent(account)) return@send
             if (result is TdApi.Error) {
                 Log.w(TAG, "Offline download failed fileId=$fileId code=${result.code} message=${result.message}")
             }
@@ -134,7 +154,7 @@ object CacheManager {
     // --- Access Tracking ---
 
     fun markFileAccessed(fileId: Int) {
-        if (fileId <= 0) return
+        if (fileId <= 0 || AccountSession.current() == null) return
         prefs?.edit { putLong(KEY_ACCESS_PREFIX + fileId, System.currentTimeMillis()) }
         triggerCacheCleanupIfNeeded()
     }
@@ -174,7 +194,7 @@ object CacheManager {
     }
 
     fun preloadNextEpisode(nextFileId: Int, totalSize: Long = 0L) {
-        if (nextFileId <= 0) return
+        if (nextFileId <= 0 || AccountSession.current() == null) return
         if (preloadedNextEpisodes.add(nextFileId)) {
             Log.i(TAG, "Preloading head of next episode fileId=$nextFileId (8 MB burst)")
             TelegramPreCacheEngine.primeVideoCache(
@@ -192,11 +212,12 @@ object CacheManager {
     // --- Eviction & Cleanup ---
 
     fun triggerCacheCleanupIfNeeded() {
+        val account = AccountSession.current() ?: return
         if (isEvictionScheduled.compareAndSet(false, true)) {
             cleanupExecutor.execute {
                 try {
                     synchronized(cleanupLock) {
-                        performCacheCleanup()
+                        if (AccountSession.isCurrent(account)) performCacheCleanup()
                     }
                 } catch (t: Throwable) {
                     Log.e(TAG, "Cache cleanup error", t)
@@ -223,8 +244,11 @@ object CacheManager {
         )
     }
 
-    private fun performCacheCleanup(): TrackedCacheCleanupResult {
-        val cacheLimit = calculateDynamicQuota()
+    private fun performCacheCleanup(requestedLimitBytes: Long? = null): TrackedCacheCleanupResult {
+        val account = AccountSession.current()
+            ?: return TrackedCacheCleanupResult(0, 0L, 0L, 0L, false)
+        ensurePinnedLoaded()
+        val cacheLimit = min(calculateDynamicQuota(), requestedLimitBytes?.coerceAtLeast(0L) ?: Long.MAX_VALUE)
         val allPrefs = prefs?.all ?: emptyMap()
         val accessed = allPrefs.entries.mapNotNull { (key, value) ->
             if (!key.startsWith(KEY_ACCESS_PREFIX)) return@mapNotNull null
@@ -241,7 +265,8 @@ object CacheManager {
             .take(accessCapacity)
             .toList()
         val fileIds = (oldAccessIds + pinnedSnapshot).distinct()
-        val fileById = getFilesBlocking(fileIds)
+        val fileById = getFilesBlocking(fileIds, account)
+        if (!AccountSession.isCurrent(account)) return TrackedCacheCleanupResult(0, 0L, 0L, cacheLimit, false)
         val files = fileIds.mapNotNull { id -> fileById[id]?.let { id to it } }
         var totalSize = files.sumOf { (_, file) -> file.local.downloadedSize.coerceAtLeast(0L) }
         val initialTrackedBytes = totalSize
@@ -263,6 +288,7 @@ object CacheManager {
                     !continueWatchingIds.contains(id) &&
                     id != lastPlayedId &&
                     !TelegramPreCacheEngine.isCaching(id) &&
+                    TelegramChunkScheduler.activeLeaseCount(id) == 0 &&
                     TelegramChunkScheduler.activeChunkCount(id) == 0 &&
                     !file.local.isDownloadingActive &&
                     !FocusPrefetchManager.isPrefetching(id) &&
@@ -305,7 +331,7 @@ object CacheManager {
             return TrackedCacheCleanupResult(0, 0L, totalSize, cacheLimit, initiallyOverLimit = initialTrackedBytes > cacheLimit)
         }
 
-        val confirmedDeletions = deleteFilesBlocking(plannedDeletions.map { it.first })
+        val confirmedDeletions = deleteFilesBlocking(plannedDeletions.map { it.first }, account)
         val plannedSizes = plannedDeletions.toMap()
         confirmedDeletions.forEach { fileId ->
             val size = plannedSizes[fileId] ?: 0L
@@ -327,9 +353,11 @@ object CacheManager {
     }
 
     fun isWatched(fileId: Int): Boolean {
+        val account = AccountSession.current() ?: return false
         if (PlaybackProgressTracker.isWatched(fileId)) return true
         return runCatching {
-            val entity = AppDatabase.getInstance(BousygramApp.instance).videoDao().getVideoByFileId(fileId)
+            val entity = AppDatabase.getInstance(BousygramApp.instance, account.accountId).videoDao().getVideoByFileId(fileId)
+            if (!AccountSession.isCurrent(account)) return@runCatching false
             if (entity != null) {
                 val durationMs = entity.duration * 1000L
                 PlaybackProgressTracker.isWatched(entity.chatId, entity.messageId, durationMs)
@@ -337,62 +365,47 @@ object CacheManager {
         }.getOrDefault(false)
     }
 
-    // --- Native Storage Optimizer Trigger ---
+    // Native OptimizeStorage cannot exclude individual pinned files or active leases.
+    // Keep this compatibility entry point, but use our protected tracked-file eviction.
 
     fun optimizeStorageNative(
         targetSizeBytes: Long = calculateDynamicQuota(),
         onComplete: ((Boolean, String) -> Unit)? = null
     ) {
-        val fileTypes = arrayOf<TdApi.FileType>(
-            TdApi.FileTypeVideo(),
-            TdApi.FileTypeDocument()
-        )
-        val request = TdApi.OptimizeStorage(
-            targetSizeBytes,
-            -1,
-            -1,
-            IMMUNITY_DELAY_SECONDS,
-            fileTypes,
-            longArrayOf(),
-            longArrayOf(),
-            false,
-            0
-        )
-        try {
-            TdLibClient.client.send(request) { result ->
-                when (result) {
-                    is TdApi.StorageStatistics -> {
-                        val msg = "TDLib native storage optimization finished: target=${targetSizeBytes / (1024 * 1024)}MB"
-                        Log.i(TAG, msg)
-                        onComplete?.invoke(true, msg)
-                    }
-                    is TdApi.Error -> {
-                        val msg = "TDLib OptimizeStorage error: ${result.message}"
-                        Log.w(TAG, msg)
-                        onComplete?.invoke(false, msg)
-                    }
-                    else -> {
-                        val msg = "TDLib OptimizeStorage returned ${result.javaClass.simpleName}"
-                        Log.d(TAG, msg)
-                        onComplete?.invoke(true, msg)
-                    }
+        val account = AccountSession.current() ?: run {
+            onComplete?.invoke(false, "Sign in before cleaning cached media")
+            return
+        }
+        cleanupExecutor.execute {
+            runCatching {
+                synchronized(cleanupLock) {
+                    check(AccountSession.isCurrent(account)) { "The active account changed" }
+                    performCacheCleanup(targetSizeBytes)
                 }
+            }.onSuccess { result ->
+                if (AccountSession.isCurrent(account)) onComplete?.invoke(
+                    true,
+                    "Protected cache cleanup removed ${result.deletedFiles} files (${result.freedBytes} bytes)"
+                )
+            }.onFailure {
+                if (AccountSession.isCurrent(account)) onComplete?.invoke(false, "Cache cleanup could not complete")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send OptimizeStorage", e)
-            onComplete?.invoke(false, e.message ?: "Unknown error")
         }
     }
 
     // --- Internal Blocking Helpers ---
 
-    private fun getFilesBlocking(fileIds: List<Int>): Map<Int, TdApi.File> {
+    private fun getFilesBlocking(fileIds: List<Int>, account: AccountSnapshot): Map<Int, TdApi.File> {
         if (fileIds.isEmpty()) return emptyMap()
+        if (!AccountSession.isCurrent(account)) return emptyMap()
+        val client = TdLibClient.client
         val results = ConcurrentHashMap<Int, TdApi.File>()
         val latch = CountDownLatch(fileIds.size)
         fileIds.forEach { fileId ->
             try {
-                TdLibClient.client.send(TdApi.GetFile(fileId)) { response ->
+                if (!AccountSession.isCurrent(account)) { latch.countDown(); return@forEach }
+                client.send(TdApi.GetFile(fileId)) { response ->
+                    if (!AccountSession.isCurrent(account)) { latch.countDown(); return@send }
                     when (response) {
                         is TdApi.File -> results[fileId] = response
                         is TdApi.Error -> {
@@ -411,11 +424,14 @@ object CacheManager {
         return results.toMap()
     }
 
-    private fun deleteFilesBlocking(fileIds: List<Int>): Set<Int> {
+    private fun deleteFilesBlocking(fileIds: List<Int>, account: AccountSnapshot): Set<Int> {
         if (fileIds.isEmpty()) return emptySet()
+        if (!AccountSession.isCurrent(account)) return emptySet()
+        val client = TdLibClient.client
         val eligibleFileIds = fileIds.filterNot { fileId ->
             pinnedFiles.contains(fileId) || PlaybackSessionController.isFileActive(fileId) ||
                 TelegramPreCacheEngine.isCaching(fileId) || TelegramChunkScheduler.activeChunkCount(fileId) > 0 ||
+                TelegramChunkScheduler.activeLeaseCount(fileId) > 0 ||
                 FocusPrefetchManager.isPrefetching(fileId)
         }
         if (eligibleFileIds.isEmpty()) return emptySet()
@@ -423,7 +439,9 @@ object CacheManager {
         val latch = CountDownLatch(eligibleFileIds.size)
         eligibleFileIds.forEach { fileId ->
             try {
-                TdLibClient.client.send(TdApi.DeleteFile(fileId)) { response ->
+                if (!AccountSession.isCurrent(account)) { latch.countDown(); return@forEach }
+                client.send(TdApi.DeleteFile(fileId)) { response ->
+                    if (!AccountSession.isCurrent(account)) { latch.countDown(); return@send }
                     if (response is TdApi.Ok) {
                         confirmed.add(fileId)
                         prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }

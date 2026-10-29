@@ -5,6 +5,8 @@ import android.media.MediaMetadataRetriever
 import android.util.Log
 import androidx.core.content.edit
 import com.vaydelux.bousygram.app.BousygramApp
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
@@ -19,10 +21,12 @@ object MediaDurationResolver {
     private const val KEY_PREFIX = "duration_ms_"
     private const val SMALL_STREAM_MAX_BYTES = 150L * 1024L * 1024L
     private const val SHORT_MOVIE_THRESHOLD_MS = 10L * 60L * 1000L
-    private val cacheMs = ConcurrentHashMap<Int, Long>()
-    private val prefs by lazy {
-        BousygramApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    }
+    private val cacheMs = ConcurrentHashMap<Pair<Long, Int>, Long>()
+    private fun prefs(owner: AccountSnapshot) = BousygramApp.instance.getSharedPreferences(
+        "${PREFS_NAME}_${owner.accountId}", Context.MODE_PRIVATE
+    )
+
+    fun invalidateAccountResources() = cacheMs.clear()
 
     enum class DurationSource {
         None,
@@ -42,12 +46,19 @@ object MediaDurationResolver {
     }
 
     fun cachedDurationMs(fileId: Int): Long {
-        cacheMs[fileId]?.let { return it }
-        val stored = prefs.getLong(durationKey(fileId), 0L)
-        if (stored > 0L) {
-            cacheMs[fileId] = stored
+        val owner = AccountSession.current() ?: return 0L
+        return cachedDurationMs(fileId, owner)
+    }
+
+    private fun cachedDurationMs(fileId: Int, owner: AccountSnapshot): Long {
+        if (!AccountSession.isCurrent(owner)) return 0L
+        val key = owner.accountId to fileId
+        cacheMs[key]?.let { return it }
+        val stored = prefs(owner).getLong(durationKey(fileId), 0L)
+        if (stored > 0L && AccountSession.isCurrent(owner)) {
+            cacheMs[key] = stored
         }
-        return stored
+        return stored.takeIf { AccountSession.isCurrent(owner) } ?: 0L
     }
 
     fun rememberDuration(fileId: Int, durationMs: Long) {
@@ -59,10 +70,16 @@ object MediaDurationResolver {
     }
 
     fun rememberTrustedDuration(fileId: Int, durationMs: Long, source: DurationSource) {
+        val owner = AccountSession.current() ?: return
+        rememberTrustedDuration(fileId, durationMs, source, owner)
+    }
+
+    private fun rememberTrustedDuration(fileId: Int, durationMs: Long, source: DurationSource, owner: AccountSnapshot) {
+        if (!AccountSession.isCurrent(owner)) return
         if (durationMs <= 0L) return
-        val value = max(cachedDurationMs(fileId), durationMs)
-        cacheMs[fileId] = value
-        prefs.edit { putLong(durationKey(fileId), value) }
+        val value = max(cachedDurationMs(fileId, owner), durationMs)
+        cacheMs[owner.accountId to fileId] = value
+        prefs(owner).edit { putLong(durationKey(fileId), value) }
     }
 
     /**
@@ -74,25 +91,28 @@ object MediaDurationResolver {
         streamUrl: String?,
         hintSeconds: Int = 0
     ): DurationEstimate {
+        val owner = AccountSession.current() ?: return DurationEstimate(0L, DurationSource.None, false)
         val hintMs = hintSeconds.takeIf { it > 0 }?.times(1000L) ?: 0L
         if (hintMs > 0L) {
-            rememberTdLibDuration(fileId, hintMs)
+            rememberTrustedDuration(fileId, hintMs, DurationSource.TdLib, owner)
         }
-        val cached = cachedDurationMs(fileId)
+        val cached = cachedDurationMs(fileId, owner)
         if (cached > 0L) {
             return DurationEstimate(cached, DurationSource.Cache, trusted = true)
         }
 
         val fromLocal = LocalStreamingServer.probeDurationFromLocalFile(fileId, totalSize)
+        if (!AccountSession.isCurrent(owner)) return DurationEstimate(0L, DurationSource.None, false)
         if (fromLocal > 0L) {
-            rememberTrustedDuration(fileId, fromLocal, DurationSource.LocalFile)
+            rememberTrustedDuration(fileId, fromLocal, DurationSource.LocalFile, owner)
             return DurationEstimate(fromLocal, DurationSource.LocalFile, trusted = true)
         }
 
         if (!streamUrl.isNullOrBlank()) {
             val fromStream = probeFromRetriever(streamUrl)
+            if (!AccountSession.isCurrent(owner)) return DurationEstimate(0L, DurationSource.None, false)
             if (fromStream > 0L && isStreamDurationTrusted(fromStream, totalSize, hintMs)) {
-                rememberTrustedDuration(fileId, fromStream, DurationSource.Stream)
+                rememberTrustedDuration(fileId, fromStream, DurationSource.Stream, owner)
                 return DurationEstimate(fromStream, DurationSource.Stream, trusted = true)
             }
             if (fromStream > 0L) {
@@ -154,7 +174,7 @@ object MediaDurationResolver {
                 ?.takeIf { it > 0L }
                 ?: 0L
         } catch (e: Exception) {
-            Log.w(TAG, "Retriever failed for stream: ${e.message}")
+            Log.w(TAG, "Could not read stream duration (${e.javaClass.simpleName})")
             0L
         } finally {
             try {

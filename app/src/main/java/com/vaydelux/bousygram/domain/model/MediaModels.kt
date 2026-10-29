@@ -102,8 +102,10 @@ data class ForumTopicChannel(
     val isClosed: Boolean = false,
     val isGeneral: Boolean = false,
     val unreadCount: Int = 0,
-    val totalMessages: Int = 0,
-    val mediaCount: Int = 0
+    /** The topic listing API does not supply a total message count. */
+    val totalMessages: Int? = null,
+    val mediaCount: Int = 0,
+    val order: Long = 0L
 ) : Serializable
 
 data class MediaUiState(

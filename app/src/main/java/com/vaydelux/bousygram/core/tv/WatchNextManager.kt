@@ -12,6 +12,11 @@ import com.vaydelux.bousygram.domain.model.MediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.vaydelux.bousygram.core.account.AccountSession
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /**
  * Manages the Android TV Home Screen "Continue Watching" (Watch Next) channel.
@@ -24,6 +29,34 @@ object WatchNextManager {
     private const val TAG = "WatchNextManager"
     private const val MIN_ENGAGEMENT_MILLIS = 10_000L // 10s minimum before adding to Continue Watching
     private const val COMPLETION_RATIO_THRESHOLD = 0.95 // 95% watched removes from Continue Watching
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var cleanupJob: Job? = null
+
+    fun scheduleAccountCleanup(context: Context) {
+        val generation = AccountSession.generation()
+        cleanupJob = scope.launch { clearOtherAccountRows(context, generation) }
+    }
+
+    suspend fun awaitAccountCleanup() { cleanupJob?.join() }
+
+    private fun clearOtherAccountRows(context: Context, generation: Long) {
+        if (!context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)) return
+        AccountSession.runIfGeneration(generation) {
+            runCatching {
+                val preserve = AccountSession.current()?.accountId?.let { "bousy_account_${it}_" }
+                context.contentResolver.query(TvContract.WatchNextPrograms.CONTENT_URI,
+                    arrayOf(TvContract.WatchNextPrograms._ID, TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID),
+                    null, null, null)?.use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getString(1).orEmpty()
+                        if (id.startsWith("bousy_") && (preserve == null || !id.startsWith(preserve))) {
+                            context.contentResolver.delete(TvContract.buildWatchNextProgramUri(cursor.getLong(0)), null, null)
+                        }
+                    }
+                }
+            }.onFailure { Log.w(TAG, "Launcher history cleanup was unavailable", it) }
+        }
+    }
 
     suspend fun updateProgress(
         context: Context,
@@ -34,11 +67,14 @@ object WatchNextManager {
         currentPositionMs: Long,
         durationMs: Long,
         thumbnailPath: String? = null
-    ) = withContext(Dispatchers.IO) {
+    ) {
+        val owner = AccountSession.current() ?: return
+        withContext(Dispatchers.IO) {
+        if (!AccountSession.isCurrent(owner)) return@withContext
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@withContext
         if (durationMs <= 0 || currentPositionMs < MIN_ENGAGEMENT_MILLIS) return@withContext
 
-        val internalId = "bousy_${chatId}_${messageId}_$fileId"
+        val internalId = "bousy_account_${owner.accountId}_${chatId}_${messageId}_$fileId"
         val ratio = currentPositionMs.toDouble() / durationMs.toDouble()
 
         if (ratio >= COMPLETION_RATIO_THRESHOLD) {
@@ -53,6 +89,7 @@ object WatchNextManager {
                 action = Intent.ACTION_VIEW
                 putExtra("chat_id", chatId)
                 putExtra("message_id", messageId)
+                putExtra("telegram_account_id", owner.accountId)
                 if (fileId != null) putExtra("file_id", fileId)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
@@ -68,12 +105,7 @@ object WatchNextManager {
                 put(TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID, internalId)
                 put(TvContract.WatchNextPrograms.COLUMN_INTENT_URI, intent.toUri(Intent.URI_INTENT_SCHEME))
 
-                thumbnailPath?.let { path ->
-                    val file = File(path)
-                    if (file.exists()) {
-                        put(TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI, Uri.fromFile(file).toString())
-                    }
-                }
+                // App-private file:// paths cannot be read by the launcher. Do not disclose them.
             }
 
             // Check if entry already exists
@@ -89,16 +121,17 @@ object WatchNextManager {
                 if (it.moveToFirst()) it.getLong(0) else null
             }
 
-            if (existingId != null) {
+            AccountSession.runIfCurrent(owner) { if (existingId != null) {
                 val updateUri = TvContract.buildWatchNextProgramUri(existingId)
                 contentResolver.update(updateUri, values, null, null)
                 Log.d(TAG, "Updated WatchNext program id=$existingId internalId=$internalId pos=$currentPositionMs/$durationMs")
             } else {
                 val insertedUri = contentResolver.insert(TvContract.WatchNextPrograms.CONTENT_URI, values)
                 Log.d(TAG, "Inserted WatchNext program uri=$insertedUri internalId=$internalId")
-            }
+            } }
         }.onFailure { e ->
             Log.d(TAG, "WatchNext update skipped or unavailable on this device: ${e.message}")
+        }
         }
     }
 

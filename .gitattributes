@@ -1,0 +1,7 @@
+*.sh text eol=lf
+*.yml text eol=lf
+tools/tdlib/*.txt text eol=lf
+build-tools/tdlib/RESOLVED_COMMIT.txt text eol=lf
+app/src/main/java/org/drinkless/tdlib/TdApi.java text eol=lf
+*.so binary
+*.apk binary

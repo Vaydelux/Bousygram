@@ -237,7 +237,7 @@ class MpvPlayerEngine(
             }
             mpv.setOptionString("hwdec-codecs", "all")
             mpv.setOptionString("ao", "audiotrack,opensles")
-            mpv.setOptionString("tls-verify", "no")
+            mpv.setOptionString("tls-verify", "yes")
             mpv.setOptionString("audio-pitch-correction", "yes")
 
             // On Android TV, display-resample drops frames without Choreographer VSync; use audio sync
@@ -270,7 +270,11 @@ class MpvPlayerEngine(
             Log.i(TAG, "MpvPlayerEngine initialized successfully")
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to initialize MpvPlayerEngine", e)
-            _playbackState.value = EnginePlaybackState.Error("Failed to init libmpv engine: ${e.message}", e)
+            isDestroyed.set(true)
+            runCatching { mpv.removeObserver(eventObserver) }
+            runCatching { mpv.detachSurface() }
+            runCatching { mpv.destroy() }
+            throw IllegalStateException("Failed to initialize the libmpv playback engine", e)
         }
     }
 
@@ -303,7 +307,7 @@ class MpvPlayerEngine(
             mpv.command(arrayOf("loadfile", streamUrl))
         } catch (e: Throwable) {
             Log.e(TAG, "MPV failed to load the active local stream (${e.javaClass.simpleName})")
-            _playbackState.value = EnginePlaybackState.Error("Failed to load stream: ${e.message}", e)
+            _playbackState.value = EnginePlaybackState.Error("The playback engine could not load this stream", e)
         }
     }
 
@@ -433,16 +437,14 @@ class MpvPlayerEngine(
 
     override fun release() {
         if (isDestroyed.compareAndSet(false, true)) {
-            try {
-                mpv.removeObserver(eventObserver)
-                mpv.detachSurface()
-                mpv.destroy()
-                _playbackState.value = EnginePlaybackState.Idle
-                _isPlaying.value = false
-                Log.i(TAG, "MpvPlayerEngine released")
-            } catch (e: Throwable) {
-                Log.e(TAG, "Error releasing mpv", e)
-            }
+            // Each cleanup must run even if another native cleanup operation fails.
+            runCatching { mpv.removeObserver(eventObserver) }
+            runCatching { mpv.detachSurface() }
+            runCatching { mpv.destroy() }.onFailure { Log.e(TAG, "Error destroying mpv", it) }
+            _playbackState.value = EnginePlaybackState.Idle
+            _isPlaying.value = false
+            _playWhenReady.value = false
+            Log.i(TAG, "MpvPlayerEngine released")
         }
     }
 

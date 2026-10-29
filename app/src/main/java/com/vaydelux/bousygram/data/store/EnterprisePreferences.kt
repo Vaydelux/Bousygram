@@ -5,6 +5,9 @@ import androidx.core.content.edit
 import com.vaydelux.bousygram.app.BousygramApp
 import org.json.JSONArray
 import org.json.JSONObject
+import android.content.SharedPreferences
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 
 enum class SelectedPlayerEngine(val label: String) {
     AUTO("Auto (ExoPlayer + mpv fallback)"),
@@ -52,70 +55,78 @@ object EnterprisePreferences {
         BousygramApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    fun favoriteKeys(): Set<String> = prefs.getStringSet(KEY_FAVORITES, emptySet()).orEmpty()
+    private fun accountPrefs(owner: AccountSnapshot): SharedPreferences =
+        BousygramApp.instance.getSharedPreferences("account_${owner.accountId}_enterprise", Context.MODE_PRIVATE)
+
+    private fun privatePrefs(): SharedPreferences? = AccountSession.current()?.let(::accountPrefs)
+
+    fun favoriteKeys(): Set<String> = privatePrefs()?.getStringSet(KEY_FAVORITES, emptySet()).orEmpty().toSet()
     fun isFavorite(chatId: Long, messageId: Long): Boolean = mediaKey(chatId, messageId) in favoriteKeys()
     fun toggleFavorite(chatId: Long, messageId: Long): Boolean {
+        val owner = AccountSession.current() ?: return false
         val key = mediaKey(chatId, messageId)
-        val next = favoriteKeys().toMutableSet()
-        val enabled = if (next.contains(key)) {
-            next.remove(key)
-            false
-        } else {
-            next.add(key)
-            true
+        var enabled = false
+        AccountSession.runIfCurrent(owner) {
+            val store = accountPrefs(owner)
+            val next = store.getStringSet(KEY_FAVORITES, emptySet()).orEmpty().toMutableSet()
+            enabled = if (next.remove(key)) false else { next.add(key); true }
+            store.edit { putStringSet(KEY_FAVORITES, next) }
         }
-        prefs.edit { putStringSet(KEY_FAVORITES, next) }
         return enabled
     }
 
     fun pinnedChatIds(): Set<Long> =
-        prefs.getStringSet(KEY_PINNED_CHATS, emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+        privatePrefs()?.getStringSet(KEY_PINNED_CHATS, emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
 
     fun isPinnedChat(chatId: Long?): Boolean = chatId != null && chatId in pinnedChatIds()
     fun togglePinnedChat(chatId: Long?): Boolean {
         if (chatId == null) return false
-        val next = pinnedChatIds().map { it.toString() }.toMutableSet()
+        val owner = AccountSession.current() ?: return false
         val key = chatId.toString()
-        val enabled = if (next.contains(key)) {
-            next.remove(key)
-            false
-        } else {
-            next.add(key)
-            true
+        var enabled = false
+        AccountSession.runIfCurrent(owner) {
+            val store = accountPrefs(owner)
+            val next = store.getStringSet(KEY_PINNED_CHATS, emptySet()).orEmpty().toMutableSet()
+            enabled = if (next.remove(key)) false else { next.add(key); true }
+            store.edit { putStringSet(KEY_PINNED_CHATS, next) }
         }
-        prefs.edit { putStringSet(KEY_PINNED_CHATS, next) }
         return enabled
     }
 
     fun recentQueries(): List<String> =
-        prefs.getStringSet(KEY_RECENT_QUERIES, emptySet()).orEmpty()
+        privatePrefs()?.getStringSet(KEY_RECENT_QUERIES, emptySet()).orEmpty()
             .sortedBy { it.substringBefore('|').toLongOrNull() ?: 0L }
             .map { it.substringAfter('|') }
             .takeLast(6)
             .reversed()
 
     fun rememberQuery(query: String) {
+        val owner = AccountSession.current() ?: return
         val clean = query.trim()
         if (clean.isBlank()) return
-        val existing = recentQueries().filterNot { it.equals(clean, ignoreCase = true) }
-        val stamped = (listOf(clean) + existing).take(6).mapIndexed { index, value ->
-            "${System.currentTimeMillis() - index}|$value"
-        }.toSet()
-        prefs.edit { putStringSet(KEY_RECENT_QUERIES, stamped) }
-    }
-
-    fun clearRecentQueries() {
-        prefs.edit { remove(KEY_RECENT_QUERIES) }
-    }
-
-    fun setLastPlayed(chatId: Long, messageId: Long, fileId: Int, title: String) {
-        prefs.edit {
-            putString(KEY_LAST_PLAYED, listOf(chatId, messageId, fileId, title.replace("|", " ")).joinToString("|"))
+        AccountSession.runIfCurrent(owner) {
+            val existing = recentQueries().filterNot { it.equals(clean, ignoreCase = true) }
+            val stamped = (listOf(clean.take(512)) + existing).take(6).mapIndexed { index, value ->
+                "${System.currentTimeMillis() - index}|$value"
+            }.toSet()
+            accountPrefs(owner).edit { putStringSet(KEY_RECENT_QUERIES, stamped) }
         }
     }
 
+    fun clearRecentQueries() {
+        val owner = AccountSession.current() ?: return
+        AccountSession.runIfCurrent(owner) { accountPrefs(owner).edit { remove(KEY_RECENT_QUERIES) } }
+    }
+
+    fun setLastPlayed(chatId: Long, messageId: Long, fileId: Int, title: String) {
+        val owner = AccountSession.current() ?: return
+        AccountSession.runIfCurrent(owner) { accountPrefs(owner).edit {
+            putString(KEY_LAST_PLAYED, listOf(chatId, messageId, fileId, title.replace("|", " ")).joinToString("|"))
+        } }
+    }
+
     fun lastPlayed(): LastPlayed? {
-        val parts = prefs.getString(KEY_LAST_PLAYED, null)?.split("|") ?: return null
+        val parts = privatePrefs()?.getString(KEY_LAST_PLAYED, null)?.split("|") ?: return null
         if (parts.size < 4) return null
         return LastPlayed(
             chatId = parts[0].toLongOrNull() ?: return null,
@@ -143,8 +154,8 @@ object EnterprisePreferences {
     fun subtitleLanguage(): String = prefs.getString(KEY_SUBTITLE_LANGUAGE, "en") ?: "en"
     fun setSubtitleLanguage(value: String) = prefs.edit { putString(KEY_SUBTITLE_LANGUAGE, value) }
 
-    fun preferredSpeed(): Float = prefs.getFloat(KEY_SPEED, 1.0f)
-    fun setPreferredSpeed(value: Float) = prefs.edit { putFloat(KEY_SPEED, value) }
+    fun preferredSpeed(): Float = prefs.getFloat(KEY_SPEED, 1.0f).takeIf { it.isFinite() && it in 0.25f..3f } ?: 1f
+    fun setPreferredSpeed(value: Float) { require(value.isFinite() && value in 0.25f..3f); prefs.edit { putFloat(KEY_SPEED, value) } }
 
     fun selectedPlayerEngine(): SelectedPlayerEngine = runCatching {
         SelectedPlayerEngine.valueOf(
@@ -210,10 +221,12 @@ object EnterprisePreferences {
     }
 
     fun exportSettingsJson(): String = JSONObject()
+        .put("version", 1)
+        .put("accountId", AccountSession.current()?.accountId ?: JSONObject.NULL)
         .put("favorites", JSONArray(favoriteKeys().toList()))
         .put("pinnedChats", JSONArray(pinnedChatIds().map { it.toString() }))
         .put("recentQueries", JSONArray(recentQueries()))
-        .put("lastPlayed", prefs.getString(KEY_LAST_PLAYED, ""))
+        .put("lastPlayed", privatePrefs()?.getString(KEY_LAST_PLAYED, "").orEmpty())
         .put("continueOnly", hideWatched())
         .put("safeMode", safeMode())
         .put("visualTheme", visualThemeId())
@@ -225,35 +238,31 @@ object EnterprisePreferences {
         .toString(2)
 
     fun importSettingsJson(json: String): Result<Unit> = runCatching {
-        val obj = JSONObject(json)
-        val recent = obj.optStringArray("recentQueries")
-            .take(6)
-            .mapIndexed { index, query -> "${System.currentTimeMillis() - index}|$query" }
-            .toSet()
-        val mode = runCatching {
-            BufferMode.valueOf(obj.optString("bufferMode", BufferMode.FastStart.name))
-        }.getOrDefault(BufferMode.FastStart)
-        val cacheLimit = runCatching {
-            CacheLimitOption.valueOf(obj.optString("cacheLimit", CacheLimitOption.TwoGb.name))
-        }.getOrDefault(CacheLimitOption.TwoGb)
-        val visualTheme = obj.optString("visualTheme", visualThemeId())
-            .takeIf { it in setOf("midnight", "aurora", "ocean", "sunset") }
-            ?: visualThemeId()
-        prefs.edit {
-            putStringSet(KEY_FAVORITES, obj.optStringArray("favorites").toSet())
-            putStringSet(KEY_PINNED_CHATS, obj.optStringArray("pinnedChats").toSet())
-            putStringSet(KEY_RECENT_QUERIES, recent)
-            obj.optString("lastPlayed").takeIf { it.isNotBlank() }?.let {
-                putString(KEY_LAST_PLAYED, it)
+        val owner = AccountSession.current()
+        val settings = SettingsImportPolicy.parse(json, owner?.accountId)
+        val applySettings = {
+            owner?.let { account -> accountPrefs(account).edit {
+                settings.favorites?.let { putStringSet(KEY_FAVORITES, it) }
+                settings.pinnedChats?.let { putStringSet(KEY_PINNED_CHATS, it) }
+                settings.recentQueries?.let { queries ->
+                    putStringSet(KEY_RECENT_QUERIES, queries.take(6).mapIndexed { index, query ->
+                        "${System.currentTimeMillis() - index}|$query"
+                    }.toSet())
+                }
+                settings.lastPlayed?.let { putString(KEY_LAST_PLAYED, it) }
+            } }
+            prefs.edit {
+                settings.hideWatched?.let { putBoolean(KEY_HIDE_WATCHED, it) }
+                settings.safeMode?.let { putBoolean(KEY_SAFE_MODE, it) }
+                settings.autoPlayNext?.let { putBoolean(KEY_AUTO_PLAY_NEXT, it) }
+                settings.subtitlesDefault?.let { putBoolean(KEY_SUBTITLES_DEFAULT, it) }
+                settings.speed?.let { putFloat(KEY_SPEED, it) }
+                settings.bufferMode?.let { putString(KEY_BUFFER_MODE, it.name) }
+                settings.visualTheme?.let { putString(KEY_VISUAL_THEME, it) }
             }
-            putBoolean(KEY_HIDE_WATCHED, obj.optBoolean("continueOnly", hideWatched()))
-            putBoolean(KEY_SAFE_MODE, obj.optBoolean("safeMode", safeMode()))
-            putBoolean(KEY_AUTO_PLAY_NEXT, obj.optBoolean("autoPlayNext", autoPlayNext()))
-            putBoolean(KEY_SUBTITLES_DEFAULT, obj.optBoolean("subtitlesDefault", subtitlesDefault()))
-            putFloat(KEY_SPEED, obj.optDouble("preferredSpeed", preferredSpeed().toDouble()).toFloat())
-            putString(KEY_BUFFER_MODE, mode.name)
-            putString(KEY_CACHE_LIMIT, cacheLimit.name)
-            putString(KEY_VISUAL_THEME, visualTheme)
+        }
+        if (owner == null) applySettings() else check(AccountSession.runIfCurrent(owner, applySettings)) {
+            "Telegram account changed; settings were not imported"
         }
     }.onFailure { error ->
         setLastError(error.message ?: "Settings import failed")
@@ -261,14 +270,6 @@ object EnterprisePreferences {
 
     private fun mediaKey(chatId: Long, messageId: Long): String = "$chatId:$messageId"
 
-    private fun JSONObject.optStringArray(name: String): List<String> {
-        val array = optJSONArray(name) ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                array.optString(index).takeIf { it.isNotBlank() }?.let(::add)
-            }
-        }
-    }
 }
 
 data class LastPlayed(
