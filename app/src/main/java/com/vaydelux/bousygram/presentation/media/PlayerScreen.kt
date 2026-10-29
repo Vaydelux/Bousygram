@@ -703,20 +703,20 @@ fun PlayerScreen(
             }
         },
         onResetAndStop = {
-        reloadNonce = 0
-        retryCount = 0
-        pendingResumeMs = 0L
-        seekPreviewPositionMs = -1L
-        pendingSeekTargetMs = -1L
-        pendingSeekStartedAtMs = 0L
-        isReconnecting = false
-        firstFrameMs = 0L
-        isOpening = true
-        isBuffering = true
-        isPlaying = false
-        position = 0L
-        duration = 0L
-        playbackError = null
+            reloadNonce = 0
+            retryCount = 0
+            pendingResumeMs = 0L
+            seekPreviewPositionMs = -1L
+            pendingSeekTargetMs = -1L
+            pendingSeekStartedAtMs = 0L
+            isReconnecting = false
+            firstFrameMs = 0L
+            isOpening = true
+            isBuffering = true
+            isPlaying = false
+            position = 0L
+            duration = 0L
+            playbackError = null
             playerEngine.stop()
             playerEngine.detachSurface()
         }
@@ -1861,9 +1861,9 @@ fun PlayerScreen(
                                 autoNextCardVisible = false
                                 playerInputController.isAutoNextActive = false
                                 if (!skipNext()) {
-                        toastFeedbackText = "No next video"
-                        hudVisible = true
-                    }
+                                    toastFeedbackText = "No next video"
+                                    hudVisible = true
+                                }
                             },
                             selected = true,
                             modifier = Modifier.focusRequester(playNowFocusRequester)
