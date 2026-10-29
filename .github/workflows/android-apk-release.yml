@@ -4,61 +4,89 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing protected version tag (for example v1.0.0)
-        required: true
+        description: "Version: auto (recommended) or explicit vMAJOR.MINOR.PATCH"
+        required: false
+        default: auto
         type: string
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
+# All manual release requests serialize their version selection.
 concurrency:
-  group: bousygram-release-request-${{ inputs.tag }}
+  group: bousygram-release-tag-dispatch
   cancel-in-progress: false
 
 jobs:
   dispatch:
-    name: Validate tag and request controlled APK release
+    name: Create version tag and request protected APK release
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out main
+      - name: Check out exact requested main commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate version tag and resolve exact source commit
+      - name: Validate source and select safe version
         id: source
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          RELEASE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == 'refs/heads/main' ]] || { echo 'Run this workflow from main only.' >&2; exit 1; }
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-            echo 'Use an existing protected semantic version tag, for example v1.0.0.' >&2
+          [[ "$GITHUB_REF" == 'refs/heads/main' ]] || {
+            echo '::error::Run this action from main only.' >&2
             exit 1
           }
-          git fetch --force --tags origin
-          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG" || {
-            echo "Tag $RELEASE_TAG does not exist. Create and protect the tag before requesting a release." >&2
+          [[ "$RELEASE_SHA" =~ ^[a-fA-F0-9]{40}$ && "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]] || {
+            echo '::error::Workflow source commit mismatch.' >&2
             exit 1
           }
-          release_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{}")"
-          [[ "$release_sha" =~ ^[0-9a-fA-F]{40}$ && "$(git cat-file -t "$release_sha")" == 'commit' ]] || {
-            echo 'The version tag does not resolve to a Git commit.' >&2
+          git fetch origin main --tags --force
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || {
+            echo '::error::Requested commit is no longer in main history.' >&2
             exit 1
           }
-          git fetch --force origin main
-          git merge-base --is-ancestor "$release_sha" origin/main || {
-            echo 'The version tag must point to a commit on the protected main branch.' >&2
+          requested="${REQUESTED_TAG:-auto}"
+          if [[ "$requested" == auto ]]; then
+            candidate="$(bash tools/ci/next_release_tag.sh next)"
+            latest="$(bash tools/ci/next_release_tag.sh latest)"
+            if [[ -n "$latest" ]]; then
+              latest_sha="$(git rev-parse "refs/tags/$latest^{}")"
+              # Retry an unqualified version on the same source instead of producing tag clutter.
+              if [[ "$latest_sha" == "$RELEASE_SHA" ]] && ! gh release view "$latest" >/dev/null 2>&1; then
+                candidate="$latest"
+              fi
+            fi
+          else
+            candidate="$requested"
+          fi
+          [[ "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo '::error::Use auto or a semantic version like v1.0.0.' >&2
             exit 1
           }
-          printf 'sha=%s\n' "$release_sha" >> "$GITHUB_OUTPUT"
+          if git show-ref --verify --quiet "refs/tags/$candidate"; then
+            actual="$(git rev-parse "refs/tags/$candidate^{}")"
+            [[ "$actual" == "$RELEASE_SHA" ]] || {
+              echo "::error::Tag $candidate already belongs to a different commit; not moving it." >&2
+              exit 1
+            }
+          fi
+          if gh release view "$candidate" >/dev/null 2>&1; then
+            echo "::error::A GitHub Release for $candidate already exists; refusing overwrite." >&2
+            exit 1
+          fi
+          echo "tag=$candidate" >> "$GITHUB_OUTPUT"
+          echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Selected version $candidate for commit $RELEASE_SHA"
 
-      - name: Verify successful Android Enterprise CI for this exact commit
+      - name: Verify successful exact-commit mainline CI
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,34 +103,58 @@ jobs:
             )] | sort_by(.run_number) | last | .id // empty
           ' <<< "$runs")"
           [[ "$ci_run_id" =~ ^[1-9][0-9]*$ ]] || {
-            echo 'No successful exact-commit Android Enterprise CI run exists for this tag.' >&2
+            echo '::error::No successful exact-commit mainline Android Enterprise CI exists.' >&2
             exit 1
           }
           jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run_id/jobs?per_page=100")"
           # shellcheck disable=SC2016
           jq -e '[.jobs[] | select(.name == "Build and verify" and .status == "completed" and .conclusion == "success")] | length == 1' <<< "$jobs" >/dev/null || {
-            echo 'The exact-commit Android Enterprise CI run lacks a successful Build and verify job.' >&2
+            echo '::error::The exact CI run does not contain a successful Build and verify job.' >&2
             exit 1
           }
-          echo "Verified Android Enterprise run $ci_run_id for commit $RELEASE_SHA"
+          echo "Verified CI run $ci_run_id for $RELEASE_SHA"
 
-      - name: Refuse to overwrite an existing GitHub Release
+      - name: Create immutable annotated version tag if absent
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "A GitHub Release for $RELEASE_TAG already exists. Refusing to overwrite it." >&2
-            exit 1
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            [[ "$(git rev-parse "refs/tags/$RELEASE_TAG^{}")" == "$RELEASE_SHA" ]] || exit 1
+            echo "Reusing tag $RELEASE_TAG"
+          else
+            tag_sha="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" \
+              --raw-field "tag=$RELEASE_TAG" \
+              --raw-field "message=Bousygram $RELEASE_TAG verified commit $RELEASE_SHA" \
+              --raw-field "object=$RELEASE_SHA" \
+              --raw-field "type=commit" --jq .sha)"
+            [[ "$tag_sha" =~ ^[a-f0-9]{40}$ ]] || {
+              echo '::error::GitHub failed to create annotated tag object.' >&2
+              exit 1
+            }
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              --raw-field "ref=refs/tags/$RELEASE_TAG" \
+              --raw-field "sha=$tag_sha" >/dev/null || {
+              echo '::error::Tag creation failed; check write permissions and tag protection.' >&2
+              exit 1
+            }
+            echo "Created annotated version tag $RELEASE_TAG"
           fi
+          {
+            echo '### Version selected for release'
+            echo "Tag: $RELEASE_TAG"
+            echo "Exact source commit: $RELEASE_SHA"
+            echo 'No release is published until production signing and device approval complete.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Start the protected signed-APK build and release workflow
+      - name: Start protected signed-APK release workflow
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
           RELEASE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
@@ -110,9 +162,9 @@ jobs:
             --raw-field "tag=$RELEASE_TAG" \
             --raw-field "source_sha=$RELEASE_SHA"
           {
-            echo '### Controlled APK release requested'
-            echo "Tag: $RELEASE_TAG"
+            echo '### Protected release pipeline requested'
+            echo "Version: $RELEASE_TAG"
             echo "Source commit: $RELEASE_SHA"
-            echo "Track the downstream workflow: https://github.com/$GITHUB_REPOSITORY/actions/workflows/android-release.yml"
-            echo 'This request is not a completed release. Signing, artifact validation, device qualification, and protected publishing approval still apply.'
+            echo "Follow: https://github.com/$GITHUB_REPOSITORY/actions/workflows/android-release.yml"
+            echo 'Production signing, APK verification, hardware qualification, and release approvals still apply.'
           } >> "$GITHUB_STEP_SUMMARY"

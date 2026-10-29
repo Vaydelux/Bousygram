@@ -55,6 +55,10 @@ jobs:
         shell: bash
         run: bash tools/ci/test_release_manifest.sh
 
+      - name: Test automated release version policy
+        shell: bash
+        run: bash tools/ci/test_release_tag_policy.sh
+
       - name: Validate Gradle wrapper
         shell: bash
         run: bash tools/ci/verify_gradle_wrapper.sh
