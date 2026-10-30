@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.presentation.preview
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -16,6 +17,9 @@ import com.vaydelux.bousygram.presentation.media.vm.ExplorerPosition
  */
 @Composable
 fun TvHybridPreviewHost() {
+    // Debug-only preview stays available for repeated D-pad/back QA. It has no
+    // authenticated parent route to return to and must not finish the Activity.
+    BackHandler(enabled = true) { }
     TelegramExplorerDashboard(
         position = ExplorerPosition(),
         sources = emptyList(),
