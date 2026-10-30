@@ -204,7 +204,7 @@ private fun BousygramAppRoot(
             }
             val lastPlayed = EnterprisePreferences.lastPlayed()
             val navFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-            if (appScreen == AppScreen.Home) {
+            if (appScreen == AppScreen.Home || appScreen == AppScreen.Library) {
                 // Dedicated, compact explorer owns Home navigation. Do not wrap
                 // a second oversized TV sidebar around the three-tab grid.
                 AuthorizedContent(
