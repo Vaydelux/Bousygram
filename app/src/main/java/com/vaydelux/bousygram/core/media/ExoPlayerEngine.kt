@@ -190,13 +190,16 @@ class ExoPlayerEngine(
         _firstFrameRendered.value = false
         val uri = Uri.parse(streamUrl)
         val name = uri.getQueryParameter("name").orEmpty()
+        // Telegram documents often have only a MIME type or title, not a usable filename.
+        // The source URI carries the already validated progressive/container MIME hint.
+        val mime = uri.getQueryParameter("mime")
+            ?: VideoFormatSupport.exoMimeType(null, name, name)
         val mediaItem = MediaItem.Builder()
             .setUri(uri)
             .apply {
-                // The tdlib:// URI has no .mkv extension. Preserve the original filename's
-                // container identity so Media3 selects a progressive Matroska media source.
-                if (name.endsWith(".mkv", ignoreCase = true)) setMimeType(MimeTypes.VIDEO_MATROSKA)
-                else if (name.endsWith(".webm", ignoreCase = true)) setMimeType(MimeTypes.VIDEO_WEBM)
+                if (mime == MimeTypes.VIDEO_MATROSKA || mime == MimeTypes.VIDEO_WEBM) {
+                    setMimeType(mime)
+                }
             }
             .build()
         player.setMediaItem(mediaItem)
