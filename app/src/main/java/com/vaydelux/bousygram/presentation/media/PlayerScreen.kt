@@ -949,8 +949,9 @@ fun PlayerScreen(
                     hudVisible = true
                     val playbackEx = (state.cause as? PlaybackException)
                         ?: PlaybackException(state.message, state.cause, PlaybackException.ERROR_CODE_UNSPECIFIED)
+                    // Keep diagnostics for transient decoder/demux failures, but do not
+                    // mark the playback session terminal before MPV fallback or retry.
                     PlaybackSessionController.recordError(playbackSession, playbackEx, retryCount)
-                    playbackSession.onError(message, state.cause, item)
 
                     // Automatic fallback to libmpv on decoder, container, or unsupported-format errors.
                     // Resumes at the same position, falls back strictly once per session, and records reason in telemetry.
@@ -983,6 +984,7 @@ fun PlayerScreen(
                                 isReconnecting = false
                                 isBuffering = false
                                 playbackError = "Unable to initialize a compatible video player. Try again."
+                                playbackSession.onError(playbackError!!, failure, item)
                                 commitPlaybackTelemetry(fatalError = playbackError)
                             }
                         )
@@ -1002,6 +1004,7 @@ fun PlayerScreen(
                     } else {
                         isReconnecting = false
                         playbackError = message
+                        playbackSession.onError(message, state.cause, item)
                         commitPlaybackTelemetry(fatalError = message)
                     }
                 }
