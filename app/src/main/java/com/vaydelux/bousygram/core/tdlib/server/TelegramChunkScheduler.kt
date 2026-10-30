@@ -34,6 +34,17 @@ import kotlin.coroutines.coroutineContext
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * Decide whether an extractor's next byte range needs its own TDLib download window.
+ * Matroska Cues are often at EOF, so no tail-offset exemption is safe here.
+ */
+internal fun requiresPlaybackWindowReposition(
+    requestOffset: Long,
+    windowOffset: Long?,
+    contiguousEndExclusive: Long
+): Boolean = windowOffset == null ||
+    requestOffset < windowOffset || requestOffset >= contiguousEndExclusive
+
 internal enum class TelegramChunkPurpose {
     Preflight,
     Priming,
@@ -917,7 +928,7 @@ internal object TelegramChunkScheduler {
         val currentFile = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
         val prefix = knownPrefixBytes(currentFile, window?.offset ?: request.offset)
         val contiguousEnd = (window?.offset ?: request.offset) + prefix + PLAYBACK_WINDOW_BYTES
-        val isOutside = window == null || request.offset < window.offset || request.offset >= contiguousEnd
+        val isOutside = requiresPlaybackWindowReposition(request.offset, window?.offset, contiguousEnd)
         if (isOutside) {
             Log.d(TAG, "Seek detected fileId=${request.fileId} offset=${request.offset}; cancelling stale in-flight downloads")
             PlaybackTelemetryRecorder.recordSupersededWindow(request.fileId)
