@@ -83,6 +83,7 @@ fun TelegramExplorerDashboard(
     onRefreshTopics: () -> Unit,
     onRefreshMedia: () -> Unit,
     onSearch: () -> Unit,
+    onFavorites: () -> Unit,
     onSettings: () -> Unit,
     hasResume: Boolean,
     onResume: () -> Unit,
@@ -129,6 +130,7 @@ fun TelegramExplorerDashboard(
             Text("Bousygram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             if (hasResume) OutlinedButton(onClick = onResume) { Text("Continue") }
             OutlinedButton(onClick = onSearch) { Text("Search") }
+            OutlinedButton(onClick = onFavorites) { Text("Saved") }
             OutlinedButton(onClick = onSettings) { Text("Settings") }
         }
         // Fixed, equal-width tabs; the explorer scrolls vertically instead.
