@@ -659,6 +659,12 @@ class MediaViewModel(
                 nextFromMessageId = if (isFinal) nextFromMessageId else current.nextFromMessageId
             )
         }
+        if (isFinal && _uiState.value.items.isNotEmpty()) {
+            val current = _uiState.value
+            val folderKey = if (current.isSavedMessagesSelected) "saved:topic:0"
+            else "chat:" + current.selectedChatId + ":topic:" + (current.selectedTopicId ?: 0)
+            rememberCatalog(folderKey, current.items, current.nextFromMessageId)
+        }
         if (items.isNotEmpty()) {
             com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
             enrichMediaItemsAsync(items)
@@ -676,9 +682,11 @@ class MediaViewModel(
         }
         if (itemsToEnrich.isEmpty()) return
 
+        val owner = AccountSession.current() ?: return
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val context = com.vaydelux.bousygram.app.BousygramApp.instance
             itemsToEnrich.chunked(10).forEach { chunk ->
+                if (!AccountSession.isCurrent(owner)) return@launch
                 val enrichedChunk = chunk.map { item ->
                     try {
                         com.vaydelux.bousygram.data.repository.TmdbRepository.enrich(item, context)
@@ -687,6 +695,7 @@ class MediaViewModel(
                     }
                 }
                 _uiState.update { current ->
+                    if (!AccountSession.isCurrent(owner)) return@update current
                     val enrichedMap = enrichedChunk.associateBy { "${it.chatId}_${it.messageId}" }
                     current.copy(
                         items = current.items.map { existing ->
