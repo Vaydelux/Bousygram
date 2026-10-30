@@ -48,6 +48,7 @@ import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import com.vaydelux.bousygram.presentation.shell.BousygramMode
 import com.vaydelux.bousygram.presentation.shell.BousygramModeSelection
 import com.vaydelux.bousygram.presentation.shell.ExtrasMaintenanceScreen
+import com.vaydelux.bousygram.presentation.shell.TelegramStartupLoadingScreen
 
 class MainActivity : ComponentActivity() {
     private val authViewModel: AuthViewModel by viewModels()
@@ -177,6 +178,7 @@ private fun BousygramAppRoot(
     }
 
     when {
+        authState.step == AuthStep.Loading -> TelegramStartupLoadingScreen(authState.connectionStatus)
         authState.step != AuthStep.Authorized -> AuthScreen(viewModel = authViewModel)
         appScreen is AppScreen.Player -> {
             val screen = appScreen as AppScreen.Player
