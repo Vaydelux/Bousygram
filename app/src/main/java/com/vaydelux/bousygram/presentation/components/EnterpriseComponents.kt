@@ -640,7 +640,7 @@ fun TvTopNavBar(
                             )
                             .semantics {
                                 contentDescription = dest.label
-                                selected = isSelected
+                                this.selected = isSelected
                             }
                             .onFocusChanged { focused = it.isFocused }
                             .clickable(
