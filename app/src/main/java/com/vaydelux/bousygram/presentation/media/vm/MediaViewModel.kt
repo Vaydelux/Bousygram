@@ -292,6 +292,7 @@ class MediaViewModel(
             return
         }
         val requestGeneration = ++mediaRequestGeneration
+        val warmSaved = catalogSnapshot("saved:topic:0")
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -301,7 +302,7 @@ class MediaViewModel(
                 isSavedMessagesSelected = true,
                 hasMore = true,
                 isLoadingMore = false,
-                items = if (it.isSavedMessagesSelected) it.items else emptyList(),
+                items = if (it.isSavedMessagesSelected && it.items.isNotEmpty()) it.items else warmSaved ?: emptyList(),
                 nextFromMessageId = 0L
             )
         }
@@ -328,6 +329,7 @@ class MediaViewModel(
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
+            if (isFinal && items.isNotEmpty()) rememberCatalog("saved:topic:0", items)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
                 enrichMediaItemsAsync(items)
@@ -361,6 +363,8 @@ class MediaViewModel(
 
     fun loadChat(chatId: Long, title: String) {
         val requestGeneration = ++mediaRequestGeneration
+        val folderKey = "chat:" + chatId + ":topic:0"
+        val warmChat = catalogSnapshot(folderKey)
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -373,7 +377,7 @@ class MediaViewModel(
                 isLoadingTopics = false,
                 hasMore = true,
                 isLoadingMore = false,
-                items = if (!it.isSavedMessagesSelected && it.selectedChatId == chatId) it.items else emptyList(),
+                items = if (!it.isSavedMessagesSelected && it.selectedChatId == chatId && it.items.isNotEmpty()) it.items else warmChat ?: emptyList(),
                 nextFromMessageId = 0L,
                 videoChats = it.videoChats.map { source -> source.copy(isSelected = !source.isSavedMessages && source.chatId == chatId) }
             )
@@ -402,6 +406,7 @@ class MediaViewModel(
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
+            if (isFinal && items.isNotEmpty()) rememberCatalog(folderKey, items)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
                 enrichMediaItemsAsync(items)
@@ -423,6 +428,8 @@ class MediaViewModel(
         val chatId = state.selectedChatId ?: return
         if (state.selectedTopicId == topicId) return
         val requestGeneration = ++mediaRequestGeneration
+        val folderKey = "chat:" + chatId + ":topic:" + (topicId ?: 0)
+        val warmTopic = catalogSnapshot(folderKey)
         _uiState.update {
             it.copy(
                 selectedTopicId = topicId,
@@ -430,7 +437,7 @@ class MediaViewModel(
                 error = null,
                 hasMore = true,
                 isLoadingMore = false,
-                items = emptyList(),
+                items = warmTopic ?: emptyList(),
                 nextFromMessageId = 0L
             )
         }
@@ -449,13 +456,14 @@ class MediaViewModel(
             if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = items,
+                    items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
+            if (isFinal && items.isNotEmpty()) rememberCatalog(folderKey, items)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
             }
