@@ -22,7 +22,8 @@ fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
             mimeType = item.mimeType,
             durationSeconds = item.durationSeconds,
             fileSizeBytes = item.fileSizeBytes,
-            alternativeVideos = item.alternativeVideos
+            alternativeVideos = item.alternativeVideos,
+            topicId = item.messageThreadId
         )
     }
 
@@ -46,7 +47,8 @@ fun buildPlaybackRequest(
         mimeType = item.mimeType,
         durationSeconds = item.durationSeconds,
         fileSizeBytes = item.fileSizeBytes,
-        alternativeVideos = item.alternativeVideos
+        alternativeVideos = item.alternativeVideos,
+        topicId = item.messageThreadId
     )
 }
 
@@ -60,7 +62,8 @@ fun queueItemFromRequest(request: PlaybackRequest): PlaybackQueueItem =
         fileName = request.fileName,
         mimeType = request.mimeType,
         durationSeconds = request.durationSeconds,
-        fileSizeBytes = request.fileSizeBytes
+        fileSizeBytes = request.fileSizeBytes,
+        topicId = request.topicId
     )
 
 fun queueIndexForFileId(queue: List<PlaybackQueueItem>, fileId: Int): Int =
