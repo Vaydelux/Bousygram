@@ -2477,28 +2477,58 @@ fun PlayerScreen(
             }
         }
 
-        // Animated Seek Feedback Overlay
+        // Compact TV preview. A timestamp is always truthful; display a real
+        // frame only when the existing bounded thumbnail cache has one.
         AnimatedVisibility(
             visible = seekFeedbackText != null,
             enter = fadeIn() + scaleIn(),
             exit = fadeOut() + scaleOut(),
-            modifier = Modifier.align(if (seekFeedbackSide < 0) Alignment.CenterStart else Alignment.CenterEnd)
+            modifier = Modifier.align(
+                if (tvChrome && seekPreviewPositionMs >= 0L) Alignment.BottomCenter
+                else if (seekFeedbackSide < 0) Alignment.CenterStart else Alignment.CenterEnd
+            ).padding(bottom = if (tvChrome && seekPreviewPositionMs >= 0L) 170.dp else 0.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 48.dp)
-                    .size(76.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
-                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
-                contentAlignment = Alignment.Center
+            val previewItem = queue.getOrNull(queueIndex)
+            val previewKey = previewItem?.chatId?.toString() + ":" + previewItem?.messageId
+            val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
+            val snapshot = if (tvChrome && seekPreviewPositionMs >= 0L && knownDuration > 0L) {
+                SeekThumbnailManager.getSnapshotAt(previewKey, seekPreviewPositionMs, knownDuration)
+            } else null
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                modifier = Modifier.padding(horizontal = 24.dp)
+                    .widthIn(max = if (tvChrome) 310.dp else 280.dp)
             ) {
-                Text(
-                    text = seekFeedbackText.orEmpty(),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (snapshot != null) {
+                        Image(
+                            bitmap = snapshot.asImageBitmap(),
+                            contentDescription = "Actual cached seek preview frame",
+                            modifier = Modifier.width(160.dp).height(90.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    }
+                    Text(
+                        text = if (seekPreviewPositionMs >= 0L) "Seek to " + formatMs(seekPreviewPositionMs)
+                            else seekFeedbackText.orEmpty(),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (tvChrome && seekPreviewPositionMs >= 0L) {
+                        Text(
+                            "OK confirm · Back cancel",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
             }
         }
 
