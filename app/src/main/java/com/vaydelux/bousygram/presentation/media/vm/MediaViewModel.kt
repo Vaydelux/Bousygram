@@ -654,18 +654,19 @@ class MediaViewModel(
             return
         }
         _uiState.update { it.copy(isLoadingMore = true) }
+        val owner = AccountSession.current() ?: return
         val requestGeneration = mediaRequestGeneration
         if (state.isSavedMessagesSelected) {
             repository.loadLatestMediaPagedProgressive(pageSize, nextFromMessageId) { items, nextFromId, error, isFinal ->
                 val current = _uiState.value
-                if (requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadLatestMediaPagedProgressive
+                if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadLatestMediaPagedProgressive
                 handleLoadMore(items, nextFromId, error, isFinal)
             }
         } else {
             val chatId = state.selectedChatId ?: return
             repository.loadChatMediaPagedProgressive(chatId, pageSize, nextFromMessageId, topicId = state.selectedTopicId) { items, nextFromId, error, isFinal ->
                 val current = _uiState.value
-                if (requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadChatMediaPagedProgressive
+                if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadChatMediaPagedProgressive
                 handleLoadMore(items, nextFromId, error, isFinal)
             }
         }
