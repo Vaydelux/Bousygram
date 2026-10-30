@@ -16,7 +16,7 @@
 | P3 | ed0b55e, 33674b5, 7412ee5 | Preserve warm results during metadata refresh, bounded account-generation catalog snapshots, clear account UI state on logout | CODE WRITTEN — UNVERIFIED |
 | P4 | 5cc20ad, 2012601, f658450 | Single focus target on shared media cards, no duplicate oversized Home shell, compact focus animation respecting system motion settings | CODE WRITTEN — UNVERIFIED |
 | P5A | 82457cb, c1c3ded | Remove giant TV ±10s/next/previous primary buttons, compact HUD, independent Start Over action | CODE WRITTEN — UNVERIFIED |
-| P5B | ea4e187, 23dcd27 | D-pad Down opens queue tray, translucent vertical grid, Up-to-player first-row behavior; existing seek controller retained | CODE WRITTEN — UNVERIFIED |
+| P5B | ea4e187, 23dcd27, 0c664ee, bced4d0, 66a1fa7 | D-pad Down opens queue tray, translucent vertical grid, Up-to-player first-row behavior; actual TDLib topic identity now flows into request/queue and tray filtering | CODE WRITTEN — UNVERIFIED |
 | P6 | 1062403, 29b09fc, f658450 | Branded loading keyed to actual Telegram authorization and lightweight focus transition | CODE WRITTEN — UNVERIFIED |
 | P7 | c17c7de, 8525c7d, ff0b3d6, c020619, 875ee1c, c0373f4 | Themeable original SVG, Android vector, Android 26+ adaptive icon, startup logo, asset notes | PARTIAL — PNG/ICO exports not done |
 | P8 | none | No compile/lint/tests/emulator/device qualification has been run on this branch, by user request | DEFERRED |
@@ -26,7 +26,7 @@
 
 - Existing TDLib JNI, native libraries, Media3/mpv, stream capability security, release signing and device qualification are unchanged.
 - The underlying BousygramApp process still initializes existing Telegram infrastructure at process start; the new Extras placeholder itself does not create clients or access Telegram state. Full process-lifecycle isolation requires a later separately reviewed migration.
-- Queue records do not include a forum topic ID. The tray filters the existing launch queue by chat; complete independent topic-scope enforcement is deferred until queue provenance carries immutable topic identity.
+- New requests carry real TDLib topic identity and the tray filters by account-scoped launch queue chat/topic. Legacy requests whose topic ID is null remain limited by their original queue; full end-to-end topic provenance needs final integration review.
 - The physical Android TV focus bug fix in PR #41 remains on a separate branch. This implementation branch includes a shared card focus fix, not every change from that PR.
 - Legacy launcher PNGs are preserved; Android adaptive-icon XML has been added for API 26+, not yet packaging-tested.
 - No new API keys, third-party libraries, WebViews, iframes, TMDB or AniList integrations have been added.
