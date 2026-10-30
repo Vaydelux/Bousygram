@@ -231,6 +231,9 @@ class MediaViewModel(
     private var deferredChatSourceLoadJob: Job? = null
     private val requestedThumbnailFileIds =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
+    private val enrichedMediaKeys =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
 
     private val chatUpdateHandler: (TdApi.Object?) -> Unit = { update ->
         when (update) {
@@ -734,9 +737,6 @@ class MediaViewModel(
             fetchThumbnails(items)
         }
     }
-
-    private val enrichedMediaKeys =
-        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     /**
      * Local-only title metadata parsing. Do not transmit private Telegram message
