@@ -61,6 +61,7 @@ class TelegramAuthManager(private val context: Context) {
     // Keep the old account ID across native Closing/Closed so revocation can wipe only
     // that identity once TDLib confirms a return to phone authentication.
     @Volatile private var pendingRevokedAccountId: Long? = null
+    @Volatile private var revokedCleanupFailed = false
     @Volatile private var identityRequestInFlight = false
     private val credentialsStore = ApiCredentialsStore(context)
     private val databaseKeyStore = TdlibDatabaseKeyStore(context)
@@ -390,6 +391,13 @@ class TelegramAuthManager(private val context: Context) {
     }
 
     private fun handleAuthState(state: TdApi.AuthorizationState?) {
+        if (revokedCleanupFailed) {
+            _uiState.update {
+                it.copy(step = AuthStep.Unavailable, isLoading = false,
+                    message = "Local Telegram data could not be erased. Clear Bousygram app storage before signing in.")
+            }
+            return
+        }
         Log.d(TAG, "Auth state: ${state?.javaClass?.simpleName}")
         val ready = state is TdApi.AuthorizationStateReady
         if (!ready && authorizationReady) {
@@ -413,6 +421,7 @@ class TelegramAuthManager(private val context: Context) {
                     try {
                         AccountPrivateDataPurger.purge(context, revoked)
                     } catch (failure: Exception) {
+                        revokedCleanupFailed = true
                         Log.e(TAG, "Cannot erase revoked account private data", failure)
                         _uiState.update {
                             it.copy(step = AuthStep.Unavailable, isLoading = false,
@@ -431,6 +440,7 @@ class TelegramAuthManager(private val context: Context) {
                         TdLibClient.sendCurrent(TdApi.Destroy()) { result ->
                             if (result is TdApi.Error) {
                                 destroyInFlight = false
+                                revokedCleanupFailed = true
                                 Log.e(TAG, "TDLib local data destruction failed: ${result.code}")
                                 _uiState.update {
                                     it.copy(step = AuthStep.Unavailable, isLoading = false,
