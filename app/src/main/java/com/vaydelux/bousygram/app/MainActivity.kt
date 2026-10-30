@@ -45,6 +45,9 @@ import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.shell.BousygramMode
+import com.vaydelux.bousygram.presentation.shell.BousygramModeSelection
+import com.vaydelux.bousygram.presentation.shell.ExtrasMaintenanceScreen
 
 class MainActivity : ComponentActivity() {
     private val authViewModel: AuthViewModel by viewModels()
@@ -99,6 +102,9 @@ private fun BousygramAppRoot(
 ) {
     val context = LocalContext.current
     val authState by authViewModel.uiState.collectAsState()
+    // Mode is shell UI state only: it does not create an independent Telegram session.
+    var modeName by rememberSaveable { mutableStateOf(BousygramMode.SELECT.name) }
+    val mode = BousygramMode.entries.firstOrNull { it.name == modeName } ?: BousygramMode.SELECT
     var appScreen by remember { mutableStateOf<AppScreen>(AppScreen.Home) }
     var searchFocus by rememberSaveable(stateSaver = SearchFocusStateSaver) {
         mutableStateOf(SearchFocusState())
@@ -138,8 +144,24 @@ private fun BousygramAppRoot(
             return@LaunchedEffect
         }
         val req = CastReceiverManager.toPlaybackRequest(payload, preparation?.url)
+        modeName = BousygramMode.TELEGRAM.name
         appScreen = AppScreen.Player(req, returnTo = AppScreen.Home)
         CastReceiverManager.clearPendingRequest()
+    }
+
+    // The Extras screen is a dead-end maintenance route: no Telegram feature UI is mounted.
+    // The application process still owns existing TDLib infrastructure; separating that
+    // initialization is a future, explicitly reviewed lifecycle change.
+    if (mode == BousygramMode.SELECT) {
+        BousygramModeSelection(
+            onTelegram = { modeName = BousygramMode.TELEGRAM.name },
+            onExtras = { modeName = BousygramMode.EXTRAS_MAINTENANCE.name }
+        )
+        return
+    }
+    if (mode == BousygramMode.EXTRAS_MAINTENANCE) {
+        ExtrasMaintenanceScreen(onBack = { modeName = BousygramMode.SELECT.name })
+        return
     }
 
     BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen !is AppScreen.Home && appScreen !is AppScreen.Player) {
