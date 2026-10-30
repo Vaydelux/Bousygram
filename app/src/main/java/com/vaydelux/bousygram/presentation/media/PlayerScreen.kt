@@ -1591,7 +1591,7 @@ fun PlayerScreen(
 
             val currentItem = queue.getOrNull(queueIndex)
             // Black-screen recovery is meaningless for a track with no video output.
-            val recoveryAction = if (firstAudioReadyMs > 0L) {
+            val recoveryAction = if (firstAudioReadyMs > 0L || firstProgressReadyMs > 0L) {
                 BlackScreenRecoveryAction.NONE
             } else blackScreenDetector.evaluate(
                 context = context,
