@@ -1159,6 +1159,7 @@ fun PlayerScreen(
             ?.let { duration = it }
             ?: item.durationSeconds.takeIf { it > 0 }?.let { duration = it * 1000L }
         lastSavedPosition = 0L
+        val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
         val isExo = playerEngine is ExoPlayerEngine
         val streamUrl = if (isExo) {
             val resolvedSize = item.fileSizeBytes.takeIf { it > 0L }
@@ -1166,7 +1167,7 @@ fun PlayerScreen(
             fileSizeBytes = resolvedSize
             cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
             activeLocalStreamUrl = null
-            TdLibDataSource.buildUri(item.fileId, resolvedSize, item.fileName).toString()
+            TdLibDataSource.buildUri(item.fileId, resolvedSize, item.fileName, videoMime).toString()
         } else {
             // MpvPlayerEngine path uses LocalStreamingServer with per-file capability token
             val alreadyPreparedUrl = request.initialStreamUrl?.takeIf {
@@ -1218,7 +1219,6 @@ fun PlayerScreen(
             activeLocalStreamUrl = resolvedUrl.takeIf { it.startsWith("http://127.0.0.1") }
             resolvedUrl
         }
-        val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
         val resumePosition = lastGoodPosition
             .takeIf { it > 0L }
             ?: PlaybackProgressTracker.getMessagePosition(item.chatId, item.messageId, duration).toLong()
