@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -92,7 +93,8 @@ internal fun PlayerTransportControls(
     val isWide = layout != PlayerChromeLayout.TOUCH_COMPACT
     val touchMin = if (isTv) 46.dp else 52.dp
     Row(
-        modifier = Modifier.fillMaxWidth().testTag("player_transport_controls"),
+        modifier = (if (isTv) Modifier else Modifier.fillMaxWidth())
+            .testTag("player_transport_controls"),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 6.dp)
     ) {
@@ -119,7 +121,7 @@ internal fun PlayerTransportControls(
             onClick = onPlayPause,
             selected = true,
             modifier = Modifier
-                .weight(if (isTv) 1f else 1.3f)
+                .then(if (isTv) Modifier.widthIn(min = 116.dp, max = 145.dp) else Modifier.weight(1.3f))
                 .heightIn(min = touchMin)
                 .focusRequester(playPauseFocusRequester)
                 .semantics { contentDescription = if (isPlayingOrPending) "Pause playback" else "Play video" }
@@ -145,7 +147,9 @@ internal fun PlayerTransportControls(
             text = if (isTv) "⚙ More" else "⋯",
             onClick = onOptions,
             selected = optionsExpanded,
-            modifier = Modifier.weight(1f).heightIn(min = touchMin)
+            modifier = Modifier
+                .then(if (isTv) Modifier.widthIn(min = 98.dp, max = 126.dp) else Modifier.weight(1f))
+                .heightIn(min = touchMin)
                 .focusRequester(optionsFocusRequester)
                 .semantics { contentDescription = if (optionsExpanded) "Close playback options" else "More playback options" }
                 .testTag("player_options_toggle")
