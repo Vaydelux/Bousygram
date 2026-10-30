@@ -35,6 +35,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +62,10 @@ fun TelegramExplorerDashboard(
     selectedTopicId: Int?,
     videos: List<MediaItem>,
     isLoading: Boolean,
+    isLoadingSources: Boolean,
+    isLoadingTopics: Boolean,
+    errorMessage: String?,
+    sourceErrorMessage: String?,
     isLoadingMore: Boolean,
     hasMore: Boolean,
     privacyMode: Boolean,
@@ -73,6 +79,9 @@ fun TelegramExplorerDashboard(
     restoreFocusedMediaKey: String?,
     restoreFocusRequester: FocusRequester,
     onLoadMore: () -> Unit,
+    onRefreshSources: () -> Unit,
+    onRefreshTopics: () -> Unit,
+    onRefreshMedia: () -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
     hasResume: Boolean,
@@ -131,9 +140,18 @@ fun TelegramExplorerDashboard(
                     ExplorerSection.GROUPS -> "Groups"
                 }
                 val active = section == position.section
+                var tabFocused by remember(section) { mutableStateOf(false) }
                 OutlinedButton(
                     onClick = { if (!active) onSelectTab(section) },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f)
+                        .border(
+                            if (tabFocused) 3.dp else 1.dp,
+                            if (tabFocused || active) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant,
+                            RoundedCornerShape(18.dp)
+                        )
+                        .semantics { this.selected = active }
+                        .onFocusChanged { tabFocused = it.isFocused },
                     colors = ButtonDefaults.outlinedButtonColors(
                         containerColor = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
                     ),
@@ -162,7 +180,10 @@ fun TelegramExplorerDashboard(
             when {
                 showSources -> {
                     if (directory.isEmpty()) {
-                        ExplorerMessage(if (isLoading) "Loading source directory…" else "No joined sources in this section")
+                        ExplorerMessage(
+                            message = if (isLoadingSources) "Loading source directory…" else sourceErrorMessage ?: "No joined sources in this section",
+                            onRetry = if (isLoadingSources) null else onRefreshSources
+                        )
                     } else LazyVerticalGrid(
                         state = folderGrid, columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
@@ -176,7 +197,10 @@ fun TelegramExplorerDashboard(
                 }
                 showTopics -> {
                     if (topics.isEmpty()) {
-                        ExplorerMessage(if (isLoading) "Loading forum topics…" else "No accessible topics in this group")
+                        ExplorerMessage(
+                            message = if (isLoadingTopics) "Loading forum topics…" else errorMessage ?: "No accessible topics in this group",
+                            onRetry = if (isLoadingTopics) null else onRefreshTopics
+                        )
                     } else LazyVerticalGrid(
                         columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
@@ -188,7 +212,10 @@ fun TelegramExplorerDashboard(
                         }
                     }
                 }
-                videos.isEmpty() -> ExplorerMessage(if (isLoading) "Loading media…" else "No playable media found in this folder")
+                videos.isEmpty() -> ExplorerMessage(
+                    message = if (isLoading) "Loading media…" else errorMessage ?: "No playable media found in this folder",
+                    onRetry = if (isLoading) null else onRefreshMedia
+                )
                 else -> LazyVerticalGrid(
                     state = gridState, columns = GridCells.Adaptive(cardMin),
                     horizontalArrangement = Arrangement.spacedBy(gap),
@@ -219,9 +246,20 @@ fun TelegramExplorerDashboard(
 }
 
 @Composable
-private fun ExplorerMessage(message: String) {
+private fun ExplorerMessage(message: String, onRetry: (() -> Unit)? = null) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Text(message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (onRetry != null) {
+                OutlinedButton(onClick = onRetry) {
+                    Text("Retry")
+                }
+            }
+        }
     }
 }
 
