@@ -342,10 +342,35 @@ class MediaViewModel(
         )
         val currentState = _uiState.value
         if (currentState.selectedChatId != source.chatId || currentState.isSavedMessagesSelected) {
-            val snapshot = if (!source.isForum) freshCatalog("chat:" + source.chatId + ":topic:0") else null
-            if (snapshot == null) {
-                loadChat(source.chatId, source.title)
+            if (source.isForum) {
+                // A forum source is a directory first. Do not fetch *all* media for
+                // every topic before the user selects the real Telegram topic.
+                if (AccountSession.current() == null) return
+                ++mediaRequestGeneration
+                _uiState.update { current ->
+                    current.copy(
+                        items = emptyList(),
+                        selectedChatId = source.chatId,
+                        selectedChatTitle = source.title,
+                        isSavedMessagesSelected = false,
+                        selectedTopicId = null,
+                        availableTopics = emptyList(),
+                        isLoading = false,
+                        isLoadingMore = false,
+                        hasMore = false,
+                        nextFromMessageId = 0L,
+                        quickSearchQuery = "",
+                        error = null,
+                        videoChats = current.videoChats.map {
+                            it.copy(isSelected = !it.isSavedMessages && it.chatId == source.chatId)
+                        }
+                    )
+                }
+                loadForumTopics(source.chatId)
             } else {
+                val snapshot = freshCatalog("chat:" + source.chatId + ":topic:0")
+                if (snapshot == null) loadChat(source.chatId, source.title)
+                else {
                 ++mediaRequestGeneration
                 _uiState.update { current ->
                     current.copy(
@@ -363,6 +388,7 @@ class MediaViewModel(
                         nextFromMessageId = snapshot.nextFromMessageId,
                         videoChats = current.videoChats.map { it.copy(isSelected = !it.isSavedMessages && it.chatId == source.chatId) }
                     )
+                }
                 }
             }
         } else if (source.isForum && _uiState.value.availableTopics.isEmpty()) {
