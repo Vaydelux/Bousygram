@@ -19,7 +19,7 @@
 | P5B | ea4e187, 23dcd27, 0c664ee, bced4d0, 66a1fa7, 7ddbde9, a5326a6, 13ad493, 6928f65, fc2de36 | D-pad Down opens queue tray, translucent vertical grid, Up-to-player first-row behavior; actual TDLib topic identity now flows into request/queue and tray filtering | CODE WRITTEN — UNVERIFIED |
 | P6 | 1062403, 29b09fc, f658450 | Branded loading keyed to actual Telegram authorization and lightweight focus transition | CODE WRITTEN — UNVERIFIED |
 | P7 | c17c7de, 8525c7d, ff0b3d6, c020619, 875ee1c, c0373f4, 3119e4f, f40dbd4 | Themeable original SVG, Android vector, Android 26+ adaptive icon, startup logo, asset notes | CODE/ASSETS WRITTEN — UNVERIFIED |
-| P8 | b2293ee, 6928f65, fc2de36 | Added/updated automated regression test sources without executing them. Compile/lint/JVM/emulator/device tests and release qualification deliberately not performed on this branch | DEFERRED |
+| P8 | b2293ee, 6928f65, fc2de36, 3bbbdd6, 7566ac8 | Added/updated automated regression test sources without executing them. Compile/lint/JVM/emulator/device tests and release qualification deliberately not performed on this branch | DEFERRED |
 | P9 | planning PR #42, 91bfa57 | Added future-only Extras RFC covering TMDB/AniList, isolated provider IDs, controlled WebView/iframe boundaries, virtual-mouse accessibility, legal/security review. No Extras integration code | PLAN ONLY |
 
 ## Known intentional boundaries
@@ -31,7 +31,7 @@
 - Legacy launcher PNGs have been regenerated, an Android adaptive-icon XML has been added for API 26+, and favicon.ico has been committed; no package or visual verification has occurred.
 - No new API keys, third-party libraries, WebViews, iframes, TMDB or AniList integrations have been added.
 - Home and Library now use one grid-first route. Empty folder/retry state, source and media focus restoration, account callback ownership, and pagination snapshots still require final scenario-based checks.
-- The original Telegram media metadata enrichment path contains an existing TMDB adapter, unrelated to the unbuilt Extras catalog. Review that legacy dependency separately before declaring complete Extras runtime isolation.
+- The former automatic Telegram-to-TMDB metadata lookup has been disabled in the default catalog path: on-device SeriesMetadataParser now enriches episode/year fields without uploading private filenames. Legacy TmdbRepository remains for compatibility; review any other explicit call sites in the final integration audit.
 - A successful commit does not imply the Kotlin app compiles. Any defects discovered later are to be resolved during the requested final validation pass.
 
 ## Deferred final verification sequence (not started)
