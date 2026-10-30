@@ -850,7 +850,9 @@ fun PlayerScreen(
         playerEngine.firstFrameRendered?.let { frames ->
             launch {
                 frames.collect { rendered ->
-                    if (rendered && isOpening) recordInitialOutput(audioOnly = false)
+                    if (rendered && (isOpening || playbackError != null) && playerEngine.isPlaying) {
+                        recordInitialOutput(audioOnly = false)
+                    }
                 }
             }
         }
@@ -1325,14 +1327,14 @@ fun PlayerScreen(
         val ts = container == "ts" || container == "mts" || container == "m2ts" ||
             VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
         if (!mkv && !ts) return@LaunchedEffect
-        repeat(15) {
+        repeat(12) {
             if (!com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) ||
                 duration > 0L || playbackError != null) return@LaunchedEffect
             val head = kotlinx.coroutines.withTimeoutOrNull(1_500L) {
                 withContext(Dispatchers.IO) {
                     TelegramChunkScheduler.fetchChunk(
                         TelegramChunkRequest(
-                            current.fileId, 0L, 64 * 1024, 16, TelegramChunkPurpose.Metadata
+                            current.fileId, 0L, 256 * 1024, 16, TelegramChunkPurpose.Metadata
                         )
                     )
                 }
@@ -1341,15 +1343,15 @@ fun PlayerScreen(
             val parsedDuration = if (mkv) {
                 headBytes?.let(ContainerHeaderParser::parseMkvDurationMs)
             } else {
-                val totalSize = fileSizeBytes.takeIf { it > 64 * 1024L }
-                    ?: current.fileSizeBytes.takeIf { it > 64 * 1024L } ?: 0L
+                val totalSize = fileSizeBytes.takeIf { it > 256 * 1024L }
+                    ?: current.fileSizeBytes.takeIf { it > 256 * 1024L } ?: 0L
                 val tail = if (totalSize > 0L && headBytes != null) {
                     kotlinx.coroutines.withTimeoutOrNull(1_500L) {
                         withContext(Dispatchers.IO) {
                             TelegramChunkScheduler.fetchChunk(
                                 TelegramChunkRequest(
-                                    current.fileId, totalSize - 64 * 1024L,
-                                    64 * 1024, 16, TelegramChunkPurpose.Metadata
+                                    current.fileId, totalSize - 256 * 1024L,
+                                    256 * 1024, 16, TelegramChunkPurpose.Metadata
                                 )
                             )
                         }
