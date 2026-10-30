@@ -28,6 +28,8 @@ interface PlayerEngine {
     val firstFrameRendered: StateFlow<Boolean>? get() = null
     val currentPositionMs: Long
     val durationMs: Long
+    /** True only for a demuxer-provided, seekable whole-file duration; never a partial-buffer guess. */
+    val seekableContainerDuration: Boolean get() = false
     val bufferedPositionMs: Long
     val isPlaying: Boolean
     val playWhenReady: Boolean
