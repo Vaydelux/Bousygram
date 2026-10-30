@@ -1205,17 +1205,21 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(queueIndex, reloadNonce, isBuffering) {
-        if (!isBuffering) return@LaunchedEffect
-        delay(BUFFERING_STALL_MS)
-        if (!isBuffering) return@LaunchedEffect
-        if (playerEngine.playbackState.value is EnginePlaybackState.Buffering &&
-            !isOpening &&
-            !isReconnecting &&
-            duration <= 0L &&
+    // Do not leave users trapped in Preparing / Reconnecting indefinitely after
+    // an app restart or stale native Telegram file state. This timer is restarted
+    // for each media item and explicit retry, but never by buffering UI flickers.
+    LaunchedEffect(request, queueIndex, reloadNonce) {
+        delay(45_000L)
+        if (firstFrameMs <= 0L && playbackError == null &&
+            (isOpening || isReconnecting || isBuffering) &&
             playerEngine.currentPositionMs <= 0L
         ) {
-            playbackError = "Playback stalled. Try Retry or Skip to the next item."
+            PlaybackDiagnostics.recordStreamError("Playback startup exceeded 45s without a frame")
+            playerEngine.stop()
+            isOpening = false
+            isReconnecting = false
+            isBuffering = false
+            playbackError = "Telegram video could not start. Check your connection, then Retry. If it continues, reopen the library."
             hudVisible = true
         }
     }
