@@ -1216,6 +1216,12 @@ fun PlayerScreen(
         MediaDurationResolver.cachedDurationMs(item.fileId)
             .takeIf { it > 0L }
             ?.let { duration = it }
+            ?: item.trustedDurationMs.takeIf { it > 0L }?.let {
+                MediaDurationResolver.rememberTrustedDuration(
+                    item.fileId, it, MediaDurationResolver.DurationSource.TdLib
+                )
+                duration = it
+            }
             ?: item.durationSeconds.takeIf { it > 0 }?.let { duration = it * 1000L }
         lastSavedPosition = 0L
         val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
