@@ -920,14 +920,15 @@ fun TvFocusSurface(
                 shape = shape
             )
             .clip(shape)
+            // clickable itself owns the D-pad focus target; do not add a second
+            // focusable node that can hide the active focus outline.
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
                 enabled = enabled,
                 onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable(enabled),
+            ),
         color = surface,
         shape = shape
     ) {
@@ -1140,7 +1141,7 @@ fun MediaPosterCard(
         modifier = modifier
             .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
             .graphicsLayer {
-                if (isWatched) alpha = 0.58f
+                if (isWatched && !focused) alpha = 0.58f
             }
             .onFocusChanged {
                 focused = it.isFocused
