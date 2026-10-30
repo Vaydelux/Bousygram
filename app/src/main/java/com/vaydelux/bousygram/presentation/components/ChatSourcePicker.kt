@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +36,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -122,7 +131,13 @@ private fun SourceTab(
     }
     Surface(
         modifier = Modifier
-            .heightIn(min = 52.dp)
+            .heightIn(min = 56.dp)
+            .semantics {
+                role = Role.Button
+                contentDescription = "$title, $category" +
+                    if (selected) ", selected" else ""
+                this.selected = selected
+            }
             .clip(shape)
             .border(if (focused || selected) 2.dp else 1.dp, borderColor, shape)
             .clickable(onClick = onClick)
@@ -179,6 +194,8 @@ fun AllChatsPickerDialog(
 ) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(SourceFilter.ALL) }
+    // Keep scroll position and D-pad focus stable when TDLib adds chats during loading.
+    val gridState = rememberLazyGridState()
     val visibleChats = remember(chats, query, filter, pinnedChatIds) {
         chats.asSequence()
             .filter { chat ->
@@ -228,13 +245,20 @@ fun AllChatsPickerDialog(
                         )
                     }
                 }
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().height(320.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 206.dp),
+                    state = gridState,
+                    modifier = Modifier.fillMaxWidth().height(340.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (isLoading) {
                         item(key = "loading-sources") {
-                            Text("Loading Telegram chats…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+                            Text(
+                                "Loading Telegram chats…",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(16.dp)
+                            )
                         }
                     }
                     if (filter == SourceFilter.ALL && SAVED_MESSAGES_TITLE.contains(query, ignoreCase = true)) {
@@ -248,7 +272,7 @@ fun AllChatsPickerDialog(
                             )
                         }
                     }
-                    items(visibleChats.filterNot { it.isSavedMessages }, key = { it.chatId }) { chat ->
+                    gridItems(visibleChats.filterNot { it.isSavedMessages }, key = { it.chatId }) { chat ->
                         SourcePickerRow(
                             title = chat.title,
                             subtitle = buildString {
@@ -260,8 +284,16 @@ fun AllChatsPickerDialog(
                             onClick = { onSelectChat(chat) }
                         )
                     }
-                    if (visibleChats.isEmpty() && (filter != SourceFilter.ALL || !SAVED_MESSAGES_TITLE.contains(query, ignoreCase = true))) {
-                        item { Text("No matching chats", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+                    if (visibleChats.isEmpty() &&
+                        (filter != SourceFilter.ALL || !SAVED_MESSAGES_TITLE.contains(query, ignoreCase = true))
+                    ) {
+                        item(key = "empty-chats") {
+                            Text(
+                                "No matching chats",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -284,8 +316,16 @@ private fun SourcePickerRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .semantics {
+                role = Role.Button
+                contentDescription = "$title, $subtitle" +
+                    (if (pinned) ", pinned" else "") +
+                    (if (selected) ", selected" else "")
+                this.selected = selected
+            }
             .clip(shape)
-            .border(if (focused) 2.dp else 1.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.56f), shape)
+            .border(if (focused) 3.dp else 1.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.56f), shape)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick)
             .focusable(),
