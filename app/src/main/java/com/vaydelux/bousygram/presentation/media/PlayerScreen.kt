@@ -1689,30 +1689,27 @@ fun PlayerScreen(
 
             override fun previewSeekRelative(seconds: Int) {
                 hudInteractionTick++
-                val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
-                if (max <= 0L) {
-                    seekPreviewPositionMs = -1L
-                    seekFeedbackText = "Seeking is available when video duration is ready"
-                    hudVisible = true
-                    return
-                }
+                val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                 val base = seekPreviewPositionMs.takeIf { it >= 0L }
                     ?: if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
-                seekPreviewPositionMs = (base + seconds * 1000L).coerceIn(0L, max)
-                seekFeedbackText = "Seek ${formatMs(seekPreviewPositionMs)} · OK to confirm · Back to cancel"
+                seekPreviewPositionMs = relativePlayerSeekTarget(base, seconds * 1000L, knownDuration)
+                seekFeedbackText = "Seek ${formatMs(seekPreviewPositionMs)} · OK to confirm · Back to cancel" +
+                    if (knownDuration <= 0L) " · Duration scanning" else ""
                 seekFeedbackSide = if (seconds > 0) 1 else -1
             }
 
             override fun confirmSeekPreview() {
                 val target = seekPreviewPositionMs
-                val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
-                if (target < 0L || max <= 0L) return
+                val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
+                if (target < 0L) return
                 seekPreviewPositionMs = -1L
                 playerInputController.resetSeekPreviewState()
-                val safeTarget = target.coerceIn(0L, max)
+                val safeTarget = relativePlayerSeekTarget(target, 0L, knownDuration)
                 if (castState.connected) CastSessionController.seekTo(safeTarget) else {
                     performTrackedSeek(safeTarget)
-                    queue.getOrNull(queueIndex)?.let { CacheManager.onSeek(it.fileId, safeTarget, fileSizeBytes, max) }
+                    if (knownDuration > 0L) queue.getOrNull(queueIndex)?.let {
+                        CacheManager.onSeek(it.fileId, safeTarget, fileSizeBytes, knownDuration)
+                    }
                 }
                 seekFeedbackText = "Seeking to ${formatMs(safeTarget)}"
             }
