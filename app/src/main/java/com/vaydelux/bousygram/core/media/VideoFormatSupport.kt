@@ -103,6 +103,9 @@ object VideoFormatSupport {
                 mime == MimeTypes.VIDEO_MP4 || mime == "application/mp4" -> return MimeTypes.VIDEO_MP4
                 mime == MimeTypes.VIDEO_MATROSKA || mime == "application/x-matroska" -> return MimeTypes.VIDEO_MATROSKA
                 mime == MimeTypes.VIDEO_WEBM -> return MimeTypes.VIDEO_WEBM
+                mime == MimeTypes.VIDEO_MP2T || mime == "video/mpegts" ||
+                    mime == "video/vnd.dlna.mpeg-tts" || mime == "video/x-mpegts" ->
+                    return MimeTypes.VIDEO_MP2T
             }
         }
         return when (extensionOf(streamLabel(fileName, title))) {
