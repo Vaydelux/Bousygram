@@ -888,9 +888,12 @@ fun TvFocusSurface(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(18.dp)
     val interaction = remember { MutableInteractionSource() }
+    // Respect Android's global animation setting and keep focus transitions fast.
+    val motionDisabled = android.os.Build.VERSION.SDK_INT >= 26 &&
+        !android.animation.ValueAnimator.areAnimatorsEnabled()
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.05f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (motionDisabled) 1f else if (focused) 1.025f else 1f,
+        animationSpec = tween(durationMillis = if (motionDisabled) 0 else 145),
         label = "focusScale"
     )
     val border by animateColorAsState(
