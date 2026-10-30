@@ -772,7 +772,37 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playerEngine, queueIndex) {
-        var hadFirstFrame = false
+        fun recordFirstVideoOutput() {
+            if (firstFrameMs > 0L || playbackError != null || playerStartedAtMs <= 0L) return
+            val effectiveStartMs = playerStartedAtMs
+            firstFrameMs = (System.currentTimeMillis() - effectiveStartMs).coerceAtLeast(1L)
+            isOpening = false
+            isReconnecting = false
+            isBuffering = false
+            decoderName = playerEngine.activeDecoder
+            if (timeToFirstByteMs == 0L) {
+                val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
+                val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, effectiveStartMs)
+                timeToFirstByteMs = if (ttfb > 0L) ttfb else firstFrameMs.coerceAtLeast(1L)
+            }
+            recordMetrics()
+            val current = queue.getOrNull(queueIndex)
+            if (current != null && fileSizeBytes > 0L) {
+                TelegramPreCacheEngine.cacheFullVideoOnWifi(context, current.fileId, fileSizeBytes)
+            }
+            PlaybackSessionController.recordFirstFrame(playbackSession, firstFrameMs)
+            if (current != null) playbackSession.onPlaying(current)
+        }
+
+        // ExoPlayer reports an actual video output event; readiness alone can leave a black screen.
+        // libmpv has no equivalent reliable callback in this wrapper, so Ready is its fallback.
+        playerEngine.firstFrameRendered?.let { frames ->
+            launch {
+                frames.collect { rendered ->
+                    if (rendered && isOpening) recordFirstVideoOutput()
+                }
+            }
+        }
         playerEngine.playbackState.collect { state ->
             when (state) {
                 is EnginePlaybackState.Buffering -> {
@@ -787,8 +817,11 @@ fun PlayerScreen(
                 }
                 is EnginePlaybackState.Ready -> {
                     isBuffering = false
-                    isOpening = false
-                    isReconnecting = false
+                    // Keep the loading banner until ExoPlayer renders a real frame.
+                    if (playerEngine.firstFrameRendered == null || firstFrameMs > 0L) {
+                        isOpening = false
+                        isReconnecting = false
+                    }
                     playbackError = null
                     if (rebufferStartMs > 0L) {
                         totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
@@ -801,25 +834,7 @@ fun PlayerScreen(
                     if (isPlaying) audioFocusController.request(playerEngine)
 
                     val effectiveStartMs = if (playerStartedAtMs > 0L) playerStartedAtMs else playerSessionStartMs
-                    if (!hadFirstFrame) {
-                        hadFirstFrame = true
-                        firstFrameMs = (System.currentTimeMillis() - effectiveStartMs).coerceAtLeast(1L)
-                        decoderName = playerEngine.activeDecoder
-                        if (timeToFirstByteMs == 0L) {
-                            val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
-                            val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, effectiveStartMs)
-                            timeToFirstByteMs = if (ttfb > 0L) ttfb else firstFrameMs.coerceAtLeast(1L)
-                        }
-                        recordMetrics()
-                        val current = queue.getOrNull(queueIndex)
-                        if (current != null && fileSizeBytes > 0L) {
-                            TelegramPreCacheEngine.cacheFullVideoOnWifi(context, current.fileId, fileSizeBytes)
-                        }
-                        PlaybackSessionController.recordFirstFrame(playbackSession, firstFrameMs)
-                        if (current != null) {
-                            playbackSession.onPlaying(current)
-                        }
-                    }
+                    if (playerEngine.firstFrameRendered == null) recordFirstVideoOutput()
 
                     val resume = pendingResumeMs
                     if (resume > 0L) {
@@ -1230,10 +1245,7 @@ fun PlayerScreen(
     // for each media item and explicit retry, but never by buffering UI flickers.
     LaunchedEffect(request, queueIndex, reloadNonce) {
         delay(45_000L)
-        if (firstFrameMs <= 0L && playbackError == null &&
-            (isOpening || isReconnecting || isBuffering) &&
-            playerEngine.currentPositionMs <= 0L
-        ) {
+        if (firstFrameMs <= 0L && playbackError == null && playerStartedAtMs > 0L) {
             PlaybackDiagnostics.recordStreamError("Playback startup exceeded 45s without a frame")
             playerEngine.stop()
             isOpening = false

@@ -47,6 +47,8 @@ class ExoPlayerEngine(
 
     private val _playbackState = MutableStateFlow<EnginePlaybackState>(EnginePlaybackState.Idle)
     override val playbackState: StateFlow<EnginePlaybackState> = _playbackState.asStateFlow()
+    private val _firstFrameRendered = MutableStateFlow(false)
+    override val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
     override val currentPositionMs: Long get() = player.currentPosition.coerceAtLeast(0L)
     override val durationMs: Long get() = player.duration.coerceAtLeast(0L)
@@ -102,6 +104,15 @@ class ExoPlayerEngine(
         )
 
     private val analyticsListener = object : AnalyticsListener {
+        override fun onRenderedFirstFrame(
+            eventTime: AnalyticsListener.EventTime,
+            output: Any,
+            renderTimeMs: Long
+        ) {
+            // STATE_READY is not proof that video has actually appeared on the surface.
+            _firstFrameRendered.value = true
+        }
+
         override fun onVideoDecoderInitialized(
             eventTime: AnalyticsListener.EventTime,
             decoderName: String,
@@ -175,6 +186,7 @@ class ExoPlayerEngine(
     }
 
     override fun prepare(streamUrl: String) {
+        _firstFrameRendered.value = false
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.parse(streamUrl))
             .build()
@@ -242,6 +254,7 @@ class ExoPlayerEngine(
     }
 
     override fun stop() {
+        _firstFrameRendered.value = false
         player.stop()
         player.clearMediaItems()
         _playbackState.value = EnginePlaybackState.Idle
