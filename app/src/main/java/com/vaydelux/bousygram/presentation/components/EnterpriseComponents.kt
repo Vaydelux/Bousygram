@@ -14,7 +14,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +66,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -631,19 +634,23 @@ fun TvTopNavBar(
                                 }
                             )
                             .border(
-                                width = if (focused) 1.5.dp else 0.dp,
+                                width = if (focused) 3.dp else 0.dp,
                                 color = if (focused) colors.primary else Color.Transparent,
                                 shape = RoundedCornerShape(8.dp)
                             )
+                            .semantics {
+                                contentDescription = dest.label
+                                selected = isSelected
+                            }
+                            .onFocusChanged { focused = it.isFocused }
                             .clickable(
                                 interactionSource = interaction,
                                 indication = ripple(color = colors.primary),
+                                role = Role.Button,
                                 onClick = {
                                     if (dest == ShellDestination.Search) onOpenSearch() else onSelect(dest)
                                 }
                             )
-                            .onFocusChanged { focused = it.isFocused }
-                            .focusable()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -678,17 +685,18 @@ fun TvTopNavBar(
                     }
                 )
                 .border(
-                    width = if (profileFocused) 1.5.dp else 1.dp,
+                    width = if (profileFocused) 3.dp else 1.dp,
                     color = if (profileFocused) colors.primary else colors.outlineVariant,
                     shape = CircleShape
                 )
+                .semantics { contentDescription = "Profile and settings" }
+                .onFocusChanged { profileFocused = it.isFocused }
                 .clickable(
                     interactionSource = profileInteraction,
                     indication = ripple(color = colors.primary),
+                    role = Role.Button,
                     onClick = onOpenProfile
-                )
-                .onFocusChanged { profileFocused = it.isFocused }
-                .focusable(),
+                ),
             contentAlignment = Alignment.Center
         ) {
             ShellNavIcon(
@@ -777,17 +785,18 @@ fun TopBarIconButton(
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) colors.surfaceVariant else Color.Transparent)
             .border(
-                width = if (focused) 1.dp else 0.dp,
-                color = if (focused) colors.primary.copy(alpha = 0.5f) else Color.Transparent,
+                width = if (focused) 3.dp else 0.dp,
+                color = if (focused) colors.primary else Color.Transparent,
                 shape = RoundedCornerShape(10.dp)
             )
+            .semantics { this.contentDescription = contentDescription }
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
+                role = Role.Button,
                 onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            ),
         contentAlignment = Alignment.Center
     ) {
         icon(tint)
@@ -920,14 +929,17 @@ fun TvFocusSurface(
                 shape = shape
             )
             .clip(shape)
+            // One focus target only: clickable already implements keyboard/TV focus.
+            // The observer must be OUTSIDE clickable or D-pad focus is not painted.
+            .semantics { this.selected = selected }
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
                 enabled = enabled,
+                role = Role.Button,
                 onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable(enabled),
+            ),
         color = surface,
         shape = shape
     ) {
