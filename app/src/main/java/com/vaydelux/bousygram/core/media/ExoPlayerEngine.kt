@@ -6,6 +6,7 @@ import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -187,8 +188,16 @@ class ExoPlayerEngine(
 
     override fun prepare(streamUrl: String) {
         _firstFrameRendered.value = false
+        val uri = Uri.parse(streamUrl)
+        val name = uri.getQueryParameter("name").orEmpty()
         val mediaItem = MediaItem.Builder()
-            .setUri(Uri.parse(streamUrl))
+            .setUri(uri)
+            .apply {
+                // The tdlib:// URI has no .mkv extension. Preserve the original filename's
+                // container identity so Media3 selects a progressive Matroska media source.
+                if (name.endsWith(".mkv", ignoreCase = true)) setMimeType(MimeTypes.VIDEO_MATROSKA)
+                else if (name.endsWith(".webm", ignoreCase = true)) setMimeType(MimeTypes.VIDEO_WEBM)
+            }
             .build()
         player.setMediaItem(mediaItem)
         player.prepare()
