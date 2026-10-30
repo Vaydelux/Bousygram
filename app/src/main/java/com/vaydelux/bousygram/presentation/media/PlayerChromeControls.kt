@@ -91,7 +91,7 @@ internal fun PlayerTransportControls(
 ) {
     val isTv = layout == PlayerChromeLayout.TV
     val isWide = layout != PlayerChromeLayout.TOUCH_COMPACT
-    val touchMin = if (isTv) 46.dp else 52.dp
+    val touchMin = if (isTv) 48.dp else 52.dp
     Row(
         modifier = (if (isTv) Modifier else Modifier.fillMaxWidth())
             .testTag("player_transport_controls"),
