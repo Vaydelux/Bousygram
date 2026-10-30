@@ -301,6 +301,11 @@ fun BrowseScreen(
                 hasMore = state.hasMore,
                 privacyMode = safeMode,
                 gridState = libraryGridState,
+                sourceFolderRestoration = viewModel.sourceFolderRestoration(explorerPosition.section),
+                onSourceFocused = { viewModel.rememberSourceFolderFocus(explorerPosition.section, it.chatId) },
+                onSourceViewport = { index, offset ->
+                    viewModel.rememberSourceFolderViewport(explorerPosition.section, index, offset)
+                },
                 onSelectTab = viewModel::selectExplorerSection,
                 onSelectSource = viewModel::enterExplorerSource,
                 onSelectTopic = viewModel::enterExplorerTopic,
