@@ -197,7 +197,11 @@ class ExoPlayerEngine(
         val mediaItem = MediaItem.Builder()
             .setUri(uri)
             .apply {
-                if (mime == MimeTypes.VIDEO_MATROSKA || mime == MimeTypes.VIDEO_WEBM) {
+                if (mime == MimeTypes.VIDEO_MATROSKA ||
+                    mime == MimeTypes.VIDEO_WEBM || mime == MimeTypes.VIDEO_MP2T
+                ) {
+                    // .ts and .mkv names are hidden in tdlib:// query parameters.
+                    // Explicitly identify their progressive container for Media3.
                     setMimeType(mime)
                 }
             }
