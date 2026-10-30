@@ -99,6 +99,19 @@ object PlaybackSessionController {
         }
     }
 
+    /**
+     * Switch the file capability when a TDLib message resolves to a different native fileId.
+     * The caller must update the same session queue item before starting the new data source.
+     * The normal stop() path then unbinds only the refreshed ID.
+     */
+    fun rebindActiveFile(session: PlaybackSession, previousId: Int, resolvedId: Int) {
+        if (resolvedId <= 0 || resolvedId == previousId || session.isStopped() ||
+            !activeSessions.contains(session)
+        ) return
+        unbindActiveFile(previousId)
+        bindActiveFile(resolvedId)
+    }
+
     fun start(
         queue: List<com.vaydelux.bousygram.presentation.media.PlaybackQueueItem>,
         startIndex: Int = 0,
