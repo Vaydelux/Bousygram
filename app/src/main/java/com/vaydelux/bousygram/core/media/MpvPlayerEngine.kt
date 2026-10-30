@@ -200,7 +200,13 @@ class MpvPlayerEngine(
                 }
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
                     _playbackState.value = EnginePlaybackState.Ready
-                    _isPlaying.value = true
+                    // A newly loaded MKV must not inherit a paused state from the old file.
+                    // Respect an explicit user pause if one happened while buffering.
+                    if (_playWhenReady.value) {
+                        runCatching { mpv.setPropertyBoolean("pause", false) }
+                            .onFailure { Log.w(TAG, "Unable to start loaded media", it) }
+                    }
+                    _isPlaying.value = _playWhenReady.value
                     refreshTracks()
                     setResizeMode(currentResizeMode)
                 }
