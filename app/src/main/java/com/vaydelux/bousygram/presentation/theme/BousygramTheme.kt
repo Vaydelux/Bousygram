@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -32,15 +33,52 @@ enum class BousygramThemePreset(
         "dark", "Dark", "Deep navy with vibrant mint and cyan highlights",
         Color(0xFF5EE5BE), Color(0xFF4AC4E2), Color(0xFFFFD98A),
         Color(0xFF0A0F1D), Color(0xFF111927), Color(0xFF16243A), Color(0xFF223249)
+    ),
+    HIGH_CONTRAST(
+        "high_contrast", "High contrast", "Bright focus indicators and enhanced text contrast",
+        Color(0xFFFFE66A), Color(0xFF7CE7FF), Color(0xFFFFB5EB),
+        Color(0xFF060708), Color(0xFF0F1215), Color(0xFF1E2429), Color(0xFFE1E7EF)
+    ),
+    LIGHT(
+        "light", "Light", "Bright high-legibility palette for handheld screens",
+        Color(0xFF075F53), Color(0xFF005C7A), Color(0xFF884A00),
+        Color(0xFFF8FBFC), Color(0xFFFFFFFF), Color(0xFFE6EDF0), Color(0xFF667780)
     );
 
     companion object {
         val MIDNIGHT = DARK
-        fun fromId(id: String?): BousygramThemePreset = DARK
+        fun fromId(id: String?): BousygramThemePreset =
+            entries.firstOrNull { it.id == id || (id == "midnight" && it == DARK) } ?: DARK
     }
 }
 
-private fun schemeFor(preset: BousygramThemePreset): ColorScheme = darkColorScheme(
+private fun schemeFor(preset: BousygramThemePreset): ColorScheme {
+    if (preset == BousygramThemePreset.LIGHT) {
+        return lightColorScheme(
+            primary = preset.primary,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFD4F3EB),
+            onPrimaryContainer = Color(0xFF063B32),
+            secondary = preset.secondary,
+            onSecondary = Color.White,
+            tertiary = preset.tertiary,
+            onTertiary = Color.White,
+            background = preset.background,
+            onBackground = Color(0xFF17242C),
+            surface = preset.surface,
+            onSurface = Color(0xFF17242C),
+            surfaceVariant = preset.surfaceVariant,
+            onSurfaceVariant = Color(0xFF354851),
+            surfaceContainer = Color(0xFFF1F5F7),
+            surfaceContainerHigh = preset.surfaceVariant,
+            outline = preset.outline,
+            outlineVariant = Color(0xFFBCC8CE),
+            error = Color(0xFFB42335),
+            onError = Color.White
+        )
+    }
+    val highContrast = preset == BousygramThemePreset.HIGH_CONTRAST
+    return darkColorScheme(
     primary = preset.primary,
     onPrimary = Color(0xFF071014),
     primaryContainer = preset.primary.copy(alpha = 0.22f),
@@ -54,11 +92,11 @@ private fun schemeFor(preset: BousygramThemePreset): ColorScheme = darkColorSche
     tertiaryContainer = preset.tertiary.copy(alpha = 0.18f),
     onTertiaryContainer = Color(0xFFFFF8EF),
     background = preset.background,
-    onBackground = Color(0xFFF4F7FC),
+    onBackground = if (highContrast) Color.White else Color(0xFFF4F7FC),
     surface = preset.surface,
-    onSurface = Color(0xFFF4F7FC),
+    onSurface = if (highContrast) Color.White else Color(0xFFF4F7FC),
     surfaceVariant = preset.surfaceVariant,
-    onSurfaceVariant = Color(0xFFB4C0D2),
+    onSurfaceVariant = if (highContrast) Color(0xFFE7EBF1) else Color(0xFFB4C0D2),
     surfaceContainerLowest = preset.background,
     surfaceContainerLow = preset.surface.copy(alpha = 0.72f),
     surfaceContainer = preset.surface,
@@ -71,6 +109,7 @@ private fun schemeFor(preset: BousygramThemePreset): ColorScheme = darkColorSche
     errorContainer = Color(0xFF5C1824),
     onErrorContainer = Color(0xFFFFD9DF)
 )
+}
 
 private val BousygramTypography = Typography(
     displayLarge = TextStyle(
