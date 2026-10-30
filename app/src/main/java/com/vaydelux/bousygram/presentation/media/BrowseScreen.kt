@@ -761,7 +761,11 @@ fun BrowseScreen(
                 selectedChatId = state.selectedChatId,
                 selectedTopicId = state.selectedTopicId,
                 videos = videos,
-                isLoading = state.isLoading || state.isSidebarLoading || state.isLoadingTopics,
+                isLoading = state.isLoading,
+                isLoadingSources = state.isSidebarLoading,
+                isLoadingTopics = state.isLoadingTopics,
+                errorMessage = state.error,
+                sourceErrorMessage = state.sidebarError,
                 isLoadingMore = state.isLoadingMore,
                 hasMore = state.hasMore,
                 privacyMode = safeMode,
@@ -778,6 +782,9 @@ fun BrowseScreen(
                 restoreFocusedMediaKey = browseRestoration.focusedMediaKey,
                 restoreFocusRequester = restoreFocusRequester,
                 onLoadMore = viewModel::loadMoreIfNeeded,
+                onRefreshSources = viewModel::refreshVideoChats,
+                onRefreshTopics = { state.selectedChatId?.let(viewModel::loadForumTopics) },
+                onRefreshMedia = viewModel::refreshCurrentMedia,
                 onSearch = {
                     val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
                     onOpenSearch(chatId, state.selectedChatTitle)
