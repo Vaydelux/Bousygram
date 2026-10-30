@@ -1290,6 +1290,36 @@ fun PlayerScreen(
         }
     }
 
+    // A stalled Matroska startup may be a decoder/extractor incompatibility,
+    // not a network outage. Try the independently implemented libmpv path once,
+    // before the final 45s watchdog reports a fatal startup error.
+    LaunchedEffect(request, queueIndex, reloadNonce) {
+        while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
+        if (playerStartedAtMs <= 0L || playbackError != null) return@LaunchedEffect
+        val startedAt = playerStartedAtMs
+        while (playbackError == null &&
+            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
+            System.currentTimeMillis() - startedAt < 20_000L
+        ) delay(500L)
+        val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
+        val isMatroska = current.fileName.endsWith(".mkv", ignoreCase = true) ||
+            current.title.endsWith(".mkv", ignoreCase = true) ||
+            current.mimeType.equals("video/x-matroska", ignoreCase = true) ||
+            current.mimeType.equals("application/x-matroska", ignoreCase = true)
+        if (isMatroska && playerEngine is ExoPlayerEngine && !hasFallenBackToMpv &&
+            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) && playbackError == null
+        ) {
+            hasFallenBackToMpv = true
+            PlaybackDiagnostics.recordStreamError(
+                "ExoPlayer MKV startup stalled without first frame; attempting libmpv fallback"
+            )
+            requestEngineSwitch(
+                SelectedPlayerEngine.MPV,
+                "MKV startup stalled. Trying compatibility player…"
+            )
+        }
+    }
+
     // Do not leave users trapped in Preparing / Reconnecting indefinitely after
     // an app restart or stale native Telegram file state. This timer is restarted
     // for each media item and explicit retry, but never by buffering UI flickers.
