@@ -228,7 +228,7 @@ fun AllChatsPickerDialog(
                     }
                 }
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     if (isLoading) {
