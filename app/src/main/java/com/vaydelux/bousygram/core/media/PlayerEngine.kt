@@ -24,6 +24,8 @@ data class MediaTrackInfo(
 interface PlayerEngine {
     val engineName: String
     val playbackState: StateFlow<EnginePlaybackState>
+    /** Null for engines without an authoritative video-output callback (currently libmpv). */
+    val firstFrameRendered: StateFlow<Boolean>? get() = null
     val currentPositionMs: Long
     val durationMs: Long
     val bufferedPositionMs: Long
