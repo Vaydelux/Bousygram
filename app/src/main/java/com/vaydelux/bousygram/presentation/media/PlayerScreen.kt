@@ -361,14 +361,14 @@ fun PlayerScreen(
         )
     }
 
-    fun applyPlayerDurationMs(candidateMs: Long) {
+    fun applyPlayerDurationMs(candidateMs: Long, engine: PlayerEngine) {
         val item = queue.getOrNull(queueIndex) ?: return
         val trusted = MediaDurationResolver.playerDurationIfTrusted(
             fileId = item.fileId,
             durationMs = candidateMs,
             totalSize = fileSizeBytes,
             hintSeconds = item.durationSeconds,
-            seekableContainerDuration = playerEngine.seekableContainerDuration
+            seekableContainerDuration = engine.seekableContainerDuration
         )
         if (trusted > duration) duration = trusted
     }
@@ -883,7 +883,7 @@ fun PlayerScreen(
                         rebufferStartMs = 0L
                     }
                     if (playerEngine.durationMs > 0L) {
-                        applyPlayerDurationMs(playerEngine.durationMs)
+                        applyPlayerDurationMs(playerEngine.durationMs, playerEngine)
                     }
                     // Preserve autoplay intent across asynchronous MKV demux/decoder readiness.
                     // An explicit user pause clears playWhenReady and is never overridden.
@@ -1219,12 +1219,6 @@ fun PlayerScreen(
         MediaDurationResolver.cachedDurationMs(item.fileId)
             .takeIf { it > 0L }
             ?.let { duration = it }
-            ?: item.trustedDurationMs.takeIf { it > 0L }?.let {
-                MediaDurationResolver.rememberTrustedDuration(
-                    item.fileId, it, MediaDurationResolver.DurationSource.TdLib
-                )
-                duration = it
-            }
             ?: item.durationSeconds.takeIf { it > 0 }?.let { duration = it * 1000L }
         lastSavedPosition = 0L
         val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
@@ -1510,7 +1504,7 @@ fun PlayerScreen(
                     pendingSeekStartedAtMs = 0L
                 }
             }
-            applyPlayerDurationMs(playerEngine.durationMs)
+            applyPlayerDurationMs(playerEngine.durationMs, playerEngine)
             if (timeToFirstByteMs == 0L && playerStartedAtMs > 0L) {
                 val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
                 val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, playerStartedAtMs)
