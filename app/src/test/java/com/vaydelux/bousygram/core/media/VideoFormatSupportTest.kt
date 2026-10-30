@@ -27,6 +27,14 @@ class VideoFormatSupportTest {
     }
 
     @Test
+    fun matroskaMimeWorksWhenTelegramOnlyProvidesMimeOrTitle() {
+        assertEquals("video/x-matroska", VideoFormatSupport.exoMimeType("application/x-matroska", null, "Movie"))
+        assertEquals("video/x-matroska", VideoFormatSupport.exoMimeType(null, null, "Movie.mkv"))
+        assertEquals("video/x-matroska", VideoFormatSupport.exoMimeType(null, "movie.MKV", "Movie"))
+        assertEquals("video/webm", VideoFormatSupport.exoMimeType(null, "movie.webm", "Movie"))
+    }
+
+    @Test
     fun hlsPlaylistUsesM3u8MimeType() {
         assertTrue(VideoFormatSupport.isPlayableVideo("application/vnd.apple.mpegurl", "live.m3u8"))
         assertTrue(VideoFormatSupport.isPlayableVideo("application/octet-stream", "live.m3u8"))
