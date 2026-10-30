@@ -34,6 +34,17 @@ import kotlin.coroutines.coroutineContext
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * Decide whether an extractor's next byte range needs its own TDLib download window.
+ * Matroska Cues are often at EOF, so no tail-offset exemption is safe here.
+ */
+internal fun requiresPlaybackWindowReposition(
+    requestOffset: Long,
+    windowOffset: Long?,
+    contiguousEndExclusive: Long
+): Boolean = windowOffset == null ||
+    requestOffset < windowOffset || requestOffset >= contiguousEndExclusive
+
 internal enum class TelegramChunkPurpose {
     Preflight,
     Priming,
@@ -909,14 +920,15 @@ internal object TelegramChunkScheduler {
         val window = downloadWindows[request.fileId]
         val saved = savedTails[request.fileId]
         if (saved != null && request.offset >= saved.offset && request.offset < saved.offset + saved.bytes.size) return
-        val totalSize = fileSizes[request.fileId] ?: 0L
-        if (totalSize > HEAD_BURST_BYTES && request.offset >= (totalSize - TAIL_BURST_BYTES)) {
-            return
-        }
+        // Matroska extractors commonly seek to Cues near EOF during startup. Previously
+        // *all* tail seeks were skipped here, even when MKV had not prefetched any tail
+        // bytes. The caller would then wait for bytes never requested from TDLib.
+        // readReadyChunk/sliceSavedTail handle cached bytes before reaching this method;
+        // a missing tail range must be requested just like any other random access.
         val currentFile = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
         val prefix = knownPrefixBytes(currentFile, window?.offset ?: request.offset)
         val contiguousEnd = (window?.offset ?: request.offset) + prefix + PLAYBACK_WINDOW_BYTES
-        val isOutside = window == null || request.offset < window.offset || request.offset >= contiguousEnd
+        val isOutside = requiresPlaybackWindowReposition(request.offset, window?.offset, contiguousEnd)
         if (isOutside) {
             Log.d(TAG, "Seek detected fileId=${request.fileId} offset=${request.offset}; cancelling stale in-flight downloads")
             PlaybackTelemetryRecorder.recordSupersededWindow(request.fileId)
