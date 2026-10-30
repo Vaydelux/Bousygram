@@ -267,6 +267,7 @@ class MediaViewModel(
                     }
                     hasLoadedVideoChats = false
                     requestedThumbnailFileIds.clear()
+                    enrichedMediaKeys.clear()
                     initializedAccount = null
                     isInitialized = false
                 }
@@ -737,32 +738,39 @@ class MediaViewModel(
     private val enrichedMediaKeys =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
+    /**
+     * Local-only title metadata parsing. Do not transmit private Telegram message
+     * titles or filenames to TMDB automatically just because a BuildConfig API
+     * key exists. Future Extras metadata access requires explicit user approval.
+     */
     private fun enrichMediaItemsAsync(items: List<MediaItem>) {
-        val itemsToEnrich = items.filter { item ->
-            val key = "${item.chatId}_${item.messageId}"
-            (item.tmdbPosterPath.isNullOrBlank() && item.tmdbTitle.isNullOrBlank()) && enrichedMediaKeys.add(key)
-        }
-        if (itemsToEnrich.isEmpty()) return
-
         val owner = AccountSession.current() ?: return
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val context = com.vaydelux.bousygram.app.BousygramApp.instance
-            itemsToEnrich.chunked(10).forEach { chunk ->
+        val pending = items.filter { item ->
+            enrichedMediaKeys.add("${owner.accountId}:${owner.generation}:${item.chatId}:${item.messageId}")
+        }
+        if (pending.isEmpty()) return
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            pending.chunked(32).forEach { batch ->
                 if (!AccountSession.isCurrent(owner)) return@launch
-                val enrichedChunk = chunk.map { item ->
-                    try {
-                        com.vaydelux.bousygram.data.repository.TmdbRepository.enrich(item, context)
-                    } catch (e: Exception) {
-                        item
-                    }
+                val parsed = batch.associate { item ->
+                    val info = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(
+                        title = item.title,
+                        fileName = item.fileName
+                    )
+                    val enriched = item.copy(
+                        releaseYear = item.releaseYear ?: info.year,
+                        seasonNumber = item.seasonNumber ?: info.seasonNumber,
+                        episodeNumber = item.episodeNumber ?: info.episodeNumber,
+                        seriesTitle = item.seriesTitle ?: info.seriesTitle.takeIf { info.isSeries }
+                    )
+                    ("${item.chatId}:${item.messageId}") to enriched
                 }
                 _uiState.update { current ->
                     if (!AccountSession.isCurrent(owner)) return@update current
-                    val enrichedMap = enrichedChunk.associateBy { "${it.chatId}_${it.messageId}" }
                     current.copy(
-                        items = current.items.map { existing ->
-                            val key = "${existing.chatId}_${existing.messageId}"
-                            enrichedMap[key] ?: existing
+                        items = current.items.map { item ->
+                            parsed["${item.chatId}:${item.messageId}"] ?: item
                         }
                     )
                 }
