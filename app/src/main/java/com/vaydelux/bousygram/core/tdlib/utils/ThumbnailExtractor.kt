@@ -9,6 +9,10 @@ import androidx.core.graphics.scale
 import com.vaydelux.bousygram.core.account.AccountSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry
 import java.io.File
 import java.io.FileOutputStream
 
@@ -34,6 +38,7 @@ object ThumbnailExtractor {
     data class PreviewKey(val accountId: Long, val fileId: Int, val timeBucketMs: Long)
     private val previewCache = android.util.LruCache<PreviewKey, Bitmap>(maxPreviewCache)
     private val diskWriteLock = Any()
+    private val localFramePermits = Semaphore(2)
 
     fun invalidateAccountResources() { memoryCache.evictAll(); previewCache.evictAll() }
 
@@ -50,6 +55,77 @@ object ThumbnailExtractor {
         } else {
             memoryCache.trimToSize((memoryCache.maxSize() / 2).coerceAtLeast(1))
             previewCache.trimToSize((previewCache.maxSize() / 2).coerceAtLeast(1))
+        }
+    }
+
+    /**
+     * Telegram often sends .ts video documents without a server thumbnail. Extract
+     * only from bytes TDLib has ALREADY cached; never trigger a new video download
+     * just to populate the poster grid. Extraction is bounded across visible cards.
+     */
+    suspend fun getCachedTransportStreamThumbnail(
+        context: Context,
+        fileId: Int
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        val owner = AccountSession.current() ?: return@withContext null
+        if (fileId <= 0) return@withContext null
+        val key = ThumbnailKey(owner.accountId, fileId)
+        memoryCache.get(key)?.let {
+            return@withContext it.takeIf { AccountSession.isCurrent(owner) }
+        }
+        val dir = File(context.cacheDir, accountCachePath(owner.accountId, "video_thumbnails"))
+        val disk = File(dir, "thumb_$fileId.png")
+        if (disk.exists()) {
+            val cached = runCatching {
+                android.graphics.BitmapFactory.decodeFile(disk.absolutePath)
+            }.getOrNull()
+            if (cached != null && AccountSession.isCurrent(owner)) {
+                memoryCache.put(key, cached)
+                return@withContext cached
+            }
+        }
+        localFramePermits.withPermit {
+            val file = withTimeoutOrNull(2_000L) {
+                TelegramFileGatewayRegistry.current.getFile(fileId)
+            } ?: return@withPermit null
+            // Do not read sparse/incomplete files. If downloaded prefix is sufficient
+            // for decoding, a future dedicated partial-reader can be added safely.
+            if (!file.isDownloadingCompleted || file.localPath.isBlank()) return@withPermit null
+            val local = File(file.localPath)
+            if (!local.isFile || local.length() < 188L * 20L) return@withPermit null
+            val retriever = MediaMetadataRetriever()
+            val frame = try {
+                retriever.setDataSource(local.absolutePath)
+                sequenceOf(0L, 1_000_000L, 3_000_000L)
+                    .mapNotNull { time ->
+                        runCatching {
+                            retriever.getFrameAtTime(time, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        }.getOrNull()
+                    }.firstOrNull()
+            } catch (e: Exception) {
+                Log.d(TAG, "No local transport-stream frame for fileId=$fileId: ${e.javaClass.simpleName}")
+                null
+            } finally {
+                runCatching { retriever.release() }
+            } ?: return@withPermit null
+            if (!AccountSession.isCurrent(owner)) return@withPermit null
+            val scaled = frame.scale(320, 180, true)
+            synchronized(diskWriteLock) {
+                if (!AccountSession.isCurrent(owner)) return@withPermit null
+                if (!dir.exists() && !dir.mkdirs()) return@withPermit null
+                val atomic = AtomicFile(disk)
+                val out = atomic.startWrite()
+                try {
+                    check(scaled.compress(Bitmap.CompressFormat.PNG, 90, out))
+                    atomic.finishWrite(out)
+                } catch (failure: Throwable) {
+                    atomic.failWrite(out)
+                    throw failure
+                }
+            }
+            if (!AccountSession.isCurrent(owner)) return@withPermit null
+            memoryCache.put(key, scaled)
+            scaled
         }
     }
 
