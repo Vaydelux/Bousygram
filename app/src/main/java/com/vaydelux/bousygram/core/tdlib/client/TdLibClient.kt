@@ -108,11 +108,10 @@ object TdLibClient {
                 // A coroutine can time out while Java is still returning from native send.
                 // The negative sentinel makes that race safe in both possible orders:
                 // after send -> unregister immediately; before send -> unregister in onCancel.
-                val nativeRequestId = AtomicLong(0L)
+                val nativeRequest = NativeRequestCancellation(connection::forgetRequest)
                 continuation.invokeOnCancellation {
                     pendingResponses.forget(ticket)
-                    val nativeId = nativeRequestId.getAndSet(-1L)
-                    if (nativeId > 0L) connection.forgetRequest(nativeId)
+                    nativeRequest.cancel()
                 }
 
                 if (!AccountSession.isCurrent(owner) || clientGeneration.get() != generation ||
@@ -133,9 +132,7 @@ object TdLibClient {
                             continuation.resume(result)
                         }
                     }
-                    if (!nativeRequestId.compareAndSet(0L, nativeId) && nativeId > 0L) {
-                        connection.forgetRequest(nativeId)
-                    }
+                    nativeRequest.attach(nativeId)
                 } catch (failure: Exception) {
                     if (pendingResponses.finish(ticket) && continuation.isActive) {
                         continuation.resumeWithException(failure)
