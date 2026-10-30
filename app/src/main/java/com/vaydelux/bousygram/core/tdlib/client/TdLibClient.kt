@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 
@@ -126,7 +127,7 @@ object TdLibClient {
                     }
                 } catch (failure: Exception) {
                     if (pendingResponses.finish(ticket) && continuation.isActive) {
-                        continuation.cancel(CancellationException("Unable to submit TDLib request", failure))
+                        continuation.resumeWithException(failure)
                     }
                 }
             }
