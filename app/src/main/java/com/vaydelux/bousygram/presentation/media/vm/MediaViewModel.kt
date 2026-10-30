@@ -7,6 +7,7 @@ import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
 import com.vaydelux.bousygram.data.repository.searchChatVideos
+import com.vaydelux.bousygram.presentation.media.stableChatCatalog
 import com.vaydelux.bousygram.data.repository.searchGlobalVideos
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaUiState
@@ -486,7 +487,7 @@ class MediaViewModel(
             hasLoadedVideoChats = true
             _uiState.update { current ->
                 current.copy(
-                    videoChats = chats,
+                    videoChats = stableChatCatalog(current.videoChats, chats),
                     isSidebarLoading = false,
                     sidebarError = error
                 )
