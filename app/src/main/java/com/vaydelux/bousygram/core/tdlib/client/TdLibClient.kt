@@ -105,7 +105,14 @@ object TdLibClient {
                         continuation.cancel(CancellationException("TDLib client or account changed"))
                     }
                 }
-                continuation.invokeOnCancellation { pendingResponses.forget(ticket) }
+                // A coroutine can time out while Java is still returning from native send.
+                // The negative sentinel makes that race safe in both possible orders:
+                // after send -> unregister immediately; before send -> unregister in onCancel.
+                val nativeRequest = NativeRequestCancellation(connection::forgetRequest)
+                continuation.invokeOnCancellation {
+                    pendingResponses.forget(ticket)
+                    nativeRequest.cancel()
+                }
 
                 if (!AccountSession.isCurrent(owner) || clientGeneration.get() != generation ||
                     !pendingResponses.isPending(ticket)
@@ -117,14 +124,15 @@ object TdLibClient {
                 }
 
                 try {
-                    connection.send(query) { result ->
-                        if (!pendingResponses.finish(ticket)) return@send
+                    val nativeId = connection.sendCancellable(query) { result ->
+                        if (!pendingResponses.finish(ticket)) return@sendCancellable
                         if (clientGeneration.get() != generation || !AccountSession.isCurrent(owner)) {
                             continuation.cancel(CancellationException("Stale TDLib callback discarded"))
                         } else if (continuation.isActive) {
                             continuation.resume(result)
                         }
                     }
+                    nativeRequest.attach(nativeId)
                 } catch (failure: Exception) {
                     if (pendingResponses.finish(ticket) && continuation.isActive) {
                         continuation.resumeWithException(failure)
