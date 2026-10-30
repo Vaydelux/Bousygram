@@ -257,7 +257,28 @@ class MediaViewModel(
             level = if (section == ExplorerSection.SAVED) ExplorerLevel.MEDIA else ExplorerLevel.SOURCES
         )
         if (section == ExplorerSection.SAVED) {
-            if (!_uiState.value.isSavedMessagesSelected) load()
+            val snapshot = freshCatalog("saved:topic:0")
+            if (snapshot != null) {
+                // Returning to Saved should not refetch the same page on every tab switch.
+                ++mediaRequestGeneration
+                _uiState.update { current ->
+                    current.copy(
+                        items = snapshot.items,
+                        selectedChatId = null,
+                        selectedChatTitle = SAVED_MESSAGES_TITLE,
+                        isSavedMessagesSelected = true,
+                        selectedTopicId = null,
+                        availableTopics = emptyList(),
+                        quickSearchQuery = "",
+                        isLoading = false,
+                        isLoadingMore = false,
+                        error = null,
+                        hasMore = snapshot.hasMore,
+                        nextFromMessageId = snapshot.nextFromMessageId,
+                        videoChats = current.videoChats.map { it.copy(isSelected = it.isSavedMessages) }
+                    )
+                }
+            } else if (!_uiState.value.isSavedMessagesSelected) load()
             else loadIfNeeded()
         } else loadVideoChatsIfNeeded()
     }
@@ -270,8 +291,31 @@ class MediaViewModel(
         _explorerPosition.value = _explorerPosition.value.copy(
             level = if (source.isForum) ExplorerLevel.TOPICS else ExplorerLevel.MEDIA
         )
-        if (_uiState.value.selectedChatId != source.chatId || _uiState.value.isSavedMessagesSelected) {
-            loadChat(source.chatId, source.title)
+        val currentState = _uiState.value
+        if (currentState.selectedChatId != source.chatId || currentState.isSavedMessagesSelected) {
+            val snapshot = if (!source.isForum) freshCatalog("chat:" + source.chatId + ":topic:0") else null
+            if (snapshot == null) {
+                loadChat(source.chatId, source.title)
+            } else {
+                ++mediaRequestGeneration
+                _uiState.update { current ->
+                    current.copy(
+                        items = snapshot.items,
+                        selectedChatId = source.chatId,
+                        selectedChatTitle = source.title,
+                        isSavedMessagesSelected = false,
+                        selectedTopicId = null,
+                        availableTopics = emptyList(),
+                        quickSearchQuery = "",
+                        isLoading = false,
+                        isLoadingMore = false,
+                        error = null,
+                        hasMore = snapshot.hasMore,
+                        nextFromMessageId = snapshot.nextFromMessageId,
+                        videoChats = current.videoChats.map { it.copy(isSelected = !it.isSavedMessages && it.chatId == source.chatId) }
+                    )
+                }
+            }
         } else if (source.isForum && _uiState.value.availableTopics.isEmpty()) {
             loadForumTopics(source.chatId)
         }
