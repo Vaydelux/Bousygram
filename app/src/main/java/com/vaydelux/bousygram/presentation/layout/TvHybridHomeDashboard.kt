@@ -6,7 +6,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1398,13 +1398,13 @@ private fun ModernMyListButton(
                 scaleY = scale
             }
             .clip(shape)
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
+                role = Role.Button,
                 onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            ),
         shape = shape,
         color = if (focused) colors.surfaceVariant else colors.surface,
         border = androidx.compose.foundation.BorderStroke(1.dp, if (focused) colors.primary else colors.outlineVariant)
@@ -1442,14 +1442,15 @@ private fun ModernResumeButton(
                 scaleX = scale
                 scaleY = scale
             }
+            .border(if (focused) 3.dp else 0.dp, if (focused) colors.onSurface else Color.Transparent, shape)
             .clip(shape)
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.onPrimary),
+                role = Role.Button,
                 onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            ),
         shape = shape,
         color = if (focused) colors.primary.copy(alpha = 0.85f) else colors.primary
     ) {
@@ -1481,13 +1482,13 @@ private fun ModernDetailsButton(
         modifier = modifier
             .clip(shape)
             .background(if (focused) colors.surfaceVariant else Color.Transparent)
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
+                role = Role.Button,
                 onClick = onClick
             )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable()
             .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -1559,7 +1560,7 @@ fun ModernVideoCard(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                if (isWatched) alpha = 0.58f
+                if (isWatched && !focused) alpha = 0.58f
             }
     ) {
         Surface(
@@ -1568,20 +1569,20 @@ fun ModernVideoCard(
                 .aspectRatio(16f / 9f)
                 .clip(shape)
                 .border(
-                    width = if (focused) 2.dp else 1.dp,
+                    width = if (focused) 3.5.dp else 1.dp,
                     color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
                     shape = shape
-                )
-                .clickable(
-                    interactionSource = interaction,
-                    indication = ripple(color = colors.primary),
-                    onClick = onClick
                 )
                 .onFocusChanged {
                     focused = it.isFocused
                     onFocusChanged(it.isFocused)
                 }
-                .focusable(),
+                .clickable(
+                    interactionSource = interaction,
+                    indication = ripple(color = colors.primary),
+                    role = Role.Button,
+                    onClick = onClick
+                ),
             shape = shape,
             color = colors.surface
         ) {
@@ -1733,20 +1734,20 @@ private fun ContinueWatchingCard(
                 .aspectRatio(16f / 9f)
                 .clip(shape)
                 .border(
-                    width = if (focused) 2.dp else 1.dp,
+                    width = if (focused) 3.5.dp else 1.dp,
                     color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
                     shape = shape
-                )
-                .clickable(
-                    interactionSource = interaction,
-                    indication = ripple(color = colors.primary),
-                    onClick = onClick
                 )
                 .onFocusChanged {
                     focused = it.isFocused
                     onFocusChanged(it.isFocused)
                 }
-                .focusable(),
+                .clickable(
+                    interactionSource = interaction,
+                    indication = ripple(color = colors.primary),
+                    role = Role.Button,
+                    onClick = onClick
+                ),
             shape = shape,
             color = colors.surface
         ) {
@@ -2042,13 +2043,12 @@ private fun MediaDetailsDialog(
                                     .defaultMinSize(minHeight = 48.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .border(
-                                        if (startFocused) 2.dp else 1.dp,
+                                        if (startFocused) 3.dp else 1.dp,
                                         if (startFocused) colors.primary else colors.outlineVariant,
                                         RoundedCornerShape(10.dp)
                                     )
                                     .onFocusChanged { startFocused = it.isFocused }
-                                    .focusable()
-                                    .clickable { onPlayFromStart() }
+                                    .clickable(role = Role.Button) { onPlayFromStart() }
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
                                     Text(
@@ -2074,7 +2074,7 @@ private fun MediaDetailsDialog(
                                     .defaultMinSize(minHeight = 48.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .border(
-                                        if (favFocused) 2.dp else 1.dp,
+                                        if (favFocused) 3.dp else 1.dp,
                                         when {
                                             favFocused -> if (isFavorite) colors.error else colors.primary
                                             isFavorite -> colors.error
@@ -2083,8 +2083,7 @@ private fun MediaDetailsDialog(
                                         RoundedCornerShape(10.dp)
                                     )
                                     .onFocusChanged { favFocused = it.isFocused }
-                                    .focusable()
-                                    .clickable { onToggleFavorite() }
+                                    .clickable(role = Role.Button) { onToggleFavorite() }
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
                                     Text(
@@ -2110,13 +2109,12 @@ private fun MediaDetailsDialog(
                                     .defaultMinSize(minHeight = 48.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .border(
-                                        if (pinFocused) 2.dp else 1.dp,
+                                        if (pinFocused) 3.dp else 1.dp,
                                         if (pinFocused || isOffline) colors.primary else colors.outlineVariant,
                                         RoundedCornerShape(10.dp)
                                     )
                                     .onFocusChanged { pinFocused = it.isFocused }
-                                    .focusable()
-                                    .clickable { onToggleOffline() }
+                                    .clickable(role = Role.Button) { onToggleOffline() }
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
                                     Text(
@@ -2139,13 +2137,12 @@ private fun MediaDetailsDialog(
                                         .defaultMinSize(minHeight = 48.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .border(
-                                            if (extFocused) 2.dp else 1.dp,
+                                            if (extFocused) 3.dp else 1.dp,
                                             if (extFocused) colors.secondary else colors.outlineVariant,
                                             RoundedCornerShape(10.dp)
                                         )
                                         .onFocusChanged { extFocused = it.isFocused }
-                                        .focusable()
-                                        .clickable { onOpenExternalPlayer() }
+                                        .clickable(role = Role.Button) { onOpenExternalPlayer() }
                                 ) {
                                     Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
                                         Text(
@@ -2169,13 +2166,12 @@ private fun MediaDetailsDialog(
                                         .defaultMinSize(minHeight = 48.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .border(
-                                            if (delFocused) 2.dp else 1.dp,
+                                            if (delFocused) 3.dp else 1.dp,
                                             colors.error,
                                             RoundedCornerShape(10.dp)
                                         )
                                         .onFocusChanged { delFocused = it.isFocused }
-                                        .focusable()
-                                        .clickable { showDeleteConfirmDialog = true }
+                                        .clickable(role = Role.Button) { showDeleteConfirmDialog = true }
                                 ) {
                                     Box(contentAlignment = Alignment.Center, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
                                         Text(
@@ -2398,17 +2394,17 @@ fun ModernSeriesCard(
                 .aspectRatio(16f / 9f)
                 .clip(shape)
                 .border(
-                    width = if (focused) 2.dp else 1.dp,
+                    width = if (focused) 3.5.dp else 1.dp,
                     color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
                     shape = shape
                 )
+                .onFocusChanged { focused = it.isFocused }
                 .clickable(
                     interactionSource = interaction,
                     indication = ripple(color = colors.primary),
+                    role = Role.Button,
                     onClick = onClick
-                )
-                .onFocusChanged { focused = it.isFocused }
-                .focusable(),
+                ),
             shape = shape,
             color = colors.surface
         ) {
