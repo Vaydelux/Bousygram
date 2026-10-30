@@ -165,6 +165,12 @@ private fun BousygramAppRoot(
         return
     }
 
+    // Auth is a child of Telegram Media mode. Back from a login/connection
+    // screen must return to mode choice, not unexpectedly finish the app.
+    BackHandler(enabled = authState.step != AuthStep.Authorized) {
+        modeName = BousygramMode.SELECT.name
+    }
+
     // From the Telegram Home root, Back returns to mode choice instead of
     // terminating the Activity. Inner folder/player BackHandlers take priority.
     BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen == AppScreen.Home) {
