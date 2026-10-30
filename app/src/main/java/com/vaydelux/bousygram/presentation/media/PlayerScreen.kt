@@ -142,6 +142,13 @@ import com.vaydelux.bousygram.core.media.hasConfirmedAudioOutput
 import com.vaydelux.bousygram.core.media.hasInitialMediaOutput
 import com.vaydelux.bousygram.core.media.ExoPlayerEngine
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
+import com.vaydelux.bousygram.core.media.shouldFailPlaybackStartup
+import com.vaydelux.bousygram.core.media.ContainerHeaderParser
+import com.vaydelux.bousygram.core.media.MpegTsDurationParser
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkRequest
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkResult
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkPurpose
 import com.vaydelux.bousygram.core.media.MediaTrackInfo
 import com.vaydelux.bousygram.core.media.MpvPlayerEngine
 import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
@@ -354,13 +361,14 @@ fun PlayerScreen(
         )
     }
 
-    fun applyPlayerDurationMs(candidateMs: Long) {
+    fun applyPlayerDurationMs(candidateMs: Long, engine: PlayerEngine) {
         val item = queue.getOrNull(queueIndex) ?: return
         val trusted = MediaDurationResolver.playerDurationIfTrusted(
             fileId = item.fileId,
             durationMs = candidateMs,
             totalSize = fileSizeBytes,
-            hintSeconds = item.durationSeconds
+            hintSeconds = item.durationSeconds,
+            seekableContainerDuration = engine.seekableContainerDuration
         )
         if (trusted > duration) duration = trusted
     }
@@ -745,9 +753,11 @@ fun PlayerScreen(
             context = context,
             playerEngine = playerEngine,
             onSeekIncrement = { deltaMs ->
-                val target = (playerEngine.currentPositionMs + deltaMs).coerceIn(0L, duration)
+                val target = relativePlayerSeekTarget(playerEngine.currentPositionMs, deltaMs, duration)
                 performTrackedSeek(target)
-                queue.getOrNull(queueIndex)?.let { CacheManager.onSeek(it.fileId, target, fileSizeBytes, duration) }
+                if (duration > 0L) queue.getOrNull(queueIndex)?.let {
+                    CacheManager.onSeek(it.fileId, target, fileSizeBytes, duration)
+                }
                 position = target
             },
             onSkipNext = {
@@ -873,7 +883,7 @@ fun PlayerScreen(
                         rebufferStartMs = 0L
                     }
                     if (playerEngine.durationMs > 0L) {
-                        applyPlayerDurationMs(playerEngine.durationMs)
+                        applyPlayerDurationMs(playerEngine.durationMs, playerEngine)
                     }
                     // Preserve autoplay intent across asynchronous MKV demux/decoder readiness.
                     // An explicit user pause clears playWhenReady and is never overridden.
@@ -939,8 +949,9 @@ fun PlayerScreen(
                     hudVisible = true
                     val playbackEx = (state.cause as? PlaybackException)
                         ?: PlaybackException(state.message, state.cause, PlaybackException.ERROR_CODE_UNSPECIFIED)
+                    // Keep diagnostics for transient decoder/demux failures, but do not
+                    // mark the playback session terminal before MPV fallback or retry.
                     PlaybackSessionController.recordError(playbackSession, playbackEx, retryCount)
-                    playbackSession.onError(message, state.cause, item)
 
                     // Automatic fallback to libmpv on decoder, container, or unsupported-format errors.
                     // Resumes at the same position, falls back strictly once per session, and records reason in telemetry.
@@ -973,6 +984,7 @@ fun PlayerScreen(
                                 isReconnecting = false
                                 isBuffering = false
                                 playbackError = "Unable to initialize a compatible video player. Try again."
+                                playbackSession.onError(playbackError!!, failure, item)
                                 commitPlaybackTelemetry(fatalError = playbackError)
                             }
                         )
@@ -992,6 +1004,7 @@ fun PlayerScreen(
                     } else {
                         isReconnecting = false
                         playbackError = message
+                        playbackSession.onError(message, state.cause, item)
                         commitPlaybackTelemetry(fatalError = message)
                     }
                 }
@@ -1293,6 +1306,68 @@ fun PlayerScreen(
         }
     }
 
+    // Recover real duration from already-cached container bytes without delaying
+    // video playback or requesting a large new TS tail download. MKV Segment Info
+    // normally lives at the head; MPEG-TS can be estimated from actual PCRs only
+    // when both head and tail data are already available. Never guess from file size.
+    LaunchedEffect(request, queueIndex, reloadNonce) {
+        delay(1_500L)
+        val owner = com.vaydelux.bousygram.core.account.AccountSession.current() ?: return@LaunchedEffect
+        val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
+        val container = VideoFormatSupport.resolveContainer(current.fileName, current.mimeType, current.title)
+        val mkv = container == "mkv" || container == "webm"
+        val ts = container == "ts" || container == "mts" || container == "m2ts" ||
+            VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
+        if (!mkv && !ts) return@LaunchedEffect
+        repeat(15) {
+            if (!com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) ||
+                duration > 0L || playbackError != null) return@LaunchedEffect
+            val head = kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+                withContext(Dispatchers.IO) {
+                    TelegramChunkScheduler.fetchChunk(
+                        TelegramChunkRequest(
+                            current.fileId, 0L, 64 * 1024, 16, TelegramChunkPurpose.Metadata
+                        )
+                    )
+                }
+            }
+            val headBytes = (head as? TelegramChunkResult.Ready)?.bytes
+            val parsedDuration = if (mkv) {
+                headBytes?.let(ContainerHeaderParser::parseMkvDurationMs)
+            } else {
+                val totalSize = fileSizeBytes.takeIf { it > 64 * 1024L }
+                    ?: current.fileSizeBytes.takeIf { it > 64 * 1024L } ?: 0L
+                val tail = if (totalSize > 0L && headBytes != null) {
+                    kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+                        withContext(Dispatchers.IO) {
+                            TelegramChunkScheduler.fetchChunk(
+                                TelegramChunkRequest(
+                                    current.fileId, totalSize - 64 * 1024L,
+                                    64 * 1024, 16, TelegramChunkPurpose.Metadata
+                                )
+                            )
+                        }
+                    }
+                } else null
+                val tailBytes = (tail as? TelegramChunkResult.Ready)?.bytes
+                if (headBytes != null && tailBytes != null) {
+                    MpegTsDurationParser.durationMs(headBytes, tailBytes)
+                } else null
+            }
+            if (parsedDuration != null &&
+                com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) &&
+                queue.getOrNull(queueIndex)?.fileId == current.fileId
+            ) {
+                MediaDurationResolver.rememberTrustedDuration(
+                    current.fileId, parsedDuration, MediaDurationResolver.DurationSource.Stream
+                )
+                if (parsedDuration > duration) duration = parsedDuration
+                return@LaunchedEffect
+            }
+            delay(2_000L)
+        }
+    }
+
     // A stalled Matroska startup may be a decoder/extractor incompatibility,
     // not a network outage. Try the independently implemented libmpv path once,
     // before the final 45s watchdog reports a fatal startup error.
@@ -1300,25 +1375,28 @@ fun PlayerScreen(
         while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
         if (playerStartedAtMs <= 0L || playbackError != null) return@LaunchedEffect
         val startedAt = playerStartedAtMs
-        while (playbackError == null &&
+        val trackedEngine = playerEngine
+        while (playbackError == null && playerEngine === trackedEngine &&
             !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
             System.currentTimeMillis() - startedAt < 20_000L
         ) delay(500L)
         val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
-        val isMatroska = current.fileName.orEmpty().endsWith(".mkv", ignoreCase = true) ||
-            current.title.endsWith(".mkv", ignoreCase = true) ||
-            current.mimeType.equals("video/x-matroska", ignoreCase = true) ||
-            current.mimeType.equals("application/x-matroska", ignoreCase = true)
-        if (isMatroska && playerEngine is ExoPlayerEngine && !hasFallenBackToMpv &&
+        val container = VideoFormatSupport.resolveContainer(
+            current.fileName, current.mimeType, current.title
+        )
+        val needsCompatibility = container in setOf("mkv", "webm", "ts", "mts", "m2ts") ||
+            VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
+        if (needsCompatibility && playerEngine === trackedEngine &&
+            playerEngine is ExoPlayerEngine && !hasFallenBackToMpv &&
             !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) && playbackError == null
         ) {
             hasFallenBackToMpv = true
             PlaybackDiagnostics.recordStreamError(
-                "ExoPlayer MKV startup stalled without first frame; attempting libmpv fallback"
+                "ExoPlayer progressive container startup stalled; attempting libmpv fallback"
             )
             requestEngineSwitch(
                 SelectedPlayerEngine.MPV,
-                "MKV startup stalled. Trying compatibility player…"
+                "Video startup stalled. Trying compatibility player…"
             )
         }
     }
@@ -1330,12 +1408,19 @@ fun PlayerScreen(
         // Start counting when the engine actually begins preparing, not while TDLib
         // is still resolving a message and its cached file metadata.
         while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
-        while (playerStartedAtMs > 0L && playbackError == null &&
-            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
-            System.currentTimeMillis() - playerStartedAtMs < 45_000L
+        val trackedEngine = playerEngine
+        val trackedStartMs = playerStartedAtMs
+        while (playerEngine === trackedEngine && playerStartedAtMs == trackedStartMs &&
+            playbackError == null && !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
+            System.currentTimeMillis() - trackedStartMs < 45_000L
         ) delay(500L)
-        if (!hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
-            playbackError == null && playerStartedAtMs > 0L
+        if (shouldFailPlaybackStartup(
+                sameEngine = playerEngine === trackedEngine,
+                sameStartTimestamp = playerStartedAtMs == trackedStartMs,
+                hasInitialOutput = hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs),
+                hasPlaybackError = playbackError != null,
+                startedAtMs = playerStartedAtMs
+            )
         ) {
             PlaybackDiagnostics.recordStreamError("Playback startup exceeded 45s without video frame or audio readiness")
             playerEngine.stop()
@@ -1419,7 +1504,7 @@ fun PlayerScreen(
                     pendingSeekStartedAtMs = 0L
                 }
             }
-            applyPlayerDurationMs(playerEngine.durationMs)
+            applyPlayerDurationMs(playerEngine.durationMs, playerEngine)
             if (timeToFirstByteMs == 0L && playerStartedAtMs > 0L) {
                 val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
                 val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, playerStartedAtMs)
@@ -1604,30 +1689,27 @@ fun PlayerScreen(
 
             override fun previewSeekRelative(seconds: Int) {
                 hudInteractionTick++
-                val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
-                if (max <= 0L) {
-                    seekPreviewPositionMs = -1L
-                    seekFeedbackText = "Seeking is available when video duration is ready"
-                    hudVisible = true
-                    return
-                }
+                val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                 val base = seekPreviewPositionMs.takeIf { it >= 0L }
                     ?: if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
-                seekPreviewPositionMs = (base + seconds * 1000L).coerceIn(0L, max)
-                seekFeedbackText = "Seek ${formatMs(seekPreviewPositionMs)} · OK to confirm · Back to cancel"
+                seekPreviewPositionMs = relativePlayerSeekTarget(base, seconds * 1000L, knownDuration)
+                seekFeedbackText = "Seek ${formatMs(seekPreviewPositionMs)} · OK to confirm · Back to cancel" +
+                    if (knownDuration <= 0L) " · Duration scanning" else ""
                 seekFeedbackSide = if (seconds > 0) 1 else -1
             }
 
             override fun confirmSeekPreview() {
                 val target = seekPreviewPositionMs
-                val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
-                if (target < 0L || max <= 0L) return
+                val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
+                if (target < 0L) return
                 seekPreviewPositionMs = -1L
                 playerInputController.resetSeekPreviewState()
-                val safeTarget = target.coerceIn(0L, max)
+                val safeTarget = relativePlayerSeekTarget(target, 0L, knownDuration)
                 if (castState.connected) CastSessionController.seekTo(safeTarget) else {
                     performTrackedSeek(safeTarget)
-                    queue.getOrNull(queueIndex)?.let { CacheManager.onSeek(it.fileId, safeTarget, fileSizeBytes, max) }
+                    if (knownDuration > 0L) queue.getOrNull(queueIndex)?.let {
+                        CacheManager.onSeek(it.fileId, safeTarget, fileSizeBytes, knownDuration)
+                    }
                 }
                 seekFeedbackText = "Seeking to ${formatMs(safeTarget)}"
             }

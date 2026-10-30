@@ -190,6 +190,70 @@ object ContainerHeaderParser {
     }
 
     /**
+     * Reads Matroska Segment/Info Duration from already downloaded header bytes.
+     * This is the full-file timecode duration; unlike a partial demuxer scan, it
+     * doesn't guess a total from file size or bitrate. Never reads past the buffer.
+     */
+    fun parseMkvDurationMs(headBytes: ByteArray): Long? {
+        if (headBytes.size < 16) return null
+        var cursor = 0
+        val (ebmlId, idLen) = readEbmlVint(headBytes, cursor, isId = true) ?: return null
+        if (ebmlId != EBML_ID_HEADER) return null
+        cursor += idLen
+        val (headerSize, headerSizeLen) = readEbmlVint(headBytes, cursor, isId = false) ?: return null
+        if (headerSize > headBytes.size - cursor - headerSizeLen) return null
+        cursor += headerSizeLen + headerSize.toInt()
+        val (segmentId, segmentIdLen) = readEbmlVint(headBytes, cursor, isId = true) ?: return null
+        if (segmentId != EBML_ID_SEGMENT) return null
+        cursor += segmentIdLen
+        val (_, segmentSizeLen) = readEbmlVint(headBytes, cursor, isId = false) ?: return null
+        cursor += segmentSizeLen
+        while (cursor + 2 <= headBytes.size) {
+            val (elementId, elementIdLen) = readEbmlVint(headBytes, cursor, isId = true) ?: break
+            cursor += elementIdLen
+            val (elementSize, lengthBytes) = readEbmlVint(headBytes, cursor, isId = false) ?: break
+            cursor += lengthBytes
+            if (elementSize > headBytes.size - cursor) break
+            val elementEnd = cursor + elementSize.toInt()
+            if (elementId == 0x1549A966L) {
+                var scaleNs = 1_000_000L // Matroska TimecodeScale default
+                var durationTicks: Double? = null
+                var infoCursor = cursor
+                while (infoCursor + 2 <= elementEnd) {
+                    val (childId, childIdLen) = readEbmlVint(headBytes, infoCursor, isId = true) ?: break
+                    infoCursor += childIdLen
+                    val (childSize, childSizeLen) = readEbmlVint(headBytes, infoCursor, isId = false) ?: break
+                    infoCursor += childSizeLen
+                    if (childSize > elementEnd - infoCursor) break
+                    when (childId) {
+                        0x2AD7B1L -> if (childSize in 1L..8L) {
+                            scaleNs = readUint(headBytes, infoCursor, childSize.toInt())
+                        }
+                        0x4489L -> {
+                            val bb = ByteBuffer.wrap(headBytes, infoCursor, childSize.toInt())
+                                .order(ByteOrder.BIG_ENDIAN)
+                            durationTicks = when (childSize) {
+                                4L -> bb.float.toDouble()
+                                8L -> bb.double
+                                else -> null
+                            }
+                        }
+                    }
+                    infoCursor += childSize.toInt()
+                }
+                val ticks = durationTicks ?: return null
+                if (scaleNs !in 1L..1_000_000_000L || !ticks.isFinite() || ticks <= 0.0) return null
+                val ms = ticks * scaleNs / 1_000_000.0
+                return if (ms.isFinite() && ms >= 1_000.0 && ms <= 7.0 * 24 * 60 * 60 * 1000) {
+                    ms.toLong()
+                } else null
+            }
+            cursor = elementEnd
+        }
+        return null
+    }
+
+    /**
      * Estimates the optimal tail probe window for a video file based on parsed box headers
      * or safe fallback heuristics.
      */
@@ -226,8 +290,12 @@ object ContainerHeaderParser {
         val firstByte = data[offset].toInt() and 0xFF
         if (firstByte == 0) return null
 
-        val length = 8 - Integer.numberOfLeadingZeros(firstByte).coerceAtMost(7)
-        val numBytes = 9 - length
+        // EBML VINT length is the position of the highest set bit in the first
+        // byte (0x80 -> 1 byte, 0x40 -> 2, ... 0x01 -> 8). The previous
+        // leadingZeros(...).coerceAtMost(7) always yielded an 8-byte read for
+        // an unsigned byte, breaking Matroska SeekHead/Cues parsing.
+        val numBytes = Integer.numberOfLeadingZeros(firstByte) - 23
+        if (numBytes !in 1..8) return null
         if (offset + numBytes > data.size) return null
 
         var value = if (isId) {

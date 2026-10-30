@@ -45,6 +45,24 @@ class MpvPlayerEngine(
 
     private val _durationMs = MutableStateFlow(0L)
     override val durationMs: Long get() = _durationMs.value
+    // libmpv's demuxer-derived file duration can be trusted even for MKV/TS
+    // bigger than 150 MB, but only while it confirms byte-seek support.
+    override val seekableContainerDuration: Boolean
+        get() = _durationMs.value > 0L &&
+            runCatching { mpv.getPropertyBoolean("seekable") == true }.getOrDefault(false)
+
+    private fun acceptNativeDuration(seconds: Double) {
+        if (!seconds.isFinite() || seconds < 1.0 || seconds > 7.0 * 24 * 60 * 60) return
+        val candidate = (seconds * 1000.0).toLong()
+        if (candidate > _durationMs.value) _durationMs.value = candidate
+    }
+
+    private fun readNativeDurationAfterLoad() {
+        // Some TS demuxers publish duration at FILE_LOADED rather than via the
+        // asynchronous property-change event. Read the current property as well.
+        runCatching { mpv.getPropertyString("duration/full") }
+            .getOrNull()?.toDoubleOrNull()?.let(::acceptNativeDuration)
+    }
 
     private val _bufferedPositionMs = MutableStateFlow(0L)
     override val bufferedPositionMs: Long get() = _bufferedPositionMs.value
@@ -138,11 +156,7 @@ class MpvPlayerEngine(
                     val posMs = (value * 1000.0).toLong().coerceAtLeast(0L)
                     _currentPositionMs.value = posMs
                 }
-                "duration" -> {
-                    if (value > 0.0) {
-                        _durationMs.value = (value * 1000.0).toLong()
-                    }
-                }
+                "duration", "duration/full" -> acceptNativeDuration(value)
                 "demuxer-cache-time" -> {
                     val cacheAheadMs = (value * 1000.0).toLong().coerceAtLeast(0L)
                     _bufferedPositionMs.value = _currentPositionMs.value + cacheAheadMs
@@ -207,6 +221,7 @@ class MpvPlayerEngine(
                             .onFailure { Log.w(TAG, "Unable to start loaded media", it) }
                     }
                     _isPlaying.value = _playWhenReady.value
+                    readNativeDurationAfterLoad()
                     refreshTracks()
                     setResizeMode(currentResizeMode)
                 }
@@ -216,6 +231,7 @@ class MpvPlayerEngine(
                 }
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
                     _playbackState.value = EnginePlaybackState.Ready
+                    readNativeDurationAfterLoad()
                 }
             }
         }
@@ -261,6 +277,7 @@ class MpvPlayerEngine(
             mpv.addObserver(eventObserver)
             mpv.observeProperty("time-pos", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             mpv.observeProperty("duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            mpv.observeProperty("duration/full", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             mpv.observeProperty("pause", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             mpv.observeProperty("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             mpv.observeProperty("demuxer-cache-time", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
