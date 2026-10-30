@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -907,9 +906,14 @@ private fun SortChip(text: String, selected: Boolean, onClick: () -> Unit) {
                 scaleY = scale
             }
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
+            .border(
+                if (focused) 3.dp else if (selected) 1.5.dp else 0.dp,
+                if (focused && selected) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.primary,
+                RoundedCornerShape(14.dp)
+            )
             .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            .clickable(onClick = onClick),
         color = color,
         shape = RoundedCornerShape(14.dp)
     ) {
@@ -938,13 +942,12 @@ private fun RefreshChip(text: String = "Refresh", onClick: () -> Unit) {
             }
             .clip(RoundedCornerShape(14.dp))
             .border(
-                1.dp,
+                if (focused) 3.dp else 1.dp,
                 if (focused) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
                 RoundedCornerShape(14.dp)
             )
-            .clickable(onClick = onClick)
             .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         shape = RoundedCornerShape(14.dp)
     ) {

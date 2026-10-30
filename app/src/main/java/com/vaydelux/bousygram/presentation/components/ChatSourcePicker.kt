@@ -2,7 +2,6 @@ package com.vaydelux.bousygram.presentation.components
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -139,10 +138,9 @@ private fun SourceTab(
                 this.selected = selected
             }
             .clip(shape)
-            .border(if (focused || selected) 2.dp else 1.dp, borderColor, shape)
-            .clickable(onClick = onClick)
+            .border(if (focused) 3.5.dp else if (selected) 2.dp else 1.dp, borderColor, shape)
             .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            .clickable(onClick = onClick),
         shape = shape,
         color = when {
             selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
@@ -327,8 +325,7 @@ private fun SourcePickerRow(
             .clip(shape)
             .border(if (focused) 3.dp else 1.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.56f), shape)
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .focusable(),
+            .clickable(onClick = onClick),
         shape = shape,
         color = when {
             selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
