@@ -196,6 +196,22 @@ private fun BousygramAppRoot(
             }
             val lastPlayed = EnterprisePreferences.lastPlayed()
             val navFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+            if (appScreen == AppScreen.Home) {
+                // Dedicated, compact explorer owns Home navigation. Do not wrap
+                // a second oversized TV sidebar around the three-tab grid.
+                AuthorizedContent(
+                    appScreen = appScreen,
+                    themePreset = themePreset,
+                    onThemePresetChange = onThemePresetChange,
+                    searchFocus = searchFocus,
+                    onSearchFocusChange = { searchFocus = it },
+                    onAppScreenChange = { appScreen = it },
+                    resumeSignal = resumeSignal,
+                    onResumeConsumed = { resumeSignal = 0 },
+                    onBackToNavBar = {},
+                    onLogout = { authViewModel.logout() }
+                )
+            } else {
             BousygramAdaptiveShell(
                 selected = destination,
                 showResume = lastPlayed != null,
@@ -244,6 +260,7 @@ private fun BousygramAppRoot(
                     onBackToNavBar = { navFocusRequester.requestFocus() },
                     onLogout = { authViewModel.logout() }
                 )
+            }
             }
         }
     }
