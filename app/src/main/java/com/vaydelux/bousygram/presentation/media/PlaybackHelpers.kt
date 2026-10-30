@@ -63,6 +63,7 @@ fun queueItemFromRequest(request: PlaybackRequest): PlaybackQueueItem =
         mimeType = request.mimeType,
         durationSeconds = request.durationSeconds,
         fileSizeBytes = request.fileSizeBytes,
+        alternativeVideos = request.alternativeVideos,
         topicId = request.topicId
     )
 
