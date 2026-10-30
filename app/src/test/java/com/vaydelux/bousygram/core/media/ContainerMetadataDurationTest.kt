@@ -7,7 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ContainerMetadataDurationTest {
-    private fun element(vararg bytes: Int) = byteArrayOf(*bytes.map { it.toByte() }.toTypedArray())
+    private fun element(vararg bytes: Int) = ByteArray(bytes.size) { bytes[it].toByte() }
 
     private fun mkvHeader(durationTicks: Double): ByteArray {
         val ebml = element(0x1a, 0x45, 0xdf, 0xa3, 0x80)
