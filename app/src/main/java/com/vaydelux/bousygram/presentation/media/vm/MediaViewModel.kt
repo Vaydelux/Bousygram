@@ -411,6 +411,7 @@ class MediaViewModel(
             loadChat(selected.selectedChatId, selected.selectedChatTitle)
             return
         }
+        val owner = AccountSession.current() ?: return
         val requestGeneration = ++mediaRequestGeneration
         val warmSaved = catalogSnapshot("saved:topic:0")
         _uiState.update {
@@ -431,7 +432,7 @@ class MediaViewModel(
                 repository.cachedSavedMessagesChatId,
                 null
             )
-            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+            if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
@@ -439,7 +440,7 @@ class MediaViewModel(
             }
         }
         repository.loadLatestMediaPagedProgressive(pageSize, null) { items, nextFromMessageId, error, isFinal ->
-            if (requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
+            if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
                     items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
@@ -482,6 +483,7 @@ class MediaViewModel(
     }
 
     fun loadChat(chatId: Long, title: String) {
+        val owner = AccountSession.current() ?: return
         val requestGeneration = ++mediaRequestGeneration
         val folderKey = "chat:" + chatId + ":topic:0"
         val warmChat = catalogSnapshot(folderKey)
@@ -507,7 +509,7 @@ class MediaViewModel(
                 chatId,
                 null
             )
-            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+            if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
@@ -520,7 +522,7 @@ class MediaViewModel(
             loadForumTopics(chatId)
         }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null) { items, nextFromMessageId, error, isFinal ->
-            if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
                     items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
@@ -598,6 +600,7 @@ class MediaViewModel(
         val state = _uiState.value
         val chatId = state.selectedChatId ?: return
         if (!force && state.selectedTopicId == topicId) return
+        val owner = AccountSession.current() ?: return
         val requestGeneration = ++mediaRequestGeneration
         val folderKey = "chat:" + chatId + ":topic:" + (topicId ?: 0)
         val warmTopic = catalogSnapshot(folderKey)
@@ -617,14 +620,14 @@ class MediaViewModel(
                 chatId,
                 topicId?.toLong()
             )
-            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+            if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
             }
         }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null, topicId = topicId) { items, nextFromMessageId, error, isFinal ->
-            if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
                     items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
