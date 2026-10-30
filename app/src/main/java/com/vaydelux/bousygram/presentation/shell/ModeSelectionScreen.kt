@@ -57,7 +57,7 @@ fun BousygramModeSelection(
                     contentDescription = "Bousygram media logo",
                     modifier = Modifier.size(82.dp)
                 )
-                Text("BOUSYGRAM", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text("Bousygram", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 Text(
                     "Your media. Your way.",
                     style = MaterialTheme.typography.titleLarge,
