@@ -906,6 +906,12 @@ private fun SortChip(text: String, selected: Boolean, onClick: () -> Unit) {
                 scaleY = scale
             }
             .clip(RoundedCornerShape(14.dp))
+            .border(
+                if (focused) 3.dp else if (selected) 1.5.dp else 0.dp,
+                if (focused && selected) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.primary,
+                RoundedCornerShape(14.dp)
+            )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
         color = color,
