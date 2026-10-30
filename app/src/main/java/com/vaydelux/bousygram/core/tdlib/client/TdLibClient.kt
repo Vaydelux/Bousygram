@@ -5,6 +5,11 @@ import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 
@@ -41,6 +46,13 @@ object TdLibClient {
     @Volatile
     private var instance: Client? = null
     private val clientGeneration = AtomicLong(0L)
+    private val pendingResponses = PendingTdRequests()
+
+    init {
+        // AccountSession has already marked the old identity invalid when invoking handlers.
+        // Cancel suspended callers synchronously so they cannot wait on abandoned native clients.
+        AccountSession.registerInvalidationHandler { pendingResponses.invalidateAll() }
+    }
 
     /** A repository binds this facade once; it can never silently become another account's client. */
     class AccountClient internal constructor(private val owner: AccountSnapshot?) {
@@ -68,12 +80,68 @@ object TdLibClient {
         }
     }
 
+    /**
+     * A bounded, account-scoped native request. In contrast to sendCurrent (used for login),
+     * this never follows a replacement client or permits a response from another account.
+     *
+     * TDLib callbacks cannot be cancelled at the JNI layer. Cancellation instead removes the
+     * continuation, and a late native callback is ignored. The caller remains cancellable.
+     */
+    suspend fun awaitAccountResponse(
+        query: TdApi.Function<*>,
+        expectedOwner: AccountSnapshot? = AccountSession.current(),
+        timeoutMs: Long = 15_000L
+    ): TdApi.Object? {
+        val owner = expectedOwner ?: throw CancellationException("No active Telegram account")
+        return withTimeout(timeoutMs) {
+            suspendCancellableCoroutine { continuation ->
+                val connection: Client
+                val generation: Long
+                val ticket: PendingTdRequests.Ticket
+                synchronized(this@TdLibClient) {
+                    connection = client
+                    generation = clientGeneration.get()
+                    ticket = pendingResponses.register(generation) {
+                        continuation.cancel(CancellationException("TDLib client or account changed"))
+                    }
+                }
+                continuation.invokeOnCancellation { pendingResponses.forget(ticket) }
+
+                if (!AccountSession.isCurrent(owner) || clientGeneration.get() != generation ||
+                    !pendingResponses.isPending(ticket)
+                ) {
+                    if (pendingResponses.finish(ticket)) {
+                        continuation.cancel(CancellationException("Telegram account changed before native send"))
+                    }
+                    return@suspendCancellableCoroutine
+                }
+
+                try {
+                    connection.send(query) { result ->
+                        if (!pendingResponses.finish(ticket)) return@send
+                        if (clientGeneration.get() != generation || !AccountSession.isCurrent(owner)) {
+                            continuation.cancel(CancellationException("Stale TDLib callback discarded"))
+                        } else if (continuation.isActive) {
+                            continuation.resume(result)
+                        }
+                    }
+                } catch (failure: Exception) {
+                    if (pendingResponses.finish(ticket) && continuation.isActive) {
+                        continuation.resumeWithException(failure)
+                    }
+                }
+            }
+        }
+    }
+
     val client: Client
         get() = synchronized(this) {
             instance ?: createNewClient().also { instance = it }
         }
 
     fun restartClient(): Client = synchronized(this) {
+        // Wake every suspended request before installing the next TDLib generation.
+        pendingResponses.invalidateAll()
         instance = createNewClient().also { instance = it }
         instance!!
     }
