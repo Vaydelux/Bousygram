@@ -909,10 +909,11 @@ internal object TelegramChunkScheduler {
         val window = downloadWindows[request.fileId]
         val saved = savedTails[request.fileId]
         if (saved != null && request.offset >= saved.offset && request.offset < saved.offset + saved.bytes.size) return
-        val totalSize = fileSizes[request.fileId] ?: 0L
-        if (totalSize > HEAD_BURST_BYTES && request.offset >= (totalSize - TAIL_BURST_BYTES)) {
-            return
-        }
+        // Matroska extractors commonly seek to Cues near EOF during startup. Previously
+        // *all* tail seeks were skipped here, even when MKV had not prefetched any tail
+        // bytes. The caller would then wait for bytes never requested from TDLib.
+        // readReadyChunk/sliceSavedTail handle cached bytes before reaching this method;
+        // a missing tail range must be requested just like any other random access.
         val currentFile = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
         val prefix = knownPrefixBytes(currentFile, window?.offset ?: request.offset)
         val contiguousEnd = (window?.offset ?: request.offset) + prefix + PLAYBACK_WINDOW_BYTES
