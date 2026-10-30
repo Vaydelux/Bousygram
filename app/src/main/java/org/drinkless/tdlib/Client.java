@@ -119,6 +119,44 @@ public final class Client {
     }
 
     /**
+     * Send a request and return its response-handler ID for explicit cancellation.
+     *
+     * TDLib does not cancel an in-flight native query when its Kotlin coroutine is
+     * cancelled. Removing the Java callback mapping avoids retaining the continuation
+     * (and everything it captures) until a delayed or missing native response arrives.
+     * This does NOT cancel the native request itself.
+     *
+     * A zero ID means a no-native test fallback; its callback is owned by the fallback.
+     */
+    public long sendCancellable(TdApi.Function query, ResultHandler resultHandler) {
+        if (!NATIVE_AVAILABLE) {
+            send(query, resultHandler, null);
+            return 0L;
+        }
+        long queryId = currentQueryId.incrementAndGet();
+        if (resultHandler != null) {
+            handlers.put(queryId, new Handler(resultHandler, null));
+        }
+        try {
+            nativeClientSend(nativeClientId, queryId, query);
+            return queryId;
+        } catch (RuntimeException | Error failure) {
+            handlers.remove(queryId);
+            throw failure;
+        }
+    }
+
+    /**
+     * Remove a handler belonging to a cancelled or timed-out request.
+     * A late native response is still received, but its callback is ignored.
+     */
+    public void forgetRequest(long queryId) {
+        if (queryId > 0L) {
+            handlers.remove(queryId);
+        }
+    }
+
+    /**
      * Sends a request to the TDLib with an empty ExceptionHandler.
      *
      * @param query         Object representing a query to the TDLib.
