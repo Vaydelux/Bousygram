@@ -90,23 +90,23 @@ internal fun PlayerTransportControls(
 ) {
     val isTv = layout == PlayerChromeLayout.TV
     val isWide = layout != PlayerChromeLayout.TOUCH_COMPACT
-    val touchMin = if (isTv) 56.dp else 52.dp
+    val touchMin = if (isTv) 46.dp else 52.dp
     Row(
         modifier = Modifier.fillMaxWidth().testTag("player_transport_controls"),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 6.dp)
     ) {
-        if (isWide) {
+        if (isWide && !isTv) {
             BousygramButton(
-                text = if (isTv) "⏮ Prev" else "⏮",
+                text = "⏮",
                 onClick = onPrevious,
                 modifier = Modifier.weight(1f).heightIn(min = touchMin)
                     .semantics { contentDescription = "Previous video" }
                     .testTag("player_previous")
             )
         }
-        BousygramButton(
-            text = if (isTv) "↶ 10s" else "−10",
+        if (!isTv) BousygramButton(
+            text = "−10",
             onClick = onSeekBack,
             modifier = Modifier.weight(1f).heightIn(min = touchMin)
                 .semantics { contentDescription = "Seek backward 10 seconds" }
@@ -119,22 +119,22 @@ internal fun PlayerTransportControls(
             onClick = onPlayPause,
             selected = true,
             modifier = Modifier
-                .weight(if (isTv) 1.5f else 1.3f)
+                .weight(if (isTv) 1f else 1.3f)
                 .heightIn(min = touchMin)
                 .focusRequester(playPauseFocusRequester)
                 .semantics { contentDescription = if (isPlayingOrPending) "Pause playback" else "Play video" }
                 .testTag("player_toggle_playback")
         )
-        BousygramButton(
-            text = if (isTv) "10s ↷" else "+10",
+        if (!isTv) BousygramButton(
+            text = "+10",
             onClick = onSeekForward,
             modifier = Modifier.weight(1f).heightIn(min = touchMin)
                 .semantics { contentDescription = "Seek forward 10 seconds" }
                 .testTag("player_seek_forward")
         )
-        if (isWide) {
+        if (isWide && !isTv) {
             BousygramButton(
-                text = if (isTv) "⏭ Next" else "⏭",
+                text = "⏭",
                 onClick = onNext,
                 modifier = Modifier.weight(1f).heightIn(min = touchMin)
                     .semantics { contentDescription = "Next video" }
