@@ -111,6 +111,7 @@ fun BrowseScreen(
     viewModel: MediaViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val explorerPosition by viewModel.explorerPosition.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
     // Saved Messages has its own permanent entry. Never list the same chat again.
     val libraryChatSources = remember(state.videoChats) {
@@ -738,70 +739,34 @@ fun BrowseScreen(
                 }
             }
         } else {
-            TvHybridHomeDashboard(
-                featuredVideos = videos,
-                channelLabel = state.selectedChatTitle,
-                isLoading = state.isLoading,
-                errorMessage = state.error,
-                onVideoSelected = { openVideo(it) },
-                onOpenSearch = {
+            TelegramExplorerDashboard(
+                position = explorerPosition,
+                sources = state.videoChats,
+                topics = state.availableTopics,
+                selectedChatTitle = state.selectedChatTitle,
+                selectedChatId = state.selectedChatId,
+                selectedTopicId = state.selectedTopicId,
+                videos = videos,
+                isLoading = state.isLoading || state.isSidebarLoading || state.isLoadingTopics,
+                isLoadingMore = state.isLoadingMore,
+                hasMore = state.hasMore,
+                privacyMode = safeMode,
+                gridState = libraryGridState,
+                onSelectTab = viewModel::selectExplorerSection,
+                onSelectSource = viewModel::enterExplorerSource,
+                onSelectTopic = viewModel::enterExplorerTopic,
+                onGoUp = { viewModel.explorerBack() },
+                onPlay = { openVideo(it) },
+                onFocusMedia = { item ->
+                    viewModel.recordBrowseFocus(item)
+                    viewModel.onItemFocused(item)
+                },
+                onLoadMore = viewModel::loadMoreIfNeeded,
+                onSearch = {
                     val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
                     onOpenSearch(chatId, state.selectedChatTitle)
                 },
-                onOpenLibrary = onOpenLibrary,
-                onOpenFavorites = onOpenFavorites,
-                onOpenSettings = onOpenSettings,
-                onOpenLastPlayed = ::openLastPlayed,
-                lastPlayedFileId = lastPlayed?.fileId,
-                lastPlayedTitle = lastPlayed?.title,
-                onToggleFavorite = {
-                    EnterprisePreferences.toggleFavorite(it.chatId, it.messageId)
-                    favoriteKeys = EnterprisePreferences.favoriteKeys()
-                },
-                onToggleOffline = ::toggleOffline,
-                onVideoFocused = viewModel::onItemFocused,
-                favoriteKeys = favoriteKeys,
-                sourceChats = state.videoChats,
-                savedMessagesSelected = state.isSavedMessagesSelected,
-                selectedChatId = state.selectedChatId,
-                pinnedChatIds = pinnedChats,
-                onSelectSavedMessages = viewModel::load,
-                onSelectChat = { viewModel.loadChat(it.chatId, it.title) },
-                onOpenAllChats = { showAllChatsPicker = true },
-                offlineFileIds = videos.mapNotNull { it.fileId }.filter { OfflineCacheManager.isPinned(it) }.toSet(),
-                resumeMessageKeys = videos
-                    .filter { PlaybackProgressTracker.hasResume(it.chatId, it.messageId, it.fileId) }
-                    .map { "${it.chatId}:${it.messageId}" }
-                    .toSet(),
-                safeMode = safeMode,
-                selectedCategoryTab = state.selectedCategoryTab,
-                selectedSeriesTitle = null,
-                seriesGroups = emptyList(),
-                topicGroups = state.topicGroups,
-                availableTopics = state.availableTopics,
-                selectedTopicId = state.selectedTopicId,
-                onSelectCategoryTab = viewModel::setCategoryTab,
-                onSelectSeries = {},
-                onSelectTopic = viewModel::selectTopic,
-                onOpenExternalPlayer = { item ->
-                    ExternalPlayerLauncher.launch(context, item)
-                },
-                onDeleteMedia = { item ->
-                    viewModel.deleteMediaItem(item) {
-                        viewModel.refresh()
-                    }
-                },
-                onBackToNavBar = onBackToNavBar,
-                recentSearches = recentSearches,
-                activeQuickSearchQuery = state.quickSearchQuery,
-                onSelectRecentSearch = viewModel::toggleQuickSearchQuery,
-                onRemoveRecentSearch = viewModel::removeRecentSearch,
-                onClearQuickSearch = viewModel::clearQuickSearchQuery,
-                onClearRecentSearches = viewModel::clearRecentSearches,
-                onOpenSearchWithQuery = { query ->
-                    val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                    onOpenSearchWithQuery(chatId, state.selectedChatTitle, query)
-                },
+                onSettings = onOpenSettings,
                 modifier = Modifier.fillMaxSize()
             )
         }
