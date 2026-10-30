@@ -1086,12 +1086,25 @@ fun PlayerScreen(
                 }
             }
         } else null
+        // Even when the TDLib file ID is unchanged, its cached native file state
+        // may be obsolete after app backgrounding or storage optimization.
+        val refreshed = resolved ?: if (owner != null) {
+            withContext(Dispatchers.IO) {
+                withTimeoutOrNull(1_000L) {
+                    com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
+                        .getFile(selected.fileId)
+                }
+            }
+        } else null
         if (owner != null && !com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner)) {
             playbackError = "Telegram session changed. Return to the library and try again."
             isOpening = false
             isReconnecting = false
             isBuffering = false
             return@LaunchedEffect
+        }
+        if (refreshed != null) {
+            com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.onFileUpdated(refreshed)
         }
         if (resolved != null && resolved.fileId > 0 && resolved.fileId != selected.fileId) {
             PlaybackSessionController.rebindActiveFile(playbackSession, selected.fileId, resolved.fileId)
