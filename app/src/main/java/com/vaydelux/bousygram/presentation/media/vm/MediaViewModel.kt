@@ -53,6 +53,31 @@ class MediaViewModel(
     private val _explorerPosition = MutableStateFlow(ExplorerPosition())
     val explorerPosition: StateFlow<ExplorerPosition> = _explorerPosition
     private var initializedAccount: AccountSnapshot? = null
+
+    /** Bounded, account-generation-scoped metadata only. TDLib manages media bytes. */
+    private val catalogSnapshots = LinkedHashMap<String, List<MediaItem>>(12, 0.75f, true)
+    private val catalogSnapshotLock = Any()
+
+    private fun snapshotKey(folder: String): String? = AccountSession.current()?.let { owner ->
+        owner.accountId.toString() + ":" + owner.generation + ":" + folder
+    }
+
+    private fun catalogSnapshot(folder: String): List<MediaItem>? {
+        val key = snapshotKey(folder) ?: return null
+        return synchronized(catalogSnapshotLock) { catalogSnapshots[key] }
+    }
+
+    private fun rememberCatalog(folder: String, videos: List<MediaItem>) {
+        if (videos.isEmpty()) return
+        val key = snapshotKey(folder) ?: return
+        synchronized(catalogSnapshotLock) {
+            // Keep a bounded first-page snapshot and never retain unrelated video bytes.
+            catalogSnapshots[key] = videos.take(120)
+            while (catalogSnapshots.size > 8) {
+                catalogSnapshots.remove(catalogSnapshots.keys.first())
+            }
+        }
+    }
     val uiState: StateFlow<MediaUiState> = _uiState
     val recentSearches: StateFlow<List<RecentSearchQuery>> = RecentSearchRepository.recentSearches
     private val pageSize = 30
@@ -167,6 +192,7 @@ class MediaViewModel(
                     _uiState.value = MediaUiState()
                     _explorerPosition.value = ExplorerPosition()
                     browseRestorations.clear()
+                    synchronized(catalogSnapshotLock) { catalogSnapshots.clear() }
                     hasLoadedVideoChats = false
                     requestedThumbnailFileIds.clear()
                     initializedAccount = null
@@ -188,6 +214,7 @@ class MediaViewModel(
             _uiState.value = MediaUiState()
             _explorerPosition.value = ExplorerPosition()
             browseRestorations.clear()
+            synchronized(catalogSnapshotLock) { catalogSnapshots.clear() }
             hasLoadedVideoChats = false
             isInitialized = false
             initializedAccount = current
