@@ -1302,7 +1302,7 @@ fun PlayerScreen(
             System.currentTimeMillis() - startedAt < 20_000L
         ) delay(500L)
         val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
-        val isMatroska = current.fileName.endsWith(".mkv", ignoreCase = true) ||
+        val isMatroska = current.fileName.orEmpty().endsWith(".mkv", ignoreCase = true) ||
             current.title.endsWith(".mkv", ignoreCase = true) ||
             current.mimeType.equals("video/x-matroska", ignoreCase = true) ||
             current.mimeType.equals("application/x-matroska", ignoreCase = true)
