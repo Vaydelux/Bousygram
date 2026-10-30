@@ -55,6 +55,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1655,18 +1657,26 @@ fun ModernVideoCard(
                 }
 
                 if (onOpenDetails != null) {
+                    var detailsFocused by remember { mutableStateOf(false) }
                     Surface(
                         shape = CircleShape,
-                        color = colors.surface.copy(alpha = 0.85f),
+                        color = if (detailsFocused) colors.surfaceVariant else colors.surface.copy(alpha = 0.9f),
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(6.dp)
-                            .size(22.dp)
+                            .size(40.dp)
+                            .border(
+                                if (detailsFocused) 3.dp else 1.dp,
+                                if (detailsFocused) colors.primary else colors.outlineVariant,
+                                CircleShape
+                            )
                             .clip(CircleShape)
-                            .clickable { onOpenDetails() }
+                            .semantics { contentDescription = "Details for ${media.title}" }
+                            .onFocusChanged { detailsFocused = it.isFocused }
+                            .clickable(role = Role.Button) { onOpenDetails() }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("ⓘ", color = colors.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("ⓘ", color = colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
