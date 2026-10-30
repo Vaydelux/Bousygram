@@ -187,7 +187,9 @@ fun BrowseScreen(
     }
 
     LaunchedEffect(libraryMode, browseStateKey, videos.size, browseRestoration.focusedMediaKey) {
-        if (!libraryMode || restorationApplied || videos.isEmpty()) return@LaunchedEffect
+        if ((!libraryMode && explorerPosition.level != com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel.MEDIA) ||
+            restorationApplied || videos.isEmpty()
+        ) return@LaunchedEffect
         val targetKey = browseRestoration.focusedMediaKey
         if (targetKey == null) {
             restorationApplied = true
@@ -206,8 +208,20 @@ fun BrowseScreen(
         viewModel.clearQuickSearchQuery()
     }
 
-    BackHandler(enabled = state.selectedTopicId != null && state.quickSearchQuery.isBlank()) {
+    BackHandler(enabled = libraryMode && state.selectedTopicId != null && state.quickSearchQuery.isBlank()) {
         viewModel.selectTopic(null)
+    }
+
+    // Home is a directory explorer, not a flat category carousel.
+    // One Back moves Media -> Topics/Source and Topics -> Sources before the
+    // Activity can return to the product mode picker.
+    BackHandler(
+        enabled = !libraryMode &&
+            state.quickSearchQuery.isBlank() &&
+            explorerPosition.section != com.vaydelux.bousygram.presentation.media.vm.ExplorerSection.SAVED &&
+            explorerPosition.level != com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel.SOURCES
+    ) {
+        viewModel.explorerBack()
     }
 
     val launcher = rememberMediaLauncher(
@@ -217,7 +231,7 @@ fun BrowseScreen(
     )
 
     fun openVideo(item: MediaItem, sectionKey: String? = null) {
-        if (libraryMode) viewModel.recordBrowseFocus(item)
+        viewModel.recordBrowseFocus(item)
         launcher.launch(item, videos, sectionKey)
     }
 
@@ -761,6 +775,8 @@ fun BrowseScreen(
                     viewModel.recordBrowseFocus(item)
                     viewModel.onItemFocused(item)
                 },
+                restoreFocusedMediaKey = browseRestoration.focusedMediaKey,
+                restoreFocusRequester = restoreFocusRequester,
                 onLoadMore = viewModel::loadMoreIfNeeded,
                 onSearch = {
                     val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
