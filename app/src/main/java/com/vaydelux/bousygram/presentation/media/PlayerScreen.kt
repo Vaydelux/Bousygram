@@ -82,6 +82,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -170,6 +171,7 @@ import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
 private const val SEEK_INCREMENT_MS = 10_000L
@@ -207,11 +209,11 @@ fun PlayerScreen(
     val compactHud = adaptive.isCompact
     val queue = remember(request) {
         val seeded = request.queue.ifEmpty { listOf(queueItemFromRequest(request)) }
-        if (queueIndexForRequest(seeded, request.chatId, request.messageId, request.fileId) >= 0) {
+        (if (queueIndexForRequest(seeded, request.chatId, request.messageId, request.fileId) >= 0) {
             seeded
         } else {
             listOf(queueItemFromRequest(request)) + seeded
-        }
+        }).toMutableStateList()
     }
     val initialIndex = remember(request, queue) {
         queueIndexForRequest(queue, request.chatId, request.messageId, request.fileId).coerceAtLeast(0)
@@ -918,9 +920,7 @@ fun PlayerScreen(
                         isBuffering = true
                         playbackError = null
                         scope.launch {
-                            // Re-resolve file from TDLib in case fileId went stale
-                            com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
-                                .reResolveFile(item.chatId, item.messageId)
+                            // The prepare effect re-resolves and applies the refreshed TDLib fileId.
                             delay(maxOf(autoRetryDelayMs(retryCount), 2_000L))
                             if (queue.getOrNull(queueIndex)?.fileId == item.fileId && playbackError == null) {
                                 reloadNonce++
@@ -1073,7 +1073,52 @@ fun PlayerScreen(
         // Lifecycle backgrounding does not run this effect, so a paused player can resume.
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
+        val selected = queue[queueIndex]
+        // A persisted video index may reference a TDLib fileId from an earlier
+        // process. Resolve from the actual chat/message, and replace the active
+        // queue identity before either ExoPlayer or MPV opens a stream.
+        val owner = com.vaydelux.bousygram.core.account.AccountSession.current()
+        val resolved = if (owner != null && selected.chatId != 0L && selected.messageId != 0L) {
+            withContext(Dispatchers.IO) {
+                withTimeoutOrNull(2_500L) {
+                    com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
+                        .reResolveFile(selected.chatId, selected.messageId)
+                }
+            }
+        } else null
+        // Even when the TDLib file ID is unchanged, its cached native file state
+        // may be obsolete after app backgrounding or storage optimization.
+        val refreshed = resolved ?: if (owner != null) {
+            withContext(Dispatchers.IO) {
+                withTimeoutOrNull(1_000L) {
+                    com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
+                        .getFile(selected.fileId)
+                }
+            }
+        } else null
+        if (owner != null && !com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner)) {
+            playbackError = "Telegram session changed. Return to the library and try again."
+            isOpening = false
+            isReconnecting = false
+            isBuffering = false
+            return@LaunchedEffect
+        }
+        if (refreshed != null) {
+            com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.onFileUpdated(refreshed)
+        }
+        if (resolved != null && resolved.fileId > 0 && resolved.fileId != selected.fileId) {
+            PlaybackSessionController.rebindActiveFile(playbackSession, selected.fileId, resolved.fileId)
+            queue[queueIndex] = selected.copy(
+                fileId = resolved.fileId,
+                fileSizeBytes = resolved.size.takeIf { it > 0L }
+                    ?: resolved.expectedSize.takeIf { it > 0L }
+                    ?: selected.fileSizeBytes
+            )
+            Log.i("PlayerScreen", "Refreshed Telegram playback file for chat/message after reopening")
+        }
         val item = queue[queueIndex]
+        com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
+            .noteFileContext(item.fileId, item.chatId, item.messageId)
         // Reset before stream preparation so scheduler preflight metrics (including the
         // fully-cached-at-start verdict) are retained for this playback attempt.
         PlaybackTelemetryRecorder.clearFirstByte(item.fileId)
@@ -1101,6 +1146,7 @@ fun PlayerScreen(
             // MpvPlayerEngine path uses LocalStreamingServer with per-file capability token
             val alreadyPreparedUrl = request.initialStreamUrl?.takeIf {
                 queueIndex == initialIndex && reloadNonce == 0 &&
+                    item.fileId == request.fileId &&
                     it.startsWith("http://127.0.0.1")
             }
             val preparation = if (alreadyPreparedUrl != null) {
@@ -1172,17 +1218,21 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(queueIndex, reloadNonce, isBuffering) {
-        if (!isBuffering) return@LaunchedEffect
-        delay(BUFFERING_STALL_MS)
-        if (!isBuffering) return@LaunchedEffect
-        if (playerEngine.playbackState.value is EnginePlaybackState.Buffering &&
-            !isOpening &&
-            !isReconnecting &&
-            duration <= 0L &&
+    // Do not leave users trapped in Preparing / Reconnecting indefinitely after
+    // an app restart or stale native Telegram file state. This timer is restarted
+    // for each media item and explicit retry, but never by buffering UI flickers.
+    LaunchedEffect(request, queueIndex, reloadNonce) {
+        delay(45_000L)
+        if (firstFrameMs <= 0L && playbackError == null &&
+            (isOpening || isReconnecting || isBuffering) &&
             playerEngine.currentPositionMs <= 0L
         ) {
-            playbackError = "Playback stalled. Try Retry or Skip to the next item."
+            PlaybackDiagnostics.recordStreamError("Playback startup exceeded 45s without a frame")
+            playerEngine.stop()
+            isOpening = false
+            isReconnecting = false
+            isBuffering = false
+            playbackError = "Telegram video could not start. Check your connection, then Retry. If it continues, reopen the library."
             hudVisible = true
         }
     }

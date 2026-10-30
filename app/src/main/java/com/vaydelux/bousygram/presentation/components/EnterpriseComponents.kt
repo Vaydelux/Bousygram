@@ -60,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,6 +93,8 @@ import androidx.compose.ui.focus.focusRequester
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
+import com.vaydelux.bousygram.core.tdlib.utils.ThumbnailExtractor
+import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.data.database.RecentSearchQuery
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.SeriesGroup
@@ -1039,11 +1042,36 @@ fun MediaPosterCard(
         media.messageId,
         if (privacyMode) null else media.miniThumbnailBytes
     )
-    val preferredThumbnail = media.tmdbPosterPath ?: media.thumbnailPath
+    // TDLib thumbnail paths can become stale after native cache cleanup.
+    // Treat missing local files as absent rather than permanently showing a blank Coil error.
+    val preferredThumbnail = (media.tmdbPosterPath ?: media.thumbnailPath)?.takeIf { path ->
+        path.startsWith("http://") || path.startsWith("https://") ||
+            path.startsWith("content://") || File(path).isFile
+    }
+    val context = LocalContext.current
+    val isTsWithoutPoster = !privacyMode && preferredThumbnail == null &&
+        miniThumbnail == null && media.fileId != null &&
+        VideoFormatSupport.isTransportStream(media.fileName, media.mimeType)
+    val localTsFrame by produceState<android.graphics.Bitmap?>(
+        initialValue = null,
+        key1 = media.fileId,
+        key2 = isTsWithoutPoster,
+        key3 = context
+    ) {
+        value = if (isTsWithoutPoster) {
+            try {
+                media.fileId?.let { ThumbnailExtractor.getCachedTransportStreamThumbnail(context, it) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                android.util.Log.w("MediaPosterCard", "Local TS artwork unavailable", failure)
+                null
+            }
+        } else null
+    }
     val imageData = if (privacyMode) null else preferredThumbnail?.let { path ->
         if (path.startsWith("http")) path else File(path)
-    } ?: miniThumbnail
-    val context = LocalContext.current
+    } ?: miniThumbnail ?: localTsFrame
     val imageRequest = remember(imageData) {
         ImageRequest.Builder(context)
             .data(imageData)
@@ -1145,7 +1173,7 @@ fun MediaPosterCard(
                     val displayBadge = badge ?: when (media.type) {
                         com.vaydelux.bousygram.domain.model.MediaType.Audio -> media.docType ?: "AUDIO"
                         com.vaydelux.bousygram.domain.model.MediaType.Document -> media.docType ?: "DOC"
-                        else -> null
+                        else -> if (VideoFormatSupport.isTransportStream(media.fileName, media.mimeType)) "TS" else null
                     }
                     displayBadge?.let {
                         GlassPill(

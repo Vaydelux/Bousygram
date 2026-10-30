@@ -168,6 +168,8 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
                     }
                     val targetFileId = when (val content = message.content) {
                         is TdApi.MessageVideo -> content.video?.video?.id
+                        is TdApi.MessageVideoNote -> content.videoNote?.video?.id
+                        is TdApi.MessageAnimation -> content.animation?.animation?.id
                         is TdApi.MessageDocument -> content.document?.document?.id
                         else -> null
                     }

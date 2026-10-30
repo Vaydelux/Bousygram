@@ -111,6 +111,10 @@ fun BrowseScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
+    // Saved Messages has its own permanent entry. Never list the same chat again.
+    val libraryChatSources = remember(state.videoChats) {
+        libraryOtherChatSources(state.videoChats)
+    }
     val adaptive = rememberAdaptiveMetrics()
     val context = LocalContext.current
     var favoriteKeys by remember { mutableStateOf(EnterprisePreferences.favoriteKeys()) }
@@ -298,7 +302,7 @@ fun BrowseScreen(
                                 )
                             }
                         }
-                        items(state.videoChats, key = { it.chatId }) { chat ->
+                        items(libraryChatSources, key = { it.chatId }) { chat ->
                             val isSelected = chat.chatId == state.selectedChatId && !state.isSavedMessagesSelected
                             TvFocusSurface(
                                 onClick = { viewModel.loadChat(chat.chatId, chat.title) },
@@ -526,7 +530,7 @@ fun BrowseScreen(
                                     }
                                 }
                             }
-                            items(state.videoChats, key = { it.chatId }) { chat ->
+                            items(libraryChatSources, key = { it.chatId }) { chat ->
                                 val isSelected = chat.chatId == state.selectedChatId && !state.isSavedMessagesSelected
                                 TvFocusSurface(
                                     onClick = { viewModel.loadChat(chat.chatId, chat.title) },
