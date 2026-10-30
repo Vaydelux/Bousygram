@@ -53,6 +53,10 @@ class ExoPlayerEngine(
 
     override val currentPositionMs: Long get() = player.currentPosition.coerceAtLeast(0L)
     override val durationMs: Long get() = player.duration.coerceAtLeast(0L)
+    private var isContainerWithFullFileSeekMap = false
+    override val seekableContainerDuration: Boolean
+        get() = isContainerWithFullFileSeekMap && player.isCurrentMediaItemSeekable &&
+            player.duration > 0L && player.duration != C.TIME_UNSET
     override val bufferedPositionMs: Long get() = player.bufferedPosition.coerceAtLeast(0L)
     override val isPlaying: Boolean get() = player.isPlaying
     override val playWhenReady: Boolean get() = player.playWhenReady
@@ -194,6 +198,8 @@ class ExoPlayerEngine(
         // The source URI carries the already validated progressive/container MIME hint.
         val mime = uri.getQueryParameter("mime")
             ?: VideoFormatSupport.exoMimeType(null, name, name)
+        isContainerWithFullFileSeekMap = mime == MimeTypes.VIDEO_MATROSKA ||
+            mime == MimeTypes.VIDEO_WEBM || mime == MimeTypes.VIDEO_MP2T
         val mediaItem = MediaItem.Builder()
             .setUri(uri)
             .apply {
