@@ -2305,9 +2305,11 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = if (compactHud) 110.dp else 135.dp)
         ) {
-            val currentChat = queue.getOrNull(queueIndex)?.chatId
+            val currentItem = queue.getOrNull(queueIndex)
             val relatedQueue = queue.mapIndexedNotNull { idx, item ->
-                if (currentChat != null && item.chatId == currentChat) idx to item else null
+                if (currentItem != null && item.chatId == currentItem.chatId &&
+                    item.topicId == currentItem.topicId
+                ) idx to item else null
             }
             val trayColumns = if (compactHud) 2 else 4
             LaunchedEffect(episodesDrawerVisible, queueIndex) {
