@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -169,6 +170,39 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                 Button(onClick = onBack, modifier = Modifier.padding(top = 10.dp)) {
                     Text("Back to Mode Selection")
                 }
+            }
+        }
+    }
+}
+
+/** Real Telegram authorization readiness, not a fake timed progress bar. */
+@Composable
+fun TelegramStartupLoadingScreen(connectionStatus: String?) {
+    Surface(color = MaterialTheme.colorScheme.background) {
+        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Column(
+                modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_bousygram_mark),
+                    contentDescription = "Bousygram startup logo",
+                    modifier = Modifier.size(88.dp)
+                )
+                Text(
+                    "Preparing Telegram Media",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text(
+                    connectionStatus?.takeIf { it.isNotBlank() } ?: "Connecting securely to your Telegram session…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
             }
         }
     }
