@@ -20,7 +20,7 @@
 | P6 | 1062403, 29b09fc, f658450 | Branded loading keyed to actual Telegram authorization and lightweight focus transition | CODE WRITTEN — UNVERIFIED |
 | P7 | c17c7de, 8525c7d, ff0b3d6, c020619, 875ee1c, c0373f4, 3119e4f, f40dbd4 | Themeable original SVG, Android vector, Android 26+ adaptive icon, startup logo, asset notes | CODE/ASSETS WRITTEN — UNVERIFIED |
 | P8 | b2293ee, 6928f65, fc2de36 | Added/updated automated regression test sources without executing them. Compile/lint/JVM/emulator/device tests and release qualification deliberately not performed on this branch | DEFERRED |
-| P9 | planning PR #42 merged earlier | Future TMDB/AniList, iframe/WebView and virtual-mouse architecture remains planning only; no Extras integration code | PLAN ONLY |
+| P9 | planning PR #42, 91bfa57 | Added future-only Extras RFC covering TMDB/AniList, isolated provider IDs, controlled WebView/iframe boundaries, virtual-mouse accessibility, legal/security review. No Extras integration code | PLAN ONLY |
 
 ## Known intentional boundaries
 
@@ -43,4 +43,4 @@
 5. Measure catalog warm-return times, storage growth, focus/scroll, media seek time, first rendered frame, and motion performance.
 6. Resolve bugs, review **every** source commit, produce a review packet, and only then consider a merge/debug prerelease.
 
-**Do not merge this branch, publish a new APK, or mark any phase PASS before that requested final review.**
+**Implementation branch remains a candidate, not a passing release. Do not merge this branch, publish a new APK, or mark any phase PASS before the requested consolidated final verification and debug review.**
