@@ -55,29 +55,55 @@ class MediaViewModel(
     private var initializedAccount: AccountSnapshot? = null
 
     /** Bounded, account-generation-scoped metadata only. TDLib manages media bytes. */
-    private val catalogSnapshots = LinkedHashMap<String, List<MediaItem>>(12, 0.75f, true)
+    private data class CatalogSnapshot(
+        val items: List<MediaItem>,
+        val nextFromMessageId: Long,
+        val hasMore: Boolean,
+        val savedAtMs: Long = android.os.SystemClock.elapsedRealtime()
+    )
+    private val catalogSnapshots = LinkedHashMap<String, CatalogSnapshot>(12, 0.75f, true)
     private val catalogSnapshotLock = Any()
+    private val freshnessWindowMs = 120_000L
 
     private fun snapshotKey(folder: String): String? = AccountSession.current()?.let { owner ->
         owner.accountId.toString() + ":" + owner.generation + ":" + folder
     }
 
-    private fun catalogSnapshot(folder: String): List<MediaItem>? {
+    private fun catalogSnapshot(folder: String): CatalogSnapshot? {
         val key = snapshotKey(folder) ?: return null
         return synchronized(catalogSnapshotLock) { catalogSnapshots[key] }
     }
 
-    private fun rememberCatalog(folder: String, videos: List<MediaItem>) {
+    private fun freshCatalog(folder: String): CatalogSnapshot? = catalogSnapshot(folder)?.takeIf {
+        android.os.SystemClock.elapsedRealtime() - it.savedAtMs in 0..freshnessWindowMs
+    }
+
+    private fun rememberCatalog(folder: String, videos: List<MediaItem>, nextCursor: Long) {
         if (videos.isEmpty()) return
         val key = snapshotKey(folder) ?: return
         synchronized(catalogSnapshotLock) {
-            // Keep a bounded first-page snapshot and never retain unrelated video bytes.
-            catalogSnapshots[key] = videos.take(120)
+            // Bounded first-page metadata, never video bytes, stream URLs, or credentials.
+            catalogSnapshots[key] = CatalogSnapshot(
+                items = videos.take(120),
+                nextFromMessageId = nextCursor,
+                hasMore = nextCursor != 0L
+            )
             while (catalogSnapshots.size > 8) {
                 catalogSnapshots.remove(catalogSnapshots.keys.first())
             }
         }
     }
+
+    private fun invalidateCatalogForChat(chatId: Long) {
+        synchronized(catalogSnapshotLock) {
+            val sourceFragment = ":chat:" + chatId + ":"
+            catalogSnapshots.keys.removeAll { it.contains(sourceFragment) }
+            if (repository.cachedSavedMessagesChatId == chatId) {
+                catalogSnapshots.keys.removeAll { it.endsWith(":saved:topic:0") }
+            }
+        }
+    }
+
     val uiState: StateFlow<MediaUiState> = _uiState
     val recentSearches: StateFlow<List<RecentSearchQuery>> = RecentSearchRepository.recentSearches
     private val pageSize = 30
@@ -303,7 +329,7 @@ class MediaViewModel(
                 isSavedMessagesSelected = true,
                 hasMore = true,
                 isLoadingMore = false,
-                items = if (it.isSavedMessagesSelected && it.items.isNotEmpty()) it.items else warmSaved ?: emptyList(),
+                items = if (it.isSavedMessagesSelected && it.items.isNotEmpty()) it.items else warmSaved?.items ?: emptyList(),
                 nextFromMessageId = 0L
             )
         }
@@ -330,7 +356,7 @@ class MediaViewModel(
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
-            if (isFinal && items.isNotEmpty()) rememberCatalog("saved:topic:0", items)
+            if (isFinal && items.isNotEmpty()) rememberCatalog("saved:topic:0", items, nextFromMessageId)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
                 enrichMediaItemsAsync(items)
@@ -378,7 +404,7 @@ class MediaViewModel(
                 isLoadingTopics = false,
                 hasMore = true,
                 isLoadingMore = false,
-                items = if (!it.isSavedMessagesSelected && it.selectedChatId == chatId && it.items.isNotEmpty()) it.items else warmChat ?: emptyList(),
+                items = if (!it.isSavedMessagesSelected && it.selectedChatId == chatId && it.items.isNotEmpty()) it.items else warmChat?.items ?: emptyList(),
                 nextFromMessageId = 0L,
                 videoChats = it.videoChats.map { source -> source.copy(isSelected = !source.isSavedMessages && source.chatId == chatId) }
             )
@@ -407,7 +433,7 @@ class MediaViewModel(
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
-            if (isFinal && items.isNotEmpty()) rememberCatalog(folderKey, items)
+            if (isFinal && items.isNotEmpty()) rememberCatalog(folderKey, items, nextFromMessageId)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
                 enrichMediaItemsAsync(items)
@@ -448,7 +474,7 @@ class MediaViewModel(
                 error = null,
                 hasMore = true,
                 isLoadingMore = false,
-                items = warmTopic ?: emptyList(),
+                items = warmTopic?.items ?: emptyList(),
                 nextFromMessageId = 0L
             )
         }
@@ -474,7 +500,7 @@ class MediaViewModel(
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
-            if (isFinal && items.isNotEmpty()) rememberCatalog(folderKey, items)
+            if (isFinal && items.isNotEmpty()) rememberCatalog(folderKey, items, nextFromMessageId)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
             }
