@@ -179,6 +179,7 @@ class MediaViewModel(
                 repository.getMessage(message.chatId, message.id) { item, _ ->
                     if (generationAtRequest == mediaRequestGeneration && isMessageInSelectedChat(message.chatId)) {
                         item?.let { newItem ->
+                            invalidateCatalogForChat(message.chatId)
                             _uiState.update { current ->
                                 val exists = current.items.any {
                                     it.chatId == newItem.chatId && it.messageId == newItem.messageId
@@ -197,6 +198,9 @@ class MediaViewModel(
     }
 
     private val deleteMessageHandler: (TdApi.UpdateDeleteMessages) -> Unit = { update ->
+        if (update.isPermanent) {
+            invalidateCatalogForChat(update.chatId)
+        }
         if (update.isPermanent && isMessageInSelectedChat(update.chatId)) {
             _uiState.update { current ->
                 current.copy(items = current.items.filterNot { update.messageIds.contains(it.messageId) })
@@ -211,6 +215,9 @@ class MediaViewModel(
 
     private val chatUpdateHandler: (TdApi.Object?) -> Unit = { update ->
         when (update) {
+            is TdApi.UpdateMessageContent -> {
+                invalidateCatalogForChat(update.chatId)
+            }
             is TdApi.UpdateNewChat,
             is TdApi.UpdateChatAddedToList,
             is TdApi.UpdateChatRemovedFromList,
