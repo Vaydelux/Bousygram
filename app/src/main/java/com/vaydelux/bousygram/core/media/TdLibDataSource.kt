@@ -215,7 +215,7 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
             return false
         }
 
-        fun buildUri(fileId: Int, size: Long, fileName: String? = null): Uri {
+        fun buildUri(fileId: Int, size: Long, fileName: String? = null, mimeType: String? = null): Uri {
             val builder = Uri.Builder()
                 .scheme(SCHEME)
                 .authority(fileId.toString())
@@ -223,6 +223,9 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
                 .appendQueryParameter("size", size.toString())
             if (!fileName.isNullOrBlank()) {
                 builder.appendQueryParameter("name", fileName)
+            }
+            if (!mimeType.isNullOrBlank()) {
+                builder.appendQueryParameter("mime", mimeType)
             }
             return builder.build()
         }
