@@ -29,6 +29,43 @@ class ContainerMetadataDurationTest {
         assertNull(ContainerHeaderParser.parseMkvDurationMs(mkvHeader(Double.NaN)))
     }
 
+    @Test fun oversizedEbmlHeaderMustNotWrapIntoFakeCues() {
+        val ebml = element(0x1a, 0x45, 0xdf, 0xa3)
+        // Eight-byte EBML size larger than Int.MAX_VALUE.
+        val oversized = element(0x01, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00)
+        val fakeSegmentAndCues = element(
+            0x18, 0x53, 0x80, 0x67, 0xff,
+            0x1c, 0x53, 0xbb, 0x6b, 0x80
+        )
+        assertNull(ContainerHeaderParser.parseMkvCuesOffset(ebml + oversized + fakeSegmentAndCues))
+    }
+
+    @Test fun oversizedSeekHeadMustNotWrapIntoFakeCues() {
+        val ebml = element(0x1a, 0x45, 0xdf, 0xa3, 0x80)
+        val segment = element(0x18, 0x53, 0x80, 0x67, 0xff)
+        val seekHead = element(0x11, 0x4d, 0x9b, 0x74)
+        val oversized = element(0x01, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00)
+        val fakeCues = element(0x1c, 0x53, 0xbb, 0x6b, 0x80)
+        assertNull(ContainerHeaderParser.parseMkvCuesOffset(ebml + segment + seekHead + oversized + fakeCues))
+    }
+
+    @Test fun incompleteSeekEntryDoesNotFabricateCueOffset() {
+        val ebml = element(0x1a, 0x45, 0xdf, 0xa3, 0x80)
+        val segment = element(0x18, 0x53, 0x80, 0x67, 0xff)
+        val seekId = element(0x53, 0xab, 0x84, 0x1c, 0x53, 0xbb, 0x6b)
+        val incompletePosition = element(0x53, 0xac, 0x88, 0x00)
+        val seek = element(0x4d, 0xbb, 0x8a) + seekId + incompletePosition
+        val seekHead = element(0x11, 0x4d, 0x9b, 0x74, 0x8d) + seek
+        assertNull(ContainerHeaderParser.parseMkvCuesOffset(ebml + segment + seekHead))
+    }
+
+    @Test fun oversizedMp4AtomDoesNotWrapToAnotherHeader() {
+        val bigAtom = element(0, 0, 0, 1, 0x66, 0x72, 0x65, 0x65) +
+            ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN).putLong(0x1_0000_0010L).array()
+        val fakeMoov = element(0, 0, 0, 8, 0x6d, 0x6f, 0x6f, 0x76)
+        assertNull(ContainerHeaderParser.findFaststartMoovSize(bigAtom + fakeMoov))
+    }
+
     @Test fun cuesSeekHeadUsesCorrectEbmlVariableLengthIntegers() {
         val header = element(0x1a, 0x45, 0xdf, 0xa3, 0x80)
         val segment = element(0x18, 0x53, 0x80, 0x67, 0xff)
