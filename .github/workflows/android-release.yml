@@ -170,6 +170,42 @@ jobs:
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
     steps:
+      # Fail before checkout, Java/Gradle and Android SDK downloads when the
+      # production-signing environment is not configured. Report names only.
+      - name: Check protected production signing configuration
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          required=(
+            RELEASE_KEYSTORE_BASE64
+            RELEASE_STORE_PASSWORD
+            RELEASE_KEY_ALIAS
+            RELEASE_KEY_PASSWORD
+            RELEASE_CERT_SHA256
+          )
+          missing=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+              echo "::error title=Missing production signing configuration::Set $name in the production-signing environment (or repository Actions secrets). See RELEASE_SIGNING_SETUP.md." >&2
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            {
+              echo "### Production signing is not configured"
+              echo "The following secret names are missing from this run:"
+              for name in "${missing[@]}"; do
+                echo "- \`$name\`"
+              done
+              echo "Configure the secrets in GitHub Settings > Environments > production-signing, then re-run the controlled release."
+              echo "No credentials or keystore contents were logged."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
       - name: Check out exact release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
