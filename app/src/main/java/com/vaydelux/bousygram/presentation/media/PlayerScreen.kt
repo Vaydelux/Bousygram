@@ -850,7 +850,7 @@ fun PlayerScreen(
         playerEngine.firstFrameRendered?.let { frames ->
             launch {
                 frames.collect { rendered ->
-                    if (rendered && (isOpening || playbackError != null) && playerEngine.isPlaying) {
+                    if (rendered && (isOpening || (playbackError != null && playerEngine.isPlaying))) {
                         recordInitialOutput(audioOnly = false)
                     }
                 }
