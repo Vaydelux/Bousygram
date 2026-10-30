@@ -48,7 +48,7 @@ class MainActivitySmokeTest {
 
         val device = UiDevice.getInstance(instrumentation)
         assertTrue("Preview dashboard heading should be visible", device.wait(Until.hasObject(By.text("Bousygram")), 5_000))
-        assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Library")), 5_000))
+        assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Saved Messages")), 5_000))
     }
 
     private fun launchMainActivity(
