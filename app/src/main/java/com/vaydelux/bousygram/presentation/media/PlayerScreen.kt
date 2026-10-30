@@ -1519,7 +1519,7 @@ fun PlayerScreen(
             } else if (progressAnchorTickMs > 0L && nowMs - progressAnchorTickMs >= 1_500L &&
                 hasConfirmedVideoProgress(
                     naturalProgressAnchorMs, observedPosition, true, true
-                ) && firstProgressReadyMs == 0L && firstFrameMs == 0L
+                ) && playerStartedAtMs > 0L && firstProgressReadyMs == 0L && firstFrameMs == 0L
             ) {
                 firstProgressReadyMs = (System.currentTimeMillis() - playerStartedAtMs).coerceAtLeast(1L)
                 isOpening = false
