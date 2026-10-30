@@ -142,6 +142,12 @@ import com.vaydelux.bousygram.core.media.hasConfirmedAudioOutput
 import com.vaydelux.bousygram.core.media.hasInitialMediaOutput
 import com.vaydelux.bousygram.core.media.ExoPlayerEngine
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
+import com.vaydelux.bousygram.core.media.ContainerHeaderParser
+import com.vaydelux.bousygram.core.media.MpegTsDurationParser
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkRequest
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkResult
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkPurpose
 import com.vaydelux.bousygram.core.media.MediaTrackInfo
 import com.vaydelux.bousygram.core.media.MpvPlayerEngine
 import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
@@ -1293,6 +1299,68 @@ fun PlayerScreen(
             runCatching { playPauseFocusRequester.requestFocus() }
         } else {
             runCatching { focusRequester.requestFocus() }
+        }
+    }
+
+    // Recover real duration from already-cached container bytes without delaying
+    // video playback or requesting a large new TS tail download. MKV Segment Info
+    // normally lives at the head; MPEG-TS can be estimated from actual PCRs only
+    // when both head and tail data are already available. Never guess from file size.
+    LaunchedEffect(request, queueIndex, reloadNonce) {
+        delay(1_500L)
+        val owner = com.vaydelux.bousygram.core.account.AccountSession.current() ?: return@LaunchedEffect
+        val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
+        val container = VideoFormatSupport.resolveContainer(current.fileName, current.mimeType, current.title)
+        val mkv = container == "mkv" || container == "webm"
+        val ts = container == "ts" || container == "mts" || container == "m2ts" ||
+            VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
+        if (!mkv && !ts) return@LaunchedEffect
+        repeat(15) {
+            if (!com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) ||
+                duration > 0L || playbackError != null) return@LaunchedEffect
+            val head = kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+                withContext(Dispatchers.IO) {
+                    TelegramChunkScheduler.fetchChunk(
+                        TelegramChunkRequest(
+                            current.fileId, 0L, 64 * 1024, 16, TelegramChunkPurpose.Metadata
+                        )
+                    )
+                }
+            }
+            val headBytes = (head as? TelegramChunkResult.Ready)?.bytes
+            val parsedDuration = if (mkv) {
+                headBytes?.let(ContainerHeaderParser::parseMkvDurationMs)
+            } else {
+                val totalSize = fileSizeBytes.takeIf { it > 64 * 1024L }
+                    ?: current.fileSizeBytes.takeIf { it > 64 * 1024L } ?: 0L
+                val tail = if (totalSize > 0L && headBytes != null) {
+                    kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+                        withContext(Dispatchers.IO) {
+                            TelegramChunkScheduler.fetchChunk(
+                                TelegramChunkRequest(
+                                    current.fileId, totalSize - 64 * 1024L,
+                                    64 * 1024, 16, TelegramChunkPurpose.Metadata
+                                )
+                            )
+                        }
+                    }
+                } else null
+                val tailBytes = (tail as? TelegramChunkResult.Ready)?.bytes
+                if (headBytes != null && tailBytes != null) {
+                    MpegTsDurationParser.durationMs(headBytes, tailBytes)
+                } else null
+            }
+            if (parsedDuration != null &&
+                com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) &&
+                queue.getOrNull(queueIndex)?.fileId == current.fileId
+            ) {
+                MediaDurationResolver.rememberTrustedDuration(
+                    current.fileId, parsedDuration, MediaDurationResolver.DurationSource.Stream
+                )
+                if (parsedDuration > duration) duration = parsedDuration
+                return@LaunchedEffect
+            }
+            delay(2_000L)
         }
     }
 
