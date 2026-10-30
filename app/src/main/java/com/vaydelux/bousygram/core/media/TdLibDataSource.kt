@@ -82,12 +82,18 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         }
 
         currentPosition = dataSpec.position
-        bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
-            dataSpec.length
-        } else if (totalSize > 0L) {
-            (totalSize - dataSpec.position).coerceAtLeast(0L)
-        } else {
-            C.LENGTH_UNSET.toLong()
+        if (totalSize > 0L && dataSpec.position > totalSize) {
+            throw IOException("Requested media offset exceeds the available file length")
+        }
+        // Matroska's Cue lookup can reopen a data source at an arbitrary position.
+        // Never promise more bytes than remain at that offset, even on a bounded DataSpec.
+        val remainingInFile = (totalSize - dataSpec.position).coerceAtLeast(0L)
+        bytesRemaining = when {
+            totalSize > 0L && dataSpec.length != C.LENGTH_UNSET.toLong() ->
+                min(dataSpec.length, remainingInFile)
+            totalSize > 0L -> remainingInFile
+            dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
+            else -> C.LENGTH_UNSET.toLong()
         }
         rangeLease = TelegramChunkScheduler.acquireLease(
             fileId = fileId,
