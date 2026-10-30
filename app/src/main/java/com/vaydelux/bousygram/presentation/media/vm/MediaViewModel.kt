@@ -469,7 +469,9 @@ class MediaViewModel(
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
+                    items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
+                        current.items
+                    } else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
@@ -551,7 +553,9 @@ class MediaViewModel(
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
+                    items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
+                        current.items
+                    } else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
@@ -656,7 +660,9 @@ class MediaViewModel(
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
+                    items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
+                        current.items
+                    } else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
