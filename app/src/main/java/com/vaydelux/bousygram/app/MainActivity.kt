@@ -165,6 +165,12 @@ private fun BousygramAppRoot(
         return
     }
 
+    // From the Telegram Home root, Back returns to mode choice instead of
+    // terminating the Activity. Inner folder/player BackHandlers take priority.
+    BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen == AppScreen.Home) {
+        modeName = BousygramMode.SELECT.name
+    }
+
     BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen !is AppScreen.Home && appScreen !is AppScreen.Player) {
         appScreen = when (val screen = appScreen) {
             is AppScreen.Player -> unwrapNonPlayerScreen(screen.returnTo)
