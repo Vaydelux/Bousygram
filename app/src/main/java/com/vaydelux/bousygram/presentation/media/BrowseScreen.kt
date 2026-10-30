@@ -74,6 +74,7 @@ import com.vaydelux.bousygram.data.database.RecentSearchQuery
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -122,6 +123,8 @@ fun BrowseScreen(
     var hideWatched by remember { mutableStateOf(EnterprisePreferences.hideWatched()) }
     var pinnedChats by remember { mutableStateOf(EnterprisePreferences.pinnedChatIds()) }
     var showAllChatsPicker by remember { mutableStateOf(false) }
+    // Keep the sidebar viewport across incremental Telegram chat catalog updates.
+    val sourceSidebarListState = rememberLazyListState()
     val lastPlayed = EnterprisePreferences.lastPlayed()
     val videos = remember(state.filteredAndSortedItems, hideWatched) {
         val playable = playableVideos(state.filteredAndSortedItems)
@@ -506,10 +509,11 @@ fun BrowseScreen(
                             fontWeight = FontWeight.Bold
                         )
                         LazyColumn(
+                            state = sourceSidebarListState,
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            item {
+                            item(key = "saved-messages-sidebar") {
                                 val isSelected = state.isSavedMessagesSelected
                                 TvFocusSurface(
                                     onClick = viewModel::load,
