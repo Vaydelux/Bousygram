@@ -41,7 +41,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.vaydelux.bousygram.domain.model.ChatSourceKind
 import com.vaydelux.bousygram.domain.model.ForumTopicChannel
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.VideoChatItem
@@ -103,13 +102,7 @@ fun TelegramExplorerDashboard(
         else -> 140.dp
     }
     val directory = remember(sources, position.section) {
-        sources.filter {
-            !it.isSavedMessages && when (position.section) {
-                ExplorerSection.CHANNELS -> it.kind == ChatSourceKind.CHANNEL
-                ExplorerSection.GROUPS -> it.kind == ChatSourceKind.GROUP || it.isForum
-                ExplorerSection.SAVED -> false
-            }
-        }.distinctBy { it.chatId }
+        explorerSources(sources, position.section)
     }
     val showSources = position.level == ExplorerLevel.SOURCES && position.section != ExplorerSection.SAVED
     val showTopics = position.level == ExplorerLevel.TOPICS && position.section == ExplorerSection.GROUPS
