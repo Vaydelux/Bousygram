@@ -20,6 +20,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -157,6 +158,22 @@ class MediaViewModel(
     }
 
     init {
+        viewModelScope.launch {
+            AccountSession.state.collect { owner ->
+                if (owner == null && initializedAccount != null) {
+                    // The Activity-scoped ViewModel outlives the auth screen.
+                    // Clear media, source directories and focus when an account logs out.
+                    ++mediaRequestGeneration
+                    _uiState.value = MediaUiState()
+                    _explorerPosition.value = ExplorerPosition()
+                    browseRestorations.clear()
+                    hasLoadedVideoChats = false
+                    requestedThumbnailFileIds.clear()
+                    initializedAccount = null
+                    isInitialized = false
+                }
+            }
+        }
         TdLibClient.addNewMessageHandler(newMessageHandler)
         TdLibClient.addDeleteMessageHandler(deleteMessageHandler)
         TdLibClient.addUpdateHandler(chatUpdateHandler)
@@ -257,7 +274,7 @@ class MediaViewModel(
                 isSavedMessagesSelected = true,
                 hasMore = true,
                 isLoadingMore = false,
-                items = emptyList(),
+                items = if (it.isSavedMessagesSelected) it.items else emptyList(),
                 nextFromMessageId = 0L
             )
         }
@@ -277,7 +294,7 @@ class MediaViewModel(
             if (requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = items,
+                    items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
@@ -329,7 +346,7 @@ class MediaViewModel(
                 isLoadingTopics = false,
                 hasMore = true,
                 isLoadingMore = false,
-                items = emptyList(),
+                items = if (!it.isSavedMessagesSelected && it.selectedChatId == chatId) it.items else emptyList(),
                 nextFromMessageId = 0L,
                 videoChats = it.videoChats.map { source -> source.copy(isSelected = !source.isSavedMessages && source.chatId == chatId) }
             )
@@ -351,7 +368,7 @@ class MediaViewModel(
             if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = items,
+                    items = if (!isFinal && items.isEmpty() && current.items.isNotEmpty()) current.items else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
