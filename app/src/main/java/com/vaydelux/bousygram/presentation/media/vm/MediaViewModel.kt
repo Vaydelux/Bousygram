@@ -10,6 +10,9 @@ import com.vaydelux.bousygram.data.repository.searchChatVideos
 import com.vaydelux.bousygram.presentation.media.stableChatCatalog
 import com.vaydelux.bousygram.data.repository.searchGlobalVideos
 import com.vaydelux.bousygram.domain.model.MediaItem
+import com.vaydelux.bousygram.domain.model.VideoChatItem
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.domain.model.MediaUiState
 import com.vaydelux.bousygram.domain.model.SAVED_MESSAGES_TITLE
 import kotlinx.coroutines.Dispatchers
@@ -33,10 +36,22 @@ data class BrowseRestoration(
     val sectionKey: String? = null
 )
 
+/** Persistent explorer position owned by the existing activity-scoped MediaViewModel. */
+enum class ExplorerSection { SAVED, CHANNELS, GROUPS }
+enum class ExplorerLevel { SOURCES, TOPICS, MEDIA }
+
+data class ExplorerPosition(
+    val section: ExplorerSection = ExplorerSection.SAVED,
+    val level: ExplorerLevel = ExplorerLevel.MEDIA
+)
+
 class MediaViewModel(
     private val repository: SavedMessagesRepository = SavedMessagesRepository()
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(MediaUiState())
+    private val _explorerPosition = MutableStateFlow(ExplorerPosition())
+    val explorerPosition: StateFlow<ExplorerPosition> = _explorerPosition
+    private var initializedAccount: AccountSnapshot? = null
     val uiState: StateFlow<MediaUiState> = _uiState
     val recentSearches: StateFlow<List<RecentSearchQuery>> = RecentSearchRepository.recentSearches
     private val pageSize = 30
@@ -148,9 +163,69 @@ class MediaViewModel(
     }
 
     fun initialize() {
+        val current = AccountSession.current()
+        if (current != initializedAccount) {
+            // The Activity ViewModel outlives the auth route. Never publish another
+            // Telegram identity's cached catalog, UI focus or selected folder.
+            ++mediaRequestGeneration
+            _uiState.value = MediaUiState()
+            _explorerPosition.value = ExplorerPosition()
+            browseRestorations.clear()
+            hasLoadedVideoChats = false
+            isInitialized = false
+            initializedAccount = current
+        }
         if (isInitialized) return
         isInitialized = true
         refresh()
+    }
+
+    fun selectExplorerSection(section: ExplorerSection) {
+        _explorerPosition.value = ExplorerPosition(
+            section = section,
+            level = if (section == ExplorerSection.SAVED) ExplorerLevel.MEDIA else ExplorerLevel.SOURCES
+        )
+        if (section == ExplorerSection.SAVED) {
+            if (!_uiState.value.isSavedMessagesSelected) load()
+            else loadIfNeeded()
+        } else loadVideoChatsIfNeeded()
+    }
+
+    fun enterExplorerSource(source: VideoChatItem) {
+        if (source.isSavedMessages) {
+            selectExplorerSection(ExplorerSection.SAVED)
+            return
+        }
+        _explorerPosition.value = _explorerPosition.value.copy(
+            level = if (source.isForum) ExplorerLevel.TOPICS else ExplorerLevel.MEDIA
+        )
+        if (_uiState.value.selectedChatId != source.chatId || _uiState.value.isSavedMessagesSelected) {
+            loadChat(source.chatId, source.title)
+        } else if (source.isForum && _uiState.value.availableTopics.isEmpty()) {
+            loadForumTopics(source.chatId)
+        }
+    }
+
+    fun enterExplorerTopic(topicId: Int) {
+        if (_explorerPosition.value.level != ExplorerLevel.TOPICS) return
+        val source = _uiState.value
+        if (source.selectedChatId == null || source.availableTopics.none { it.id == topicId }) return
+        _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
+        selectTopic(topicId)
+    }
+
+    fun explorerBack(): Boolean {
+        val position = _explorerPosition.value
+        if (position.section == ExplorerSection.SAVED || position.level == ExplorerLevel.SOURCES) return false
+        val source = _uiState.value.videoChats.firstOrNull { it.chatId == _uiState.value.selectedChatId }
+        _explorerPosition.value = position.copy(
+            level = if (position.level == ExplorerLevel.MEDIA && source?.isForum == true) {
+                ExplorerLevel.TOPICS
+            } else {
+                ExplorerLevel.SOURCES
+            }
+        )
+        return true
     }
 
     override fun onCleared() {
