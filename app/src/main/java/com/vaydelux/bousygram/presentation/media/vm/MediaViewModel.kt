@@ -89,7 +89,8 @@ class MediaViewModel(
     fun currentBrowseStateKey(): String {
         val state = _uiState.value
         val source = if (state.isSavedMessagesSelected) "saved" else "chat:${state.selectedChatId ?: 0L}"
-        return "$source:topic:${state.selectedTopicId ?: 0}"
+        val route = _explorerPosition.value
+        return "${route.section}:${route.level}:$source:topic:${state.selectedTopicId ?: 0}"
     }
 
     fun browseRestoration(key: String = currentBrowseStateKey()): BrowseRestoration =
@@ -417,9 +418,19 @@ class MediaViewModel(
     }
 
     fun loadForumTopics(chatId: Long) {
+        val owner = AccountSession.current() ?: return
+        val generation = mediaRequestGeneration
         _uiState.update { it.copy(isLoadingTopics = true) }
-        repository.loadForumTopics(chatId) { topics, _ ->
-            _uiState.update { it.copy(availableTopics = topics, isLoadingTopics = false) }
+        repository.loadForumTopics(chatId) { topics, error ->
+            if (!AccountSession.isCurrent(owner) || generation != mediaRequestGeneration) return@loadForumTopics
+            _uiState.update { current ->
+                if (current.selectedChatId != chatId || current.isSavedMessagesSelected) current
+                else current.copy(
+                    availableTopics = topics,
+                    isLoadingTopics = false,
+                    error = error ?: current.error
+                )
+            }
         }
     }
 
@@ -610,8 +621,13 @@ class MediaViewModel(
         if (!force && (hasLoadedVideoChats || _uiState.value.isSidebarLoading)) return
         val selectedId = if (_uiState.value.isSavedMessagesSelected) repository.cachedSavedMessagesChatId else _uiState.value.selectedChatId
         _uiState.update { it.copy(isSidebarLoading = true, sidebarError = null) }
+        val owner = AccountSession.current() ?: run {
+            _uiState.update { it.copy(isSidebarLoading = false) }
+            return
+        }
         repository.loadVideoChats(10_000, selectedId) { chats, error ->
-            hasLoadedVideoChats = true
+            if (!AccountSession.isCurrent(owner)) return@loadVideoChats
+            hasLoadedVideoChats = error == null
             _uiState.update { current ->
                 current.copy(
                     videoChats = stableChatCatalog(current.videoChats, chats),
