@@ -514,7 +514,11 @@ class MediaViewModel(
                 enrichMediaItemsAsync(cached)
             }
         }
-        loadForumTopics(chatId)
+        // Only forum groups expose topics. Channels and ordinary groups should
+        // not send unnecessary forum queries or show irrelevant topic errors.
+        if (_uiState.value.videoChats.any { it.chatId == chatId && it.isForum }) {
+            loadForumTopics(chatId)
+        }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null) { items, nextFromMessageId, error, isFinal ->
             if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
@@ -537,6 +541,7 @@ class MediaViewModel(
     }
 
     fun loadForumTopics(chatId: Long) {
+        if (_uiState.value.videoChats.none { it.chatId == chatId && it.isForum }) return
         val owner = AccountSession.current() ?: return
         val generation = mediaRequestGeneration
         val cached = freshTopics(chatId)
