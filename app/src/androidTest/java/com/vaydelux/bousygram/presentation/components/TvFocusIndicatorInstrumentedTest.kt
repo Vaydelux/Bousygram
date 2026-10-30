@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusGroup
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
@@ -32,13 +34,20 @@ class TvFocusIndicatorInstrumentedTest {
 
     @Test fun dpadMovesSingleFocusTargetAndUpdatesVisibleFocusedState() {
         val firstRequester = FocusRequester()
+        val secondRequester = FocusRequester()
         var secondClicks = 0
         composeRule.setContent {
             BousygramTheme {
-                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Row(
+                    modifier = Modifier.focusGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
                     TvFocusSurface(
                         onClick = {},
                         modifier = Modifier
+                            // Explicit TV focus path prevents ambiguous wrap/search
+                            // when the two cards are embedded inside other controls.
+                            .focusProperties { right = secondRequester }
                             .focusRequester(firstRequester)
                             .testTag("tv_first_focus")
                     ) { focused ->
@@ -49,7 +58,10 @@ class TvFocusIndicatorInstrumentedTest {
                     }
                     TvFocusSurface(
                         onClick = { secondClicks++ },
-                        modifier = Modifier.testTag("tv_second_focus")
+                        modifier = Modifier
+                            .focusProperties { left = firstRequester }
+                            .focusRequester(secondRequester)
+                            .testTag("tv_second_focus")
                     ) { focused ->
                         Text(
                             if (focused) "Second focused" else "Second unfocused",
