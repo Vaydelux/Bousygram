@@ -104,12 +104,16 @@ object PlaybackSessionController {
      * The caller must update the same session queue item before starting the new data source.
      * The normal stop() path then unbinds only the refreshed ID.
      */
-    fun rebindActiveFile(session: PlaybackSession, previousId: Int, resolvedId: Int) {
-        if (resolvedId <= 0 || resolvedId == previousId || session.isStopped() ||
-            !activeSessions.contains(session)
-        ) return
+    fun rebindActiveFile(session: PlaybackSession, previousId: Int, resolvedId: Int): Boolean {
+        if (previousId <= 0 || resolvedId <= 0 || session.isStopped() ||
+            !activeSessions.contains(session) || session.currentItem?.fileId != previousId
+        ) return false
+        if (resolvedId == previousId) return true
+        // Only the owner of the active queue item may transfer its capability.
+        // Invalid IDs or stopped sessions must never mint an untracked file grant.
         unbindActiveFile(previousId)
         bindActiveFile(resolvedId)
+        return true
     }
 
     fun start(
