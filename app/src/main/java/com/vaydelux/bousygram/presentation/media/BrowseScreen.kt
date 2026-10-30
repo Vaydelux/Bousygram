@@ -767,6 +767,8 @@ fun BrowseScreen(
                     onOpenSearch(chatId, state.selectedChatTitle)
                 },
                 onSettings = onOpenSettings,
+                hasResume = lastPlayed != null,
+                onResume = ::openLastPlayed,
                 modifier = Modifier.fillMaxSize()
             )
         }
