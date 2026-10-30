@@ -63,6 +63,11 @@ class MediaViewModel(
     )
     private val catalogSnapshots = LinkedHashMap<String, CatalogSnapshot>(12, 0.75f, true)
     private val catalogSnapshotLock = Any()
+    private data class TopicSnapshot(
+        val topics: List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>,
+        val savedAtMs: Long
+    )
+    private val topicSnapshots = LinkedHashMap<String, TopicSnapshot>()
     private val freshnessWindowMs = 120_000L
 
     private fun snapshotKey(folder: String): String? = AccountSession.current()?.let { owner ->
@@ -98,9 +103,19 @@ class MediaViewModel(
         synchronized(catalogSnapshotLock) {
             val sourceFragment = ":chat:" + chatId + ":"
             catalogSnapshots.keys.removeAll { it.contains(sourceFragment) }
+            topicSnapshots.keys.removeAll { it.contains(sourceFragment) }
             if (repository.cachedSavedMessagesChatId == chatId) {
                 catalogSnapshots.keys.removeAll { it.endsWith(":saved:topic:0") }
             }
+        }
+    }
+
+    private fun freshTopics(chatId: Long): List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>? {
+        val key = snapshotKey("chat:" + chatId + ":topics") ?: return null
+        return synchronized(catalogSnapshotLock) {
+            topicSnapshots[key]?.takeIf {
+                android.os.SystemClock.elapsedRealtime() - it.savedAtMs in 0..freshnessWindowMs
+            }?.topics
         }
     }
 
@@ -219,7 +234,10 @@ class MediaViewModel(
                     _uiState.value = MediaUiState()
                     _explorerPosition.value = ExplorerPosition()
                     browseRestorations.clear()
-                    synchronized(catalogSnapshotLock) { catalogSnapshots.clear() }
+                    synchronized(catalogSnapshotLock) {
+                        catalogSnapshots.clear()
+                        topicSnapshots.clear()
+                    }
                     hasLoadedVideoChats = false
                     requestedThumbnailFileIds.clear()
                     initializedAccount = null
@@ -241,7 +259,10 @@ class MediaViewModel(
             _uiState.value = MediaUiState()
             _explorerPosition.value = ExplorerPosition()
             browseRestorations.clear()
-            synchronized(catalogSnapshotLock) { catalogSnapshots.clear() }
+            synchronized(catalogSnapshotLock) {
+                catalogSnapshots.clear()
+                topicSnapshots.clear()
+            }
             hasLoadedVideoChats = false
             isInitialized = false
             initializedAccount = current
@@ -490,16 +511,40 @@ class MediaViewModel(
     fun loadForumTopics(chatId: Long) {
         val owner = AccountSession.current() ?: return
         val generation = mediaRequestGeneration
+        val cached = freshTopics(chatId)
+        if (cached != null) {
+            _uiState.update { current ->
+                if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
+                    current.copy(availableTopics = cached, isLoadingTopics = false)
+                } else current
+            }
+            return
+        }
         _uiState.update { it.copy(isLoadingTopics = true) }
         repository.loadForumTopics(chatId) { topics, error ->
             if (!AccountSession.isCurrent(owner) || generation != mediaRequestGeneration) return@loadForumTopics
             _uiState.update { current ->
                 if (current.selectedChatId != chatId || current.isSavedMessagesSelected) current
-                else current.copy(
-                    availableTopics = topics,
-                    isLoadingTopics = false,
-                    error = error ?: current.error
-                )
+                else {
+                    if (error == null) {
+                        snapshotKey("chat:" + chatId + ":topics")?.let { key ->
+                            synchronized(catalogSnapshotLock) {
+                                topicSnapshots[key] = TopicSnapshot(
+                                    topics = topics,
+                                    savedAtMs = android.os.SystemClock.elapsedRealtime()
+                                )
+                                while (topicSnapshots.size > 8) {
+                                    topicSnapshots.remove(topicSnapshots.keys.first())
+                                }
+                            }
+                        }
+                    }
+                    current.copy(
+                        availableTopics = if (error != null && current.availableTopics.isNotEmpty()) current.availableTopics else topics,
+                        isLoadingTopics = false,
+                        error = error ?: current.error
+                    )
+                }
             }
         }
     }
