@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -157,12 +158,26 @@ fun TelegramExplorerDashboard(
         modifier = modifier.fillMaxSize().padding(horizontal = if (adaptive.isTv) 28.dp else 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(gap)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Bousygram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            if (hasResume) OutlinedButton(onClick = onResume) { Text("Continue") }
-            OutlinedButton(onClick = onSearch) { Text("Search") }
-            OutlinedButton(onClick = onFavorites) { Text("Saved") }
-            OutlinedButton(onClick = onSettings) { Text("Settings") }
+        // A single oversized action row clips on compact phones. Keep TV/tablet
+        // actions on one line; use two comfortable touch rows on phones.
+        if (adaptive.isTv || adaptive.isTabletLayout) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Bousygram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (hasResume) OutlinedButton(onClick = onResume, modifier = Modifier.heightIn(min = 48.dp)) { Text("Continue") }
+                OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
+                OutlinedButton(onClick = onFavorites, modifier = Modifier.heightIn(min = 48.dp)) { Text("Favorites") }
+                OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Settings") }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Bousygram", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
+                OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Settings") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (hasResume) OutlinedButton(onClick = onResume, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Continue") }
+                OutlinedButton(onClick = onFavorites, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Favorites") }
+            }
         }
         // Fixed, equal-width tabs; the explorer scrolls vertically instead.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -188,9 +203,14 @@ fun TelegramExplorerDashboard(
                     colors = ButtonDefaults.outlinedButtonColors(
                         containerColor = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
                     ),
-                    contentPadding = PaddingValues(horizontal = 3.dp, vertical = 9.dp)
+                    contentPadding = PaddingValues(horizontal = 3.dp, vertical = if (adaptive.isTv) 11.dp else 13.dp)
                 ) {
-                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        label,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = if (adaptive.isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelMedium
+                    )
                 }
             }
         }
