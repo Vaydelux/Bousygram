@@ -28,6 +28,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
+import com.vaydelux.bousygram.core.account.AccountPrivateDataPurger
 
 class TelegramAuthManager(private val context: Context) {
     companion object {
@@ -53,6 +58,15 @@ class TelegramAuthManager(private val context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var authorizationReady = false
+    // Keep the old account ID across native Closing/Closed so revocation can wipe only
+    // that identity once TDLib confirms a return to phone authentication.
+    // A device may be revoked while this process is dead. Keep only the last verified
+    // account ID as a process-restart-safe cleanup target (never auth tokens).
+    private val privacyMarker = context.getSharedPreferences("verified_session_cleanup", Context.MODE_PRIVATE)
+    @Volatile private var pendingRevokedAccountId: Long? =
+        privacyMarker.getLong("last_verified_account_id", 0L).takeIf { it > 0L }
+    @Volatile private var revokedCleanupFailed = false
+    @Volatile private var waitingForNativePurgeClosed = false
     @Volatile private var identityRequestInFlight = false
     private val credentialsStore = ApiCredentialsStore(context)
     private val databaseKeyStore = TdlibDatabaseKeyStore(context)
@@ -91,6 +105,24 @@ class TelegramAuthManager(private val context: Context) {
                 when (result) {
                     is TdApi.AuthorizationState -> handleAuthState(result)
                     else -> handleResult(result)
+                }
+            }
+            // Updates are the primary realtime revocation signal. This low-frequency,
+            // foreground-only check is a fallback for delayed/missed native updates.
+            // GetAuthorizationState is local; a network outage cannot be treated as logout.
+            scope.launch {
+                while (isActive) {
+                    delay(90_000L)
+                    val owner = AccountSession.current() ?: continue
+                    if (!authorizationReady ||
+                        !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                    ) continue
+                    TdLibClient.sendCurrent(TdApi.GetAuthorizationState()) { state ->
+                        if (AccountSession.isCurrent(owner) &&
+                            state is TdApi.AuthorizationState &&
+                            state !is TdApi.AuthorizationStateReady
+                        ) handleAuthState(state)
+                    }
                 }
             }
         }
@@ -364,16 +396,71 @@ class TelegramAuthManager(private val context: Context) {
     }
 
     private fun handleAuthState(state: TdApi.AuthorizationState?) {
+        // Destroy closes TDLib asynchronously. Do not start a new QR/phone login while
+        // the previous account's native database and media cache are being erased.
+        if (waitingForNativePurgeClosed && state !is TdApi.AuthorizationStateClosed) return
+        if (revokedCleanupFailed) {
+            _uiState.update {
+                it.copy(step = AuthStep.Unavailable, isLoading = false,
+                    message = "Local Telegram data could not be erased. Clear Bousygram app storage before signing in.")
+            }
+            return
+        }
         Log.d(TAG, "Auth state: ${state?.javaClass?.simpleName}")
         val ready = state is TdApi.AuthorizationStateReady
         if (!ready && authorizationReady) {
+            // Only a confirmed TDLib authorization change, never connectivity state,
+            // can mark the current account as potentially remotely revoked.
+            pendingRevokedAccountId = AccountSession.current()?.accountId
             authorizationReady = false
             identityRequestInFlight = false
             if (!invalidateOrLockSession()) return
         } else authorizationReady = ready
+        if (ready) pendingRevokedAccountId = null
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> setTdlibParameters()
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
+                // Returning to the phone-number prompt after a verified account
+                // is proof that this device is no longer authorized. Invalidate
+                // was completed above before erasing any persistent account stores.
+                val revoked = pendingRevokedAccountId
+                if (revoked != null) {
+                    pendingRevokedAccountId = null
+                    try {
+                        AccountPrivateDataPurger.purge(context, revoked)
+                    } catch (failure: Exception) {
+                        revokedCleanupFailed = true
+                        Log.e(TAG, "Cannot erase revoked account private data", failure)
+                        _uiState.update {
+                            it.copy(step = AuthStep.Unavailable, isLoading = false,
+                                message = "Telegram session ended, but private data cleanup failed. Clear Bousygram app storage before using another account.")
+                        }
+                        return
+                    }
+                    // Unlike manual deletion of live TDLib directories, Destroy safely
+                    // closes native TDLib and erases its database and managed file cache.
+                    if (!destroyInFlight) {
+                        destroyInFlight = true
+                        _uiState.update {
+                            it.copy(step = AuthStep.Loading, isLoading = true,
+                                message = "Telegram session revoked. Clearing local media and account data…")
+                        }
+                        waitingForNativePurgeClosed = true
+                        TdLibClient.sendCurrent(TdApi.Destroy()) { result ->
+                            if (result is TdApi.Error) {
+                                waitingForNativePurgeClosed = false
+                                destroyInFlight = false
+                                revokedCleanupFailed = true
+                                Log.e(TAG, "TDLib local data destruction failed: ${result.code}")
+                                _uiState.update {
+                                    it.copy(step = AuthStep.Unavailable, isLoading = false,
+                                        message = "Unable to erase native Telegram data. Clear Bousygram app storage before signing in again.")
+                                }
+                            }
+                        }
+                    }
+                    return
+                }
                 if (pendingPhone != null) {
                     flushPendingPhone()
                 } else if (isPhoneLoginForced) {
@@ -414,6 +501,17 @@ class TelegramAuthManager(private val context: Context) {
                 _uiState.update { it.copy(step = AuthStep.Loading, message = "Closing session…", isLoading = true) }
             }
             is TdApi.AuthorizationStateClosed -> {
+                if (waitingForNativePurgeClosed) {
+                    if (!privacyMarker.edit().remove("last_verified_account_id").commit()) {
+                        revokedCleanupFailed = true
+                        _uiState.update {
+                            it.copy(step = AuthStep.Unavailable, isLoading = false,
+                                message = "Unable to complete revoked-session cleanup. Clear Bousygram app storage before signing in.")
+                        }
+                        return
+                    }
+                    waitingForNativePurgeClosed = false
+                }
                 Log.d(TAG, "AuthorizationStateClosed received; re-initializing client")
                 destroyInFlight = false
                 tdlibParametersSent = false
@@ -453,6 +551,11 @@ class TelegramAuthManager(private val context: Context) {
             scope.launch {
                 try {
                     val owner = AccountSession.activate(result.id, epoch) ?: return@launch
+                    // A future cold start must be able to erase this account if Telegram
+                    // has invalidated its session while this process was not running.
+                    check(privacyMarker.edit().putLong("last_verified_account_id", owner.accountId).commit()) {
+                        "Unable to persist verified-session privacy marker"
+                    }
                     RecentSearchRepository.activateAccount(owner)
                     ContinueWatchingRepository.activateAccount(owner)
                     // Invalidation deliberately shuts down private servers and cache jobs.
@@ -596,6 +699,7 @@ class TelegramAuthManager(private val context: Context) {
 
     fun logout() {
         Log.i(TAG, "Requesting Telegram session logout")
+        pendingRevokedAccountId = AccountSession.current()?.accountId
         authorizationReady = false
         identityRequestInFlight = false
         _uiState.update { it.copy(step = AuthStep.Loading, isLoading = true, phone = "", code = "",
