@@ -126,6 +126,25 @@ class MediaViewModel(
     private var hasLoadedVideoChats = false
     private var mediaRequestGeneration = 0L
     private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
+    private val sourceFolderRestorations = java.util.concurrent.ConcurrentHashMap<ExplorerSection, BrowseRestoration>()
+
+    fun sourceFolderRestoration(section: ExplorerSection): BrowseRestoration =
+        sourceFolderRestorations[section] ?: BrowseRestoration()
+
+    fun rememberSourceFolderFocus(section: ExplorerSection, chatId: Long) {
+        sourceFolderRestorations.compute(section) { _, current ->
+            (current ?: BrowseRestoration()).copy(focusedMediaKey = chatId.toString())
+        }
+    }
+
+    fun rememberSourceFolderViewport(section: ExplorerSection, index: Int, offset: Int) {
+        sourceFolderRestorations.compute(section) { _, current ->
+            (current ?: BrowseRestoration()).copy(
+                firstVisibleItemIndex = index.coerceAtLeast(0),
+                firstVisibleItemScrollOffset = offset.coerceAtLeast(0)
+            )
+        }
+    }
 
     fun currentBrowseStateKey(): String {
         val state = _uiState.value
@@ -241,6 +260,7 @@ class MediaViewModel(
                     _uiState.value = MediaUiState()
                     _explorerPosition.value = ExplorerPosition()
                     browseRestorations.clear()
+                    sourceFolderRestorations.clear()
                     synchronized(catalogSnapshotLock) {
                         catalogSnapshots.clear()
                         topicSnapshots.clear()
@@ -266,6 +286,7 @@ class MediaViewModel(
             _uiState.value = MediaUiState()
             _explorerPosition.value = ExplorerPosition()
             browseRestorations.clear()
+            sourceFolderRestorations.clear()
             synchronized(catalogSnapshotLock) {
                 catalogSnapshots.clear()
                 topicSnapshots.clear()
