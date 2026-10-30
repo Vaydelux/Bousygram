@@ -28,6 +28,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import com.vaydelux.bousygram.core.media.SeekThumbnailManager
 import com.vaydelux.bousygram.core.media.TdLibDataSource
+import com.vaydelux.bousygram.core.media.PlaybackFileRecovery
 import com.vaydelux.bousygram.core.cast.CastLanStreamingServer
 import com.vaydelux.bousygram.core.cast.CastPlaybackStatus
 import com.vaydelux.bousygram.core.cast.CastSessionController
@@ -171,7 +172,6 @@ import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
 private const val SEEK_INCREMENT_MS = 10_000L
@@ -1074,47 +1074,54 @@ fun PlayerScreen(
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
         val selected = queue[queueIndex]
-        // A persisted video index may reference a TDLib fileId from an earlier
-        // process. Resolve from the actual chat/message, and replace the active
-        // queue identity before either ExoPlayer or MPV opens a stream.
         val owner = com.vaydelux.bousygram.core.account.AccountSession.current()
-        val resolved = if (owner != null && selected.chatId != 0L && selected.messageId != 0L) {
-            withContext(Dispatchers.IO) {
-                withTimeoutOrNull(2_500L) {
-                    com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
-                        .reResolveFile(selected.chatId, selected.messageId)
-                }
-            }
-        } else null
-        // Even when the TDLib file ID is unchanged, its cached native file state
-        // may be obsolete after app backgrounding or storage optimization.
-        val refreshed = resolved ?: if (owner != null) {
-            withContext(Dispatchers.IO) {
-                withTimeoutOrNull(1_000L) {
-                    com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
-                        .getFile(selected.fileId)
-                }
-            }
-        } else null
-        if (owner != null && !com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner)) {
+        if (owner == null) {
+            playbackError = "Telegram session is not ready. Return to the library and try again."
+            isOpening = false
+            isReconnecting = false
+            isBuffering = false
+            hudVisible = true
+            return@LaunchedEffect
+        }
+        // Resolve against the actual message before using any persisted file ID. A
+        // TDLib exception or timeout must fall back safely, not hang this effect.
+        val refreshed = withContext(Dispatchers.IO) {
+            PlaybackFileRecovery(
+                com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
+            ).refresh(selected.chatId, selected.messageId, selected.fileId)
+        }
+        if (!com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner)) {
             playbackError = "Telegram session changed. Return to the library and try again."
             isOpening = false
             isReconnecting = false
             isBuffering = false
+            hudVisible = true
             return@LaunchedEffect
         }
         if (refreshed != null) {
             com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.onFileUpdated(refreshed)
-        }
-        if (resolved != null && resolved.fileId > 0 && resolved.fileId != selected.fileId) {
-            PlaybackSessionController.rebindActiveFile(playbackSession, selected.fileId, resolved.fileId)
-            queue[queueIndex] = selected.copy(
-                fileId = resolved.fileId,
-                fileSizeBytes = resolved.size.takeIf { it > 0L }
-                    ?: resolved.expectedSize.takeIf { it > 0L }
-                    ?: selected.fileSizeBytes
-            )
-            Log.i("PlayerScreen", "Refreshed Telegram playback file for chat/message after reopening")
+            val newSize = refreshed.size.takeIf { it > 0L }
+                ?: refreshed.expectedSize.takeIf { it > 0L }
+                ?: selected.fileSizeBytes
+            if (refreshed.fileId != selected.fileId) {
+                val rebound = PlaybackSessionController.rebindActiveFile(
+                    playbackSession, selected.fileId, refreshed.fileId
+                )
+                if (!rebound) {
+                    playbackError = "Playback session changed. Return to the library and try again."
+                    isOpening = false
+                    isReconnecting = false
+                    isBuffering = false
+                    hudVisible = true
+                    return@LaunchedEffect
+                }
+                Log.i("PlayerScreen", "Refreshed Telegram file identity after reopening")
+            }
+            if (refreshed.fileId != selected.fileId || newSize != selected.fileSizeBytes) {
+                queue[queueIndex] = selected.copy(
+                    fileId = refreshed.fileId, fileSizeBytes = newSize
+                )
+            }
         }
         val item = queue[queueIndex]
         com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
