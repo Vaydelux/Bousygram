@@ -142,6 +142,7 @@ import com.vaydelux.bousygram.core.media.hasConfirmedAudioOutput
 import com.vaydelux.bousygram.core.media.hasInitialMediaOutput
 import com.vaydelux.bousygram.core.media.ExoPlayerEngine
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
+import com.vaydelux.bousygram.core.media.shouldFailPlaybackStartup
 import com.vaydelux.bousygram.core.media.ContainerHeaderParser
 import com.vaydelux.bousygram.core.media.MpegTsDurationParser
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
@@ -1377,21 +1378,22 @@ fun PlayerScreen(
             System.currentTimeMillis() - startedAt < 20_000L
         ) delay(500L)
         val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
-        val isMatroska = current.fileName.orEmpty().endsWith(".mkv", ignoreCase = true) ||
-            current.title.endsWith(".mkv", ignoreCase = true) ||
-            current.mimeType.equals("video/x-matroska", ignoreCase = true) ||
-            current.mimeType.equals("application/x-matroska", ignoreCase = true)
-        if (isMatroska && playerEngine === trackedEngine &&
+        val container = VideoFormatSupport.resolveContainer(
+            current.fileName, current.mimeType, current.title
+        )
+        val needsCompatibility = container in setOf("mkv", "webm", "ts", "mts", "m2ts") ||
+            VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
+        if (needsCompatibility && playerEngine === trackedEngine &&
             playerEngine is ExoPlayerEngine && !hasFallenBackToMpv &&
             !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) && playbackError == null
         ) {
             hasFallenBackToMpv = true
             PlaybackDiagnostics.recordStreamError(
-                "ExoPlayer MKV startup stalled without first frame; attempting libmpv fallback"
+                "ExoPlayer progressive container startup stalled; attempting libmpv fallback"
             )
             requestEngineSwitch(
                 SelectedPlayerEngine.MPV,
-                "MKV startup stalled. Trying compatibility player…"
+                "Video startup stalled. Trying compatibility player…"
             )
         }
     }
@@ -1409,9 +1411,13 @@ fun PlayerScreen(
             playbackError == null && !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
             System.currentTimeMillis() - trackedStartMs < 45_000L
         ) delay(500L)
-        if (playerEngine === trackedEngine && playerStartedAtMs == trackedStartMs &&
-            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
-            playbackError == null && playerStartedAtMs > 0L
+        if (shouldFailPlaybackStartup(
+                sameEngine = playerEngine === trackedEngine,
+                sameStartTimestamp = playerStartedAtMs == trackedStartMs,
+                hasInitialOutput = hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs),
+                hasPlaybackError = playbackError != null,
+                startedAtMs = playerStartedAtMs
+            )
         ) {
             PlaybackDiagnostics.recordStreamError("Playback startup exceeded 45s without video frame or audio readiness")
             playerEngine.stop()
