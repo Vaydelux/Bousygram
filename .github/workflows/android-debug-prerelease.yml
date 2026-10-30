@@ -158,7 +158,7 @@ jobs:
           These APKs are **debug builds for testing**, not production-signed releases.
           Tested source commit: \`$SOURCE_SHA\`
           Required Android Enterprise CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID
-          Verified CI started: $readable_date (UTC timestamp, not publisher wall time)
+          Verified CI run created: $readable_date (stable UTC timestamp)
 
           | File suffix | Device architecture |
           | --- | --- |
