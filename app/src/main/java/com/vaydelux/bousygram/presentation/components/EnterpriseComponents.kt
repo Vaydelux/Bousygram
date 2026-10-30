@@ -95,6 +95,11 @@ import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.core.tdlib.utils.ThumbnailExtractor
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CancellationException
+import org.drinkless.tdlib.TdApi
 import com.vaydelux.bousygram.data.database.RecentSearchQuery
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.SeriesGroup
@@ -1058,16 +1063,43 @@ fun MediaPosterCard(
         key2 = isTsWithoutPoster,
         key3 = context
     ) {
-        value = if (isTsWithoutPoster) {
-            try {
-                media.fileId?.let { ThumbnailExtractor.getCachedTransportStreamThumbnail(context, it) }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                android.util.Log.w("MediaPosterCard", "Local TS artwork unavailable", failure)
-                null
+        val fileId = media.fileId
+        val owner = AccountSession.current()
+        if (!isTsWithoutPoster || fileId == null || owner == null) return@produceState
+        // Subscribe BEFORE the initial probe: the file might complete while we
+        // are querying TDLib. Only matching completion events wake this card.
+        val completions = Channel<Unit>(Channel.CONFLATED)
+        val handler: (TdApi.Object?) -> Unit = { update ->
+            val file = (update as? TdApi.UpdateFile)?.file
+            if (file?.id == fileId && file.local?.isDownloadingCompleted == true) {
+                completions.trySend(Unit)
             }
-        } else null
+        }
+        suspend fun extract(): android.graphics.Bitmap? = try {
+            ThumbnailExtractor.getCachedTransportStreamThumbnail(context, fileId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            android.util.Log.w("MediaPosterCard", "Local TS artwork unavailable", failure)
+            null
+        }
+        TdLibClient.addUpdateHandler(handler)
+        try {
+            value = extract()
+            if (value == null) {
+                // Event-driven instead of polling or downloading full Telegram videos
+                // for thumbnails. One initial probe and up to two completions.
+                var attempts = 0
+                for (ignored in completions) {
+                    if (!AccountSession.isCurrent(owner)) break
+                    value = extract()
+                    if (value != null || ++attempts >= 2) break
+                }
+            }
+        } finally {
+            TdLibClient.removeUpdateHandler(handler)
+            completions.close()
+        }
     }
     val imageData = if (privacyMode) null else preferredThumbnail?.let { path ->
         if (path.startsWith("http")) path else File(path)
