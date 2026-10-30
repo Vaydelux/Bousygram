@@ -2829,7 +2829,7 @@ private fun PlayerHud(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    state.cacheStateLabel,
+                    state.cacheStateLabel.orEmpty(),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
