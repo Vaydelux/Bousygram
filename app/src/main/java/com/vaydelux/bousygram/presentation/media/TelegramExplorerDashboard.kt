@@ -71,6 +71,8 @@ fun TelegramExplorerDashboard(
     onLoadMore: () -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
+    hasResume: Boolean,
+    onResume: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val adaptive = rememberAdaptiveMetrics()
@@ -112,6 +114,7 @@ fun TelegramExplorerDashboard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Bousygram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            if (hasResume) OutlinedButton(onClick = onResume) { Text("Continue") }
             OutlinedButton(onClick = onSearch) { Text("Search") }
             OutlinedButton(onClick = onSettings) { Text("Settings") }
         }
