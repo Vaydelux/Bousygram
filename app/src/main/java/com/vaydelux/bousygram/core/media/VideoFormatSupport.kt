@@ -57,6 +57,14 @@ object VideoFormatSupport {
         return hasVideoExtension(name)
     }
 
+    /** MPEG-TS documents frequently have no Telegram-generated thumbnail. */
+    fun isTransportStream(fileName: String?, mimeType: String?): Boolean {
+        val file = fileName?.trim()?.lowercase(java.util.Locale.ROOT).orEmpty()
+        val mime = mimeType?.substringBefore(';')?.trim()?.lowercase(java.util.Locale.ROOT)
+        return file.endsWith(".ts") || file.endsWith(".m2ts") || file.endsWith(".mts") ||
+            mime == "video/mp2t"
+    }
+
     /** Prefer Telegram file name for stream URL / MIME sniffing. */
     fun streamLabel(fileName: String?, title: String): String =
         fileName?.takeIf { it.isNotBlank() } ?: title
