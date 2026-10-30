@@ -18,7 +18,7 @@
 | P5A | 82457cb, c1c3ded | Remove giant TV ±10s/next/previous primary buttons, compact HUD, independent Start Over action | CODE WRITTEN — UNVERIFIED |
 | P5B | ea4e187, 23dcd27, 0c664ee, bced4d0, 66a1fa7 | D-pad Down opens queue tray, translucent vertical grid, Up-to-player first-row behavior; actual TDLib topic identity now flows into request/queue and tray filtering | CODE WRITTEN — UNVERIFIED |
 | P6 | 1062403, 29b09fc, f658450 | Branded loading keyed to actual Telegram authorization and lightweight focus transition | CODE WRITTEN — UNVERIFIED |
-| P7 | c17c7de, 8525c7d, ff0b3d6, c020619, 875ee1c, c0373f4 | Themeable original SVG, Android vector, Android 26+ adaptive icon, startup logo, asset notes | PARTIAL — PNG/ICO exports not done |
+| P7 | c17c7de, 8525c7d, ff0b3d6, c020619, 875ee1c, c0373f4, 3119e4f, f40dbd4 | Themeable original SVG, Android vector, Android 26+ adaptive icon, startup logo, asset notes | CODE/ASSETS WRITTEN — UNVERIFIED |
 | P8 | none | No compile/lint/tests/emulator/device qualification has been run on this branch, by user request | DEFERRED |
 | P9 | planning PR #42 merged earlier | Future TMDB/AniList, iframe/WebView and virtual-mouse architecture remains planning only; no Extras integration code | PLAN ONLY |
 
@@ -28,7 +28,7 @@
 - The underlying BousygramApp process still initializes existing Telegram infrastructure at process start; the new Extras placeholder itself does not create clients or access Telegram state. Full process-lifecycle isolation requires a later separately reviewed migration.
 - New requests carry real TDLib topic identity and the tray filters by account-scoped launch queue chat/topic. Legacy requests whose topic ID is null remain limited by their original queue; full end-to-end topic provenance needs final integration review.
 - The physical Android TV focus bug fix in PR #41 remains on a separate branch. This implementation branch includes a shared card focus fix, not every change from that PR.
-- Legacy launcher PNGs are preserved; Android adaptive-icon XML has been added for API 26+, not yet packaging-tested.
+- Legacy launcher PNGs have been regenerated, an Android adaptive-icon XML has been added for API 26+, and favicon.ico has been committed; no package or visual verification has occurred.
 - No new API keys, third-party libraries, WebViews, iframes, TMDB or AniList integrations have been added.
 - A successful commit does not imply the Kotlin app compiles. Any defects discovered later are to be resolved during the requested final validation pass.
 
