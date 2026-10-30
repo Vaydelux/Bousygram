@@ -135,6 +135,8 @@ import kotlin.coroutines.cancellation.CancellationException
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.vaydelux.bousygram.core.media.EnginePlaybackState
+import com.vaydelux.bousygram.core.media.hasConfirmedAudioOutput
+import com.vaydelux.bousygram.core.media.hasInitialMediaOutput
 import com.vaydelux.bousygram.core.media.ExoPlayerEngine
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.MediaTrackInfo
@@ -284,6 +286,7 @@ fun PlayerScreen(
     var fileSizeBytes by remember { mutableLongStateOf(0L) }
     var playerStartedAtMs by remember { mutableLongStateOf(0L) }
     var firstFrameMs by remember { mutableLongStateOf(0L) }
+    var firstAudioReadyMs by remember { mutableLongStateOf(0L) }
     var timeToFirstByteMs by remember { mutableLongStateOf(0L) }
     var totalRebufferMs by remember { mutableLongStateOf(0L) }
     var rebufferStartMs by remember { mutableLongStateOf(0L) }
@@ -772,10 +775,13 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playerEngine, queueIndex) {
-        fun recordFirstVideoOutput() {
-            if (firstFrameMs > 0L || playbackError != null || playerStartedAtMs <= 0L) return
+        fun recordInitialOutput(audioOnly: Boolean) {
+            if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) ||
+                playbackError != null || playerStartedAtMs <= 0L
+            ) return
             val effectiveStartMs = playerStartedAtMs
-            firstFrameMs = (System.currentTimeMillis() - effectiveStartMs).coerceAtLeast(1L)
+            val elapsedMs = (System.currentTimeMillis() - effectiveStartMs).coerceAtLeast(1L)
+            if (audioOnly) firstAudioReadyMs = elapsedMs else firstFrameMs = elapsedMs
             isOpening = false
             isReconnecting = false
             isBuffering = false
@@ -783,15 +789,44 @@ fun PlayerScreen(
             if (timeToFirstByteMs == 0L) {
                 val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
                 val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, effectiveStartMs)
-                timeToFirstByteMs = if (ttfb > 0L) ttfb else firstFrameMs.coerceAtLeast(1L)
+                timeToFirstByteMs = if (ttfb > 0L) ttfb else elapsedMs
             }
             recordMetrics()
             val current = queue.getOrNull(queueIndex)
             if (current != null && fileSizeBytes > 0L) {
                 TelegramPreCacheEngine.cacheFullVideoOnWifi(context, current.fileId, fileSizeBytes)
             }
-            PlaybackSessionController.recordFirstFrame(playbackSession, firstFrameMs)
+            // Audio-only playback has no rendered video frame: never pollute video-frame
+            // telemetry with audio readiness, but still mark the session as playing.
+            if (!audioOnly) PlaybackSessionController.recordFirstFrame(playbackSession, firstFrameMs)
             if (current != null) playbackSession.onPlaying(current)
+        }
+
+        fun declaredAudioOnly(): Boolean {
+            val active = queue.getOrNull(queueIndex) ?: return false
+            val mime = active.mimeType.orEmpty()
+            val name = active.fileName.orEmpty().lowercase(java.util.Locale.ROOT)
+            return mime.startsWith("audio/", ignoreCase = true) ||
+                name.endsWith(".mp3") || name.endsWith(".m4a") || name.endsWith(".flac") ||
+                name.endsWith(".opus") || name.endsWith(".ogg") || name.endsWith(".wav")
+        }
+
+        fun confirmAudioOutput() {
+            if (!isOpening || hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs)) return
+            if (hasConfirmedAudioOutput(
+                    playerEngine.playbackState.value, playerEngine.tracks.value,
+                    playerEngine.isPlaying, playerEngine.playWhenReady, declaredAudioOnly()
+                )
+            ) recordInitialOutput(audioOnly = true)
+        }
+
+        // Video first-frame callbacks and audio readiness are different output signals.
+        // Track changes can arrive before or after the player reaches Ready.
+        launch {
+            while (true) {
+                delay(300L)
+                confirmAudioOutput()
+            }
         }
 
         // ExoPlayer reports an actual video output event; readiness alone can leave a black screen.
@@ -799,7 +834,7 @@ fun PlayerScreen(
         playerEngine.firstFrameRendered?.let { frames ->
             launch {
                 frames.collect { rendered ->
-                    if (rendered && isOpening) recordFirstVideoOutput()
+                    if (rendered && isOpening) recordInitialOutput(audioOnly = false)
                 }
             }
         }
@@ -807,7 +842,7 @@ fun PlayerScreen(
             when (state) {
                 is EnginePlaybackState.Buffering -> {
                     isBuffering = true
-                    if (firstFrameMs > 0L) {
+                    if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs)) {
                         rebufferCount++
                         if (rebufferStartMs == 0L) {
                             rebufferStartMs = System.currentTimeMillis()
@@ -818,7 +853,14 @@ fun PlayerScreen(
                 is EnginePlaybackState.Ready -> {
                     isBuffering = false
                     // Keep the loading banner until ExoPlayer renders a real frame.
-                    if (playerEngine.firstFrameRendered == null || firstFrameMs > 0L) {
+                    confirmAudioOutput()
+                    if (playerEngine.firstFrameRendered == null && !declaredAudioOnly() &&
+                        !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs)
+                    ) {
+                        // Existing libmpv fallback has no rendered-frame callback.
+                        recordInitialOutput(audioOnly = false)
+                    }
+                    if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs)) {
                         isOpening = false
                         isReconnecting = false
                     }
@@ -837,7 +879,7 @@ fun PlayerScreen(
                     if (isPlaying) audioFocusController.request(playerEngine)
 
                     val effectiveStartMs = if (playerStartedAtMs > 0L) playerStartedAtMs else playerSessionStartMs
-                    if (playerEngine.firstFrameRendered == null) recordFirstVideoOutput()
+                    confirmAudioOutput()
 
                     val resume = pendingResumeMs
                     if (resume > 0L) {
@@ -1076,6 +1118,7 @@ fun PlayerScreen(
         retryCount = 0
         rebufferCount = 0
         firstFrameMs = 0L
+        firstAudioReadyMs = 0L
         droppedFrames = 0
         decoderName = "Unknown"
         lastGoodPosition = 0L
@@ -1089,6 +1132,9 @@ fun PlayerScreen(
     LaunchedEffect(request, queueIndex, reloadNonce) {
         // A retry or track change replaces the old URL; revoke its capability first.
         // Lifecycle backgrounding does not run this effect, so a paused player can resume.
+        firstAudioReadyMs = 0L
+        firstFrameMs = 0L
+        playerStartedAtMs = 0L
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
         val selected = queue[queueIndex]
@@ -1227,6 +1273,7 @@ fun PlayerScreen(
         playerEngine.stop()
 
         firstFrameMs = 0L
+        firstAudioReadyMs = 0L
         playerStartedAtMs = System.currentTimeMillis()
         pendingResumeMs = resumePosition
         playerEngine.prepare(streamUrl)
@@ -1247,14 +1294,22 @@ fun PlayerScreen(
     // an app restart or stale native Telegram file state. This timer is restarted
     // for each media item and explicit retry, but never by buffering UI flickers.
     LaunchedEffect(request, queueIndex, reloadNonce) {
-        delay(45_000L)
-        if (firstFrameMs <= 0L && playbackError == null && playerStartedAtMs > 0L) {
-            PlaybackDiagnostics.recordStreamError("Playback startup exceeded 45s without a frame")
+        // Start counting when the engine actually begins preparing, not while TDLib
+        // is still resolving a message and its cached file metadata.
+        while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
+        while (playerStartedAtMs > 0L && playbackError == null &&
+            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
+            System.currentTimeMillis() - playerStartedAtMs < 45_000L
+        ) delay(500L)
+        if (!hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
+            playbackError == null && playerStartedAtMs > 0L
+        ) {
+            PlaybackDiagnostics.recordStreamError("Playback startup exceeded 45s without video frame or audio readiness")
             playerEngine.stop()
             isOpening = false
             isReconnecting = false
             isBuffering = false
-            playbackError = "Telegram video could not start. Check your connection, then Retry. If it continues, reopen the library."
+            playbackError = "Telegram media could not start. Check your connection, then Retry. If it continues, reopen the library."
             hudVisible = true
         }
     }
@@ -1381,7 +1436,10 @@ fun PlayerScreen(
             }
 
             val currentItem = queue.getOrNull(queueIndex)
-            val recoveryAction = blackScreenDetector.evaluate(
+            // Black-screen recovery is meaningless for a track with no video output.
+            val recoveryAction = if (firstAudioReadyMs > 0L) {
+                BlackScreenRecoveryAction.NONE
+            } else blackScreenDetector.evaluate(
                 context = context,
                 currentEngine = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.ExoPlayer else SelectedPlayerEngine.MPV,
                 isPlaying = isPlaying,
