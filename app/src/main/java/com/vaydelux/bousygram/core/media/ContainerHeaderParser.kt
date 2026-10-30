@@ -2,7 +2,6 @@ package com.vaydelux.bousygram.core.media
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -53,18 +52,14 @@ object ContainerHeaderParser {
                 else -> Pair(size32, 8)
             }
 
-            if (atomSize < headerLength) break
-
-            if (type == FOURCC_MOOV) {
-                return atomSize
-            }
-
-            // If we hit mdat before moov, it's not faststart
-            if (type == FOURCC_MDAT) {
-                return null
-            }
-
-            offset += atomSize.toInt().coerceAtLeast(headerLength)
+            if (atomSize < headerLength) return null
+            if (type == FOURCC_MOOV) return atomSize
+            // Once media payload starts, a later moov atom is not faststart.
+            if (type == FOURCC_MDAT) return null
+            // Extended atom sizes can exceed Int.MAX_VALUE. Never wrap to Int
+            // and accidentally treat bytes inside an atom as another header.
+            if (atomSize > (headBytes.size - offset).toLong()) return null
+            offset += atomSize.toInt()
         }
         return null
     }
@@ -105,16 +100,16 @@ object ContainerHeaderParser {
         if (headBytes.size < 12) return null
         var cursor = 0
 
-        // Verify EBML Header
         val (ebmlId, ebmlIdLen) = readEbmlVint(headBytes, cursor, isId = true) ?: return null
         if (ebmlId != EBML_ID_HEADER) return null
         cursor += ebmlIdLen
 
         val (headerSize, headerSizeLen) = readEbmlVint(headBytes, cursor, isId = false) ?: return null
+        // Validate the Long size before narrowing to Int: corrupt EBML VINTs
+        // must not wrap the cursor backwards into arbitrary payload bytes.
+        if (headerSize > (headBytes.size - cursor - headerSizeLen).toLong()) return null
         cursor += headerSizeLen + headerSize.toInt()
-        if (cursor >= headBytes.size) return null
 
-        // Find Segment element
         val (segId, segIdLen) = readEbmlVint(headBytes, cursor, isId = true) ?: return null
         if (segId != EBML_ID_SEGMENT) return null
         cursor += segIdLen
@@ -123,22 +118,20 @@ object ContainerHeaderParser {
         cursor += segSizeLen
         val segmentDataStart = cursor.toLong()
 
-        // Scan inside Segment for SeekHead (0x114D9B74)
-        while (cursor + 8 < headBytes.size) {
+        while (cursor < headBytes.size) {
+            val elementStart = cursor
             val (elementId, idLen) = readEbmlVint(headBytes, cursor, isId = true) ?: break
             cursor += idLen
             val (elementSize, sizeLen) = readEbmlVint(headBytes, cursor, isId = false) ?: break
             cursor += sizeLen
+            if (elementSize > (headBytes.size - cursor).toLong()) return null
+            val elementEnd = cursor + elementSize.toInt()
 
             if (elementId == EBML_ID_SEEK_HEAD) {
-                val seekHeadEnd = cursor + elementSize.toInt().coerceAtMost(headBytes.size - cursor)
-                return parseSeekHeadForCues(headBytes, cursor, seekHeadEnd, segmentDataStart)
+                return parseSeekHeadForCues(headBytes, cursor, elementEnd, segmentDataStart)
             }
-            if (elementId == EBML_ID_CUES) {
-                // Cues directly at head
-                return (cursor - idLen - sizeLen).toLong()
-            }
-            cursor += elementSize.toInt().coerceAtLeast(0)
+            if (elementId == EBML_ID_CUES) return elementStart.toLong()
+            cursor = elementEnd
         }
 
         return null
@@ -151,12 +144,13 @@ object ContainerHeaderParser {
         segmentDataStart: Long
     ): Long? {
         var cursor = start
-        while (cursor + 4 < end) {
+        while (cursor < end) {
             val (id, idLen) = readEbmlVint(data, cursor, isId = true) ?: break
             cursor += idLen
             val (size, sizeLen) = readEbmlVint(data, cursor, isId = false) ?: break
             cursor += sizeLen
-            val entryEnd = (cursor + size.toInt()).coerceAtMost(end)
+            if (size > (end - cursor).toLong()) return null
+            val entryEnd = cursor + size.toInt()
 
             if (id == EBML_ID_SEEK) {
                 var seekEntryCursor = cursor
@@ -168,20 +162,24 @@ object ContainerHeaderParser {
                     seekEntryCursor += subIdLen
                     val (subSize, subSizeLen) = readEbmlVint(data, seekEntryCursor, isId = false) ?: break
                     seekEntryCursor += subSizeLen
+                    // A child may not read bytes belonging to the next child.
+                    if (subSize > (entryEnd - seekEntryCursor).toLong()) break
 
                     if (subId == EBML_ID_SEEK_ID) {
-                        val (targetId, _) = readEbmlVint(data, seekEntryCursor, isId = true) ?: Pair(0L, 0)
-                        if (targetId == EBML_ID_CUES) {
-                            foundCuesId = true
-                        }
-                    } else if (subId == EBML_ID_SEEK_POSITION) {
+                        val target = readEbmlVint(data, seekEntryCursor, isId = true)
+                        foundCuesId = subSize == 4L &&
+                            target?.first == EBML_ID_CUES && target.second == subSize.toInt()
+                    } else if (subId == EBML_ID_SEEK_POSITION && subSize in 1L..8L) {
                         seekPosition = readUint(data, seekEntryCursor, subSize.toInt())
                     }
                     seekEntryCursor += subSize.toInt()
                 }
 
-                if (foundCuesId && seekPosition != null) {
-                    return segmentDataStart + seekPosition
+                val position = seekPosition
+                if (foundCuesId && position != null && position >= 0L &&
+                    position <= Long.MAX_VALUE - segmentDataStart
+                ) {
+                    return segmentDataStart + position
                 }
             }
             cursor = entryEnd
