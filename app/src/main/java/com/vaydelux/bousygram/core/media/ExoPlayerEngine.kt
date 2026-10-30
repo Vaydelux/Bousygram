@@ -6,6 +6,7 @@ import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -187,8 +188,19 @@ class ExoPlayerEngine(
 
     override fun prepare(streamUrl: String) {
         _firstFrameRendered.value = false
+        val uri = Uri.parse(streamUrl)
+        val name = uri.getQueryParameter("name").orEmpty()
+        // Telegram documents often have only a MIME type or title, not a usable filename.
+        // The source URI carries the already validated progressive/container MIME hint.
+        val mime = uri.getQueryParameter("mime")
+            ?: VideoFormatSupport.exoMimeType(null, name, name)
         val mediaItem = MediaItem.Builder()
-            .setUri(Uri.parse(streamUrl))
+            .setUri(uri)
+            .apply {
+                if (mime == MimeTypes.VIDEO_MATROSKA || mime == MimeTypes.VIDEO_WEBM) {
+                    setMimeType(mime)
+                }
+            }
             .build()
         player.setMediaItem(mediaItem)
         player.prepare()

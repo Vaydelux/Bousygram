@@ -830,6 +830,9 @@ fun PlayerScreen(
                     if (playerEngine.durationMs > 0L) {
                         applyPlayerDurationMs(playerEngine.durationMs)
                     }
+                    // Preserve autoplay intent across asynchronous MKV demux/decoder readiness.
+                    // An explicit user pause clears playWhenReady and is never overridden.
+                    if (playerEngine.playWhenReady && !playerEngine.isPlaying) playerEngine.play()
                     isPlaying = playerEngine.isPlaying
                     if (isPlaying) audioFocusController.request(playerEngine)
 
@@ -1156,6 +1159,7 @@ fun PlayerScreen(
             ?.let { duration = it }
             ?: item.durationSeconds.takeIf { it > 0 }?.let { duration = it * 1000L }
         lastSavedPosition = 0L
+        val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
         val isExo = playerEngine is ExoPlayerEngine
         val streamUrl = if (isExo) {
             val resolvedSize = item.fileSizeBytes.takeIf { it > 0L }
@@ -1163,7 +1167,7 @@ fun PlayerScreen(
             fileSizeBytes = resolvedSize
             cacheState = TelegramPreCacheEngine.cacheState(item.fileId)
             activeLocalStreamUrl = null
-            TdLibDataSource.buildUri(item.fileId, resolvedSize, item.fileName).toString()
+            TdLibDataSource.buildUri(item.fileId, resolvedSize, item.fileName, videoMime).toString()
         } else {
             // MpvPlayerEngine path uses LocalStreamingServer with per-file capability token
             val alreadyPreparedUrl = request.initialStreamUrl?.takeIf {
@@ -1215,7 +1219,6 @@ fun PlayerScreen(
             activeLocalStreamUrl = resolvedUrl.takeIf { it.startsWith("http://127.0.0.1") }
             resolvedUrl
         }
-        val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
         val resumePosition = lastGoodPosition
             .takeIf { it > 0L }
             ?: PlaybackProgressTracker.getMessagePosition(item.chatId, item.messageId, duration).toLong()
@@ -1495,17 +1498,14 @@ fun PlayerScreen(
 
             override fun seekRelative(seconds: Int) {
                 hudInteractionTick++
-                val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
-                if (max <= 0L) {
-                    toastFeedbackText = "Seeking is available when video duration is ready"
-                    hudVisible = true
-                    return
-                }
+                val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                 val base = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
-                val newPos = (base + seconds * 1000L).coerceIn(0L, max)
+                val newPos = relativePlayerSeekTarget(base, seconds * 1000L, knownDuration)
                 if (castState.connected) CastSessionController.seekTo(newPos) else {
                     performTrackedSeek(newPos)
-                    queue.getOrNull(queueIndex)?.let { CacheManager.onSeek(it.fileId, newPos, fileSizeBytes, max) }
+                    if (knownDuration > 0L) queue.getOrNull(queueIndex)?.let {
+                        CacheManager.onSeek(it.fileId, newPos, fileSizeBytes, knownDuration)
+                    }
                 }
                 seekFeedbackText = if (seconds > 0) "+${seconds}s" else "${seconds}s"
                 seekFeedbackSide = if (seconds > 0) 1 else -1
@@ -1840,17 +1840,13 @@ fun PlayerScreen(
                 },
                 onSeekBy = { delta ->
                     hudInteractionTick++
-                    val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
-                    if (max <= 0L) {
-                        toastFeedbackText = "Seeking is available when video duration is ready"
-                    } else {
-                        val basePosition = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
-                        val newPos = (basePosition + delta).coerceIn(0L, max)
-                        if (castState.connected) CastSessionController.seekTo(newPos) else {
-                            performTrackedSeek(newPos)
-                            queue.getOrNull(queueIndex)?.let { current ->
-                                CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, max)
-                            }
+                    val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
+                    val basePosition = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
+                    val newPos = relativePlayerSeekTarget(basePosition, delta, knownDuration)
+                    if (castState.connected) CastSessionController.seekTo(newPos) else {
+                        performTrackedSeek(newPos)
+                        if (knownDuration > 0L) queue.getOrNull(queueIndex)?.let { current ->
+                            CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, knownDuration)
                         }
                     }
                 },

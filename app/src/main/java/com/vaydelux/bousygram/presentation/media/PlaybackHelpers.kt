@@ -79,3 +79,13 @@ fun queueIndexForRequest(
     }
     return queueIndexForFileId(queue, fileId)
 }
+
+/** Seek buttons must work while an MKV is still resolving its duration from Cues.
+ * A known duration bounds the target; unknown duration permits a non-negative seek.
+ */
+fun relativePlayerSeekTarget(baseMs: Long, deltaMs: Long, durationMs: Long): Long {
+    val safeBase = baseMs.coerceAtLeast(0L)
+    val target = if (deltaMs > 0L && safeBase > Long.MAX_VALUE - deltaMs) Long.MAX_VALUE
+        else (safeBase + deltaMs).coerceAtLeast(0L)
+    return if (durationMs > 0L) target.coerceAtMost(durationMs) else target
+}
