@@ -94,6 +94,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
@@ -2798,26 +2801,39 @@ private fun PlayerHud(
                 BousygramButton("✕ Close", onExit)
             }
             Spacer(Modifier.height(6.dp))
+            // Separate context and timing rows instead of truncating cache details
+            // when TV font scaling or phone accessibility text size is enabled.
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 PlayerStatusChip(
                     label = statusText,
                     isError = state.error != null,
                     isBusy = state.isOpening || state.isBuffering || state.isReconnecting
                 )
-                Spacer(Modifier.width(8.dp))
                 Text(
                     listOfNotNull(
-                        state.retryCount.takeIf { it > 0 }?.let { "retry $it/$MAX_AUTO_RETRIES" },
                         state.trackLabel,
-                        state.cacheStateLabel
+                        state.retryCount.takeIf { it > 0 }?.let { "retry $it/$MAX_AUTO_RETRIES" }
                     ).joinToString(" · "),
-                    modifier = Modifier.weight(1f),
                     style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(5.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    state.cacheStateLabel,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
@@ -2825,7 +2841,6 @@ private fun PlayerHud(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.secondary
                 )
-                Spacer(Modifier.width(12.dp))
                 Text(
                     "${speedLabel(state.speed)}x",
                     style = MaterialTheme.typography.labelMedium,
@@ -2840,8 +2855,11 @@ private fun PlayerHud(
                     else "D-pad navigate controls · OK select · Back hide controls · (Hidden HUD: ◀ ▶ seek preview · OK confirm)",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (state.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = if (compact) 2 else 3,
-                overflow = TextOverflow.Ellipsis
+                maxLines = if (state.error != null) 5 else if (compact) 2 else 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (state.error != null) Modifier.semantics {
+                    liveRegion = LiveRegionMode.Polite
+                } else Modifier
             )
             Spacer(Modifier.height(if (compact) 10.dp else 15.dp))
             PlayerSeekBar(
