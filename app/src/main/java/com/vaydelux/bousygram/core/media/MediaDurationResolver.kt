@@ -137,16 +137,16 @@ object MediaDurationResolver {
         fileId: Int,
         durationMs: Long,
         totalSize: Long,
-        hintSeconds: Int = 0
+        hintSeconds: Int = 0,
+        seekableContainerDuration: Boolean = false
     ): Long {
         if (durationMs <= 0L) return cachedDurationMs(fileId)
-        val hintMs = hintSeconds.takeIf { it > 0 }?.times(1000L) ?: 0L
-        val trusted = when {
-            hintMs > 0L -> durationMs >= hintMs - 5_000L
-            totalSize in 1..SMALL_STREAM_MAX_BYTES -> durationMs > 0L
-            durationMs < SHORT_MOVIE_THRESHOLD_MS -> false
-            else -> false
-        }
+        val trusted = trustPlayerDuration(
+            reportedMs = durationMs,
+            totalSize = totalSize,
+            tdlibHintSeconds = hintSeconds,
+            seekableContainerDuration = seekableContainerDuration
+        )
         if (trusted) {
             rememberTrustedDuration(fileId, durationMs, DurationSource.Player)
         }
