@@ -1,8 +1,8 @@
 # Bousygram v2 — ISO-Aligned Engineering Review
 
-**Date:** 2026-10-31  
-**Review branch:** feature/v2-unverified-implementation-20261031  
-**Draft PR:** https://github.com/Vaydelux/Bousygram/pull/44  
+**Date:** 2026-10-31
+**Review branch:** feature/v2-unverified-implementation-20261031
+**Draft PR:** https://github.com/Vaydelux/Bousygram/pull/44
 **Status:** Code fixes committed; **not ISO-certified**, and **not release-qualified**. GitHub's exact-head build and instrumentation checks are required. User-reported physical TV/media problems are not disproved by a source review.
 
 ## Standards interpreted correctly
