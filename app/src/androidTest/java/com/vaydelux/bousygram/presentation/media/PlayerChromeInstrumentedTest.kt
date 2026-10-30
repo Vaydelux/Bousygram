@@ -97,8 +97,13 @@ class PlayerChromeInstrumentedTest {
 
     @Test fun tvShowsDedicatedFocusFirstTransportAndOptions() {
         showChrome(PlayerChromeLayout.TV)
-        composeRule.onNodeWithTag("player_previous").assertExists()
-        composeRule.onNodeWithTag("player_next").assertExists()
+        // TV uses D-pad Left/Right for seek and keeps the primary transport compact.
+        // Previous/Next are deliberately absent from the TV transport strip.
+        composeRule.onNodeWithTag("player_previous").assertDoesNotExist()
+        composeRule.onNodeWithTag("player_next").assertDoesNotExist()
+        composeRule.onNodeWithTag("player_seek_back").assertDoesNotExist()
+        composeRule.onNodeWithTag("player_seek_forward").assertDoesNotExist()
+        composeRule.onNodeWithTag("player_toggle_playback").assertExists()
         composeRule.onNodeWithTag("player_options_toggle").performClick()
         composeRule.onNodeWithTag("player_options_panel").assertExists()
         composeRule.onNodeWithText("Audio / CC").assertExists()
