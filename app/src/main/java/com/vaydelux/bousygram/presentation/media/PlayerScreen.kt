@@ -2032,6 +2032,13 @@ fun PlayerScreen(
                     }
                 },
                 onExit = ::exitPlayback,
+                onStartOver = {
+                    hudInteractionTick++
+                    if (castState.connected) CastSessionController.seekTo(0L)
+                    else performTrackedSeek(0L)
+                    showResumeRestartOption = false
+                    toastFeedbackText = "Restarted from beginning"
+                },
                 onRetry = {
                     hudInteractionTick++
                     retryCount = 0
@@ -2478,7 +2485,7 @@ fun PlayerScreen(
 
         // Smart Resume Restart Prompt
         AnimatedVisibility(
-            visible = showResumeRestartOption && hudVisible,
+            visible = showResumeRestartOption && hudVisible && !tvChrome,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopEnd)
@@ -2865,6 +2872,7 @@ private fun PlayerHud(
     onOptionsToggle: () -> Unit,
     onOptionsClose: () -> Unit,
     onExit: () -> Unit,
+    onStartOver: () -> Unit,
     onRetry: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekBy: (Long) -> Unit,
@@ -2890,8 +2898,8 @@ private fun PlayerHud(
             runCatching { firstOptionFocusRequester.requestFocus() }
         }
     }
-    val edgePadding = if (compact) 12.dp else 32.dp
-    val innerPadding = if (compact) 14.dp else 22.dp
+    val edgePadding = if (isTv) 14.dp else if (compact) 12.dp else 32.dp
+    val innerPadding = if (isTv) 12.dp else if (compact) 14.dp else 22.dp
     val maxHudHeight = playerHudHeightLimit(
         LocalConfiguration.current.screenHeightDp.takeIf { it > 0 } ?: 720,
         compact
@@ -2946,8 +2954,12 @@ private fun PlayerHud(
                         )
                     }
                 }
-                BousygramButton("✕ Close", onExit)
+                if (isTv && state.durationTrusted && state.durationMs > 0L) {
+                    BousygramButton("↺ Start Over", onStartOver)
+                }
+                BousygramButton(if (isTv) "‹ Back" else "✕ Close", onExit)
             }
+            if (!isTv) {
             Spacer(Modifier.height(6.dp))
             // Separate context and timing rows instead of truncating cache details
             // when TV font scaling or phone accessibility text size is enabled.
@@ -3010,6 +3022,20 @@ private fun PlayerHud(
                 } else Modifier
             )
             Spacer(Modifier.height(if (compact) 10.dp else 15.dp))
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(statusText, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        formatMs(state.positionMs) + " / " + durationText(state),
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
             PlayerSeekBar(
                 mediaKey = state.mediaKey,
                 positionMs = state.positionMs,
