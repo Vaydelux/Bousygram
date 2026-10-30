@@ -91,6 +91,8 @@ RELEASE_KEY_PASSWORD=your_key_password
 
 Release and hardened-release tasks fail closed when those signing values are missing; they never fall back to the debug certificate. The CI hardened-release job additionally requires `RELEASE_CERT_SHA256` and verifies every generated split/universal APK against that certificate. Configure GitHub Actions secrets `RELEASE_KEYSTORE_BASE64` (base64-encoded JKS/PKCS12), `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`, and `RELEASE_CERT_SHA256` (SHA-256 certificate digest; colons/spaces are optional).
 
+For the protected `production-signing` GitHub environment, certificate verification, device-qualification prerequisites, and how to resolve a missing-signing-secrets failure, see [RELEASE_SIGNING_SETUP.md](RELEASE_SIGNING_SETUP.md).
+
 See `tools/mock-tests/README.md` for standalone Kotlin checks. Passing these tests does **not** replace the Android Gradle build or device playback tests.
 
 Firebase Test Lab smoke tests run when both `FIREBASE_SERVICE_ACCOUNT` and `FIREBASE_PROJECT_ID` Actions secrets are available. Secret-less and fork pull requests safely skip the protected device and release jobs.
