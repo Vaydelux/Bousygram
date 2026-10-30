@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,10 +46,12 @@ import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.VideoChatItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
+import com.vaydelux.bousygram.presentation.media.vm.BrowseRestoration
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerPosition
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerSection
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
 
 /** Real Telegram directories. No synthetic topics, no horizontal rails. */
 @Composable
@@ -70,6 +72,9 @@ fun TelegramExplorerDashboard(
     hasMore: Boolean,
     privacyMode: Boolean,
     gridState: LazyGridState,
+    sourceFolderRestoration: BrowseRestoration,
+    onSourceFocused: (VideoChatItem) -> Unit,
+    onSourceViewport: (Int, Int) -> Unit,
     onSelectTab: (ExplorerSection) -> Unit,
     onSelectSource: (VideoChatItem) -> Unit,
     onSelectTopic: (Int) -> Unit,
@@ -108,7 +113,33 @@ fun TelegramExplorerDashboard(
     val showSources = position.level == ExplorerLevel.SOURCES && position.section != ExplorerSection.SAVED
     val showTopics = position.level == ExplorerLevel.TOPICS && position.section == ExplorerSection.GROUPS
     val showMedia = !showSources && !showTopics
-    val folderGrid = rememberLazyGridState()
+    val folderGrid = remember(position.section) {
+        LazyGridState(
+            firstVisibleItemIndex = sourceFolderRestoration.firstVisibleItemIndex
+                .coerceAtMost((directory.size - 1).coerceAtLeast(0)),
+            firstVisibleItemScrollOffset = sourceFolderRestoration.firstVisibleItemScrollOffset
+        )
+    }
+    val sourceFocusRequester = remember(position.section) { FocusRequester() }
+
+    DisposableEffect(showSources, position.section, folderGrid) {
+        onDispose {
+            if (showSources) {
+                onSourceViewport(folderGrid.firstVisibleItemIndex, folderGrid.firstVisibleItemScrollOffset)
+            }
+        }
+    }
+
+    LaunchedEffect(showSources, directory.size, sourceFolderRestoration.focusedMediaKey) {
+        val target = sourceFolderRestoration.focusedMediaKey ?: return@LaunchedEffect
+        if (!showSources) return@LaunchedEffect
+        val targetIndex = directory.indexOfFirst { it.chatId.toString() == target }
+        if (targetIndex >= 0) {
+            folderGrid.scrollToItem(targetIndex)
+            delay(60L)
+            runCatching { sourceFocusRequester.requestFocus() }
+        }
+    }
 
     BackHandler(enabled = position.section != ExplorerSection.SAVED && position.level != ExplorerLevel.SOURCES) {
         onGoUp()
@@ -193,7 +224,18 @@ fun TelegramExplorerDashboard(
                         contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 36.dp)
                     ) {
                         items(directory, key = { "chat:" + it.chatId }) { source ->
-                            ExplorerFolderCard(source.title, if (source.isForum) "Topics" else "Media files") { onSelectSource(source) }
+                            ExplorerFolderCard(
+                                title = source.title,
+                                subtitle = if (source.isForum) "Topics" else "Media files",
+                                modifier = if (sourceFolderRestoration.focusedMediaKey == source.chatId.toString()) {
+                                    Modifier.focusRequester(sourceFocusRequester)
+                                } else Modifier,
+                                onFocused = { onSourceFocused(source) },
+                                onClick = {
+                                    onSourceFocused(source)
+                                    onSelectSource(source)
+                                }
+                            )
                         }
                     }
                 }
@@ -266,14 +308,23 @@ private fun ExplorerMessage(message: String, onRetry: (() -> Unit)? = null) {
 }
 
 @Composable
-private fun ExplorerFolderCard(title: String, subtitle: String, onClick: () -> Unit) {
+private fun ExplorerFolderCard(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    onFocused: () -> Unit = {},
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(16.dp)
     Surface(
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
             .border(if (focused) 3.dp else 1.dp,
                 if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, shape)
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
             .clickable(role = Role.Button, onClick = onClick),
         shape = shape,
         color = if (focused) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
