@@ -20,6 +20,7 @@
 | P1 | Reliability | Previously cached Home cards disappeared if a refresh emitted empty/failed data | Keep latest valid list on transient failure; bounded account-scoped snapshots with cursor and source invalidation | Home→Player→Home, offline return, transient TDLib failure |
 | P1 | Performance efficiency | Opening forum source queried entire media history before user picked a topic | Open real forum topic directory first; avoid all-chat video fetch | Large forum TDLib query count and first usable grid time |
 | P1 | Performance efficiency / security | Background seek-frame generation attempted eight random HTTP retrievals through private loopback stream | Limit seek-thumbnail generation to readable local file; preserve timestamp preview for streams, cache by session generation | MKV/TS streaming seek, rebuffer, memory/bandwidth, authorized preview |
+| P0 | Security / privacy | Previously, Telegram Media could automatically send private message titles/filenames to TMDB if an API key was available | Replaced automatic remote enrichment with local-only SeriesMetadataParser, preserving any existing saved artwork metadata | Inspect network traffic on authenticated Telegram browsing; assert zero automatic TMDB requests |
 | P1 | Interaction capability | Overwide mobile header and undersized labels/actions | Adaptive two-row phone toolbar; 48dp min actions; larger TV labels; compact transport row | Narrowest phone window, TalkBack, 720p TV and 4K TV |
 | P1 | Interaction capability | Double-focus targets and D-pad ring hidden on TV | Ported PR #41 focus semantics into TV navigation, cards, auth, menus and seek; explicit 3dp focus border | Physical D-pad input, focus contrast and no clipping/trap |
 | P1 | Functional suitability | Library and Home had different browsing patterns and horizontal overflow | Unified one Saved/Channels/Groups grid explorer; real source IDs and forum topic drilldown | Saved, channel, basic group, forum General and other topics |
@@ -51,7 +52,7 @@
 - Draft PR #44 is **not merged**; no exact-head QA pass had been reported when this review was authored.
 - Device test and baseline metrics are **NOT RUN**; a pending CI run is not a passing run.
 - Android performance and codec support depend on actual ARM/Android devices and file fixtures. Unsupported/corrupt streams cannot be guaranteed playable.
-- The legacy TMDB **metadata enrichment inside Telegram Media** is a separate preexisting path; future TMDB/AniList Extras and WebView are not implemented.
+- Legacy TMDB repository code still exists for compatibility, but the automatic Telegram media enrichment path now uses local-only parsing. Future Extras TMDB/AniList and WebView are not implemented.
 - This code review is a meaningful quality improvement, **not certification** to ISO/IEC 25010, ISO 9241-210, WCAG or ISO/IEC 27001.
 
 **Release decision:** BLOCKED pending compile, CI/emulator and physical-device qualification.
