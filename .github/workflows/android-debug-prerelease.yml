@@ -79,9 +79,11 @@ jobs:
             echo '::error::Verified CI run has no valid UTC creation timestamp.' >&2
             exit 1
           }
-          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "ci_run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "ci_created_at=$ci_created_at" >> "$GITHUB_OUTPUT"
+          {
+            echo "sha=$source_sha"
+            echo "ci_run_id=$run_id"
+            echo "ci_created_at=$ci_created_at"
+          } >> "$GITHUB_OUTPUT"
           echo "Verified exact mainline commit $source_sha with CI run $run_id at $ci_created_at"
 
       - name: Check out exact CI-approved source
