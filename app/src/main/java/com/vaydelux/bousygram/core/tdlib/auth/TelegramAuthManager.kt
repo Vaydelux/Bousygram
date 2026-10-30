@@ -396,6 +396,9 @@ class TelegramAuthManager(private val context: Context) {
     }
 
     private fun handleAuthState(state: TdApi.AuthorizationState?) {
+        // Destroy closes TDLib asynchronously. Do not start a new QR/phone login while
+        // the previous account's native database and media cache are being erased.
+        if (waitingForNativePurgeClosed && state !is TdApi.AuthorizationStateClosed) return
         if (revokedCleanupFailed) {
             _uiState.update {
                 it.copy(step = AuthStep.Unavailable, isLoading = false,
