@@ -12,7 +12,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -380,13 +379,12 @@ private fun ModeTabItem(
             .clip(shape)
             .background(bgColor)
             .border(
-                width = if (isFocused) 2.dp else if (selected) 1.dp else 0.dp,
+                width = if (isFocused) 3.dp else if (selected) 1.dp else 0.dp,
                 color = if (isFocused) MaterialTheme.colorScheme.secondary else if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
                 shape = shape
             )
-            .clickable(onClick = onClick)
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
+            .clickable(onClick = onClick)
             .padding(vertical = 12.dp, horizontal = 12.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -838,9 +836,8 @@ private fun QrDisplayBox(
                 color = if (isFocused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(22.dp)
             )
-            .clickable(onClick = onRefresh)
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable(),
+            .clickable(onClick = onRefresh),
         contentAlignment = Alignment.Center
     ) {
         when {
@@ -941,8 +938,7 @@ private fun ModernAuthTextField(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 60.dp)
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable(),
+            .onFocusChanged { isFocused = it.isFocused },
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
