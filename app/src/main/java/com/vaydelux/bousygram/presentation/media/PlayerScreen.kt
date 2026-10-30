@@ -830,6 +830,9 @@ fun PlayerScreen(
                     if (playerEngine.durationMs > 0L) {
                         applyPlayerDurationMs(playerEngine.durationMs)
                     }
+                    // Preserve autoplay intent across asynchronous MKV demux/decoder readiness.
+                    // An explicit user pause clears playWhenReady and is never overridden.
+                    if (playerEngine.playWhenReady && !playerEngine.isPlaying) playerEngine.play()
                     isPlaying = playerEngine.isPlaying
                     if (isPlaying) audioFocusController.request(playerEngine)
 
