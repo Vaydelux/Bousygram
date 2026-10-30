@@ -217,6 +217,11 @@ internal object TelegramChunkScheduler {
         latestFiles[file.fileId] = file
         if (file.isDownloadingCompleted) {
             cacheStates[file.fileId] = PlaybackCacheState.Cached
+        } else if (cacheStates[file.fileId] == PlaybackCacheState.Cached) {
+            // TDLib may evict an on-disk file while the app is backgrounded.
+            // Do not keep presenting a stale Cached verdict after fresh GetFile.
+            cacheStates[file.fileId] =
+                if (file.isDownloadingActive) PlaybackCacheState.Streaming else PlaybackCacheState.Preparing
         } else if (file.isDownloadingActive) {
             if (cacheStates[file.fileId] == PlaybackCacheState.Preparing) {
                 cacheStates[file.fileId] = PlaybackCacheState.Streaming
