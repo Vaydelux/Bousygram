@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.presentation.shell
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -26,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import com.vaydelux.bousygram.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +51,11 @@ fun BousygramModeSelection(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_bousygram_mark),
+                    contentDescription = "Bousygram media logo",
+                    modifier = Modifier.size(82.dp)
+                )
                 Text("BOUSYGRAM", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 Text(
                     "Your media. Your way.",
@@ -138,7 +147,11 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                         .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(28.dp))
                         .padding(horizontal = 35.dp, vertical = 26.dp)
                 ) {
-                    Text("✦", style = MaterialTheme.typography.displayLarge, color = MaterialTheme.colorScheme.primary)
+                    Image(
+                        painter = painterResource(R.drawable.ic_bousygram_mark),
+                        contentDescription = "Bousygram maintenance logo",
+                        modifier = Modifier.size(76.dp)
+                    )
                 }
                 Text("More to Explore", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(
