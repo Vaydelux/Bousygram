@@ -360,7 +360,8 @@ fun PlayerScreen(
             fileId = item.fileId,
             durationMs = candidateMs,
             totalSize = fileSizeBytes,
-            hintSeconds = item.durationSeconds
+            hintSeconds = item.durationSeconds,
+            seekableContainerDuration = playerEngine.seekableContainerDuration
         )
         if (trusted > duration) duration = trusted
     }
@@ -745,9 +746,11 @@ fun PlayerScreen(
             context = context,
             playerEngine = playerEngine,
             onSeekIncrement = { deltaMs ->
-                val target = (playerEngine.currentPositionMs + deltaMs).coerceIn(0L, duration)
+                val target = relativePlayerSeekTarget(playerEngine.currentPositionMs, deltaMs, duration)
                 performTrackedSeek(target)
-                queue.getOrNull(queueIndex)?.let { CacheManager.onSeek(it.fileId, target, fileSizeBytes, duration) }
+                if (duration > 0L) queue.getOrNull(queueIndex)?.let {
+                    CacheManager.onSeek(it.fileId, target, fileSizeBytes, duration)
+                }
                 position = target
             },
             onSkipNext = {
@@ -1300,7 +1303,8 @@ fun PlayerScreen(
         while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
         if (playerStartedAtMs <= 0L || playbackError != null) return@LaunchedEffect
         val startedAt = playerStartedAtMs
-        while (playbackError == null &&
+        val trackedEngine = playerEngine
+        while (playbackError == null && playerEngine === trackedEngine &&
             !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
             System.currentTimeMillis() - startedAt < 20_000L
         ) delay(500L)
@@ -1309,7 +1313,8 @@ fun PlayerScreen(
             current.title.endsWith(".mkv", ignoreCase = true) ||
             current.mimeType.equals("video/x-matroska", ignoreCase = true) ||
             current.mimeType.equals("application/x-matroska", ignoreCase = true)
-        if (isMatroska && playerEngine is ExoPlayerEngine && !hasFallenBackToMpv &&
+        if (isMatroska && playerEngine === trackedEngine &&
+            playerEngine is ExoPlayerEngine && !hasFallenBackToMpv &&
             !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) && playbackError == null
         ) {
             hasFallenBackToMpv = true
@@ -1330,11 +1335,14 @@ fun PlayerScreen(
         // Start counting when the engine actually begins preparing, not while TDLib
         // is still resolving a message and its cached file metadata.
         while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
-        while (playerStartedAtMs > 0L && playbackError == null &&
-            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
-            System.currentTimeMillis() - playerStartedAtMs < 45_000L
+        val trackedEngine = playerEngine
+        val trackedStartMs = playerStartedAtMs
+        while (playerEngine === trackedEngine && playerStartedAtMs == trackedStartMs &&
+            playbackError == null && !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
+            System.currentTimeMillis() - trackedStartMs < 45_000L
         ) delay(500L)
-        if (!hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
+        if (playerEngine === trackedEngine && playerStartedAtMs == trackedStartMs &&
+            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs) &&
             playbackError == null && playerStartedAtMs > 0L
         ) {
             PlaybackDiagnostics.recordStreamError("Playback startup exceeded 45s without video frame or audio readiness")
