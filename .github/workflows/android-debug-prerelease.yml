@@ -73,9 +73,18 @@ jobs:
             (.name == "Build and verify" or .name == "Verify debug APK ABI matrix") and
             .status == "completed" and .conclusion == "success"
           )] | length == 2' <<< "$jobs" >/dev/null
-          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "ci_run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "Verified exact mainline commit $source_sha with CI run $run_id"
+          # Stable CI creation time makes manual publisher reruns idempotent.
+          ci_created_at="$(jq -er '.created_at | select(type == "string")' <<< "$run")"
+          [[ "$ci_created_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || {
+            echo '::error::Verified CI run has no valid UTC creation timestamp.' >&2
+            exit 1
+          }
+          {
+            echo "sha=$source_sha"
+            echo "ci_run_id=$run_id"
+            echo "ci_created_at=$ci_created_at"
+          } >> "$GITHUB_OUTPUT"
+          echo "Verified exact mainline commit $source_sha with CI run $run_id at $ci_created_at"
 
       - name: Check out exact CI-approved source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -122,11 +131,14 @@ jobs:
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
           CI_RUN_ID: ${{ steps.source.outputs.ci_run_id }}
+          CI_CREATED_AT: ${{ steps.source.outputs.ci_created_at }}
           VERSION: ${{ steps.apks.outputs.version }}
         run: |
           set -euo pipefail
-          tag="v$VERSION-debug.$CI_RUN_ID"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-debug\.[1-9][0-9]*$ ]] || exit 1
+          # The tag is generated from the verified CI run's UTC creation time.
+          # Example: v1.0.0-debug.20261030T090834Z
+          tag="$(bash tools/ci/debug_prerelease_tag.sh "$VERSION" "$CI_CREATED_AT")"
+          readable_date="$(date -u -d "$CI_CREATED_AT" +'%Y-%m-%d %H:%M:%S UTC')"
           git fetch origin --tags --force
           if git show-ref --verify --quiet "refs/tags/$tag"; then
             [[ "$(git rev-parse "refs/tags/$tag^{}")" == "$SOURCE_SHA" ]] || {
@@ -148,6 +160,7 @@ jobs:
           These APKs are **debug builds for testing**, not production-signed releases.
           Tested source commit: \`$SOURCE_SHA\`
           Required Android Enterprise CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID
+          Verified CI run created: $readable_date (stable UTC timestamp)
 
           | File suffix | Device architecture |
           | --- | --- |
@@ -164,7 +177,7 @@ jobs:
             --verify-tag \
             --prerelease \
             --latest=false \
-            --title "Bousygram $tag (Debug)" \
+            --title "Bousygram v$VERSION (Debug) - $readable_date" \
             --notes-file ci-artifacts/debug-preview/RELEASE_NOTES.md \
             ci-artifacts/debug-preview/Bousygram-debug-*.apk \
             ci-artifacts/debug-preview/SHA256SUMS.txt \
