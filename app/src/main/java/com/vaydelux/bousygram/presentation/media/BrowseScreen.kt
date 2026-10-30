@@ -113,7 +113,7 @@ fun BrowseScreen(
     val recentSearches by viewModel.recentSearches.collectAsState()
     // Saved Messages has its own permanent entry. Never list the same chat again.
     val libraryChatSources = remember(state.videoChats) {
-        state.videoChats.filterNot { it.isSavedMessages }.distinctBy { it.chatId }
+        libraryOtherChatSources(state.videoChats)
     }
     val adaptive = rememberAdaptiveMetrics()
     val context = LocalContext.current
