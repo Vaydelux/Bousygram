@@ -110,13 +110,17 @@ class PlaybackCoreLifecycleTest {
         val queue = sampleQueue(1).toMutableList()
         val session = PlaybackSessionController.start(queue)
         assertTrue(PlaybackSessionController.isFileActive(501))
-        PlaybackSessionController.rebindActiveFile(session, 501, 9876)
+        assertFalse(PlaybackSessionController.rebindActiveFile(session, 999, 9876))
+        assertFalse(PlaybackSessionController.isFileActive(9876))
+        assertTrue(PlaybackSessionController.rebindActiveFile(session, 501, 9876))
         queue[0] = queue[0].copy(fileId = 9876)
         assertFalse(PlaybackSessionController.isFileActive(501))
         assertTrue(PlaybackSessionController.isFileActive(9876))
         assertEquals(9876, session.fileId)
         PlaybackSessionController.stop(session, PlaybackCacheStopReason.Dispose)
         assertFalse(PlaybackSessionController.isFileActive(9876))
+        assertFalse(PlaybackSessionController.rebindActiveFile(session, 9876, 1234))
+        assertFalse(PlaybackSessionController.isFileActive(1234))
     }
 
     @Test
