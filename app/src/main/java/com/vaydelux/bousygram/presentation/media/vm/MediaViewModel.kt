@@ -556,10 +556,22 @@ class MediaViewModel(
         }
     }
 
-    fun selectTopic(topicId: Int?) {
+    fun selectTopic(topicId: Int?) = loadTopic(topicId, force = false)
+
+    fun refreshCurrentMedia() {
+        val current = _uiState.value
+        when {
+            current.isSavedMessagesSelected -> refresh()
+            current.selectedChatId == null -> refresh()
+            current.selectedTopicId != null -> loadTopic(current.selectedTopicId, force = true)
+            else -> loadChat(current.selectedChatId, current.selectedChatTitle)
+        }
+    }
+
+    private fun loadTopic(topicId: Int?, force: Boolean) {
         val state = _uiState.value
         val chatId = state.selectedChatId ?: return
-        if (state.selectedTopicId == topicId) return
+        if (!force && state.selectedTopicId == topicId) return
         val requestGeneration = ++mediaRequestGeneration
         val folderKey = "chat:" + chatId + ":topic:" + (topicId ?: 0)
         val warmTopic = catalogSnapshot(folderKey)
