@@ -1042,7 +1042,12 @@ fun MediaPosterCard(
         media.messageId,
         if (privacyMode) null else media.miniThumbnailBytes
     )
-    val preferredThumbnail = media.tmdbPosterPath ?: media.thumbnailPath
+    // TDLib thumbnail paths can become stale after native cache cleanup.
+    // Treat missing local files as absent rather than permanently showing a blank Coil error.
+    val preferredThumbnail = (media.tmdbPosterPath ?: media.thumbnailPath)?.takeIf { path ->
+        path.startsWith("http://") || path.startsWith("https://") ||
+            path.startsWith("content://") || File(path).isFile
+    }
     val context = LocalContext.current
     val isTsWithoutPoster = !privacyMode && preferredThumbnail == null &&
         miniThumbnail == null && media.fileId != null &&
@@ -1054,7 +1059,14 @@ fun MediaPosterCard(
         key3 = context
     ) {
         value = if (isTsWithoutPoster) {
-            media.fileId?.let { ThumbnailExtractor.getCachedTransportStreamThumbnail(context, it) }
+            try {
+                media.fileId?.let { ThumbnailExtractor.getCachedTransportStreamThumbnail(context, it) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                android.util.Log.w("MediaPosterCard", "Local TS artwork unavailable", failure)
+                null
+            }
         } else null
     }
     val imageData = if (privacyMode) null else preferredThumbnail?.let { path ->
@@ -1161,7 +1173,7 @@ fun MediaPosterCard(
                     val displayBadge = badge ?: when (media.type) {
                         com.vaydelux.bousygram.domain.model.MediaType.Audio -> media.docType ?: "AUDIO"
                         com.vaydelux.bousygram.domain.model.MediaType.Document -> media.docType ?: "DOC"
-                        else -> null
+                        else -> if (VideoFormatSupport.isTransportStream(media.fileName, media.mimeType)) "TS" else null
                     }
                     displayBadge?.let {
                         GlassPill(
