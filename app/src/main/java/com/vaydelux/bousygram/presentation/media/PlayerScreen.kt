@@ -2833,9 +2833,13 @@ private fun TrackChoice(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .border(
+                if (focused) 3.dp else 0.dp,
+                if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                RoundedCornerShape(16.dp)
+            )
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onSelect)
-            .focusable(),
+            .clickable(onClick = onSelect),
         color = when {
             selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
             focused -> MaterialTheme.colorScheme.surfaceVariant
@@ -3154,7 +3158,7 @@ private fun PlayerSeekBar(
                 .height(44.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .border(
-                    width = if (barFocused) 1.5.dp else 0.dp,
+                    width = if (barFocused) 3.dp else 0.dp,
                     color = if (barFocused) MaterialTheme.colorScheme.secondary else Color.Transparent,
                     shape = RoundedCornerShape(12.dp)
                 )
