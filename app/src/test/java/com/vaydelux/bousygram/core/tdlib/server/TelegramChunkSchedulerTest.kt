@@ -34,6 +34,24 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun staleCachedFileIsMarkedForPreparationWhenTdLibReportsEviction() {
+        TelegramChunkScheduler.onFileUpdated(
+            TelegramGatewayFile(
+                fileId = 2468, localPath = "/old/cache/video.ts",
+                isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 4096L
+            )
+        )
+        assertEquals(PlaybackCacheState.Cached, TelegramChunkScheduler.cacheState(2468))
+        TelegramChunkScheduler.onFileUpdated(
+            TelegramGatewayFile(
+                fileId = 2468, localPath = "",
+                isDownloadingCompleted = false, downloadOffset = 0L, downloadedPrefixSize = 0L
+            )
+        )
+        assertEquals(PlaybackCacheState.Preparing, TelegramChunkScheduler.cacheState(2468))
+    }
+
+    @Test
     fun fetchChunkReadsExactOrderedByteRange() = runBlocking {
         val bytes = ByteArray(TelegramChunkScheduler.CHUNK_SIZE_BYTES * 2) { index ->
             (index % 251).toByte()
