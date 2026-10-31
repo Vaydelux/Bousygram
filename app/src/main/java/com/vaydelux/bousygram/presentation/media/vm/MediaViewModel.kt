@@ -128,6 +128,7 @@ class MediaViewModel(
     private var hasLoadedVideoChats = false
     private var mediaRequestGeneration = 0L
     private var sourceRequestGeneration = 0L
+    private var quickSearchGeneration = 0L
     private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
     private val sourceFolderRestorations = java.util.concurrent.ConcurrentHashMap<ExplorerSection, BrowseRestoration>()
 
@@ -931,74 +932,79 @@ class MediaViewModel(
         _uiState.update { it.copy(filterYear = year, filterMonth = month) }
     }
 
+    private fun isActiveQuickSearch(
+        owner: AccountSnapshot,
+        generation: Long,
+        query: String,
+        chatId: Long,
+        saved: Boolean
+    ): Boolean {
+        val current = _uiState.value
+        val currentSourceId = if (current.isSavedMessagesSelected) {
+            repository.cachedSavedMessagesChatId
+        } else current.selectedChatId
+        return AccountSession.isCurrent(owner) &&
+            generation == quickSearchGeneration &&
+            current.quickSearchQuery == query &&
+            current.isSavedMessagesSelected == saved &&
+            currentSourceId == chatId
+    }
+
     fun setQuickSearchQuery(query: String) {
         val clean = query.trim()
+        val searchGeneration = ++quickSearchGeneration
         _uiState.update { it.copy(quickSearchQuery = clean) }
-        if (clean.isNotEmpty()) {
-            val currentState = _uiState.value
-            val scopedChatId = if (currentState.isSavedMessagesSelected) null else currentState.selectedChatId
-            val scopedChatTitle = currentState.selectedChatTitle
-            viewModelScope.launch {
-                val cachedMatches = withContext(Dispatchers.IO) {
-                    VideoIndexRepository.searchIndexedVideos(clean, scopedChatId, limit = 50)
-                }
-                if (cachedMatches.isNotEmpty()) {
-                    _uiState.update { current ->
-                        val merged = (current.items + cachedMatches)
-                            .distinctBy { "${it.chatId}:${it.messageId}" }
-                        current.copy(items = merged)
-                    }
-                }
-                val initialMatchCount = _uiState.value.filteredAndSortedItems.size
-                RecentSearchRepository.recordSearchQuery(
-                    query = clean,
-                    chatId = scopedChatId,
-                    chatTitle = scopedChatTitle,
-                    resultCount = initialMatchCount
-                )
+        if (clean.isEmpty()) return
+
+        // The quick-search field is an *in-folder* search. Null used to mean
+        // "search all private Telegram chats" in the old implementation, even
+        // while Saved Messages was selected. Never expand that scope silently.
+        val owner = AccountSession.current() ?: return
+        val source = _uiState.value
+        val isSaved = source.isSavedMessagesSelected
+        val chatId = if (isSaved) repository.cachedSavedMessagesChatId else source.selectedChatId
+        if (chatId == null || chatId == 0L) return
+        val title = source.selectedChatTitle
+        fun current(): Boolean = isActiveQuickSearch(owner, searchGeneration, clean, chatId, isSaved)
+
+        viewModelScope.launch {
+            val cached = withContext(Dispatchers.IO) {
+                VideoIndexRepository.searchIndexedVideos(clean, chatId, limit = 50)
             }
-            // Also re-execute TDLib search for this query and merge any new matches
-            if (scopedChatId != null && scopedChatId != 0L) {
-                repository.searchChatVideos(scopedChatId, clean, 0L, limit = 40) { foundItems, _, _ ->
-                    if (foundItems.isNotEmpty()) {
-                        VideoIndexRepository.indexMediaItemsAsync(foundItems)
-                        _uiState.update { current ->
-                            val merged = (current.items + foundItems)
-                                .distinctBy { "${it.chatId}:${it.messageId}" }
-                            current.copy(items = merged)
-                        }
-                    }
-                    val updatedCount = _uiState.value.filteredAndSortedItems.size
-                    if (updatedCount > 0) {
-                        RecentSearchRepository.recordSearchQueryAsync(
-                            query = clean,
-                            chatId = scopedChatId,
-                            chatTitle = scopedChatTitle,
-                            resultCount = updatedCount
-                        )
-                    }
+            if (!current()) return@launch
+            if (cached.isNotEmpty()) {
+                _uiState.update { ui ->
+                    if (!current()) ui else ui.copy(
+                        items = (ui.items + cached).distinctBy { "${it.chatId}:${it.messageId}" }
+                    )
                 }
-            } else {
-                repository.searchGlobalVideos(clean, "", limit = 40) { globalResult, _ ->
-                    val foundItems = globalResult?.items.orEmpty()
-                    if (foundItems.isNotEmpty()) {
-                        VideoIndexRepository.indexMediaItemsAsync(foundItems)
-                        _uiState.update { current ->
-                            val merged = (current.items + foundItems)
-                                .distinctBy { "${it.chatId}:${it.messageId}" }
-                            current.copy(items = merged)
-                        }
-                    }
-                    val updatedCount = _uiState.value.filteredAndSortedItems.size
-                    if (updatedCount > 0) {
-                        RecentSearchRepository.recordSearchQueryAsync(
-                            query = clean,
-                            chatId = null,
-                            chatTitle = scopedChatTitle,
-                            resultCount = updatedCount
-                        )
-                    }
+            }
+            if (!current()) return@launch
+            RecentSearchRepository.recordSearchQuery(
+                query = clean,
+                chatId = chatId,
+                chatTitle = title,
+                resultCount = _uiState.value.filteredAndSortedItems.size
+            )
+        }
+
+        repository.searchChatVideos(chatId, clean, 0L, limit = 40) { matches, _, _ ->
+            if (!current()) return@searchChatVideos
+            if (matches.isNotEmpty()) {
+                VideoIndexRepository.indexMediaItemsAsync(matches)
+                _uiState.update { ui ->
+                    if (!current()) ui else ui.copy(
+                        items = (ui.items + matches).distinctBy { "${it.chatId}:${it.messageId}" }
+                    )
                 }
+            }
+            if (current()) {
+                RecentSearchRepository.recordSearchQueryAsync(
+                    query = clean,
+                    chatId = chatId,
+                    chatTitle = title,
+                    resultCount = _uiState.value.filteredAndSortedItems.size
+                )
             }
         }
     }
@@ -1018,6 +1024,7 @@ class MediaViewModel(
     }
 
     fun clearQuickSearchQuery() {
+        ++quickSearchGeneration
         _uiState.update { it.copy(quickSearchQuery = "") }
     }
 
