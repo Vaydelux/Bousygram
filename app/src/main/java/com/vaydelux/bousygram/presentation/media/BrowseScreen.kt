@@ -323,7 +323,7 @@ fun BrowseScreen(
                 restoreFocusRequester = restoreFocusRequester,
                 onLoadMore = viewModel::loadMoreIfNeeded,
                 onRefreshSources = viewModel::refreshVideoChats,
-                onRefreshTopics = { state.selectedChatId?.let(viewModel::loadForumTopics) },
+                onRefreshTopics = { state.selectedChatId?.let(viewModel::refreshForumTopics) },
                 onRefreshMedia = viewModel::refreshCurrentMedia,
                 onSearch = {
                     val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
