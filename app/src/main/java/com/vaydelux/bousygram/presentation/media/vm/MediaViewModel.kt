@@ -137,6 +137,13 @@ class MediaViewModel(
     private var quickSearchGeneration = 0L
     private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
     private val sourceFolderRestorations = java.util.concurrent.ConcurrentHashMap<ExplorerSection, BrowseRestoration>()
+    private val topicFolderFocus = java.util.concurrent.ConcurrentHashMap<Long, Int>()
+
+    fun focusedExplorerTopic(chatId: Long?): Int? = chatId?.let(topicFolderFocus::get)
+
+    fun rememberExplorerTopicFocus(chatId: Long?, topicId: Int) {
+        if (chatId != null) topicFolderFocus[chatId] = topicId
+    }
 
     fun sourceFolderRestoration(section: ExplorerSection): BrowseRestoration =
         sourceFolderRestorations[section] ?: BrowseRestoration()
@@ -283,6 +290,7 @@ class MediaViewModel(
                     _explorerPosition.value = ExplorerPosition()
                     browseRestorations.clear()
                     sourceFolderRestorations.clear()
+                    topicFolderFocus.clear()
                     synchronized(catalogSnapshotLock) {
                         catalogSnapshots.clear()
                         topicSnapshots.clear()
@@ -313,6 +321,7 @@ class MediaViewModel(
             _explorerPosition.value = ExplorerPosition()
             browseRestorations.clear()
             sourceFolderRestorations.clear()
+            topicFolderFocus.clear()
             synchronized(catalogSnapshotLock) {
                 catalogSnapshots.clear()
                 topicSnapshots.clear()
@@ -426,6 +435,7 @@ class MediaViewModel(
         if (_explorerPosition.value.level != ExplorerLevel.TOPICS) return
         val source = _uiState.value
         if (source.selectedChatId == null || source.availableTopics.none { it.id == topicId }) return
+        rememberExplorerTopicFocus(source.selectedChatId, topicId)
         _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
         selectTopic(topicId)
     }
