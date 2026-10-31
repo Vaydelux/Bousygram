@@ -393,6 +393,9 @@ class MediaViewModel(
                         isSavedMessagesSelected = false,
                         selectedTopicId = null,
                         availableTopics = emptyList(),
+                        // The previous forum's topic request may still be running.
+                        // Never carry its loading flag into a different group.
+                        isLoadingTopics = false,
                         isLoading = false,
                         isLoadingMore = false,
                         hasMore = false,
