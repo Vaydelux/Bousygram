@@ -78,6 +78,8 @@ fun TelegramExplorerDashboard(
     onSelectTab: (ExplorerSection) -> Unit,
     onSelectSource: (VideoChatItem) -> Unit,
     onSelectTopic: (Int) -> Unit,
+    focusedTopicId: Int?,
+    onTopicFocused: (Int) -> Unit,
     onGoUp: () -> Unit,
     onPlay: (MediaItem) -> Unit,
     onFocusMedia: (MediaItem) -> Unit,
@@ -115,6 +117,18 @@ fun TelegramExplorerDashboard(
         )
     }
     val sourceFocusRequester = remember(position.section) { FocusRequester() }
+    val topicGrid = remember(selectedChatId) { LazyGridState() }
+    val topicFocusRequester = remember(selectedChatId) { FocusRequester() }
+
+    LaunchedEffect(showTopics, selectedChatId, focusedTopicId, topics.size) {
+        if (!showTopics || focusedTopicId == null) return@LaunchedEffect
+        val targetIndex = topics.indexOfFirst { it.id == focusedTopicId }
+        if (targetIndex >= 0) {
+            topicGrid.scrollToItem(targetIndex)
+            delay(60L)
+            runCatching { topicFocusRequester.requestFocus() }
+        }
+    }
 
     DisposableEffect(showSources, position.section, folderGrid) {
         onDispose {
@@ -259,13 +273,25 @@ fun TelegramExplorerDashboard(
                             onRetry = if (isLoadingTopics) null else onRefreshTopics
                         )
                     } else LazyVerticalGrid(
+                        state = topicGrid,
                         columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap),
                         contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 36.dp)
                     ) {
                         items(topics, key = { "topic:" + selectedChatId + ":" + it.id }) { topic ->
-                            ExplorerFolderCard(topic.name, if (topic.isGeneral) "General topic" else "Forum topic") { onSelectTopic(topic.id) }
+                            ExplorerFolderCard(
+                                title = topic.name,
+                                subtitle = if (topic.isGeneral) "General topic" else "Forum topic",
+                                modifier = if (focusedTopicId == topic.id) {
+                                    Modifier.focusRequester(topicFocusRequester)
+                                } else Modifier,
+                                onFocused = { onTopicFocused(topic.id) },
+                                onClick = {
+                                    onTopicFocused(topic.id)
+                                    onSelectTopic(topic.id)
+                                }
+                            )
                         }
                     }
                 }
