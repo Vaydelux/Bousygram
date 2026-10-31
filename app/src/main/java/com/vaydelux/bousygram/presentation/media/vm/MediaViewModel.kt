@@ -795,6 +795,7 @@ class MediaViewModel(
     }
 
     private fun fetchThumbnails(items: List<MediaItem>) {
+        val owner = AccountSession.current() ?: return
         items.asSequence()
             .filter { it.thumbnailPath.isNullOrBlank() }
             .forEach { item ->
@@ -804,6 +805,7 @@ class MediaViewModel(
                 // concurrency limit across all screens.
                 if (!requestedThumbnailFileIds.add(thumbnailFileId)) return@forEach
                 repository.fetchThumbnailPath(thumbnailFileId) { path ->
+                    if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
                     if (!path.isNullOrBlank()) {
                         updateThumbnailPathForFile(thumbnailFileId, path)
                     } else {
@@ -869,12 +871,14 @@ class MediaViewModel(
 
     /** Resolves the saved last-played Telegram message even when it is outside the loaded page. */
     fun loadLastPlayed(onResult: (MediaItem?, String?) -> Unit) {
+        val owner = AccountSession.current() ?: return
         val last = EnterprisePreferences.lastPlayed()
         if (last == null) {
             onResult(null, "There is no saved playback position yet")
             return
         }
         repository.getMessage(last.chatId, last.messageId) { item, error ->
+            if (!AccountSession.isCurrent(owner)) return@getMessage
             if (item == null) {
                 onResult(null, error ?: "The last-played Telegram message is no longer available")
             } else if (item.fileId == null) {
@@ -887,10 +891,12 @@ class MediaViewModel(
 
     // Playback launch is managed via PlaybackLaunchCoordinator.
     fun preparePlayback(item: MediaItem, onResult: (String?, String?) -> Unit) {
+        val owner = AccountSession.current() ?: return
         val fileId = item.fileId
         _uiState.update { it.copy(preparingFileId = fileId) }
         viewModelScope.launch {
             val result = runCatching { repository.prepareStream(item).getOrThrow() }
+            if (!AccountSession.isCurrent(owner)) return@launch
             val url = result.getOrNull()
             _uiState.update { it.copy(preparingFileId = null) }
             onResult(url, result.exceptionOrNull()?.message)
@@ -898,14 +904,19 @@ class MediaViewModel(
     }
 
     fun deleteMediaItem(item: MediaItem, onResult: (String?) -> Unit) {
+        val owner = AccountSession.current() ?: return
         _uiState.update { it.copy(error = null) }
         repository.deleteMessage(item.chatId, item.messageId) { error ->
+            if (!AccountSession.isCurrent(owner)) return@deleteMessage
             if (error != null) {
                 _uiState.update { current -> current.copy(error = error) }
                 onResult(error)
             } else {
+                invalidateCatalogForChat(item.chatId)
                 _uiState.update { current ->
-                    current.copy(items = current.items.filterNot { it.messageId == item.messageId })
+                    current.copy(items = current.items.filterNot {
+                        it.chatId == item.chatId && it.messageId == item.messageId
+                    })
                 }
                 onResult(null)
             }
@@ -1041,6 +1052,7 @@ class MediaViewModel(
     }
 
     fun onItemFocused(item: MediaItem) {
+        val owner = AccountSession.current() ?: return
         item.fileId?.let { fileId ->
             MediaDurationResolver.cachedDurationMs(fileId)
                 .takeIf { it > 0L && it != item.trustedDurationMs }
@@ -1049,6 +1061,7 @@ class MediaViewModel(
         val thumbnailFileId = item.thumbnailFileId
         if (thumbnailFileId != null && item.thumbnailPath.isNullOrBlank() && requestedThumbnailFileIds.add(thumbnailFileId)) {
             repository.fetchThumbnailPath(thumbnailFileId) { path ->
+                if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
                 if (!path.isNullOrBlank()) updateThumbnailPathForFile(thumbnailFileId, path)
                 else requestedThumbnailFileIds.remove(thumbnailFileId)
             }
