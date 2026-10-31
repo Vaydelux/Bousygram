@@ -86,8 +86,14 @@ class MediaViewModel(
     private fun rememberCatalog(folder: String, videos: List<MediaItem>, nextCursor: Long) {
         // Never store a cursor for a truncated page. It would skip uncached
         // media when the user returns to a deep folder after pagination.
-        if (videos.isEmpty() || videos.size > MAX_CACHED_CATALOG_ITEMS) return
+        if (videos.isEmpty()) return
         val key = snapshotKey(folder) ?: return
+        if (videos.size > MAX_CACHED_CATALOG_ITEMS) {
+            // Remove an older shorter snapshot instead of retaining a misleading
+            // cursor for a folder that has since grown beyond the bounded cache.
+            synchronized(catalogSnapshotLock) { catalogSnapshots.remove(key) }
+            return
+        }
         synchronized(catalogSnapshotLock) {
             // Bounded metadata, never video bytes, stream URLs, or credentials.
             catalogSnapshots[key] = CatalogSnapshot(
@@ -736,13 +742,15 @@ class MediaViewModel(
                 .distinctBy { "${it.chatId}:${it.messageId}" }
             current.copy(
                 items = merged,
-                isLoadingMore = !isFinal,
+                isLoadingMore = if (error != null) false else !isFinal,
                 error = error,
-                hasMore = if (isFinal) nextFromMessageId != 0L else current.hasMore,
-                nextFromMessageId = if (isFinal) nextFromMessageId else current.nextFromMessageId
+                // An error is not end-of-list. Preserve cursor so Retry/scroll
+                // can resume without skipping messages or hiding older pages.
+                hasMore = if (error == null && isFinal) nextFromMessageId != 0L else current.hasMore,
+                nextFromMessageId = if (error == null && isFinal) nextFromMessageId else current.nextFromMessageId
             )
         }
-        if (isFinal && _uiState.value.items.isNotEmpty()) {
+        if (isFinal && error == null && _uiState.value.items.isNotEmpty()) {
             val current = _uiState.value
             val folderKey = if (current.isSavedMessagesSelected) "saved:topic:0"
             else "chat:" + current.selectedChatId + ":topic:" + (current.selectedTopicId ?: 0)
@@ -807,11 +815,10 @@ class MediaViewModel(
                 if (!requestedThumbnailFileIds.add(thumbnailFileId)) return@forEach
                 repository.fetchThumbnailPath(thumbnailFileId) { path ->
                     if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
-                    if (!path.isNullOrBlank()) {
-                        updateThumbnailPathForFile(thumbnailFileId, path)
-                    } else {
-                        requestedThumbnailFileIds.remove(thumbnailFileId)
-                    }
+                    // A completed thumbnail may no longer belong to the currently
+                    // displayed folder. Allow a later visit to retry that file ID.
+                    requestedThumbnailFileIds.remove(thumbnailFileId)
+                    if (!path.isNullOrBlank()) updateThumbnailPathForFile(thumbnailFileId, path)
                 }
             }
     }
@@ -1069,8 +1076,8 @@ class MediaViewModel(
         if (thumbnailFileId != null && item.thumbnailPath.isNullOrBlank() && requestedThumbnailFileIds.add(thumbnailFileId)) {
             repository.fetchThumbnailPath(thumbnailFileId) { path ->
                 if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
+                requestedThumbnailFileIds.remove(thumbnailFileId)
                 if (!path.isNullOrBlank()) updateThumbnailPathForFile(thumbnailFileId, path)
-                else requestedThumbnailFileIds.remove(thumbnailFileId)
             }
         }
         // Do not download the first 2 MiB of every video on TV D-pad focus; only resolve metadata/thumbnails.
