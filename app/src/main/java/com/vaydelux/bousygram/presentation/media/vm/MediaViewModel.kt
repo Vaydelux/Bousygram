@@ -252,6 +252,7 @@ class MediaViewModel(
 
     private var chatUpdateJob: Job? = null
     private var deferredChatSourceLoadJob: Job? = null
+    private var quickSearchJob: Job? = null
     private val requestedThumbnailFileIds =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
     private val enrichedMediaKeys =
@@ -286,6 +287,7 @@ class MediaViewModel(
                     ++sourceRequestGeneration
                     chatUpdateJob?.cancel()
                     deferredChatSourceLoadJob?.cancel()
+                    quickSearchJob?.cancel()
                     _uiState.value = MediaUiState()
                     _explorerPosition.value = ExplorerPosition()
                     browseRestorations.clear()
@@ -317,6 +319,7 @@ class MediaViewModel(
             ++sourceRequestGeneration
             chatUpdateJob?.cancel()
             deferredChatSourceLoadJob?.cancel()
+            quickSearchJob?.cancel()
             _uiState.value = MediaUiState()
             _explorerPosition.value = ExplorerPosition()
             browseRestorations.clear()
@@ -459,6 +462,8 @@ class MediaViewModel(
         chatUpdateJob = null
         deferredChatSourceLoadJob?.cancel()
         deferredChatSourceLoadJob = null
+        quickSearchJob?.cancel()
+        quickSearchJob = null
         TdLibClient.removeNewMessageHandler(newMessageHandler)
         TdLibClient.removeDeleteMessageHandler(deleteMessageHandler)
         TdLibClient.removeUpdateHandler(chatUpdateHandler)
@@ -609,6 +614,7 @@ class MediaViewModel(
     }
 
     fun loadForumTopics(chatId: Long) {
+        if (_uiState.value.isLoadingTopics && _uiState.value.selectedChatId == chatId) return
         if (_uiState.value.videoChats.none { it.chatId == chatId && it.isForum }) return
         val owner = AccountSession.current() ?: return
         val generation = mediaRequestGeneration
@@ -867,7 +873,7 @@ class MediaViewModel(
     }
 
     private fun loadVideoChats(force: Boolean = false) {
-        if (!force && (hasLoadedVideoChats || _uiState.value.isSidebarLoading)) return
+        if (_uiState.value.isSidebarLoading || (!force && hasLoadedVideoChats)) return
         val owner = AccountSession.current() ?: return
         val sourceGeneration = ++sourceRequestGeneration
         val selectedId = if (_uiState.value.isSavedMessagesSelected) repository.cachedSavedMessagesChatId else _uiState.value.selectedChatId
@@ -970,21 +976,23 @@ class MediaViewModel(
     fun setQuickSearchQuery(query: String) {
         val clean = query.trim()
         val searchGeneration = ++quickSearchGeneration
+        quickSearchJob?.cancel()
         _uiState.update { it.copy(quickSearchQuery = clean) }
         if (clean.isEmpty()) return
 
-        // The quick-search field is an *in-folder* search. Null used to mean
-        // "search all private Telegram chats" in the old implementation, even
-        // while Saved Messages was selected. Never expand that scope silently.
         val owner = AccountSession.current() ?: return
         val source = _uiState.value
         val isSaved = source.isSavedMessagesSelected
+        // Null never means permission to search all other private chats.
         val chatId = quickSearchScope(isSaved, repository.cachedSavedMessagesChatId, source.selectedChatId)
-        if (chatId == null || chatId == 0L) return
+            ?: return
         val title = source.selectedChatTitle
         fun current(): Boolean = isActiveQuickSearch(owner, searchGeneration, clean, chatId, isSaved)
 
-        viewModelScope.launch {
+        quickSearchJob = viewModelScope.launch {
+            // Avoid a new TDLib request for every keystroke/voice partial.
+            delay(300L)
+            if (!current()) return@launch
             val cached = withContext(Dispatchers.IO) {
                 VideoIndexRepository.searchIndexedVideos(clean, chatId, limit = 50)
             }
@@ -1003,25 +1011,26 @@ class MediaViewModel(
                 chatTitle = title,
                 resultCount = _uiState.value.filteredAndSortedItems.size
             )
-        }
+            if (!current()) return@launch
 
-        repository.searchChatVideos(chatId, clean, 0L, limit = 40) { matches, _, _ ->
-            if (!current()) return@searchChatVideos
-            if (matches.isNotEmpty()) {
-                VideoIndexRepository.indexMediaItemsAsync(matches)
-                _uiState.update { ui ->
-                    if (!current()) ui else ui.copy(
-                        items = (ui.items + matches).distinctBy { "${it.chatId}:${it.messageId}" }
+            repository.searchChatVideos(chatId, clean, 0L, limit = 40) { matches, _, _ ->
+                if (!current()) return@searchChatVideos
+                if (matches.isNotEmpty()) {
+                    VideoIndexRepository.indexMediaItemsAsync(matches)
+                    _uiState.update { ui ->
+                        if (!current()) ui else ui.copy(
+                            items = (ui.items + matches).distinctBy { "${it.chatId}:${it.messageId}" }
+                        )
+                    }
+                }
+                if (current()) {
+                    RecentSearchRepository.recordSearchQueryAsync(
+                        query = clean,
+                        chatId = chatId,
+                        chatTitle = title,
+                        resultCount = _uiState.value.filteredAndSortedItems.size
                     )
                 }
-            }
-            if (current()) {
-                RecentSearchRepository.recordSearchQueryAsync(
-                    query = clean,
-                    chatId = chatId,
-                    chatTitle = title,
-                    resultCount = _uiState.value.filteredAndSortedItems.size
-                )
             }
         }
     }
@@ -1042,6 +1051,7 @@ class MediaViewModel(
 
     fun clearQuickSearchQuery() {
         ++quickSearchGeneration
+        quickSearchJob?.cancel()
         _uiState.update { it.copy(quickSearchQuery = "") }
     }
 
