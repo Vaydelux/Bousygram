@@ -45,6 +45,7 @@ import com.vaydelux.bousygram.domain.model.ForumTopicChannel
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.VideoChatItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.media.vm.BrowseRestoration
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel
@@ -240,9 +241,10 @@ fun TelegramExplorerDashboard(
             when {
                 showSources -> {
                     if (directory.isEmpty()) {
-                        ExplorerMessage(
-                            message = if (isLoadingSources) "Loading source directory…" else sourceErrorMessage ?: "No joined sources in this section",
-                            onRetry = if (isLoadingSources) null else onRefreshSources
+                        if (isLoadingSources) ExplorerLoadingGrid("Loading source directory…", cardMin)
+                        else ExplorerMessage(
+                            message = sourceErrorMessage ?: "No joined sources in this section",
+                            onRetry = onRefreshSources
                         )
                     } else LazyVerticalGrid(
                         state = folderGrid, columns = GridCells.Adaptive(cardMin),
@@ -268,9 +270,10 @@ fun TelegramExplorerDashboard(
                 }
                 showTopics -> {
                     if (topics.isEmpty()) {
-                        ExplorerMessage(
-                            message = if (isLoadingTopics) "Loading forum topics…" else errorMessage ?: "No accessible topics in this group",
-                            onRetry = if (isLoadingTopics) null else onRefreshTopics
+                        if (isLoadingTopics) ExplorerLoadingGrid("Loading forum topics…", cardMin)
+                        else ExplorerMessage(
+                            message = errorMessage ?: "No accessible topics in this group",
+                            onRetry = onRefreshTopics
                         )
                     } else LazyVerticalGrid(
                         state = topicGrid,
@@ -295,10 +298,13 @@ fun TelegramExplorerDashboard(
                         }
                     }
                 }
-                videos.isEmpty() -> ExplorerMessage(
-                    message = if (isLoading) "Loading media…" else errorMessage ?: "No playable media found in this folder",
-                    onRetry = if (isLoading) null else onRefreshMedia
-                )
+                videos.isEmpty() -> {
+                    if (isLoading) ExplorerLoadingGrid("Loading media…", cardMin)
+                    else ExplorerMessage(
+                        message = errorMessage ?: "No playable media found in this folder",
+                        onRetry = onRefreshMedia
+                    )
+                }
                 else -> LazyVerticalGrid(
                     state = gridState, columns = GridCells.Adaptive(cardMin),
                     horizontalArrangement = Arrangement.spacedBy(gap),
@@ -325,6 +331,26 @@ fun TelegramExplorerDashboard(
                 }
             }
         }
+    }
+}
+
+/** Skeletons are shown only when the selected folder has no cached content. */
+@Composable
+private fun ExplorerLoadingGrid(message: String, cardMin: androidx.compose.ui.unit.Dp) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            message,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        BrowseGridShimmerSkeleton(
+            columns = GridCells.Adaptive(cardMin),
+            itemCount = 8,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
