@@ -80,7 +80,7 @@ class MediaViewModel(
     }
 
     private fun freshCatalog(folder: String): CatalogSnapshot? = catalogSnapshot(folder)?.takeIf {
-        android.os.SystemClock.elapsedRealtime() - it.savedAtMs in 0..freshnessWindowMs
+        freshCatalogTimestamp(it.savedAtMs, android.os.SystemClock.elapsedRealtime(), freshnessWindowMs)
     }
 
     private fun rememberCatalog(folder: String, videos: List<MediaItem>, nextCursor: Long) {
@@ -88,7 +88,7 @@ class MediaViewModel(
         // media when the user returns to a deep folder after pagination.
         if (videos.isEmpty()) return
         val key = snapshotKey(folder) ?: return
-        if (videos.size > MAX_CACHED_CATALOG_ITEMS) {
+        if (!canCacheCatalogPage(videos.size, MAX_CACHED_CATALOG_ITEMS)) {
             // Remove an older shorter snapshot instead of retaining a misleading
             // cursor for a folder that has since grown beyond the bounded cache.
             synchronized(catalogSnapshotLock) { catalogSnapshots.remove(key) }
@@ -122,7 +122,7 @@ class MediaViewModel(
         val key = snapshotKey("chat:" + chatId + ":topics") ?: return null
         return synchronized(catalogSnapshotLock) {
             topicSnapshots[key]?.takeIf {
-                android.os.SystemClock.elapsedRealtime() - it.savedAtMs in 0..freshnessWindowMs
+                freshCatalogTimestamp(it.savedAtMs, android.os.SystemClock.elapsedRealtime(), freshnessWindowMs)
             }?.topics
         }
     }
@@ -757,7 +757,7 @@ class MediaViewModel(
                 // An error is not end-of-list. Preserve cursor so Retry/scroll
                 // can resume without skipping messages or hiding older pages.
                 hasMore = if (error == null && isFinal) nextFromMessageId != 0L else current.hasMore,
-                nextFromMessageId = if (error == null && isFinal) nextFromMessageId else current.nextFromMessageId
+                nextFromMessageId = resolvedPageCursor(current.nextFromMessageId, nextFromMessageId, isFinal, error)
             )
         }
         if (isFinal && error == null && _uiState.value.items.isNotEmpty()) {
@@ -979,7 +979,7 @@ class MediaViewModel(
         val owner = AccountSession.current() ?: return
         val source = _uiState.value
         val isSaved = source.isSavedMessagesSelected
-        val chatId = if (isSaved) repository.cachedSavedMessagesChatId else source.selectedChatId
+        val chatId = quickSearchScope(isSaved, repository.cachedSavedMessagesChatId, source.selectedChatId)
         if (chatId == null || chatId == 0L) return
         val title = source.selectedChatTitle
         fun current(): Boolean = isActiveQuickSearch(owner, searchGeneration, clean, chatId, isSaved)
