@@ -134,6 +134,7 @@ class MediaViewModel(
     private var hasLoadedVideoChats = false
     private var mediaRequestGeneration = 0L
     private var sourceRequestGeneration = 0L
+    private var topicRequestGeneration = 0L
     private var quickSearchGeneration = 0L
     private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
     private val sourceFolderRestorations = java.util.concurrent.ConcurrentHashMap<ExplorerSection, BrowseRestoration>()
@@ -285,6 +286,7 @@ class MediaViewModel(
                     // Clear media, source directories and focus when an account logs out.
                     ++mediaRequestGeneration
                     ++sourceRequestGeneration
+                    ++topicRequestGeneration
                     chatUpdateJob?.cancel()
                     deferredChatSourceLoadJob?.cancel()
                     quickSearchJob?.cancel()
@@ -317,6 +319,7 @@ class MediaViewModel(
             // Telegram identity's cached catalog, UI focus or selected folder.
             ++mediaRequestGeneration
             ++sourceRequestGeneration
+            ++topicRequestGeneration
             chatUpdateJob?.cancel()
             deferredChatSourceLoadJob?.cancel()
             quickSearchJob?.cancel()
@@ -616,12 +619,18 @@ class MediaViewModel(
         }
     }
 
-    fun loadForumTopics(chatId: Long) {
-        if (_uiState.value.isLoadingTopics && _uiState.value.selectedChatId == chatId) return
+    fun loadForumTopics(chatId: Long) = requestForumTopics(chatId, force = false)
+
+    /** A retry must bypass an empty or stale topic snapshot and actually query TDLib. */
+    fun refreshForumTopics(chatId: Long) = requestForumTopics(chatId, force = true)
+
+    private fun requestForumTopics(chatId: Long, force: Boolean) {
+        if (!force && _uiState.value.isLoadingTopics && _uiState.value.selectedChatId == chatId) return
         if (_uiState.value.videoChats.none { it.chatId == chatId && it.isForum }) return
         val owner = AccountSession.current() ?: return
         val generation = mediaRequestGeneration
-        val cached = freshTopics(chatId)
+        val topicGeneration = ++topicRequestGeneration
+        val cached = if (force) null else freshTopics(chatId)
         if (cached != null) {
             _uiState.update { current ->
                 if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
@@ -632,7 +641,10 @@ class MediaViewModel(
         }
         _uiState.update { it.copy(isLoadingTopics = true) }
         repository.loadForumTopics(chatId) { topics, error ->
-            if (!AccountSession.isCurrent(owner) || generation != mediaRequestGeneration) return@loadForumTopics
+            if (!AccountSession.isCurrent(owner) ||
+                generation != mediaRequestGeneration ||
+                topicGeneration != topicRequestGeneration
+            ) return@loadForumTopics
             _uiState.update { current ->
                 if (current.selectedChatId != chatId || current.isSavedMessagesSelected) current
                 else {
