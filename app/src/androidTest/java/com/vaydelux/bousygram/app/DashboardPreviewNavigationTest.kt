@@ -28,7 +28,7 @@ class DashboardPreviewNavigationTest {
 
         val device = UiDevice.getInstance(instrumentation)
         assertTrue("Dashboard heading should be visible", device.wait(Until.hasObject(By.text("Bousygram")), 5_000))
-        assertTrue("Preview must show its empty source", device.wait(Until.hasObject(By.text("No videos in this source")), 5_000))
+        assertTrue("Preview must show its empty source", device.wait(Until.hasObject(By.text("No playable media found in this folder")), 5_000))
 
         // The preview has no playable media and intentionally inert navigation callbacks.
         repeat(2) { device.pressDPadDown() }

@@ -10,6 +10,9 @@ import com.vaydelux.bousygram.data.repository.searchChatVideos
 import com.vaydelux.bousygram.presentation.media.stableChatCatalog
 import com.vaydelux.bousygram.data.repository.searchGlobalVideos
 import com.vaydelux.bousygram.domain.model.MediaItem
+import com.vaydelux.bousygram.domain.model.VideoChatItem
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.domain.model.MediaUiState
 import com.vaydelux.bousygram.domain.model.SAVED_MESSAGES_TITLE
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +20,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,22 +37,138 @@ data class BrowseRestoration(
     val sectionKey: String? = null
 )
 
+/** Persistent explorer position owned by the existing activity-scoped MediaViewModel. */
+enum class ExplorerSection { SAVED, CHANNELS, GROUPS }
+enum class ExplorerLevel { SOURCES, TOPICS, MEDIA }
+
+data class ExplorerPosition(
+    val section: ExplorerSection = ExplorerSection.SAVED,
+    val level: ExplorerLevel = ExplorerLevel.MEDIA
+)
+
 class MediaViewModel(
     private val repository: SavedMessagesRepository = SavedMessagesRepository()
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(MediaUiState())
+    private val _explorerPosition = MutableStateFlow(ExplorerPosition())
+    val explorerPosition: StateFlow<ExplorerPosition> = _explorerPosition
+    private var initializedAccount: AccountSnapshot? = null
+
+    /** Bounded, account-generation-scoped metadata only. TDLib manages media bytes. */
+    private data class CatalogSnapshot(
+        val items: List<MediaItem>,
+        val nextFromMessageId: Long,
+        val hasMore: Boolean,
+        val savedAtMs: Long = android.os.SystemClock.elapsedRealtime()
+    )
+    private val catalogSnapshots = LinkedHashMap<String, CatalogSnapshot>(12, 0.75f, true)
+    private val catalogSnapshotLock = Any()
+    private data class TopicSnapshot(
+        val topics: List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>,
+        val savedAtMs: Long
+    )
+    private val topicSnapshots = LinkedHashMap<String, TopicSnapshot>()
+    private val freshnessWindowMs = 120_000L
+
+    private fun snapshotKey(folder: String): String? = AccountSession.current()?.let { owner ->
+        owner.accountId.toString() + ":" + owner.generation + ":" + folder
+    }
+
+    private fun catalogSnapshot(folder: String): CatalogSnapshot? {
+        val key = snapshotKey(folder) ?: return null
+        return synchronized(catalogSnapshotLock) { catalogSnapshots[key] }
+    }
+
+    private fun freshCatalog(folder: String): CatalogSnapshot? = catalogSnapshot(folder)?.takeIf {
+        freshCatalogTimestamp(it.savedAtMs, android.os.SystemClock.elapsedRealtime(), freshnessWindowMs)
+    }
+
+    private fun rememberCatalog(folder: String, videos: List<MediaItem>, nextCursor: Long) {
+        // Never store a cursor for a truncated page. It would skip uncached
+        // media when the user returns to a deep folder after pagination.
+        if (videos.isEmpty()) return
+        val key = snapshotKey(folder) ?: return
+        if (!canCacheCatalogPage(videos.size, MAX_CACHED_CATALOG_ITEMS)) {
+            // Remove an older shorter snapshot instead of retaining a misleading
+            // cursor for a folder that has since grown beyond the bounded cache.
+            synchronized(catalogSnapshotLock) { catalogSnapshots.remove(key) }
+            return
+        }
+        synchronized(catalogSnapshotLock) {
+            // Bounded metadata, never video bytes, stream URLs, or credentials.
+            catalogSnapshots[key] = CatalogSnapshot(
+                items = videos,
+                nextFromMessageId = nextCursor,
+                hasMore = nextCursor != 0L
+            )
+            while (catalogSnapshots.size > 8) {
+                catalogSnapshots.remove(catalogSnapshots.keys.first())
+            }
+        }
+    }
+
+    private fun invalidateCatalogForChat(chatId: Long) {
+        synchronized(catalogSnapshotLock) {
+            val sourceFragment = ":chat:" + chatId + ":"
+            catalogSnapshots.keys.removeAll { it.contains(sourceFragment) }
+            topicSnapshots.keys.removeAll { it.contains(sourceFragment) }
+            if (repository.cachedSavedMessagesChatId == chatId) {
+                catalogSnapshots.keys.removeAll { it.endsWith(":saved:topic:0") }
+            }
+        }
+    }
+
+    private fun freshTopics(chatId: Long): List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>? {
+        val key = snapshotKey("chat:" + chatId + ":topics") ?: return null
+        return synchronized(catalogSnapshotLock) {
+            topicSnapshots[key]?.takeIf {
+                freshCatalogTimestamp(it.savedAtMs, android.os.SystemClock.elapsedRealtime(), freshnessWindowMs)
+            }?.topics
+        }
+    }
+
     val uiState: StateFlow<MediaUiState> = _uiState
     val recentSearches: StateFlow<List<RecentSearchQuery>> = RecentSearchRepository.recentSearches
     private val pageSize = 30
     private var isInitialized = false
     private var hasLoadedVideoChats = false
     private var mediaRequestGeneration = 0L
+    private var sourceRequestGeneration = 0L
+    private var topicRequestGeneration = 0L
+    private var quickSearchGeneration = 0L
     private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
+    private val sourceFolderRestorations = java.util.concurrent.ConcurrentHashMap<ExplorerSection, BrowseRestoration>()
+    private val topicFolderFocus = java.util.concurrent.ConcurrentHashMap<Long, Int>()
+
+    fun focusedExplorerTopic(chatId: Long?): Int? = chatId?.let(topicFolderFocus::get)
+
+    fun rememberExplorerTopicFocus(chatId: Long?, topicId: Int) {
+        if (chatId != null) topicFolderFocus[chatId] = topicId
+    }
+
+    fun sourceFolderRestoration(section: ExplorerSection): BrowseRestoration =
+        sourceFolderRestorations[section] ?: BrowseRestoration()
+
+    fun rememberSourceFolderFocus(section: ExplorerSection, chatId: Long) {
+        sourceFolderRestorations.compute(section) { _, current ->
+            (current ?: BrowseRestoration()).copy(focusedMediaKey = chatId.toString())
+        }
+    }
+
+    fun rememberSourceFolderViewport(section: ExplorerSection, index: Int, offset: Int) {
+        sourceFolderRestorations.compute(section) { _, current ->
+            (current ?: BrowseRestoration()).copy(
+                firstVisibleItemIndex = index.coerceAtLeast(0),
+                firstVisibleItemScrollOffset = offset.coerceAtLeast(0)
+            )
+        }
+    }
 
     fun currentBrowseStateKey(): String {
         val state = _uiState.value
         val source = if (state.isSavedMessagesSelected) "saved" else "chat:${state.selectedChatId ?: 0L}"
-        return "$source:topic:${state.selectedTopicId ?: 0}"
+        val route = _explorerPosition.value
+        return "${route.section}:${route.level}:$source:topic:${state.selectedTopicId ?: 0}"
     }
 
     fun browseRestoration(key: String = currentBrowseStateKey()): BrowseRestoration =
@@ -85,16 +205,23 @@ class MediaViewModel(
     }
 
     private val newMessageHandler: (TdApi.UpdateNewMessage) -> Unit = { update ->
+        val owner = AccountSession.current()
         val message = update.message
         val content = message.content
         if (content is TdApi.MessageVideo ||
             content is TdApi.MessageVideoNote ||
             content is TdApi.MessageDocument ||
             content is TdApi.MessageAnimation) {
-            if (isMessageInSelectedChat(message.chatId)) {
+            // Invalidate *every* source, not only the folder currently visible.
+            // A new message in a different group must not leave a fresh-looking
+            // but outdated snapshot when the user switches to that group.
+            if (owner != null) invalidateCatalogForChat(message.chatId)
+            if (owner != null && isMessageInSelectedChat(message.chatId)) {
                 val generationAtRequest = mediaRequestGeneration
                 repository.getMessage(message.chatId, message.id) { item, _ ->
-                    if (generationAtRequest == mediaRequestGeneration && isMessageInSelectedChat(message.chatId)) {
+                    if (AccountSession.isCurrent(owner) &&
+                        generationAtRequest == mediaRequestGeneration &&
+                        isMessageInSelectedChat(message.chatId)) {
                         item?.let { newItem ->
                             _uiState.update { current ->
                                 val exists = current.items.any {
@@ -114,6 +241,9 @@ class MediaViewModel(
     }
 
     private val deleteMessageHandler: (TdApi.UpdateDeleteMessages) -> Unit = { update ->
+        if (update.isPermanent) {
+            invalidateCatalogForChat(update.chatId)
+        }
         if (update.isPermanent && isMessageInSelectedChat(update.chatId)) {
             _uiState.update { current ->
                 current.copy(items = current.items.filterNot { update.messageIds.contains(it.messageId) })
@@ -123,11 +253,18 @@ class MediaViewModel(
 
     private var chatUpdateJob: Job? = null
     private var deferredChatSourceLoadJob: Job? = null
+    private var quickSearchJob: Job? = null
     private val requestedThumbnailFileIds =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
+    private val enrichedMediaKeys =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
 
     private val chatUpdateHandler: (TdApi.Object?) -> Unit = { update ->
         when (update) {
+            is TdApi.UpdateMessageContent -> {
+                invalidateCatalogForChat(update.chatId)
+            }
             is TdApi.UpdateNewChat,
             is TdApi.UpdateChatAddedToList,
             is TdApi.UpdateChatRemovedFromList,
@@ -142,15 +279,188 @@ class MediaViewModel(
     }
 
     init {
+        viewModelScope.launch {
+            AccountSession.state.collect { owner ->
+                if (owner == null && initializedAccount != null) {
+                    // The Activity-scoped ViewModel outlives the auth screen.
+                    // Clear media, source directories and focus when an account logs out.
+                    ++mediaRequestGeneration
+                    ++sourceRequestGeneration
+                    ++topicRequestGeneration
+                    chatUpdateJob?.cancel()
+                    deferredChatSourceLoadJob?.cancel()
+                    quickSearchJob?.cancel()
+                    _uiState.value = MediaUiState()
+                    _explorerPosition.value = ExplorerPosition()
+                    browseRestorations.clear()
+                    sourceFolderRestorations.clear()
+                    topicFolderFocus.clear()
+                    synchronized(catalogSnapshotLock) {
+                        catalogSnapshots.clear()
+                        topicSnapshots.clear()
+                    }
+                    hasLoadedVideoChats = false
+                    requestedThumbnailFileIds.clear()
+                    enrichedMediaKeys.clear()
+                    initializedAccount = null
+                    isInitialized = false
+                }
+            }
+        }
         TdLibClient.addNewMessageHandler(newMessageHandler)
         TdLibClient.addDeleteMessageHandler(deleteMessageHandler)
         TdLibClient.addUpdateHandler(chatUpdateHandler)
     }
 
     fun initialize() {
+        val current = AccountSession.current()
+        if (current != initializedAccount) {
+            // The Activity ViewModel outlives the auth route. Never publish another
+            // Telegram identity's cached catalog, UI focus or selected folder.
+            ++mediaRequestGeneration
+            ++sourceRequestGeneration
+            ++topicRequestGeneration
+            chatUpdateJob?.cancel()
+            deferredChatSourceLoadJob?.cancel()
+            quickSearchJob?.cancel()
+            _uiState.value = MediaUiState()
+            _explorerPosition.value = ExplorerPosition()
+            browseRestorations.clear()
+            sourceFolderRestorations.clear()
+            topicFolderFocus.clear()
+            synchronized(catalogSnapshotLock) {
+                catalogSnapshots.clear()
+                topicSnapshots.clear()
+            }
+            hasLoadedVideoChats = false
+            isInitialized = false
+            initializedAccount = current
+        }
         if (isInitialized) return
         isInitialized = true
         refresh()
+    }
+
+    fun selectExplorerSection(section: ExplorerSection) {
+        _explorerPosition.value = ExplorerPosition(
+            section = section,
+            level = if (section == ExplorerSection.SAVED) ExplorerLevel.MEDIA else ExplorerLevel.SOURCES
+        )
+        if (section == ExplorerSection.SAVED) {
+            val snapshot = freshCatalog("saved:topic:0")
+            if (snapshot != null) {
+                // Returning to Saved should not refetch the same page on every tab switch.
+                ++mediaRequestGeneration
+                _uiState.update { current ->
+                    current.copy(
+                        items = snapshot.items,
+                        selectedChatId = null,
+                        selectedChatTitle = SAVED_MESSAGES_TITLE,
+                        isSavedMessagesSelected = true,
+                        selectedTopicId = null,
+                        availableTopics = emptyList(),
+                        quickSearchQuery = "",
+                        isLoading = false,
+                        isLoadingMore = false,
+                        error = null,
+                        hasMore = snapshot.hasMore,
+                        nextFromMessageId = snapshot.nextFromMessageId,
+                        videoChats = current.videoChats.map { it.copy(isSelected = it.isSavedMessages) }
+                    )
+                }
+            } else if (!_uiState.value.isSavedMessagesSelected) load()
+            else loadIfNeeded()
+        } else loadVideoChatsIfNeeded()
+    }
+
+    fun enterExplorerSource(source: VideoChatItem) {
+        if (source.isSavedMessages) {
+            selectExplorerSection(ExplorerSection.SAVED)
+            return
+        }
+        _explorerPosition.value = _explorerPosition.value.copy(
+            level = if (source.isForum) ExplorerLevel.TOPICS else ExplorerLevel.MEDIA
+        )
+        val currentState = _uiState.value
+        if (currentState.selectedChatId != source.chatId || currentState.isSavedMessagesSelected) {
+            if (source.isForum) {
+                // A forum source is a directory first. Do not fetch *all* media for
+                // every topic before the user selects the real Telegram topic.
+                if (AccountSession.current() == null) return
+                ++mediaRequestGeneration
+                _uiState.update { current ->
+                    current.copy(
+                        items = emptyList(),
+                        selectedChatId = source.chatId,
+                        selectedChatTitle = source.title,
+                        isSavedMessagesSelected = false,
+                        selectedTopicId = null,
+                        availableTopics = emptyList(),
+                        // The previous forum's topic request may still be running.
+                        // Never carry its loading flag into a different group.
+                        isLoadingTopics = false,
+                        isLoading = false,
+                        isLoadingMore = false,
+                        hasMore = false,
+                        nextFromMessageId = 0L,
+                        quickSearchQuery = "",
+                        error = null,
+                        videoChats = current.videoChats.map {
+                            it.copy(isSelected = !it.isSavedMessages && it.chatId == source.chatId)
+                        }
+                    )
+                }
+                loadForumTopics(source.chatId)
+            } else {
+                val snapshot = freshCatalog("chat:" + source.chatId + ":topic:0")
+                if (snapshot == null) loadChat(source.chatId, source.title)
+                else {
+                ++mediaRequestGeneration
+                _uiState.update { current ->
+                    current.copy(
+                        items = snapshot.items,
+                        selectedChatId = source.chatId,
+                        selectedChatTitle = source.title,
+                        isSavedMessagesSelected = false,
+                        selectedTopicId = null,
+                        availableTopics = emptyList(),
+                        quickSearchQuery = "",
+                        isLoading = false,
+                        isLoadingMore = false,
+                        error = null,
+                        hasMore = snapshot.hasMore,
+                        nextFromMessageId = snapshot.nextFromMessageId,
+                        videoChats = current.videoChats.map { it.copy(isSelected = !it.isSavedMessages && it.chatId == source.chatId) }
+                    )
+                }
+                }
+            }
+        } else if (source.isForum && _uiState.value.availableTopics.isEmpty()) {
+            loadForumTopics(source.chatId)
+        }
+    }
+
+    fun enterExplorerTopic(topicId: Int) {
+        if (_explorerPosition.value.level != ExplorerLevel.TOPICS) return
+        val source = _uiState.value
+        if (source.selectedChatId == null || source.availableTopics.none { it.id == topicId }) return
+        rememberExplorerTopicFocus(source.selectedChatId, topicId)
+        _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
+        selectTopic(topicId)
+    }
+
+    fun explorerBack(): Boolean {
+        val position = _explorerPosition.value
+        if (position.section == ExplorerSection.SAVED || position.level == ExplorerLevel.SOURCES) return false
+        val source = _uiState.value.videoChats.firstOrNull { it.chatId == _uiState.value.selectedChatId }
+        _explorerPosition.value = position.copy(
+            level = if (position.level == ExplorerLevel.MEDIA && source?.isForum == true) {
+                ExplorerLevel.TOPICS
+            } else {
+                ExplorerLevel.SOURCES
+            }
+        )
+        return true
     }
 
     override fun onCleared() {
@@ -158,6 +468,8 @@ class MediaViewModel(
         chatUpdateJob = null
         deferredChatSourceLoadJob?.cancel()
         deferredChatSourceLoadJob = null
+        quickSearchJob?.cancel()
+        quickSearchJob = null
         TdLibClient.removeNewMessageHandler(newMessageHandler)
         TdLibClient.removeDeleteMessageHandler(deleteMessageHandler)
         TdLibClient.removeUpdateHandler(chatUpdateHandler)
@@ -172,7 +484,9 @@ class MediaViewModel(
             loadChat(selected.selectedChatId, selected.selectedChatTitle)
             return
         }
+        val owner = AccountSession.current() ?: return
         val requestGeneration = ++mediaRequestGeneration
+        val warmSaved = catalogSnapshot("saved:topic:0")
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -182,7 +496,7 @@ class MediaViewModel(
                 isSavedMessagesSelected = true,
                 hasMore = true,
                 isLoadingMore = false,
-                items = emptyList(),
+                items = if (it.isSavedMessagesSelected && it.items.isNotEmpty()) it.items else warmSaved?.items ?: emptyList(),
                 nextFromMessageId = 0L
             )
         }
@@ -191,7 +505,7 @@ class MediaViewModel(
                 repository.cachedSavedMessagesChatId,
                 null
             )
-            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+            if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
@@ -199,16 +513,19 @@ class MediaViewModel(
             }
         }
         repository.loadLatestMediaPagedProgressive(pageSize, null) { items, nextFromMessageId, error, isFinal ->
-            if (requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
+            if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = items,
+                    items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
+                        current.items
+                    } else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
+            if (isFinal && items.isNotEmpty()) rememberCatalog("saved:topic:0", items, nextFromMessageId)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
                 enrichMediaItemsAsync(items)
@@ -241,7 +558,10 @@ class MediaViewModel(
     }
 
     fun loadChat(chatId: Long, title: String) {
+        val owner = AccountSession.current() ?: return
         val requestGeneration = ++mediaRequestGeneration
+        val folderKey = "chat:" + chatId + ":topic:0"
+        val warmChat = catalogSnapshot(folderKey)
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -254,7 +574,7 @@ class MediaViewModel(
                 isLoadingTopics = false,
                 hasMore = true,
                 isLoadingMore = false,
-                items = emptyList(),
+                items = if (!it.isSavedMessagesSelected && it.selectedChatId == chatId && it.items.isNotEmpty()) it.items else warmChat?.items ?: emptyList(),
                 nextFromMessageId = 0L,
                 videoChats = it.videoChats.map { source -> source.copy(isSelected = !source.isSavedMessages && source.chatId == chatId) }
             )
@@ -264,25 +584,32 @@ class MediaViewModel(
                 chatId,
                 null
             )
-            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+            if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
                 enrichMediaItemsAsync(cached)
             }
         }
-        loadForumTopics(chatId)
+        // Only forum groups expose topics. Channels and ordinary groups should
+        // not send unnecessary forum queries or show irrelevant topic errors.
+        if (_uiState.value.videoChats.any { it.chatId == chatId && it.isForum }) {
+            loadForumTopics(chatId)
+        }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null) { items, nextFromMessageId, error, isFinal ->
-            if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = items,
+                    items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
+                        current.items
+                    } else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
+            if (isFinal && items.isNotEmpty()) rememberCatalog(folderKey, items, nextFromMessageId)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
                 enrichMediaItemsAsync(items)
@@ -292,18 +619,78 @@ class MediaViewModel(
         }
     }
 
-    fun loadForumTopics(chatId: Long) {
+    fun loadForumTopics(chatId: Long) = requestForumTopics(chatId, force = false)
+
+    /** A retry must bypass an empty or stale topic snapshot and actually query TDLib. */
+    fun refreshForumTopics(chatId: Long) = requestForumTopics(chatId, force = true)
+
+    private fun requestForumTopics(chatId: Long, force: Boolean) {
+        if (!force && _uiState.value.isLoadingTopics && _uiState.value.selectedChatId == chatId) return
+        if (_uiState.value.videoChats.none { it.chatId == chatId && it.isForum }) return
+        val owner = AccountSession.current() ?: return
+        val generation = mediaRequestGeneration
+        val topicGeneration = ++topicRequestGeneration
+        val cached = if (force) null else freshTopics(chatId)
+        if (cached != null) {
+            _uiState.update { current ->
+                if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
+                    current.copy(availableTopics = cached, isLoadingTopics = false)
+                } else current
+            }
+            return
+        }
         _uiState.update { it.copy(isLoadingTopics = true) }
-        repository.loadForumTopics(chatId) { topics, _ ->
-            _uiState.update { it.copy(availableTopics = topics, isLoadingTopics = false) }
+        repository.loadForumTopics(chatId) { topics, error ->
+            if (!AccountSession.isCurrent(owner) ||
+                generation != mediaRequestGeneration ||
+                topicGeneration != topicRequestGeneration
+            ) return@loadForumTopics
+            _uiState.update { current ->
+                if (current.selectedChatId != chatId || current.isSavedMessagesSelected) current
+                else {
+                    if (error == null) {
+                        snapshotKey("chat:" + chatId + ":topics")?.let { key ->
+                            synchronized(catalogSnapshotLock) {
+                                topicSnapshots[key] = TopicSnapshot(
+                                    topics = topics,
+                                    savedAtMs = android.os.SystemClock.elapsedRealtime()
+                                )
+                                while (topicSnapshots.size > 8) {
+                                    topicSnapshots.remove(topicSnapshots.keys.first())
+                                }
+                            }
+                        }
+                    }
+                    current.copy(
+                        availableTopics = if (error != null && current.availableTopics.isNotEmpty()) current.availableTopics else topics,
+                        isLoadingTopics = false,
+                        error = error ?: current.error
+                    )
+                }
+            }
         }
     }
 
-    fun selectTopic(topicId: Int?) {
+    fun selectTopic(topicId: Int?) = loadTopic(topicId, force = false)
+
+    fun refreshCurrentMedia() {
+        val current = _uiState.value
+        when {
+            current.isSavedMessagesSelected -> refresh()
+            current.selectedChatId == null -> refresh()
+            current.selectedTopicId != null -> loadTopic(current.selectedTopicId, force = true)
+            else -> loadChat(current.selectedChatId, current.selectedChatTitle)
+        }
+    }
+
+    private fun loadTopic(topicId: Int?, force: Boolean) {
         val state = _uiState.value
         val chatId = state.selectedChatId ?: return
-        if (state.selectedTopicId == topicId) return
+        if (!force && state.selectedTopicId == topicId) return
+        val owner = AccountSession.current() ?: return
         val requestGeneration = ++mediaRequestGeneration
+        val folderKey = "chat:" + chatId + ":topic:" + (topicId ?: 0)
+        val warmTopic = catalogSnapshot(folderKey)
         _uiState.update {
             it.copy(
                 selectedTopicId = topicId,
@@ -311,7 +698,7 @@ class MediaViewModel(
                 error = null,
                 hasMore = true,
                 isLoadingMore = false,
-                items = emptyList(),
+                items = warmTopic?.items ?: emptyList(),
                 nextFromMessageId = 0L
             )
         }
@@ -320,23 +707,26 @@ class MediaViewModel(
                 chatId,
                 topicId?.toLong()
             )
-            if (cached.isNotEmpty() && requestGeneration == mediaRequestGeneration) {
+            if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
             }
         }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null, topicId = topicId) { items, nextFromMessageId, error, isFinal ->
-            if (requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
             _uiState.update { current ->
                 current.copy(
-                    items = items,
+                    items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
+                        current.items
+                    } else items,
                     isLoading = !isFinal,
                     error = error,
                     hasMore = isFinal && nextFromMessageId != 0L,
                     nextFromMessageId = if (isFinal) nextFromMessageId else 0L
                 )
             }
+            if (isFinal && items.isNotEmpty()) rememberCatalog(folderKey, items, nextFromMessageId)
             if (items.isNotEmpty()) {
                 com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
             }
@@ -352,19 +742,21 @@ class MediaViewModel(
             _uiState.update { it.copy(hasMore = false, isLoadingMore = false) }
             return
         }
+        val owner = AccountSession.current() ?: return
+        if (!state.isSavedMessagesSelected && state.selectedChatId == null) return
         _uiState.update { it.copy(isLoadingMore = true) }
         val requestGeneration = mediaRequestGeneration
         if (state.isSavedMessagesSelected) {
             repository.loadLatestMediaPagedProgressive(pageSize, nextFromMessageId) { items, nextFromId, error, isFinal ->
                 val current = _uiState.value
-                if (requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadLatestMediaPagedProgressive
+                if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadLatestMediaPagedProgressive
                 handleLoadMore(items, nextFromId, error, isFinal)
             }
         } else {
             val chatId = state.selectedChatId ?: return
             repository.loadChatMediaPagedProgressive(chatId, pageSize, nextFromMessageId, topicId = state.selectedTopicId) { items, nextFromId, error, isFinal ->
                 val current = _uiState.value
-                if (requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadChatMediaPagedProgressive
+                if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration || !current.isLoadingMore) return@loadChatMediaPagedProgressive
                 handleLoadMore(items, nextFromId, error, isFinal)
             }
         }
@@ -381,11 +773,19 @@ class MediaViewModel(
                 .distinctBy { "${it.chatId}:${it.messageId}" }
             current.copy(
                 items = merged,
-                isLoadingMore = !isFinal,
+                isLoadingMore = if (error != null) false else !isFinal,
                 error = error,
-                hasMore = if (isFinal) nextFromMessageId != 0L else current.hasMore,
-                nextFromMessageId = if (isFinal) nextFromMessageId else current.nextFromMessageId
+                // An error is not end-of-list. Preserve cursor so Retry/scroll
+                // can resume without skipping messages or hiding older pages.
+                hasMore = if (error == null && isFinal) nextFromMessageId != 0L else current.hasMore,
+                nextFromMessageId = resolvedPageCursor(current.nextFromMessageId, nextFromMessageId, isFinal, error)
             )
+        }
+        if (isFinal && error == null && _uiState.value.items.isNotEmpty()) {
+            val current = _uiState.value
+            val folderKey = if (current.isSavedMessagesSelected) "saved:topic:0"
+            else "chat:" + current.selectedChatId + ":topic:" + (current.selectedTopicId ?: 0)
+            rememberCatalog(folderKey, current.items, current.nextFromMessageId)
         }
         if (items.isNotEmpty()) {
             com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)
@@ -394,32 +794,39 @@ class MediaViewModel(
         }
     }
 
-    private val enrichedMediaKeys =
-        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
-
+    /**
+     * Local-only title metadata parsing. Do not transmit private Telegram message
+     * titles or filenames to TMDB automatically just because a BuildConfig API
+     * key exists. Future Extras metadata access requires explicit user approval.
+     */
     private fun enrichMediaItemsAsync(items: List<MediaItem>) {
-        val itemsToEnrich = items.filter { item ->
-            val key = "${item.chatId}_${item.messageId}"
-            (item.tmdbPosterPath.isNullOrBlank() && item.tmdbTitle.isNullOrBlank()) && enrichedMediaKeys.add(key)
+        val owner = AccountSession.current() ?: return
+        val pending = items.filter { item ->
+            enrichedMediaKeys.add("${owner.accountId}:${owner.generation}:${item.chatId}:${item.messageId}")
         }
-        if (itemsToEnrich.isEmpty()) return
+        if (pending.isEmpty()) return
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val context = com.vaydelux.bousygram.app.BousygramApp.instance
-            itemsToEnrich.chunked(10).forEach { chunk ->
-                val enrichedChunk = chunk.map { item ->
-                    try {
-                        com.vaydelux.bousygram.data.repository.TmdbRepository.enrich(item, context)
-                    } catch (e: Exception) {
-                        item
-                    }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            pending.chunked(32).forEach { batch ->
+                if (!AccountSession.isCurrent(owner)) return@launch
+                val parsed = batch.associate { item ->
+                    val info = com.vaydelux.bousygram.core.media.SeriesMetadataParser.parse(
+                        title = item.title,
+                        fileName = item.fileName
+                    )
+                    val enriched = item.copy(
+                        releaseYear = item.releaseYear ?: info.year,
+                        seasonNumber = item.seasonNumber ?: info.seasonNumber,
+                        episodeNumber = item.episodeNumber ?: info.episodeNumber,
+                        seriesTitle = item.seriesTitle ?: info.seriesTitle.takeIf { info.isSeries }
+                    )
+                    ("${item.chatId}:${item.messageId}") to enriched
                 }
                 _uiState.update { current ->
-                    val enrichedMap = enrichedChunk.associateBy { "${it.chatId}_${it.messageId}" }
+                    if (!AccountSession.isCurrent(owner)) return@update current
                     current.copy(
-                        items = current.items.map { existing ->
-                            val key = "${existing.chatId}_${existing.messageId}"
-                            enrichedMap[key] ?: existing
+                        items = current.items.map { item ->
+                            parsed["${item.chatId}:${item.messageId}"] ?: item
                         }
                     )
                 }
@@ -428,6 +835,7 @@ class MediaViewModel(
     }
 
     private fun fetchThumbnails(items: List<MediaItem>) {
+        val owner = AccountSession.current() ?: return
         items.asSequence()
             .filter { it.thumbnailPath.isNullOrBlank() }
             .forEach { item ->
@@ -437,11 +845,11 @@ class MediaViewModel(
                 // concurrency limit across all screens.
                 if (!requestedThumbnailFileIds.add(thumbnailFileId)) return@forEach
                 repository.fetchThumbnailPath(thumbnailFileId) { path ->
-                    if (!path.isNullOrBlank()) {
-                        updateThumbnailPathForFile(thumbnailFileId, path)
-                    } else {
-                        requestedThumbnailFileIds.remove(thumbnailFileId)
-                    }
+                    if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
+                    // A completed thumbnail may no longer belong to the currently
+                    // displayed folder. Allow a later visit to retry that file ID.
+                    requestedThumbnailFileIds.remove(thumbnailFileId)
+                    if (!path.isNullOrBlank()) updateThumbnailPathForFile(thumbnailFileId, path)
                 }
             }
     }
@@ -480,11 +888,16 @@ class MediaViewModel(
     }
 
     private fun loadVideoChats(force: Boolean = false) {
-        if (!force && (hasLoadedVideoChats || _uiState.value.isSidebarLoading)) return
+        if (_uiState.value.isSidebarLoading || (!force && hasLoadedVideoChats)) return
+        val owner = AccountSession.current() ?: return
+        val sourceGeneration = ++sourceRequestGeneration
         val selectedId = if (_uiState.value.isSavedMessagesSelected) repository.cachedSavedMessagesChatId else _uiState.value.selectedChatId
         _uiState.update { it.copy(isSidebarLoading = true, sidebarError = null) }
         repository.loadVideoChats(10_000, selectedId) { chats, error ->
-            hasLoadedVideoChats = true
+            // A manual refresh may finish before an older outstanding request.
+            // Only the latest request may replace the directory or its error.
+            if (!AccountSession.isCurrent(owner) || sourceGeneration != sourceRequestGeneration) return@loadVideoChats
+            hasLoadedVideoChats = error == null
             _uiState.update { current ->
                 current.copy(
                     videoChats = stableChatCatalog(current.videoChats, chats),
@@ -497,12 +910,14 @@ class MediaViewModel(
 
     /** Resolves the saved last-played Telegram message even when it is outside the loaded page. */
     fun loadLastPlayed(onResult: (MediaItem?, String?) -> Unit) {
+        val owner = AccountSession.current() ?: return
         val last = EnterprisePreferences.lastPlayed()
         if (last == null) {
             onResult(null, "There is no saved playback position yet")
             return
         }
         repository.getMessage(last.chatId, last.messageId) { item, error ->
+            if (!AccountSession.isCurrent(owner)) return@getMessage
             if (item == null) {
                 onResult(null, error ?: "The last-played Telegram message is no longer available")
             } else if (item.fileId == null) {
@@ -515,10 +930,12 @@ class MediaViewModel(
 
     // Playback launch is managed via PlaybackLaunchCoordinator.
     fun preparePlayback(item: MediaItem, onResult: (String?, String?) -> Unit) {
+        val owner = AccountSession.current() ?: return
         val fileId = item.fileId
         _uiState.update { it.copy(preparingFileId = fileId) }
         viewModelScope.launch {
             val result = runCatching { repository.prepareStream(item).getOrThrow() }
+            if (!AccountSession.isCurrent(owner)) return@launch
             val url = result.getOrNull()
             _uiState.update { it.copy(preparingFileId = null) }
             onResult(url, result.exceptionOrNull()?.message)
@@ -526,14 +943,19 @@ class MediaViewModel(
     }
 
     fun deleteMediaItem(item: MediaItem, onResult: (String?) -> Unit) {
+        val owner = AccountSession.current() ?: return
         _uiState.update { it.copy(error = null) }
         repository.deleteMessage(item.chatId, item.messageId) { error ->
+            if (!AccountSession.isCurrent(owner)) return@deleteMessage
             if (error != null) {
                 _uiState.update { current -> current.copy(error = error) }
                 onResult(error)
             } else {
+                invalidateCatalogForChat(item.chatId)
                 _uiState.update { current ->
-                    current.copy(items = current.items.filterNot { it.messageId == item.messageId })
+                    current.copy(items = current.items.filterNot {
+                        it.chatId == item.chatId && it.messageId == item.messageId
+                    })
                 }
                 onResult(null)
             }
@@ -548,73 +970,81 @@ class MediaViewModel(
         _uiState.update { it.copy(filterYear = year, filterMonth = month) }
     }
 
+    private fun isActiveQuickSearch(
+        owner: AccountSnapshot,
+        generation: Long,
+        query: String,
+        chatId: Long,
+        saved: Boolean
+    ): Boolean {
+        val current = _uiState.value
+        val currentSourceId = if (current.isSavedMessagesSelected) {
+            repository.cachedSavedMessagesChatId
+        } else current.selectedChatId
+        return AccountSession.isCurrent(owner) &&
+            generation == quickSearchGeneration &&
+            current.quickSearchQuery == query &&
+            current.isSavedMessagesSelected == saved &&
+            currentSourceId == chatId
+    }
+
     fun setQuickSearchQuery(query: String) {
         val clean = query.trim()
+        val searchGeneration = ++quickSearchGeneration
+        quickSearchJob?.cancel()
         _uiState.update { it.copy(quickSearchQuery = clean) }
-        if (clean.isNotEmpty()) {
-            val currentState = _uiState.value
-            val scopedChatId = if (currentState.isSavedMessagesSelected) null else currentState.selectedChatId
-            val scopedChatTitle = currentState.selectedChatTitle
-            viewModelScope.launch {
-                val cachedMatches = withContext(Dispatchers.IO) {
-                    VideoIndexRepository.searchIndexedVideos(clean, scopedChatId, limit = 50)
-                }
-                if (cachedMatches.isNotEmpty()) {
-                    _uiState.update { current ->
-                        val merged = (current.items + cachedMatches)
-                            .distinctBy { "${it.chatId}:${it.messageId}" }
-                        current.copy(items = merged)
-                    }
-                }
-                val initialMatchCount = _uiState.value.filteredAndSortedItems.size
-                RecentSearchRepository.recordSearchQuery(
-                    query = clean,
-                    chatId = scopedChatId,
-                    chatTitle = scopedChatTitle,
-                    resultCount = initialMatchCount
-                )
+        if (clean.isEmpty()) return
+
+        val owner = AccountSession.current() ?: return
+        val source = _uiState.value
+        val isSaved = source.isSavedMessagesSelected
+        // Null never means permission to search all other private chats.
+        val chatId = quickSearchScope(isSaved, repository.cachedSavedMessagesChatId, source.selectedChatId)
+            ?: return
+        val title = source.selectedChatTitle
+        fun current(): Boolean = isActiveQuickSearch(owner, searchGeneration, clean, chatId, isSaved)
+
+        quickSearchJob = viewModelScope.launch {
+            // Avoid a new TDLib request for every keystroke/voice partial.
+            delay(300L)
+            if (!current()) return@launch
+            val cached = withContext(Dispatchers.IO) {
+                VideoIndexRepository.searchIndexedVideos(clean, chatId, limit = 50)
             }
-            // Also re-execute TDLib search for this query and merge any new matches
-            if (scopedChatId != null && scopedChatId != 0L) {
-                repository.searchChatVideos(scopedChatId, clean, 0L, limit = 40) { foundItems, _, _ ->
-                    if (foundItems.isNotEmpty()) {
-                        VideoIndexRepository.indexMediaItemsAsync(foundItems)
-                        _uiState.update { current ->
-                            val merged = (current.items + foundItems)
-                                .distinctBy { "${it.chatId}:${it.messageId}" }
-                            current.copy(items = merged)
-                        }
-                    }
-                    val updatedCount = _uiState.value.filteredAndSortedItems.size
-                    if (updatedCount > 0) {
-                        RecentSearchRepository.recordSearchQueryAsync(
-                            query = clean,
-                            chatId = scopedChatId,
-                            chatTitle = scopedChatTitle,
-                            resultCount = updatedCount
+            if (!current()) return@launch
+            if (cached.isNotEmpty()) {
+                _uiState.update { ui ->
+                    if (!current()) ui else ui.copy(
+                        items = (ui.items + cached).distinctBy { "${it.chatId}:${it.messageId}" }
+                    )
+                }
+            }
+            if (!current()) return@launch
+            RecentSearchRepository.recordSearchQuery(
+                query = clean,
+                chatId = chatId,
+                chatTitle = title,
+                resultCount = _uiState.value.filteredAndSortedItems.size
+            )
+            if (!current()) return@launch
+
+            repository.searchChatVideos(chatId, clean, 0L, limit = 40) { matches, _, _ ->
+                if (!current()) return@searchChatVideos
+                if (matches.isNotEmpty()) {
+                    VideoIndexRepository.indexMediaItemsAsync(matches)
+                    _uiState.update { ui ->
+                        if (!current()) ui else ui.copy(
+                            items = (ui.items + matches).distinctBy { "${it.chatId}:${it.messageId}" }
                         )
                     }
                 }
-            } else {
-                repository.searchGlobalVideos(clean, "", limit = 40) { globalResult, _ ->
-                    val foundItems = globalResult?.items.orEmpty()
-                    if (foundItems.isNotEmpty()) {
-                        VideoIndexRepository.indexMediaItemsAsync(foundItems)
-                        _uiState.update { current ->
-                            val merged = (current.items + foundItems)
-                                .distinctBy { "${it.chatId}:${it.messageId}" }
-                            current.copy(items = merged)
-                        }
-                    }
-                    val updatedCount = _uiState.value.filteredAndSortedItems.size
-                    if (updatedCount > 0) {
-                        RecentSearchRepository.recordSearchQueryAsync(
-                            query = clean,
-                            chatId = null,
-                            chatTitle = scopedChatTitle,
-                            resultCount = updatedCount
-                        )
-                    }
+                if (current()) {
+                    RecentSearchRepository.recordSearchQueryAsync(
+                        query = clean,
+                        chatId = chatId,
+                        chatTitle = title,
+                        resultCount = _uiState.value.filteredAndSortedItems.size
+                    )
                 }
             }
         }
@@ -635,6 +1065,8 @@ class MediaViewModel(
     }
 
     fun clearQuickSearchQuery() {
+        ++quickSearchGeneration
+        quickSearchJob?.cancel()
         _uiState.update { it.copy(quickSearchQuery = "") }
     }
 
@@ -669,6 +1101,7 @@ class MediaViewModel(
     }
 
     fun onItemFocused(item: MediaItem) {
+        val owner = AccountSession.current() ?: return
         item.fileId?.let { fileId ->
             MediaDurationResolver.cachedDurationMs(fileId)
                 .takeIf { it > 0L && it != item.trustedDurationMs }
@@ -677,8 +1110,9 @@ class MediaViewModel(
         val thumbnailFileId = item.thumbnailFileId
         if (thumbnailFileId != null && item.thumbnailPath.isNullOrBlank() && requestedThumbnailFileIds.add(thumbnailFileId)) {
             repository.fetchThumbnailPath(thumbnailFileId) { path ->
+                if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
+                requestedThumbnailFileIds.remove(thumbnailFileId)
                 if (!path.isNullOrBlank()) updateThumbnailPathForFile(thumbnailFileId, path)
-                else requestedThumbnailFileIds.remove(thumbnailFileId)
             }
         }
         // Do not download the first 2 MiB of every video on TV D-pad focus; only resolve metadata/thumbnails.
@@ -716,3 +1150,5 @@ class MediaViewModel(
 private const val CHAT_SOURCE_LOAD_DELAY_MS = 300L
 private const val MEDIA_FIRST_PAGE_PRIORITY_POLL_MS = 150L
 private const val MEDIA_FIRST_PAGE_PRIORITY_MAX_WAIT_MS = 3_000L
+
+private const val MAX_CACHED_CATALOG_ITEMS = 120

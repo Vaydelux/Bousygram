@@ -20,7 +20,9 @@ data class PlaybackRequest(
     val mimeType: String? = null,
     val durationSeconds: Int = 0,
     val fileSizeBytes: Long = 0L,
-    val alternativeVideos: List<com.vaydelux.bousygram.domain.model.MediaAlternativeVideo> = emptyList()
+    val alternativeVideos: List<com.vaydelux.bousygram.domain.model.MediaAlternativeVideo> = emptyList(),
+    /** Real TDLib message topic/thread identity; null is not an inferred topic. */
+    val topicId: Long? = null
 )
 
 data class PlaybackQueueItem(
@@ -34,7 +36,9 @@ data class PlaybackQueueItem(
     val mimeType: String? = null,
     val durationSeconds: Int = 0,
     val fileSizeBytes: Long = 0L,
-    val alternativeVideos: List<com.vaydelux.bousygram.domain.model.MediaAlternativeVideo> = emptyList()
+    val alternativeVideos: List<com.vaydelux.bousygram.domain.model.MediaAlternativeVideo> = emptyList(),
+    /** Real TDLib message topic/thread identity; null is not an inferred topic. */
+    val topicId: Long? = null
 )
 
 data class PlayerHudState(

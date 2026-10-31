@@ -474,8 +474,9 @@ tasks.register("verifyTvHardeningContract") {
     val playerScreenFile = file("src/main/java/com/vaydelux/bousygram/presentation/media/PlayerScreen.kt")
     val browseScreenFile = file("src/main/java/com/vaydelux/bousygram/presentation/media/BrowseScreen.kt")
     val dashboardFile = file("src/main/java/com/vaydelux/bousygram/presentation/layout/TvHybridHomeDashboard.kt")
+    val explorerFile = file("src/main/java/com/vaydelux/bousygram/presentation/media/TelegramExplorerDashboard.kt")
 
-    inputs.files(manifestFile, mainActivityFile, playerScreenFile, browseScreenFile, dashboardFile)
+    inputs.files(manifestFile, mainActivityFile, playerScreenFile, browseScreenFile, dashboardFile, explorerFile)
 
     doLast {
         val manifest = manifestFile.readText()
@@ -483,6 +484,7 @@ tasks.register("verifyTvHardeningContract") {
         val playerScreen = playerScreenFile.readText()
         val browseScreen = browseScreenFile.readText()
         val dashboard = dashboardFile.readText()
+        val explorer = explorerFile.readText()
 
         require("supportsPictureInPicture" !in manifest) {
             "Android TV hardening regression: MainActivity must not declare PiP support."
@@ -496,8 +498,14 @@ tasks.register("verifyTvHardeningContract") {
         require("SeriesPosterCard(" !in browseScreen && "SeriesDetailScreen(" !in browseScreen) {
             "Browsing must present Telegram media directly instead of inferred series cards."
         }
-        require("seriesGroups = emptyList()" in browseScreen) {
-            "Home browsing must not receive inferred series groups."
+        require("TelegramExplorerDashboard(" in browseScreen && "TvHybridHomeDashboard(" !in browseScreen) {
+            "Home and Library must use the real Telegram grid explorer, not the legacy inferred-series dashboard."
+        }
+        require("LazyVerticalGrid(" in explorer && "explorerSources(sources, position.section)" in explorer) {
+            "Home must show vertically scrolling real Telegram source/media grids."
+        }
+        require("seriesGroups" !in browseScreen && "SeriesPosterCard(" !in explorer) {
+            "No inferred series cards or groups may be introduced into direct Telegram browsing."
         }
         require("filterNot { it == com.vaydelux.bousygram.domain.model.MediaCategoryTab.SERIES }" in dashboard) {
             "The inferred Series category must remain hidden from TV navigation."

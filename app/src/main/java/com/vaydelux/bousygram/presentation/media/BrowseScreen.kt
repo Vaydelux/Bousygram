@@ -111,6 +111,7 @@ fun BrowseScreen(
     viewModel: MediaViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val explorerPosition by viewModel.explorerPosition.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
     // Saved Messages has its own permanent entry. Never list the same chat again.
     val libraryChatSources = remember(state.videoChats) {
@@ -186,7 +187,9 @@ fun BrowseScreen(
     }
 
     LaunchedEffect(libraryMode, browseStateKey, videos.size, browseRestoration.focusedMediaKey) {
-        if (!libraryMode || restorationApplied || videos.isEmpty()) return@LaunchedEffect
+        if ((!libraryMode && explorerPosition.level != com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel.MEDIA) ||
+            restorationApplied || videos.isEmpty()
+        ) return@LaunchedEffect
         val targetKey = browseRestoration.focusedMediaKey
         if (targetKey == null) {
             restorationApplied = true
@@ -205,8 +208,20 @@ fun BrowseScreen(
         viewModel.clearQuickSearchQuery()
     }
 
-    BackHandler(enabled = state.selectedTopicId != null && state.quickSearchQuery.isBlank()) {
+    BackHandler(enabled = libraryMode && state.selectedTopicId != null && state.quickSearchQuery.isBlank()) {
         viewModel.selectTopic(null)
+    }
+
+    // Home is a directory explorer, not a flat category carousel.
+    // One Back moves Media -> Topics/Source and Topics -> Sources before the
+    // Activity can return to the product mode picker.
+    BackHandler(
+        enabled = !libraryMode &&
+            state.quickSearchQuery.isBlank() &&
+            explorerPosition.section != com.vaydelux.bousygram.presentation.media.vm.ExplorerSection.SAVED &&
+            explorerPosition.level != com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel.SOURCES
+    ) {
+        viewModel.explorerBack()
     }
 
     val launcher = rememberMediaLauncher(
@@ -216,7 +231,7 @@ fun BrowseScreen(
     )
 
     fun openVideo(item: MediaItem, sectionKey: String? = null) {
-        if (libraryMode) viewModel.recordBrowseFocus(item)
+        viewModel.recordBrowseFocus(item)
         launcher.launch(item, videos, sectionKey)
     }
 
@@ -267,562 +282,59 @@ fun BrowseScreen(
 
     val pagePadding = if (adaptive.isCompact) 12.dp else 28.dp
     val posterMin = if (adaptive.isCompact) 160.dp else 220.dp
+    // One explorer implementation for Home and Library: no legacy horizontal rails.
     Box(modifier = modifier.fillMaxSize()) {
-        if (libraryMode) {
-            if (adaptive.isPhoneLayout) {
-                // Phone Library: group list, then topic chips, recent searches bar, then a 3-column poster grid.
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        "Library",
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    // Group list
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        item {
-                            val isSelected = state.isSavedMessagesSelected
-                            TvFocusSurface(
-                                onClick = viewModel::load,
-                                selected = isSelected
-                            ) { focused ->
-                                Text(
-                                    text = "Saved Messages",
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                        items(libraryChatSources, key = { it.chatId }) { chat ->
-                            val isSelected = chat.chatId == state.selectedChatId && !state.isSavedMessagesSelected
-                            TvFocusSurface(
-                                onClick = { viewModel.loadChat(chat.chatId, chat.title) },
-                                selected = isSelected
-                            ) { focused ->
-                                Text(
-                                    text = chat.title,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // Topic chips
-                    if (state.availableTopics.isNotEmpty()) {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            item {
-                                val isSelected = state.selectedTopicId == null
-                                TvFocusSurface(
-                                    onClick = { viewModel.selectTopic(null) },
-                                    selected = isSelected
-                                ) { focused ->
-                                    Text(
-                                        text = "# all-channels",
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                            items(state.availableTopics, key = { it.id }) { topic ->
-                                val isSelected = state.selectedTopicId == topic.id
-                                TvFocusSurface(
-                                    onClick = { viewModel.selectTopic(topic.id) },
-                                    selected = isSelected
-                                ) { focused ->
-                                    Text(
-                                        text = "# ${topic.name}",
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Search bar with voice search microphone button
-                    BrowseSearchBar(
-                        query = state.quickSearchQuery,
-                        onQueryChange = viewModel::setQuickSearchQuery,
-                        onSearch = {
-                            if (state.quickSearchQuery.isNotBlank()) {
-                                viewModel.executeRecentSearch(state.quickSearchQuery)
-                            }
-                        },
-                        onVoiceSearch = voiceSearchController::toggleVoiceSearch,
-                        isVoiceListening = voiceSearchController.isListening,
-                        placeholder = "Search in ${state.selectedChatTitle}"
-                    )
-
-                    // Cached recent search queries from Room database
-                    if (!safeMode && (recentSearches.isNotEmpty() || state.quickSearchQuery.isNotBlank())) {
-                        RecentSearches(
-                            recentSearches = recentSearches,
-                            activeQuery = state.quickSearchQuery,
-                            onSelectQuery = viewModel::toggleQuickSearchQuery,
-                            onRemoveQuery = viewModel::removeRecentSearch,
-                            onClearActiveQuery = viewModel::clearQuickSearchQuery,
-                            onClearHistory = {
-                                viewModel.clearRecentSearches()
-                                viewModel.clearQuickSearchQuery()
-                            },
-                            onOpenFullSearch = { query ->
-                                val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                                onOpenSearchWithQuery(chatId, state.selectedChatTitle, query)
-                            }
-                        )
-                    }
-
-                    // 3-column poster grid with shimmer loading skeletons
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        if (state.isLoading && videos.isEmpty()) {
-                            BrowseGridShimmerSkeleton(
-                                columns = GridCells.Adaptive(minSize = posterMin),
-                                itemCount = 9,
-                                spacing = 8.dp
-                            )
-                        } else if (videos.isEmpty()) {
-                            if (state.quickSearchQuery.isNotBlank()) {
-                                NoSearchResultsEmptyState(
-                                    query = state.quickSearchQuery,
-                                    scopeLabel = state.selectedChatTitle,
-                                    onClearQuery = viewModel::clearQuickSearchQuery,
-                                    secondaryActionText = "Search All Telegram",
-                                    onSecondaryAction = {
-                                        val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                                        onOpenSearchWithQuery(chatId, state.selectedChatTitle, state.quickSearchQuery)
-                                    },
-                                    suggestedSearches = recentSearches
-                                        .map { it.query }
-                                        .filterNot { it.equals(state.quickSearchQuery, ignoreCase = true) },
-                                    onSelectSuggestion = viewModel::executeRecentSearch,
-                                    modifier = Modifier.align(Alignment.Center)
-                                )
-                            } else {
-                                EmptyStateView(
-                                    title = "No videos in this source",
-                                    message = "Switch to another channel above or search your media.",
-                                    actionText = "Refresh",
-                                    onAction = {
-                                        viewModel.refresh()
-                                        viewModel.refreshVideoChats()
-                                    },
-                                    modifier = Modifier.align(Alignment.Center)
-                                )
-                            }
-                        } else {
-                            LazyVerticalGrid(
-                                state = libraryGridState,
-                                columns = GridCells.Adaptive(minSize = posterMin),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
-                            ) {
-                                items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
-                                    val mediaKey = "${item.chatId}:${item.messageId}"
-                                    MediaPosterCard(
-                                        media = item,
-                                        subtitle = state.selectedChatTitle,
-                                        onClick = { openVideo(item) },
-                                        cardWidth = null,
-                                        privacyMode = safeMode,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .then(
-                                                if (mediaKey == browseRestoration.focusedMediaKey) {
-                                                    Modifier.focusRequester(restoreFocusRequester)
-                                                } else Modifier
-                                            ),
-                                        onFocusChanged = { focused ->
-                                            if (focused) {
-                                                viewModel.recordBrowseFocus(item)
-                                                viewModel.onItemFocused(item)
-                                            }
-                                        }
-                                    )
-                                }
-                                if (state.isLoadingMore) {
-                                    items(3, key = { "__phone_loading_more_$it" }) {
-                                        MediaPosterSkeletonCard(
-                                            cardWidth = null,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                // TV and Tablet split layout:
-                // Left list: Groups & Channels | Right: Topics (chips) + Recent Searches + grid of posters
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
-                        .onKeyEvent { event ->
-                            if (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
-                                // A pending launch owns Back: cancel it and keep focus on the card.
-                                if (!launcher.cancel()) onBackToNavBar()
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        .padding(horizontal = 24.dp, vertical = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    // Left list: Groups & Channels
-                    Column(
-                        modifier = Modifier
-                            .width(260.dp)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = "Groups & Channels",
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        LazyColumn(
-                            state = sourceSidebarListState,
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            item(key = "saved-messages-sidebar") {
-                                val isSelected = state.isSavedMessagesSelected
-                                TvFocusSurface(
-                                    onClick = viewModel::load,
-                                    selected = isSelected
-                                ) { focused ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = if (isSelected) "> Saved Messages" else "  Saved Messages",
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                    }
-                                }
-                            }
-                            items(libraryChatSources, key = { it.chatId }) { chat ->
-                                val isSelected = chat.chatId == state.selectedChatId && !state.isSavedMessagesSelected
-                                TvFocusSurface(
-                                    onClick = { viewModel.loadChat(chat.chatId, chat.title) },
-                                    selected = isSelected
-                                ) { focused ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = if (isSelected) "> ${chat.title}" else "  ${chat.title}",
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        if (chat.isForum) {
-                                            Text(
-                                                text = "${chat.topicsCount}T",
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                                style = MaterialTheme.typography.labelSmall
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            if (state.isSidebarLoading && state.videoChats.isEmpty()) {
-                                item(key = "__sidebar_shimmer__") {
-                                    SidebarListShimmerSkeleton(itemCount = 5)
-                                }
-                            }
-                        }
-                    }
-
-                    // Right pane: Topics (chips) on top + Recent Searches + grid of posters
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        // Topics chips: [All] [Topic A] [Topic B]
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            item {
-                                val isSelected = state.selectedTopicId == null
-                                TvFocusSurface(
-                                    onClick = { viewModel.selectTopic(null) },
-                                    selected = isSelected
-                                ) { focused ->
-                                    Text(
-                                        text = "# all-channels",
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                                    )
-                                }
-                            }
-                            items(state.availableTopics, key = { it.id }) { topic ->
-                                val isSelected = state.selectedTopicId == topic.id
-                                TvFocusSurface(
-                                    onClick = { viewModel.selectTopic(topic.id) },
-                                    selected = isSelected
-                                ) { focused ->
-                                    Text(
-                                        text = topic.name,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Search bar with voice search microphone button
-                        BrowseSearchBar(
-                            query = state.quickSearchQuery,
-                            onQueryChange = viewModel::setQuickSearchQuery,
-                            onSearch = {
-                                if (state.quickSearchQuery.isNotBlank()) {
-                                    viewModel.executeRecentSearch(state.quickSearchQuery)
-                                }
-                            },
-                            onVoiceSearch = voiceSearchController::toggleVoiceSearch,
-                            isVoiceListening = voiceSearchController.isListening,
-                            placeholder = "Search in ${state.selectedChatTitle}"
-                        )
-
-                        // Cached recent search queries from Room database
-                        if (!safeMode && (recentSearches.isNotEmpty() || state.quickSearchQuery.isNotBlank())) {
-                            RecentSearches(
-                                recentSearches = recentSearches,
-                                activeQuery = state.quickSearchQuery,
-                                onSelectQuery = viewModel::toggleQuickSearchQuery,
-                                onRemoveQuery = viewModel::removeRecentSearch,
-                                onClearActiveQuery = viewModel::clearQuickSearchQuery,
-                                onClearHistory = {
-                                    viewModel.clearRecentSearches()
-                                    viewModel.clearQuickSearchQuery()
-                                },
-                                onOpenFullSearch = { query ->
-                                    val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                                    onOpenSearchWithQuery(chatId, state.selectedChatTitle, query)
-                                }
-                            )
-                        }
-
-                        // Grid of posters: touch-friendly on tablets/phones, TV-friendly on TV
-                        val gridColumns = when {
-                            adaptive.isTv -> GridCells.Adaptive(200.dp)
-                            adaptive.isTabletLayout -> GridCells.Adaptive(170.dp)
-                            else -> GridCells.Adaptive(140.dp)
-                        }
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            if (state.isLoading && videos.isEmpty()) {
-                                BrowseGridShimmerSkeleton(
-                                    columns = gridColumns,
-                                    itemCount = 12,
-                                    spacing = 14.dp
-                                )
-                            } else if (videos.isEmpty()) {
-                                if (state.quickSearchQuery.isNotBlank()) {
-                                    NoSearchResultsEmptyState(
-                                        query = state.quickSearchQuery,
-                                        scopeLabel = state.selectedChatTitle,
-                                        onClearQuery = viewModel::clearQuickSearchQuery,
-                                        secondaryActionText = "Search All Telegram",
-                                        onSecondaryAction = {
-                                            val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                                            onOpenSearchWithQuery(chatId, state.selectedChatTitle, state.quickSearchQuery)
-                                        },
-                                        suggestedSearches = recentSearches
-                                            .map { it.query }
-                                            .filterNot { it.equals(state.quickSearchQuery, ignoreCase = true) },
-                                        onSelectSuggestion = viewModel::executeRecentSearch,
-                                        modifier = Modifier.align(Alignment.Center)
-                                    )
-                                } else {
-                                    EmptyStateView(
-                                        title = "No videos in this source",
-                                        message = "Choose another channel from the left or search your media.",
-                                        actionText = "Refresh",
-                                        onAction = {
-                                            viewModel.refresh()
-                                            viewModel.refreshVideoChats()
-                                        },
-                                        modifier = Modifier.align(Alignment.Center)
-                                    )
-                                }
-                            } else {
-                                LazyVerticalGrid(
-                                    state = libraryGridState,
-                                    columns = gridColumns,
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
-                                ) {
-                                    items(videos, key = { "${it.chatId}:${it.messageId}" }) { item ->
-                                        val mediaKey = "${item.chatId}:${item.messageId}"
-                                        MediaPosterCard(
-                                            media = item,
-                                            subtitle = state.selectedChatTitle,
-                                            onClick = { openVideo(item) },
-                                            cardWidth = null,
-                                            privacyMode = safeMode,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .then(
-                                                    if (mediaKey == browseRestoration.focusedMediaKey) {
-                                                        Modifier.focusRequester(restoreFocusRequester)
-                                                    } else Modifier
-                                                ),
-                                            onFocusChanged = { focused ->
-                                                if (focused) {
-                                                    viewModel.recordBrowseFocus(item)
-                                                    viewModel.onItemFocused(item)
-                                                }
-                                            }
-                                        )
-                                    }
-                                    if (state.isLoadingMore) {
-                                        items(4, key = { "__tv_loading_more_$it" }) {
-                                            MediaPosterSkeletonCard(
-                                                cardWidth = null,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            TvHybridHomeDashboard(
-                featuredVideos = videos,
-                channelLabel = state.selectedChatTitle,
+            TelegramExplorerDashboard(
+                position = explorerPosition,
+                sources = state.videoChats,
+                topics = state.availableTopics,
+                selectedChatTitle = state.selectedChatTitle,
+                selectedChatId = state.selectedChatId,
+                selectedTopicId = state.selectedTopicId,
+                videos = videos,
                 isLoading = state.isLoading,
+                isLoadingSources = state.isSidebarLoading,
+                isLoadingTopics = state.isLoadingTopics,
                 errorMessage = state.error,
-                onVideoSelected = { openVideo(it) },
-                onOpenSearch = {
+                sourceErrorMessage = state.sidebarError,
+                isLoadingMore = state.isLoadingMore,
+                hasMore = state.hasMore,
+                privacyMode = safeMode,
+                gridState = libraryGridState,
+                sourceFolderRestoration = viewModel.sourceFolderRestoration(explorerPosition.section),
+                onSourceFocused = { viewModel.rememberSourceFolderFocus(explorerPosition.section, it.chatId) },
+                onSourceViewport = { index, offset ->
+                    viewModel.rememberSourceFolderViewport(explorerPosition.section, index, offset)
+                },
+                onSelectTab = viewModel::selectExplorerSection,
+                onSelectSource = viewModel::enterExplorerSource,
+                onSelectTopic = viewModel::enterExplorerTopic,
+                focusedTopicId = viewModel.focusedExplorerTopic(state.selectedChatId),
+                onTopicFocused = { topicId ->
+                    viewModel.rememberExplorerTopicFocus(state.selectedChatId, topicId)
+                },
+                onGoUp = { viewModel.explorerBack() },
+                onPlay = { openVideo(it) },
+                onFocusMedia = { item ->
+                    viewModel.recordBrowseFocus(item)
+                    viewModel.onItemFocused(item)
+                },
+                restoreFocusedMediaKey = browseRestoration.focusedMediaKey,
+                restoreFocusRequester = restoreFocusRequester,
+                onLoadMore = viewModel::loadMoreIfNeeded,
+                onRefreshSources = viewModel::refreshVideoChats,
+                onRefreshTopics = { state.selectedChatId?.let(viewModel::refreshForumTopics) },
+                onRefreshMedia = viewModel::refreshCurrentMedia,
+                onSearch = {
                     val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
                     onOpenSearch(chatId, state.selectedChatTitle)
                 },
-                onOpenLibrary = onOpenLibrary,
-                onOpenFavorites = onOpenFavorites,
-                onOpenSettings = onOpenSettings,
-                onOpenLastPlayed = ::openLastPlayed,
-                lastPlayedFileId = lastPlayed?.fileId,
-                lastPlayedTitle = lastPlayed?.title,
-                onToggleFavorite = {
-                    EnterprisePreferences.toggleFavorite(it.chatId, it.messageId)
-                    favoriteKeys = EnterprisePreferences.favoriteKeys()
-                },
-                onToggleOffline = ::toggleOffline,
-                onVideoFocused = viewModel::onItemFocused,
-                favoriteKeys = favoriteKeys,
-                sourceChats = state.videoChats,
-                savedMessagesSelected = state.isSavedMessagesSelected,
-                selectedChatId = state.selectedChatId,
-                pinnedChatIds = pinnedChats,
-                onSelectSavedMessages = viewModel::load,
-                onSelectChat = { viewModel.loadChat(it.chatId, it.title) },
-                onOpenAllChats = { showAllChatsPicker = true },
-                offlineFileIds = videos.mapNotNull { it.fileId }.filter { OfflineCacheManager.isPinned(it) }.toSet(),
-                resumeMessageKeys = videos
-                    .filter { PlaybackProgressTracker.hasResume(it.chatId, it.messageId, it.fileId) }
-                    .map { "${it.chatId}:${it.messageId}" }
-                    .toSet(),
-                safeMode = safeMode,
-                selectedCategoryTab = state.selectedCategoryTab,
-                selectedSeriesTitle = null,
-                seriesGroups = emptyList(),
-                topicGroups = state.topicGroups,
-                availableTopics = state.availableTopics,
-                selectedTopicId = state.selectedTopicId,
-                onSelectCategoryTab = viewModel::setCategoryTab,
-                onSelectSeries = {},
-                onSelectTopic = viewModel::selectTopic,
-                onOpenExternalPlayer = { item ->
-                    ExternalPlayerLauncher.launch(context, item)
-                },
-                onDeleteMedia = { item ->
-                    viewModel.deleteMediaItem(item) {
-                        viewModel.refresh()
-                    }
-                },
-                onBackToNavBar = onBackToNavBar,
-                recentSearches = recentSearches,
-                activeQuickSearchQuery = state.quickSearchQuery,
-                onSelectRecentSearch = viewModel::toggleQuickSearchQuery,
-                onRemoveRecentSearch = viewModel::removeRecentSearch,
-                onClearQuickSearch = viewModel::clearQuickSearchQuery,
-                onClearRecentSearches = viewModel::clearRecentSearches,
-                onOpenSearchWithQuery = { query ->
-                    val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                    onOpenSearchWithQuery(chatId, state.selectedChatTitle, query)
-                },
+                onFavorites = onOpenFavorites,
+                onSettings = onOpenSettings,
+                hasResume = lastPlayed != null,
+                onResume = ::openLastPlayed,
                 modifier = Modifier.fillMaxSize()
             )
-        }
-        if (showAllChatsPicker) {
-            AllChatsPickerDialog(
-                chats = state.videoChats,
-                selectedChatId = state.selectedChatId,
-                savedSelected = state.isSavedMessagesSelected,
-                pinnedChatIds = pinnedChats,
-                isLoading = state.isSidebarLoading,
-                onDismiss = { showAllChatsPicker = false },
-                onSelectSavedMessages = {
-                    showAllChatsPicker = false
-                    viewModel.load()
-                },
-                onSelectChat = { chat ->
-                    showAllChatsPicker = false
-                    viewModel.loadChat(chat.chatId, chat.title)
-                }
-            )
-        }
         LaunchOpeningIndicator(
             launcher = launcher,
             modifier = Modifier
@@ -907,9 +419,13 @@ private fun SortChip(text: String, selected: Boolean, onClick: () -> Unit) {
                 scaleY = scale
             }
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
+            .border(
+                if (focused) 3.dp else if (selected) 1.5.dp else 0.dp,
+                MaterialTheme.colorScheme.primary,
+                RoundedCornerShape(14.dp)
+            )
             .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            .clickable(onClick = onClick),
         color = color,
         shape = RoundedCornerShape(14.dp)
     ) {
@@ -938,13 +454,12 @@ private fun RefreshChip(text: String = "Refresh", onClick: () -> Unit) {
             }
             .clip(RoundedCornerShape(14.dp))
             .border(
-                1.dp,
+                if (focused) 3.dp else 1.dp,
                 if (focused) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
                 RoundedCornerShape(14.dp)
             )
-            .clickable(onClick = onClick)
             .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         shape = RoundedCornerShape(14.dp)
     ) {

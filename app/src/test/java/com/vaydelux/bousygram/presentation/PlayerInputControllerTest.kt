@@ -133,15 +133,33 @@ class PlayerInputControllerTest {
     }
 
     @Test
-    fun controlsHidden_dpadDown_showsControlsOnly_neverSkipsTrack() {
+    fun controlsHidden_dpadDown_opensRelatedSourceTray_neverSkipsTrack() {
         controller.isHudVisible = false
 
         val handled = sendKey(KeyEvent.KEYCODE_DPAD_DOWN)
 
         assertTrue(handled)
         assertTrue(controller.isHudVisible)
-        assertEquals(listOf("showHud"), recordedActions)
-        assertEquals(PlayerFocusTarget.BUTTON_PLAY_PAUSE, lastFocusTarget)
+        assertEquals(PlayerMenuType.EPISODES, controller.activeMenu)
+        assertEquals(listOf("openMenu:EPISODES"), recordedActions)
+        assertFalse(recordedActions.contains("skipNext"))
+        assertFalse(recordedActions.contains("exitPlayer"))
+    }
+
+    @Test
+    fun visibleDownOpensRelatedTray_backClosesWithoutExitingVideo() {
+        controller.isHudVisible = true
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_DOWN))
+        assertEquals(PlayerMenuType.EPISODES, controller.activeMenu)
+        assertTrue(recordedActions.contains("openMenu:EPISODES"))
+
+        recordedActions.clear()
+        currentTimeMs += 120L
+        assertTrue(sendKey(KeyEvent.KEYCODE_BACK))
+        assertEquals(PlayerMenuType.NONE, controller.activeMenu)
+        assertTrue(recordedActions.contains("closeMenu"))
+        assertFalse(recordedActions.contains("exitPlayer"))
+        assertFalse(recordedActions.contains("skipPrevious"))
         assertFalse(recordedActions.contains("skipNext"))
     }
 

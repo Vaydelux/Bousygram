@@ -22,7 +22,8 @@ fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
             mimeType = item.mimeType,
             durationSeconds = item.durationSeconds,
             fileSizeBytes = item.fileSizeBytes,
-            alternativeVideos = item.alternativeVideos
+            alternativeVideos = item.alternativeVideos,
+            topicId = item.messageThreadId
         )
     }
 
@@ -46,7 +47,8 @@ fun buildPlaybackRequest(
         mimeType = item.mimeType,
         durationSeconds = item.durationSeconds,
         fileSizeBytes = item.fileSizeBytes,
-        alternativeVideos = item.alternativeVideos
+        alternativeVideos = item.alternativeVideos,
+        topicId = item.messageThreadId
     )
 }
 
@@ -60,8 +62,26 @@ fun queueItemFromRequest(request: PlaybackRequest): PlaybackQueueItem =
         fileName = request.fileName,
         mimeType = request.mimeType,
         durationSeconds = request.durationSeconds,
-        fileSizeBytes = request.fileSizeBytes
+        fileSizeBytes = request.fileSizeBytes,
+        alternativeVideos = request.alternativeVideos,
+        topicId = request.topicId
     )
+
+/**
+ * All related tray entries must share the current Telegram chat AND actual
+ * TDLib forum topic. This never falls back to matching titles or filenames.
+ */
+fun relatedSourceQueue(
+    queue: List<PlaybackQueueItem>,
+    currentIndex: Int
+): List<Pair<Int, PlaybackQueueItem>> {
+    val current = queue.getOrNull(currentIndex) ?: return emptyList()
+    return queue.mapIndexedNotNull { index, item ->
+        if (item.chatId == current.chatId && item.topicId == current.topicId) {
+            index to item
+        } else null
+    }
+}
 
 fun queueIndexForFileId(queue: List<PlaybackQueueItem>, fileId: Int): Int =
     if (fileId > 0) queue.indexOfFirst { it.fileId == fileId } else -1
