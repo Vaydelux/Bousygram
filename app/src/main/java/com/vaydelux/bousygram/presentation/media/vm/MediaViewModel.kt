@@ -84,12 +84,14 @@ class MediaViewModel(
     }
 
     private fun rememberCatalog(folder: String, videos: List<MediaItem>, nextCursor: Long) {
-        if (videos.isEmpty()) return
+        // Never store a cursor for a truncated page. It would skip uncached
+        // media when the user returns to a deep folder after pagination.
+        if (videos.isEmpty() || videos.size > MAX_CACHED_CATALOG_ITEMS) return
         val key = snapshotKey(folder) ?: return
         synchronized(catalogSnapshotLock) {
-            // Bounded first-page metadata, never video bytes, stream URLs, or credentials.
+            // Bounded metadata, never video bytes, stream URLs, or credentials.
             catalogSnapshots[key] = CatalogSnapshot(
-                items = videos.take(120),
+                items = videos,
                 nextFromMessageId = nextCursor,
                 hasMore = nextCursor != 0L
             )
@@ -125,6 +127,7 @@ class MediaViewModel(
     private var isInitialized = false
     private var hasLoadedVideoChats = false
     private var mediaRequestGeneration = 0L
+    private var sourceRequestGeneration = 0L
     private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
     private val sourceFolderRestorations = java.util.concurrent.ConcurrentHashMap<ExplorerSection, BrowseRestoration>()
 
@@ -187,18 +190,24 @@ class MediaViewModel(
     }
 
     private val newMessageHandler: (TdApi.UpdateNewMessage) -> Unit = { update ->
+        val owner = AccountSession.current()
         val message = update.message
         val content = message.content
         if (content is TdApi.MessageVideo ||
             content is TdApi.MessageVideoNote ||
             content is TdApi.MessageDocument ||
             content is TdApi.MessageAnimation) {
-            if (isMessageInSelectedChat(message.chatId)) {
+            // Invalidate *every* source, not only the folder currently visible.
+            // A new message in a different group must not leave a fresh-looking
+            // but outdated snapshot when the user switches to that group.
+            if (owner != null) invalidateCatalogForChat(message.chatId)
+            if (owner != null && isMessageInSelectedChat(message.chatId)) {
                 val generationAtRequest = mediaRequestGeneration
                 repository.getMessage(message.chatId, message.id) { item, _ ->
-                    if (generationAtRequest == mediaRequestGeneration && isMessageInSelectedChat(message.chatId)) {
+                    if (AccountSession.isCurrent(owner) &&
+                        generationAtRequest == mediaRequestGeneration &&
+                        isMessageInSelectedChat(message.chatId)) {
                         item?.let { newItem ->
-                            invalidateCatalogForChat(message.chatId)
                             _uiState.update { current ->
                                 val exists = current.items.any {
                                     it.chatId == newItem.chatId && it.messageId == newItem.messageId
@@ -260,6 +269,9 @@ class MediaViewModel(
                     // The Activity-scoped ViewModel outlives the auth screen.
                     // Clear media, source directories and focus when an account logs out.
                     ++mediaRequestGeneration
+                    ++sourceRequestGeneration
+                    chatUpdateJob?.cancel()
+                    deferredChatSourceLoadJob?.cancel()
                     _uiState.value = MediaUiState()
                     _explorerPosition.value = ExplorerPosition()
                     browseRestorations.clear()
@@ -287,6 +299,9 @@ class MediaViewModel(
             // The Activity ViewModel outlives the auth route. Never publish another
             // Telegram identity's cached catalog, UI focus or selected folder.
             ++mediaRequestGeneration
+            ++sourceRequestGeneration
+            chatUpdateJob?.cancel()
+            deferredChatSourceLoadJob?.cancel()
             _uiState.value = MediaUiState()
             _explorerPosition.value = ExplorerPosition()
             browseRestorations.clear()
@@ -689,8 +704,9 @@ class MediaViewModel(
             _uiState.update { it.copy(hasMore = false, isLoadingMore = false) }
             return
         }
-        _uiState.update { it.copy(isLoadingMore = true) }
         val owner = AccountSession.current() ?: return
+        if (!state.isSavedMessagesSelected && state.selectedChatId == null) return
+        _uiState.update { it.copy(isLoadingMore = true) }
         val requestGeneration = mediaRequestGeneration
         if (state.isSavedMessagesSelected) {
             repository.loadLatestMediaPagedProgressive(pageSize, nextFromMessageId) { items, nextFromId, error, isFinal ->
@@ -832,14 +848,14 @@ class MediaViewModel(
 
     private fun loadVideoChats(force: Boolean = false) {
         if (!force && (hasLoadedVideoChats || _uiState.value.isSidebarLoading)) return
+        val owner = AccountSession.current() ?: return
+        val sourceGeneration = ++sourceRequestGeneration
         val selectedId = if (_uiState.value.isSavedMessagesSelected) repository.cachedSavedMessagesChatId else _uiState.value.selectedChatId
         _uiState.update { it.copy(isSidebarLoading = true, sidebarError = null) }
-        val owner = AccountSession.current() ?: run {
-            _uiState.update { it.copy(isSidebarLoading = false) }
-            return
-        }
         repository.loadVideoChats(10_000, selectedId) { chats, error ->
-            if (!AccountSession.isCurrent(owner)) return@loadVideoChats
+            // A manual refresh may finish before an older outstanding request.
+            // Only the latest request may replace the directory or its error.
+            if (!AccountSession.isCurrent(owner) || sourceGeneration != sourceRequestGeneration) return@loadVideoChats
             hasLoadedVideoChats = error == null
             _uiState.update { current ->
                 current.copy(
@@ -1072,3 +1088,5 @@ class MediaViewModel(
 private const val CHAT_SOURCE_LOAD_DELAY_MS = 300L
 private const val MEDIA_FIRST_PAGE_PRIORITY_POLL_MS = 150L
 private const val MEDIA_FIRST_PAGE_PRIORITY_MAX_WAIT_MS = 3_000L
+
+private const val MAX_CACHED_CATALOG_ITEMS = 120
