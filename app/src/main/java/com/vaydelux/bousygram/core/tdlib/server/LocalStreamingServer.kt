@@ -277,7 +277,7 @@ object LocalStreamingServer {
                 ?.takeIf { it > 0L }
                 ?: 0L
         } catch (e: Exception) {
-            Log.w(TAG, "Could not read duration from path=$path: ${e.message}")
+            Log.w(TAG, "Could not read local media duration (${e.javaClass.simpleName})")
             0L
         } finally {
             try {
@@ -377,7 +377,8 @@ object LocalStreamingServer {
             val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.ISO_8859_1))
             val firstLine = readBoundedHttpLine(reader, MAX_HTTP_LINE_CHARS)
                 ?: return send400(socket, "Invalid or oversized HTTP request line")
-            if (VERBOSE_STREAM_LOGS) Log.d(TAG, "HTTP Request: $firstLine")
+            // Never log the raw target: loopback URLs contain bearer capability tokens.
+            if (VERBOSE_STREAM_LOGS) Log.d(TAG, "HTTP request received")
 
             val parts = firstLine.split(' ')
             if (parts.size != 3 || parts[1].isBlank() ||
@@ -742,7 +743,7 @@ object LocalStreamingServer {
             { response ->
                 when (response) {
                     is TdApi.FileDownloadedPrefixSize -> result = response.size.coerceAtLeast(0L)
-                    is TdApi.Error -> Log.w(TAG, "GetFileDownloadedPrefixSize failed fileId=$fileId offset=$offset code=${response.code} message=${response.message}")
+                    is TdApi.Error -> Log.w(TAG, "GetFileDownloadedPrefixSize failed: code=${response.code}")
                 }
                 latch.countDown()
             }
@@ -763,7 +764,7 @@ object LocalStreamingServer {
         var remaining = length
         val localSeek = startPos - fileDownloadOffset
         if (localSeek < 0L) {
-            Log.e(TAG, "Invalid disk seek path=$path remoteOffset=$startPos downloadOffset=$fileDownloadOffset")
+            Log.e(TAG, "Invalid disk seek: remoteOffset=$startPos downloadOffset=$fileDownloadOffset")
             return
         }
         RandomAccessFile(path, "r").use { file ->
