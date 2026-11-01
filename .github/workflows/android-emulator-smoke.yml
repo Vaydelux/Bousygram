@@ -60,7 +60,9 @@ jobs:
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
-          target: google_apis
+          # Use the lean AOSP image: the previous Google APIs image repeatedly
+          # showed a Pixel Launcher ANR instead of the foreground app.
+          target: default
           arch: x86_64
           profile: pixel_4
           emulator-boot-timeout: 600
