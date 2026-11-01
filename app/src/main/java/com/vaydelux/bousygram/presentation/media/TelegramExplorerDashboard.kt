@@ -224,7 +224,11 @@ fun TelegramExplorerDashboard(
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!showSources && position.section != ExplorerSection.SAVED) {
-                OutlinedButton(onClick = onGoUp, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)) {
+                OutlinedButton(
+                    onClick = onGoUp,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                ) {
                     Text("‹ Back")
                 }
             }
