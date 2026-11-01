@@ -79,10 +79,10 @@ jobs:
             timeout 360s adb shell am instrument -w -r -e class "com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest,com.vaydelux.bousygram.app.MainActivitySmokeTest,com.vaydelux.bousygram.app.AndroidTvNavigationSmokeTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.media.PlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.ChatSourcePickerInstrumentedTest,com.vaydelux.bousygram.presentation.components.TvFocusIndicatorInstrumentedTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest" "com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner" | tee emulator-smoke-results.txt
             instrumentation_exit=${PIPESTATUS[0]}
             set -e
-            if [[ "$instrumentation_exit" -ne 0 ]] || ! grep -Eq '^OK \\([0-9]+ tests?\\)' emulator-smoke-results.txt; then
+            if [[ "$instrumentation_exit" -ne 0 ]] || ! grep -Eq '^OK \([0-9]+ tests?\)' emulator-smoke-results.txt; then
               echo "::error::Instrumentation failed; capturing foreground state before emulator shutdown."
               {
-                printf 'Instrumentation exit status: %s\\n' "$instrumentation_exit"
+                printf 'Instrumentation exit status: %s\n' "$instrumentation_exit"
                 timeout 10s adb shell dumpsys activity activities 2>/dev/null | grep -E -m 25 'topResumedActivity|mResumedActivity|ActivityRecord|mFocusedApp' || true
                 timeout 10s adb shell dumpsys window displays 2>/dev/null | grep -E -m 20 'mCurrentFocus|mFocusedApp|mInputMethodTarget' || true
                 printf 'Bousygram PID: '
