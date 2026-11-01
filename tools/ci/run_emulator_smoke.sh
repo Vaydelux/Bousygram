@@ -45,6 +45,33 @@ if [[ "$device_ready" != true ]]; then
   fail 'Emulator ADB did not recover after installation; instrumentation not attempted.'
 fi
 
+# ADB's boot-completed flag does not prove the launcher and app can draw.
+# Validate one real cold launch before instrumentation creates its own test Activity.
+# This is a fail-closed startup gate, not an assertion retry or bypass.
+echo 'Preflight: starting the real unauthenticated app'
+if ! timeout 45s adb shell am start -W -n com.vaydelux.bousygram/.app.MainActivity > emulator-cold-launch.txt 2>&1; then
+  fail 'Cold-launch command failed before instrumentation.'
+fi
+if ! grep -Eq 'Status: ok|Warning: Activity not started' emulator-cold-launch.txt; then
+  fail 'Cold-launch command did not return Android activity startup success.'
+fi
+app_foreground=false
+for attempt in {1..12}; do
+  resumed="$(timeout 10s adb shell dumpsys activity activities 2>/dev/null | grep -m 1 'topResumedActivity=' || true)"
+  app_pid="$(timeout 10s adb shell pidof com.vaydelux.bousygram 2>/dev/null | tr -d '\r' || true)"
+  if [[ "$resumed" == *'com.vaydelux.bousygram/.app.MainActivity'* && -n "$app_pid" ]]; then
+    app_foreground=true
+    break
+  fi
+  echo "Cold launch not foreground (attempt $attempt of 12)"
+  sleep 2
+done
+if [[ "$app_foreground" != true ]]; then
+  fail 'Bousygram failed cold-launch foreground/PID preflight; see screenshot, logcat and window state.'
+fi
+# Give the emulator a stable window transition before the instrumentation runner.
+sleep 2
+
 test_classes='com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest,com.vaydelux.bousygram.app.MainActivitySmokeTest,com.vaydelux.bousygram.app.AndroidTvNavigationSmokeTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.media.PlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.ChatSourcePickerInstrumentedTest,com.vaydelux.bousygram.presentation.components.TvFocusIndicatorInstrumentedTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest'
 runner='com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner'
 

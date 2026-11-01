@@ -82,3 +82,4 @@ jobs:
             emulator-smoke-window-state.txt
             emulator-smoke-screen.png
             emulator-adb-devices.txt
+            emulator-cold-launch.txt
