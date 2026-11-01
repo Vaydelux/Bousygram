@@ -60,9 +60,11 @@ jobs:
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
-          # Use the lean AOSP image: the previous Google APIs image repeatedly
-          # showed a Pixel Launcher ANR instead of the foreground app.
-          target: default
+          # API 35 Automated Test Device removes Launcher3QuickStep and disables
+          # nonessential background services. Our prior default image intermittently
+          # ANRed in AOSP Launcher, hiding the app during UI instrumentation.
+          # No screenshot pixel assertions: tests exercise Compose/UIAutomator semantics.
+          target: aosp_atd
           arch: x86_64
           profile: pixel_4
           emulator-boot-timeout: 600
