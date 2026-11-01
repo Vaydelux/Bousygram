@@ -52,16 +52,20 @@ import com.vaydelux.bousygram.presentation.shell.TelegramStartupLoadingScreen
 
 class MainActivity : ComponentActivity() {
     private val authViewModel: AuthViewModel by viewModels()
+    // Activity may be reused for real and debug-preview launch intents. Keep the
+    // route in observable state rather than reading a non-observable intent in Compose.
+    private var previewRequested by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        previewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)
         handleIncomingIntent(intent)
         setContent {
             var themePreset by remember {
                 mutableStateOf(BousygramThemePreset.fromId(EnterprisePreferences.visualThemeId()))
             }
             BousygramTheme(preset = themePreset) {
-                if (BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)) {
+                if (previewRequested) {
                     TvHybridPreviewHost()
                 } else {
                     BousygramAppRoot(
@@ -80,6 +84,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        previewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)
         handleIncomingIntent(intent)
     }
 
