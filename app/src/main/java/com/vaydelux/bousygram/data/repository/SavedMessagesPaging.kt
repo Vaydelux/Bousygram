@@ -44,11 +44,12 @@ internal fun SavedMessagesRepository.loadLatestMediaPagedInternal(
             onResult(emptyList(), 0L, error ?: "Saved Messages unavailable")
             return@resolveSavedMessagesChatInternal
         }
-        client.send(TdApi.OpenChat(savedChatId)) {
-            searchMediaInternal(savedChatId, limit, fromMessageId) { items, err ->
-                val nextFromId = items.lastOrNull()?.messageId ?: 0L
-                onResult(items, nextFromId, err)
-            }
+        // OpenChat is a UI side effect, not a prerequisite for SearchChatMessages.
+        // Waiting for its callback can delay the first visible media batch indefinitely.
+        client.send(TdApi.OpenChat(savedChatId)) { }
+        searchMediaInternal(savedChatId, limit, fromMessageId) { items, err ->
+            val nextFromId = items.lastOrNull()?.messageId ?: 0L
+            onResult(items, nextFromId, err)
         }
     }
 }
@@ -64,9 +65,8 @@ internal fun SavedMessagesRepository.loadLatestMediaPagedProgressiveInternal(
             onUpdate(emptyList(), 0L, error ?: "Saved Messages unavailable", true)
             return@resolveSavedMessagesChatInternal
         }
-        client.send(TdApi.OpenChat(savedChatId)) {
-            searchMediaProgressiveInternal(savedChatId, limit, fromMessageId, null, onUpdate)
-        }
+        client.send(TdApi.OpenChat(savedChatId)) { }
+        searchMediaProgressiveInternal(savedChatId, limit, fromMessageId, null, onUpdate)
     }
 }
 
@@ -77,9 +77,9 @@ internal fun SavedMessagesRepository.loadChatMediaPagedProgressiveInternal(
     topicId: Int? = null,
     onUpdate: (List<MediaItem>, Long, String?, Boolean) -> Unit
 ) {
-    client.send(TdApi.OpenChat(chatId)) {
-        searchMediaProgressiveInternal(chatId, limit, fromMessageId, topicId, onUpdate)
-    }
+    // Start indexed search now instead of waiting for the chat-open acknowledgement.
+    client.send(TdApi.OpenChat(chatId)) { }
+    searchMediaProgressiveInternal(chatId, limit, fromMessageId, topicId, onUpdate)
 }
 
 internal fun SavedMessagesRepository.loadChatMediaInternal(
@@ -87,9 +87,8 @@ internal fun SavedMessagesRepository.loadChatMediaInternal(
     limit: Int,
     onResult: (List<MediaItem>, String?) -> Unit
 ) {
-    client.send(TdApi.OpenChat(chatId)) {
-        searchMediaInternal(chatId, limit, null, onResult)
-    }
+    client.send(TdApi.OpenChat(chatId)) { }
+    searchMediaInternal(chatId, limit, null, onResult)
 }
 
 internal fun SavedMessagesRepository.loadChatMediaPagedInternal(
@@ -98,10 +97,9 @@ internal fun SavedMessagesRepository.loadChatMediaPagedInternal(
     fromMessageId: Long?,
     onResult: (List<MediaItem>, Long, String?) -> Unit
 ) {
-    client.send(TdApi.OpenChat(chatId)) {
-        searchMediaInternal(chatId, limit, fromMessageId) { items, err ->
-            val nextFromId = items.lastOrNull()?.messageId ?: 0L
-            onResult(items, nextFromId, err)
-        }
+    client.send(TdApi.OpenChat(chatId)) { }
+    searchMediaInternal(chatId, limit, fromMessageId) { items, err ->
+        val nextFromId = items.lastOrNull()?.messageId ?: 0L
+        onResult(items, nextFromId, err)
     }
 }
