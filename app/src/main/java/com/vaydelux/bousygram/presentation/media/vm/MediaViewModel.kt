@@ -547,6 +547,26 @@ class MediaViewModel(
         }
     }
 
+    /** Saved Messages is an exact Telegram self-chat; null must never mean global search. */
+    fun currentSearchChatId(): Long? {
+        val selected = _uiState.value
+        return quickSearchScope(
+            selected.isSavedMessagesSelected,
+            repository.cachedSavedMessagesChatId,
+            selected.selectedChatId
+        )
+    }
+
+    fun canResumeLastPlayedInCurrentSource(lastPlayedChatId: Long?): Boolean {
+        val selected = _uiState.value
+        return canResumeInSource(
+            selected.isSavedMessagesSelected,
+            repository.cachedSavedMessagesChatId,
+            selected.selectedChatId,
+            lastPlayedChatId
+        )
+    }
+
     fun loadIfNeeded() {
         if (_uiState.value.isLoading) return
         if (_uiState.value.items.isEmpty()) {
