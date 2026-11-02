@@ -190,14 +190,24 @@ object CacheManager {
         durationMs: Long,
         bufferedPositionMs: Long,
         isBuffering: Boolean,
-        playWhenReady: Boolean
+        playWhenReady: Boolean,
+        currentFileSizeBytes: Long = 0L,
+        measuredThroughputBytesPerSec: Long = 0L
     ): Boolean {
         if (isBuffering || !playWhenReady || durationMs <= 0L ||
             positionMs < 0L || positionMs >= durationMs
         ) return false
         if (positionMs.toDouble() / durationMs.toDouble() < 0.80) return false
         val requiredLead = min(15_000L, durationMs - positionMs)
-        return bufferedPositionMs - positionMs >= requiredLead
+        if (bufferedPositionMs - positionMs < requiredLead) return false
+        // Do not steal network capacity from a bitrate-limited foreground video.
+        // Downloaded-byte throughput is measured through TDLib updates, not disk
+        // cache reads. Unknown rates preserve the existing buffer-runway policy.
+        if (currentFileSizeBytes > 0L && measuredThroughputBytesPerSec > 0L) {
+            val mediaBytesPerSecond = currentFileSizeBytes.toDouble() * 1000.0 / durationMs
+            if (measuredThroughputBytesPerSec.toDouble() < mediaBytesPerSecond * 1.35) return false
+        }
+        return true
     }
 
     fun onPlaybackProgress(
@@ -208,14 +218,16 @@ object CacheManager {
         nextItemTotalSize: Long = 0L,
         currentBufferedPositionMs: Long = 0L,
         isBuffering: Boolean = false,
-        playWhenReady: Boolean = true
+        playWhenReady: Boolean = true,
+        currentFileSizeBytes: Long = 0L,
+        measuredThroughputBytesPerSec: Long = 0L
     ) {
         if (currentFileId <= 0 || nextItemFileId == null ||
             nextItemFileId <= 0 || nextItemFileId == currentFileId
         ) return
         if (shouldPreloadNextEpisode(
                 currentPositionMs, durationMs, currentBufferedPositionMs,
-                isBuffering, playWhenReady
+                isBuffering, playWhenReady, currentFileSizeBytes, measuredThroughputBytesPerSec
             )
         ) preloadNextEpisode(nextItemFileId, nextItemTotalSize)
     }
