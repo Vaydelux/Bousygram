@@ -85,7 +85,7 @@ internal fun playerLoadingCopy(phase: PlayerLoadingPhase, retryCount: Int): Play
         "Reconnecting stream",
         if (retryCount > 0) "Restoring playback · attempt $retryCount" else "Restoring your connection"
     )
-    PlayerLoadingPhase.BUFFERING -> PlayerLoadingCopy("Buffering video", "Getting the next part ready")
+    PlayerLoadingPhase.BUFFERING -> PlayerLoadingCopy("Buffering video", "Waiting for the next part of the stream")
     PlayerLoadingPhase.NONE -> PlayerLoadingCopy("", "")
 }
 
@@ -203,9 +203,9 @@ internal fun PlayerLoadingBanner(
                     contentDescription = copy.title + ". " + copy.detail
                 },
             shape = RoundedCornerShape(18.dp),
-            color = Color(0xF2131F2F),
-            contentColor = Color.White,
-            border = BorderStroke(1.dp, Color(0x66547798)),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             shadowElevation = 10.dp
         ) {
             Column {
@@ -222,13 +222,13 @@ internal fun PlayerLoadingBanner(
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
                             copy.title,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold,
                             style = MaterialTheme.typography.labelLarge
                         )
                         Text(
                             copy.detail,
-                            color = Color(0xFFC1CEDC),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
@@ -239,7 +239,7 @@ internal fun PlayerLoadingBanner(
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth().height(2.dp),
                     color = MaterialTheme.colorScheme.primary,
-                    trackColor = Color(0xFF26394F)
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             }
         }
