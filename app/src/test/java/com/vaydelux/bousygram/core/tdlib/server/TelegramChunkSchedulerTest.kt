@@ -460,6 +460,22 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun foregroundLeaseRemainsBusyWithoutRecentChunkProgress() {
+        val player = TelegramChunkScheduler.acquireLease(
+            502, 0L, 4096L, TelegramStreamConsumer.ExoPlayer, TelegramChunkScheduler.PLAYBACK_PRIORITY
+        )
+        assertTrue(TelegramChunkScheduler.isPlaybackBusy(502))
+        TelegramChunkScheduler.releaseLease(player)
+        assertFalse(TelegramChunkScheduler.isPlaybackBusy(502))
+
+        val prefetch = TelegramChunkScheduler.acquireLease(
+            503, 0L, 4096L, TelegramStreamConsumer.Prefetch, TelegramChunkScheduler.PREFETCH_PRIORITY
+        )
+        assertFalse(TelegramChunkScheduler.isPlaybackBusy(503))
+        TelegramChunkScheduler.releaseLease(prefetch)
+    }
+
+    @Test
     fun releasingOneLeaseDoesNotCancelWorkNeededByAnotherConsumer() = runBlocking {
         val gateway = FakeTelegramFileGateway(ByteArray(32 * 1024) { 1 })
         TelegramFileGatewayRegistry.installForTests(gateway)
