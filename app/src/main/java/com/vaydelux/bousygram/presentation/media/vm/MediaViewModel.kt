@@ -256,6 +256,7 @@ class MediaViewModel(
     private var quickSearchJob: Job? = null
     private val requestedThumbnailFileIds =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
+    private val thumbnailFailureTimesMs = java.util.concurrent.ConcurrentHashMap<Int, Long>()
     private val enrichedMediaKeys =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
@@ -329,6 +330,9 @@ class MediaViewModel(
             browseRestorations.clear()
             sourceFolderRestorations.clear()
             topicFolderFocus.clear()
+            requestedThumbnailFileIds.clear()
+            thumbnailFailureTimesMs.clear()
+            enrichedMediaKeys.clear()
             synchronized(catalogSnapshotLock) {
                 catalogSnapshots.clear()
                 topicSnapshots.clear()
@@ -878,24 +882,36 @@ class MediaViewModel(
         }
     }
 
+    private fun fetchThumbnailIfNeeded(fileId: Int, owner: AccountSnapshot) {
+        // Repeated partial search updates and failed/removed Telegram thumbnails must
+        // not keep launching fresh GetFile/DownloadFile operations.
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!allowThumbnailRetry(thumbnailFailureTimesMs[fileId], now, THUMBNAIL_RETRY_DELAY_MS) ||
+            !requestedThumbnailFileIds.add(fileId)
+        ) return
+        repository.fetchThumbnailPath(fileId) { path ->
+            // Old account callbacks cannot clear the new account's in-flight tracking.
+            if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
+            requestedThumbnailFileIds.remove(fileId)
+            if (path.isNullOrBlank()) {
+                thumbnailFailureTimesMs[fileId] = android.os.SystemClock.elapsedRealtime()
+            } else {
+                thumbnailFailureTimesMs.remove(fileId)
+                updateThumbnailPathForFile(fileId, path)
+            }
+        }
+    }
+
     private fun fetchThumbnails(items: List<MediaItem>) {
         val owner = AccountSession.current() ?: return
+        if (com.vaydelux.bousygram.core.media.PlaybackSessionController.isVideoPlaying()) return
+        // Prime only the likely visible first row(s). Further thumbnails are
+        // fetched on focus, instead of queuing the entire folder while a video
+        // is streaming or sources are still being discovered.
         items.asSequence()
-            .filter { it.thumbnailPath.isNullOrBlank() }
-            .forEach { item ->
-                val thumbnailFileId = item.thumbnailFileId ?: return@forEach
-                // Progressive filter results can include the same media item more than once.
-                // De-duplicate requests in the ViewModel while the repository applies a global
-                // concurrency limit across all screens.
-                if (!requestedThumbnailFileIds.add(thumbnailFileId)) return@forEach
-                repository.fetchThumbnailPath(thumbnailFileId) { path ->
-                    if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
-                    // A completed thumbnail may no longer belong to the currently
-                    // displayed folder. Allow a later visit to retry that file ID.
-                    requestedThumbnailFileIds.remove(thumbnailFileId)
-                    if (!path.isNullOrBlank()) updateThumbnailPathForFile(thumbnailFileId, path)
-                }
-            }
+            .filter { it.thumbnailPath.isNullOrBlank() && it.thumbnailFileId != null }
+            .take(MAX_INITIAL_THUMBNAIL_REQUESTS)
+            .forEach { item -> item.thumbnailFileId?.let { fetchThumbnailIfNeeded(it, owner) } }
     }
 
     /**
@@ -1153,12 +1169,8 @@ class MediaViewModel(
                 ?.let { updateTrustedDuration(fileId, it) }
         }
         val thumbnailFileId = item.thumbnailFileId
-        if (thumbnailFileId != null && item.thumbnailPath.isNullOrBlank() && requestedThumbnailFileIds.add(thumbnailFileId)) {
-            repository.fetchThumbnailPath(thumbnailFileId) { path ->
-                if (!AccountSession.isCurrent(owner)) return@fetchThumbnailPath
-                requestedThumbnailFileIds.remove(thumbnailFileId)
-                if (!path.isNullOrBlank()) updateThumbnailPathForFile(thumbnailFileId, path)
-            }
+        if (thumbnailFileId != null && item.thumbnailPath.isNullOrBlank()) {
+            fetchThumbnailIfNeeded(thumbnailFileId, owner)
         }
         // Do not download the first 2 MiB of every video on TV D-pad focus; only resolve metadata/thumbnails.
         // Prefetch on focus: >400 ms debounce, 2MB head (and MP4 tail), low priority, max 2 concurrent, never while playing
@@ -1193,6 +1205,8 @@ class MediaViewModel(
 }
 
 private const val CHAT_SOURCE_LOAD_DELAY_MS = 300L
+private const val MAX_INITIAL_THUMBNAIL_REQUESTS = 12
+private const val THUMBNAIL_RETRY_DELAY_MS = 60_000L
 private const val MEDIA_FIRST_PAGE_PRIORITY_POLL_MS = 150L
 private const val MEDIA_FIRST_PAGE_PRIORITY_MAX_WAIT_MS = 3_000L
 
