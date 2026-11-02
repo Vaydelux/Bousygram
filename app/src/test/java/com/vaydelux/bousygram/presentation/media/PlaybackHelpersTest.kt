@@ -56,6 +56,40 @@ class PlaybackHelpersTest {
         assertEquals(0, queueIndexForFileId(queue, 71))
     }
 
+    @Test
+    fun relatedTrayContainsOnlySameChatAndActualTopic() {
+        val queue = listOf(
+            PlaybackQueueItem(chatId = 100L, messageId = 1L, title = "Current", fileId = 1, topicId = 10L),
+            PlaybackQueueItem(chatId = 100L, messageId = 2L, title = "Same topic", fileId = 2, topicId = 10L),
+            PlaybackQueueItem(chatId = 100L, messageId = 3L, title = "Different topic", fileId = 3, topicId = 11L),
+            PlaybackQueueItem(chatId = 200L, messageId = 4L, title = "Different chat", fileId = 4, topicId = 10L),
+            PlaybackQueueItem(chatId = 100L, messageId = 5L, title = "No topic", fileId = 5, topicId = null)
+        )
+
+        assertEquals(listOf(0, 1), relatedSourceQueue(queue, 0).map { it.first })
+        assertEquals(listOf(2), relatedSourceQueue(queue, 2).map { it.first })
+        assertEquals(listOf(4), relatedSourceQueue(queue, 4).map { it.first })
+        assertEquals(emptyList<Int>(), relatedSourceQueue(queue, -1).map { it.first })
+    }
+
+    @Test
+    fun playbackRequestAndQueueRetainTelegramTopicIdentity() {
+        val item = MediaItem(
+            chatId = 901L,
+            messageId = 19L,
+            date = 1_700_000_000,
+            type = MediaType.Video,
+            title = "Topic media",
+            fileId = 101,
+            messageThreadId = 71L
+        )
+        val request = buildPlaybackRequest(item, null, listOf(item))
+
+        assertEquals(71L, request.topicId)
+        assertEquals(71L, request.queue.single().topicId)
+        assertEquals(71L, queueItemFromRequest(request).topicId)
+    }
+
     private fun queueItem(chatId: Long, messageId: Long, fileId: Int, title: String) = PlaybackQueueItem(
         chatId = chatId,
         messageId = messageId,

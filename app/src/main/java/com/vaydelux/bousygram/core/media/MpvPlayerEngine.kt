@@ -175,6 +175,12 @@ class MpvPlayerEngine(
                         _playbackState.value = EnginePlaybackState.Buffering
                     } else if (_playbackState.value is EnginePlaybackState.Buffering) {
                         _playbackState.value = EnginePlaybackState.Ready
+                        // mpv's internal cache pause is not a user-requested pause.
+                        // Unblock playback once bytes return, unless the user paused explicitly.
+                        if (_playWhenReady.value) {
+                            runCatching { mpv.setPropertyBoolean("pause", false) }
+                                .onFailure { Log.w(TAG, "Unable to resume after cache fill", it) }
+                        }
                     }
                 }
                 "eof-reached" -> {
@@ -326,7 +332,8 @@ class MpvPlayerEngine(
             _durationMs.value = 0L
             _bufferedPositionMs.value = 0L
             _playbackState.value = EnginePlaybackState.Buffering
-            _playWhenReady.value = true
+            // Re-preparing after a proxy rebind, network handoff or rebuffer must
+            // not silently override a user pause. New sessions explicitly call play().
             mpv.command(arrayOf("loadfile", streamUrl))
         } catch (e: Throwable) {
             Log.e(TAG, "MPV failed to load the active local stream (${e.javaClass.simpleName})")

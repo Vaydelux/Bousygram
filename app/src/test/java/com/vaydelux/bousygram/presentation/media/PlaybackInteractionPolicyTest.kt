@@ -1,6 +1,8 @@
 package com.vaydelux.bousygram.presentation.media
 
 import com.vaydelux.bousygram.domain.model.VideoChatItem
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -31,6 +33,30 @@ class PlaybackInteractionPolicyTest {
             VideoChatItem(3L, "New", false)
         )
         assertEquals(listOf(2L, 3L), stableChatCatalog(previous, incoming).map { it.chatId })
+    }
+
+    @Test fun temporaryLifecyclePauseResumesOnlyPreviouslyRequestedPlayback() {
+        val intent = ForegroundPlaybackIntent()
+        assertFalse(intent.onActivityPaused(playWhenReady = false))
+        assertFalse(intent.consumeResume())
+        assertTrue(intent.onActivityPaused(playWhenReady = true))
+        assertTrue(intent.consumeResume())
+        assertFalse(intent.consumeResume()) // no surprise second play command
+        assertTrue(intent.onActivityPaused(playWhenReady = true))
+        // A duplicate lifecycle pause after the engine auto-paused must not erase intent.
+        assertFalse(intent.onActivityPaused(playWhenReady = false))
+        assertTrue(intent.consumeResume())
+    }
+
+    @Test fun bufferingAutoplayStartsWhenReadyAndPreservesExplicitPause() {
+        assertTrue(shouldAutoResumeAfterReady(isReady = true, playWhenReady = true, isPlaying = false))
+        assertFalse(shouldAutoResumeAfterReady(isReady = false, playWhenReady = true, isPlaying = false))
+        assertFalse(shouldAutoResumeAfterReady(isReady = true, playWhenReady = false, isPlaying = false))
+        assertFalse(shouldAutoResumeAfterReady(isReady = true, playWhenReady = true, isPlaying = true))
+        // Buffering isPlaying=false must still cause a pause on the first toggle.
+        assertTrue(shouldPauseOnTransportToggle(isPlaying = false, playWhenReady = true))
+        assertTrue(shouldPauseOnTransportToggle(isPlaying = true, playWhenReady = false))
+        assertFalse(shouldPauseOnTransportToggle(isPlaying = false, playWhenReady = false))
     }
 
     @Test fun relativeSeekWorksWithoutDurationAndStopsAtKnownEnd() {

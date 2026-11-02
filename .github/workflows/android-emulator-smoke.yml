@@ -60,30 +60,16 @@ jobs:
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
-          target: google_apis
+          # API 35 Automated Test Device removes Launcher3QuickStep and disables
+          # nonessential background services. Our prior default image intermittently
+          # ANRed in AOSP Launcher, hiding the app during UI instrumentation.
+          # No screenshot pixel assertions: tests exercise Compose/UIAutomator semantics.
+          target: aosp_atd
           arch: x86_64
           profile: pixel_4
           emulator-boot-timeout: 600
           disable-animations: true
-          script: |
-            set -euo pipefail
-            adb install -r ci-artifacts/debug/Bousygram-debug.apk
-            adb install -r ci-artifacts/debug/Bousygram-debug-androidTest.apk
-            # Capture failures while the virtual device is still alive, even if the
-            # emulator runner tears it down before a subsequent workflow step.
-            trap 'timeout 15s adb logcat -d -t 2500 -v brief 2>/dev/null | grep -E "FATAL EXCEPTION|AndroidRuntime|MediaRouteButton|MediaRouterThemeHelper|Instrumentation" | head -n 100 > emulator-smoke-crash-summary.txt || true' EXIT
-            # Cast and unauthenticated app-navigation checks need no Telegram credentials.
-            # Avoid am force-stop while instrumentation is running: it kills this test suite.
-            timeout 360s adb shell am instrument -w -r -e class "com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest,com.vaydelux.bousygram.app.MainActivitySmokeTest,com.vaydelux.bousygram.app.AndroidTvNavigationSmokeTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.media.PlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.ChatSourcePickerInstrumentedTest" "com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner" | tee emulator-smoke-results.txt
-            grep -Eq '^OK \([0-9]+ tests?\)' emulator-smoke-results.txt
-
-      - name: Capture sanitized emulator diagnostics after failures
-        if: ${{ failure() }}
-        shell: bash
-        run: |
-          timeout 15s adb logcat -d -t 4000 -v brief 2>/dev/null \
-            | grep -E 'FATAL EXCEPTION|AndroidRuntime|MediaRouteButton|MediaRouterThemeHelper|Instrumentation' \
-            | head -n 100 > emulator-smoke-crash-summary.txt || true
+          script: bash tools/ci/run_emulator_smoke.sh
 
       - name: Archive emulator smoke results
         if: ${{ always() }}
@@ -95,3 +81,7 @@ jobs:
           path: |
             emulator-smoke-results.txt
             emulator-smoke-crash-summary.txt
+            emulator-smoke-window-state.txt
+            emulator-smoke-screen.png
+            emulator-adb-devices.txt
+            emulator-cold-launch.txt

@@ -10,11 +10,11 @@ import java.util.concurrent.atomic.AtomicInteger
 internal fun SavedMessagesRepository.loadVideoChatsInternal(
     limit: Int,
     selectedChatId: Long?,
-    onResult: (List<VideoChatItem>, String?) -> Unit
+    onResult: (List<VideoChatItem>, String?, Boolean) -> Unit
 ) {
     resolveSavedMessagesChatInternal { savedChatId, savedError ->
         if (savedChatId == null) {
-            onResult(emptyList(), savedError ?: "Saved Messages unavailable")
+            onResult(emptyList(), savedError ?: "Saved Messages unavailable", true)
             return@resolveSavedMessagesChatInternal
         }
 
@@ -27,8 +27,12 @@ internal fun SavedMessagesRepository.loadVideoChatsInternal(
         val lock = Any()
         val chatMap = mutableMapOf<Long, VideoChatItem>()
         val requestedChatIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+        val remainingChatLists = AtomicInteger(2)
+        val publicationLock = Any()
 
-        fun emitCurrentChats(error: String? = null) {
+        // TDLib invokes callbacks on native threads. Serialize partial snapshots and the
+        // terminal update so the UI never gets an older, incomplete list after completion.
+        fun emitCurrentChats(error: String? = null, isFinal: Boolean = false) = synchronized(publicationLock) {
             val mergedIds = linkedMapOf<Long, Boolean>()
             mergedIds[savedChatId] = false
             synchronized(listReferences[0]) {
@@ -48,26 +52,43 @@ internal fun SavedMessagesRepository.loadVideoChatsInternal(
                     }
                 }
             }
-            onResult(ordered, error ?: listErrors.filterNotNull().firstOrNull())
+            onResult(ordered, error ?: listErrors.filterNotNull().firstOrNull(), isFinal)
+        }
+
+        fun finishChatList() {
+            if (remainingChatLists.decrementAndGet() == 0) {
+                emitCurrentChats(isFinal = true)
+            }
         }
 
         // Emit initial Saved Messages item right away
         emitCurrentChats()
 
         fun loadMissingDetails(chatIds: List<Long>, onDone: () -> Unit) {
-            val missing = chatIds.filter { !requestedChatIds.contains(it) }
-            if (missing.isEmpty()) {
-                onDone()
-                return
-            }
-            missing.forEach { requestedChatIds.add(it) }
-
-            val pending = AtomicInteger(missing.size)
-            missing.forEach { chatId ->
-                client.send(TdApi.GetChat(chatId)) { chatResult ->
-                    val chat = chatResult as? TdApi.Chat
-                    val title = if (chatId == savedChatId) SAVED_MESSAGES_TITLE else chat?.title
-                    if (chat != null && !title.isNullOrBlank()) {
+            // A 10k-chat Telegram account must not dispatch thousands of GetChat
+            // requests at once or wait for all responses before showing channels.
+            val missing = chatIds.filter { requestedChatIds.add(it) }
+            fun loadBatch(start: Int) {
+                if (start >= missing.size) {
+                    onDone()
+                    return
+                }
+                val end = minOf(start + CHAT_PICKER_DETAIL_BATCH, missing.size)
+                val pending = AtomicInteger(end - start)
+                fun completeOne() {
+                    if (pending.decrementAndGet() == 0) {
+                        emitCurrentChats() // Show every finished batch immediately.
+                        loadBatch(end)
+                    }
+                }
+                missing.subList(start, end).forEach { chatId ->
+                    client.send(TdApi.GetChat(chatId)) { chatResult ->
+                        val chat = chatResult as? TdApi.Chat
+                        val title = if (chatId == savedChatId) SAVED_MESSAGES_TITLE else chat?.title
+                        if (chat == null || title.isNullOrBlank()) {
+                            completeOne()
+                            return@send
+                        }
                         val isSaved = chatId == savedChatId
                         val kind = if (isSaved) ChatSourceKind.SAVED_MESSAGES else when (val chatType = chat.type) {
                             is TdApi.ChatTypePrivate -> ChatSourceKind.PRIVATE
@@ -88,23 +109,18 @@ internal fun SavedMessagesRepository.loadVideoChatsInternal(
                                 isForum = isForum
                             )
                             synchronized(lock) { chatMap[chatId] = source }
-                            if (pending.decrementAndGet() == 0) onDone()
+                            completeOne()
                         }
-
                         val chatType = chat.type
                         if (chatType is TdApi.ChatTypeSupergroup) {
                             client.send(TdApi.GetSupergroup(chatType.supergroupId)) { sgResult ->
-                                val sg = sgResult as? TdApi.Supergroup
-                                recordSource(sg?.isForum == true)
+                                recordSource((sgResult as? TdApi.Supergroup)?.isForum == true)
                             }
-                        } else {
-                            recordSource(false)
-                        }
-                    } else {
-                        if (pending.decrementAndGet() == 0) onDone()
+                        } else recordSource(false)
                     }
                 }
             }
+            loadBatch(0)
         }
 
         fun loadChatList(listIndex: Int, chatList: TdApi.ChatList) {
@@ -124,7 +140,7 @@ internal fun SavedMessagesRepository.loadVideoChatsInternal(
                         emitCurrentChats()
                     }
 
-                    if (shouldContinue && ids.size < maxVisibleChats) {
+                    if (shouldContinue && chatsResult is TdApi.Chats && ids.size < maxVisibleChats) {
                         client.send(TdApi.LoadChats(chatList, CHAT_PICKER_LOAD_BATCH)) { loadResult ->
                             when (loadResult) {
                                 is TdApi.Ok -> syncAndLoadNext(shouldContinue = true)
@@ -135,6 +151,8 @@ internal fun SavedMessagesRepository.loadVideoChatsInternal(
                                 else -> syncAndLoadNext(shouldContinue = false)
                             }
                         }
+                    } else {
+                        finishChatList()
                     }
                 }
             }
@@ -148,7 +166,7 @@ internal fun SavedMessagesRepository.loadVideoChatsInternal(
 }
 
 private const val CHAT_PICKER_LOAD_BATCH = 50
-private const val CHAT_PICKER_DETAIL_BATCH = 50
+private const val CHAT_PICKER_DETAIL_BATCH = 40
 
 internal fun SavedMessagesRepository.resolveSavedMessagesChatInternal(
     onResult: (Long?, String?) -> Unit

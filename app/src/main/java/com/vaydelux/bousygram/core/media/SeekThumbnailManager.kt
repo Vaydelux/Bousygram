@@ -29,7 +29,7 @@ object SeekThumbnailManager {
 
     fun invalidateAccountResources() = memoryCache.evictAll()
 
-    private fun scopedKey(key: String): String? = AccountSession.current()?.let { "${it.accountId}:$key" }
+    private fun scopedKey(key: String): String? = AccountSession.current()?.let { "${it.accountId}:${it.generation}:$key" }
 
     fun getCachedSnapshots(key: String): List<Bitmap>? {
         return scopedKey(key)?.let(memoryCache::get)
@@ -50,7 +50,7 @@ object SeekThumbnailManager {
         durationMs: Long
     ): List<Bitmap> = withContext(Dispatchers.IO) {
         val owner = AccountSession.current() ?: return@withContext emptyList()
-        val accountKey = "${owner.accountId}:$key"
+        val accountKey = "${owner.accountId}:${owner.generation}:$key"
         val cached = memoryCache.get(accountKey)
         if (cached != null && cached.isNotEmpty()) {
             return@withContext cached.takeIf { AccountSession.isCurrent(owner) } ?: emptyList()
@@ -62,14 +62,15 @@ object SeekThumbnailManager {
 
         val retriever = MediaMetadataRetriever()
         try {
+            // During playback, 8 HTTP frame probes can issue many random
+            // TDLib range requests, create rebuffering, and retain short-lived
+            // private loopback capability URLs. Only probe a readable local file.
+            // Timestamp-only seek previews remain available for streamed media.
             val file = File(filePathOrUrl)
-            if (file.exists() && file.canRead()) {
-                retriever.setDataSource(file.absolutePath)
-            } else if (filePathOrUrl.startsWith("http://127.0.0.1") || filePathOrUrl.startsWith("http://localhost")) {
-                retriever.setDataSource(filePathOrUrl, emptyMap())
-            } else {
+            if (!file.exists() || !file.isFile || !file.canRead()) {
                 return@withContext emptyList()
             }
+            retriever.setDataSource(file.absolutePath)
 
             val list = mutableListOf<Bitmap>()
             val durationUs = durationMs * 1000L

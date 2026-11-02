@@ -26,6 +26,16 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.min
 
 /**
+ * Bounds each native fetch while respecting the exact byte range promised to
+ * Media3. A partial or cue-seek DataSpec must never read outside its range.
+ */
+internal fun readAheadRequestBytes(requested: Int, remaining: Long): Int {
+    val desired = maxOf(requested, 256 * 1024)
+    return if (remaining == C.LENGTH_UNSET.toLong()) desired
+        else min(desired.toLong(), remaining.coerceAtLeast(0L)).toInt()
+}
+
+/**
  * Direct in-process Media3 [DataSource] for ExoPlayer.
  *
  * Reads byte ranges directly from [TelegramChunkScheduler] and TDLib without an intermediate
@@ -47,6 +57,10 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
     private var currentPosition: Long = 0L
     private var rangeLease: TelegramRangeLease? = null
     private val activeReadJob = AtomicReference<Job?>(null)
+    // Media3 frequently requests small sequential reads. Reuse the remainder of a
+    // bounded TDLib range instead of repeatedly entering the native chunk scheduler.
+    private var aheadBytes = ByteArray(0)
+    private var aheadCursor = 0
 
     @Volatile
     private var opened: Boolean = false
@@ -81,6 +95,8 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
             TelegramChunkScheduler.noteFileSize(fileId, totalSize)
         }
 
+        aheadBytes = ByteArray(0)
+        aheadCursor = 0
         currentPosition = dataSpec.position
         if (totalSize > 0L && dataSpec.position > totalSize) {
             throw IOException("Requested media offset exceeds the available file length")
@@ -126,6 +142,23 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         }
         if (bytesToRead <= 0) return C.RESULT_END_OF_INPUT
 
+        if (aheadCursor < aheadBytes.size) {
+            val count = min(bytesToRead, aheadBytes.size - aheadCursor)
+            System.arraycopy(aheadBytes, aheadCursor, target, offset, count)
+            aheadCursor += count
+            if (aheadCursor == aheadBytes.size) {
+                aheadBytes = ByteArray(0)
+                aheadCursor = 0
+            }
+            currentPosition += count
+            if (bytesRemaining != C.LENGTH_UNSET.toLong()) bytesRemaining -= count
+            bytesTransferred(count)
+            return count
+        }
+
+        // Do not request beyond the DataSpec's permitted byte range; e.g. MKV cues
+        // can open short, nonsequential ranges. A new open() invalidates this buffer.
+        val requestBytes = readAheadRequestBytes(bytesToRead, bytesRemaining)
         val readJob = Job()
         activeReadJob.getAndSet(readJob)?.cancel()
         val chunk = try {
@@ -135,7 +168,7 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
                         TelegramChunkRequest(
                             fileId = fileId,
                             offset = currentPosition,
-                            limit = bytesToRead,
+                            limit = requestBytes,
                             priority = STREAM_PRIORITY,
                             purpose = TelegramChunkPurpose.Streaming
                         )
@@ -173,6 +206,8 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         // Support short reads when TDLib chunk has fewer bytes than requested
         val bytesCopied = min(bytesToRead, bytes.size)
         System.arraycopy(bytes, 0, target, offset, bytesCopied)
+        aheadBytes = if (bytes.size > bytesCopied) bytes else ByteArray(0)
+        aheadCursor = bytesCopied
         currentPosition += bytesCopied
         if (bytesRemaining != C.LENGTH_UNSET.toLong()) {
             bytesRemaining -= bytesCopied
@@ -190,6 +225,8 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
             isClosed = true
             activeReadJob.getAndSet(null)?.cancel()
             currentDataSpec = null
+            aheadBytes = ByteArray(0)
+            aheadCursor = 0
             TelegramChunkScheduler.releaseLease(
                 lease = rangeLease,
                 reason = TelegramLeaseReleaseReason.ConsumerClosed,

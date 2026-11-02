@@ -14,8 +14,8 @@ class SavedMessagesRepository {
     }
 
     internal val client = TdLibClient.accountClient()
-    internal var cachedMeId: Long? = null
-    internal var cachedSavedMessagesChatId: Long? = null
+    @Volatile internal var cachedMeId: Long? = null
+    @Volatile internal var cachedSavedMessagesChatId: Long? = null
 
     fun shutdown() {
         cachedMeId = null
@@ -70,8 +70,12 @@ class SavedMessagesRepository {
         onUpdate: (List<MediaItem>, Long, String?, Boolean) -> Unit
     ) = loadChatMediaPagedProgressiveInternal(chatId, limit, fromMessageId, topicId, onUpdate)
 
-    fun loadVideoChats(limit: Int, selectedChatId: Long?, onResult: (List<VideoChatItem>, String?) -> Unit) =
-        loadVideoChatsInternal(limit, selectedChatId, onResult)
+    /** Emits incremental source pages and exactly one terminal completion update. */
+    fun loadVideoChats(
+        limit: Int,
+        selectedChatId: Long?,
+        onUpdate: (List<VideoChatItem>, String?, Boolean) -> Unit
+    ) = loadVideoChatsInternal(limit, selectedChatId, onUpdate)
 
     fun loadForumTopics(chatId: Long, query: String = "", onResult: (List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>, String?) -> Unit) =
         loadForumTopicsInternal(chatId, query, onResult)

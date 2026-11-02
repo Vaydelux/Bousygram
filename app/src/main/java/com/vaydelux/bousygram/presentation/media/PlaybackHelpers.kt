@@ -3,6 +3,41 @@ package com.vaydelux.bousygram.presentation.media
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 
+/** Buffer completion starts playback only if the user has not explicitly paused. */
+internal fun shouldAutoResumeAfterReady(
+    isReady: Boolean,
+    playWhenReady: Boolean,
+    isPlaying: Boolean
+): Boolean = isReady && playWhenReady && !isPlaying
+
+/** During buffering isPlaying may be false even when autoplay is armed.
+ * The play/pause button must cancel that pending autoplay, not reissue play.
+ */
+internal fun shouldPauseOnTransportToggle(
+    isPlaying: Boolean,
+    playWhenReady: Boolean
+): Boolean = isPlaying || playWhenReady
+
+/**
+ * Lifecycle-only playback suppression. Temporary loss of Activity foreground must
+ * not erase the user's Play intent (including while the engine is buffering).
+ * Explicitly paused playback never gets an automatic resume.
+ */
+internal class ForegroundPlaybackIntent {
+    private var pendingResume = false
+
+    fun onActivityPaused(playWhenReady: Boolean): Boolean {
+        if (playWhenReady) pendingResume = true
+        return playWhenReady
+    }
+
+    fun consumeResume(): Boolean {
+        val resume = pendingResume
+        pendingResume = false
+        return resume
+    }
+}
+
 fun playableVideos(items: List<MediaItem>): List<MediaItem> =
     items.filter { (it.type == MediaType.Video || it.type == MediaType.Audio) && it.fileId != null }
 
@@ -22,7 +57,8 @@ fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
             mimeType = item.mimeType,
             durationSeconds = item.durationSeconds,
             fileSizeBytes = item.fileSizeBytes,
-            alternativeVideos = item.alternativeVideos
+            alternativeVideos = item.alternativeVideos,
+            topicId = item.messageThreadId
         )
     }
 
@@ -46,7 +82,8 @@ fun buildPlaybackRequest(
         mimeType = item.mimeType,
         durationSeconds = item.durationSeconds,
         fileSizeBytes = item.fileSizeBytes,
-        alternativeVideos = item.alternativeVideos
+        alternativeVideos = item.alternativeVideos,
+        topicId = item.messageThreadId
     )
 }
 
@@ -60,8 +97,26 @@ fun queueItemFromRequest(request: PlaybackRequest): PlaybackQueueItem =
         fileName = request.fileName,
         mimeType = request.mimeType,
         durationSeconds = request.durationSeconds,
-        fileSizeBytes = request.fileSizeBytes
+        fileSizeBytes = request.fileSizeBytes,
+        alternativeVideos = request.alternativeVideos,
+        topicId = request.topicId
     )
+
+/**
+ * All related tray entries must share the current Telegram chat AND actual
+ * TDLib forum topic. This never falls back to matching titles or filenames.
+ */
+fun relatedSourceQueue(
+    queue: List<PlaybackQueueItem>,
+    currentIndex: Int
+): List<Pair<Int, PlaybackQueueItem>> {
+    val current = queue.getOrNull(currentIndex) ?: return emptyList()
+    return queue.mapIndexedNotNull { index, item ->
+        if (item.chatId == current.chatId && item.topicId == current.topicId) {
+            index to item
+        } else null
+    }
+}
 
 fun queueIndexForFileId(queue: List<PlaybackQueueItem>, fileId: Int): Int =
     if (fileId > 0) queue.indexOfFirst { it.fileId == fileId } else -1

@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -454,17 +453,16 @@ private fun EpisodeListRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .border(
-                width = if (focused) 2.dp else 1.dp,
+                width = if (focused) 3.5.dp else 1.dp,
                 color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(12.dp)
             )
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
                 onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            ),
         shape = RoundedCornerShape(12.dp),
         color = if (focused) colors.surfaceVariant else colors.surface
     ) {

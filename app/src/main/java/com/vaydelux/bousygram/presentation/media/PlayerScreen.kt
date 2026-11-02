@@ -39,6 +39,9 @@ import com.vaydelux.bousygram.data.store.StreamHealthTelemetry
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -263,6 +266,8 @@ fun PlayerScreen(
     var optionsPanelVisible by remember { mutableStateOf(false) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
     var episodesDrawerVisible by remember { mutableStateOf(false) }
+    var trayFocusedIndex by remember { mutableIntStateOf(0) }
+    val trayFirstFocus = remember { FocusRequester() }
     var showBrightnessHud by remember { mutableStateOf(false) }
     var showVolumeHud by remember { mutableStateOf(false) }
     val currentActivity = context as? Activity
@@ -616,10 +621,11 @@ fun PlayerScreen(
                 val hotSwappedUrl = "$newPrefix?$query"
                 Log.i("PlayerScreen", "Rebinding the active local stream after proxy restart")
                 val pos = playerEngine.currentPositionMs
+                val resumeAfterRebind = playerEngine.playWhenReady
                 activeLocalStreamUrl = hotSwappedUrl
                 playerEngine.prepare(hotSwappedUrl)
                 if (pos > 0L) playerEngine.seekTo(pos)
-                if (isPlaying) playerEngine.play()
+                if (resumeAfterRebind) playerEngine.play()
             }
         }
     }
@@ -644,9 +650,10 @@ fun PlayerScreen(
                     Log.i("PlayerScreen", "Rotated the active stream capability after network change")
                     activeLocalStreamUrl = newUrl
                     val pos = playerEngine.currentPositionMs
+                    val resumeAfterRebind = playerEngine.playWhenReady
                     playerEngine.prepare(newUrl)
                     if (pos > 0L) playerEngine.seekTo(pos)
-                    if (isPlaying) playerEngine.play()
+                    if (resumeAfterRebind) playerEngine.play()
                 }
             }
             previousWasCellular = isCell
@@ -892,7 +899,11 @@ fun PlayerScreen(
                     }
                     // Preserve autoplay intent across asynchronous MKV demux/decoder readiness.
                     // An explicit user pause clears playWhenReady and is never overridden.
-                    if (playerEngine.playWhenReady && !playerEngine.isPlaying) playerEngine.play()
+                    if (shouldAutoResumeAfterReady(
+                            isReady = true,
+                            playWhenReady = playerEngine.playWhenReady,
+                            isPlaying = playerEngine.isPlaying
+                        )) playerEngine.play()
                     isPlaying = playerEngine.isPlaying
                     if (isPlaying) audioFocusController.request(playerEngine)
 
@@ -1029,15 +1040,17 @@ fun PlayerScreen(
     val activeLifecycleEngine by rememberUpdatedState(playerEngine)
     val activeLifecycleQueueIndex by rememberUpdatedState(queueIndex)
     val activeLifecycleDuration by rememberUpdatedState(duration)
-    val activeLifecycleIsPlaying by rememberUpdatedState(isPlaying)
     DisposableEffect(lifecycleOwner, playbackSession, streamingSessionManager) {
         streamingSessionManager.acquireLocks()
+        // A transient lifecycle pause must not become a permanent user pause.
+        // Buffering can report isPlaying=false even when autoplay is armed.
+        val foregroundIntent = ForegroundPlaybackIntent()
         val activity = context as? androidx.activity.ComponentActivity
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> streamingSessionManager.acquireLocks()
                 Lifecycle.Event.ON_PAUSE -> {
-                    if (activeLifecycleEngine.isPlaying) {
+                    if (foregroundIntent.onActivityPaused(activeLifecycleEngine.playWhenReady)) {
                         activeLifecycleEngine.pause()
                     }
                     queue.getOrNull(activeLifecycleQueueIndex)?.let { current ->
@@ -1053,7 +1066,11 @@ fun PlayerScreen(
                         }
                     }
                 }
-                Lifecycle.Event.ON_RESUME -> if (activeLifecycleIsPlaying) activeLifecycleEngine.play()
+                Lifecycle.Event.ON_RESUME -> {
+                    if (foregroundIntent.consumeResume()) {
+                        activeLifecycleEngine.play()
+                    }
+                }
                 Lifecycle.Event.ON_STOP -> {
                     stopCurrentCache(PlaybackCacheStopReason.LifecycleStop)
                     streamingSessionManager.releaseLocks()
@@ -1690,7 +1707,9 @@ fun PlayerScreen(
                 if (castState.connected) {
                     if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
                     else CastSessionController.play()
-                } else if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
+                    playerEngine.pause()
+                } else playerEngine.play()
                 hudVisible = true
             }
 
@@ -1704,7 +1723,7 @@ fun PlayerScreen(
             override fun pause() {
                 hudInteractionTick++
                 if (castState.connected) CastSessionController.pause()
-                else if (playerEngine.isPlaying) playerEngine.pause()
+                else if (playerEngine.playWhenReady || playerEngine.isPlaying) playerEngine.pause()
                 hudVisible = true
             }
 
@@ -2032,6 +2051,13 @@ fun PlayerScreen(
                     }
                 },
                 onExit = ::exitPlayback,
+                onStartOver = {
+                    hudInteractionTick++
+                    if (castState.connected) CastSessionController.seekTo(0L)
+                    else performTrackedSeek(0L)
+                    showResumeRestartOption = false
+                    toastFeedbackText = "Restarted from beginning"
+                },
                 onRetry = {
                     hudInteractionTick++
                     retryCount = 0
@@ -2045,7 +2071,11 @@ fun PlayerScreen(
                     if (castState.connected) {
                         if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
                         else CastSessionController.play()
-                    } else if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                    } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
+                        playerEngine.pause()
+                    } else {
+                        playerEngine.play()
+                    }
                 },
                 onSeekBy = { delta ->
                     hudInteractionTick++
@@ -2284,26 +2314,34 @@ fun PlayerScreen(
             }
         }
 
-        // In-player queue drawer overlay
+        // Same-session queue tray. The queue originated from the current browsing
+        // scope; additionally exclude other chats to avoid cross-source leakage.
         AnimatedVisibility(
             visible = episodesDrawerVisible,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = if (compactHud) 130.dp else 170.dp)
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .padding(bottom = if (compactHud) 110.dp else 135.dp)
         ) {
+            val relatedQueue = relatedSourceQueue(queue, queueIndex)
+            val trayColumns = if (compactHud) 2 else 4
+            LaunchedEffect(episodesDrawerVisible, queueIndex) {
+                if (episodesDrawerVisible && relatedQueue.isNotEmpty()) {
+                    trayFocusedIndex = 0
+                    delay(90L)
+                    runCatching { trayFirstFocus.requestFocus() }
+                }
+            }
             Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier
-                    .fillMaxWidth(if (compactHud) 0.96f else 0.85f)
-                    .padding(horizontal = 12.dp)
+                modifier = Modifier.fillMaxWidth(if (compactHud) 0.96f else 0.82f)
+                    .padding(horizontal = 10.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2311,49 +2349,74 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Videos in Queue (${queue.size})",
+                            "More from this source",
                             color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.titleMedium
                         )
-                        BousygramButton("Close", { episodesDrawerVisible = false })
+                        BousygramButton("Close", {
+                            episodesDrawerVisible = false
+                            playerInputController.activeMenu = PlayerMenuType.NONE
+                        })
                     }
-                    androidx.compose.foundation.lazy.LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(trayColumns),
                         modifier = Modifier.fillMaxWidth()
+                            .heightIn(max = if (compactHud) 210.dp else 265.dp)
+                            .onPreviewKeyEvent { event ->
+                                val native = event.nativeKeyEvent
+                                if (native.action == KeyEvent.ACTION_DOWN &&
+                                    native.keyCode == KeyEvent.KEYCODE_DPAD_UP &&
+                                    trayFocusedIndex < trayColumns
+                                ) {
+                                    episodesDrawerVisible = false
+                                    playerInputController.activeMenu = PlayerMenuType.NONE
+                                    hudVisible = true
+                                    scope.launch {
+                                        delay(50L)
+                                        runCatching { playPauseFocusRequester.requestFocus() }
+                                    }
+                                    true
+                                } else false
+                            },
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        itemsIndexed(queue) { idx, item ->
-                            val isCurrent = idx == queueIndex
-                            val epShape = RoundedCornerShape(12.dp)
+                        gridItemsIndexed(relatedQueue, key = { _, pair -> pair.first }) { localIndex, pair ->
+                            val (idx, item) = pair
+                            val current = idx == queueIndex
+                            val shape = RoundedCornerShape(12.dp)
+                            var focused by remember(item.chatId, item.messageId) { mutableStateOf(false) }
                             Surface(
-                                shape = epShape,
-                                color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                shape = shape,
+                                color = if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                 border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                    if (focused) 3.dp else if (current) 2.dp else 1.dp,
+                                    if (focused || current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                                 ),
-                                modifier = Modifier
-                                    .width(if (compactHud) 160.dp else 200.dp)
-                                    .clip(epShape)
+                                modifier = Modifier.fillMaxWidth()
+                                    .then(if (localIndex == 0) Modifier.focusRequester(trayFirstFocus) else Modifier)
+                                    .onFocusChanged {
+                                        focused = it.isFocused
+                                        if (it.isFocused) trayFocusedIndex = localIndex
+                                    }
                                     .clickable {
                                         episodesDrawerVisible = false
-                                        goToTrack(idx)
+                                        playerInputController.activeMenu = PlayerMenuType.NONE
+                                        if (!current) goToTrack(idx)
                                     }
                             ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
+                                Column(Modifier.padding(10.dp)) {
                                     Text(
-                                        text = "${idx + 1}. ${item.title}",
-                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                        item.title,
                                         maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    Spacer(Modifier.height(4.dp))
                                     Text(
-                                        text = if (isCurrent) "▶ Playing" else formatMs((item.durationSeconds * 1000L)),
-                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall
+                                        if (current) "▶ Playing" else formatMs(item.durationSeconds * 1000L),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -2427,28 +2490,58 @@ fun PlayerScreen(
             }
         }
 
-        // Animated Seek Feedback Overlay
+        // Compact TV preview. A timestamp is always truthful; display a real
+        // frame only when the existing bounded thumbnail cache has one.
         AnimatedVisibility(
             visible = seekFeedbackText != null,
             enter = fadeIn() + scaleIn(),
             exit = fadeOut() + scaleOut(),
-            modifier = Modifier.align(if (seekFeedbackSide < 0) Alignment.CenterStart else Alignment.CenterEnd)
+            modifier = Modifier.align(
+                if (tvChrome && seekPreviewPositionMs >= 0L) Alignment.BottomCenter
+                else if (seekFeedbackSide < 0) Alignment.CenterStart else Alignment.CenterEnd
+            ).padding(bottom = if (tvChrome && seekPreviewPositionMs >= 0L) 170.dp else 0.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 48.dp)
-                    .size(76.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
-                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
-                contentAlignment = Alignment.Center
+            val previewItem = queue.getOrNull(queueIndex)
+            val previewKey = previewItem?.chatId?.toString() + ":" + previewItem?.messageId
+            val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
+            val snapshot = if (tvChrome && seekPreviewPositionMs >= 0L && knownDuration > 0L) {
+                SeekThumbnailManager.getSnapshotAt(previewKey, seekPreviewPositionMs, knownDuration)
+            } else null
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                modifier = Modifier.padding(horizontal = 24.dp)
+                    .widthIn(max = if (tvChrome) 310.dp else 280.dp)
             ) {
-                Text(
-                    text = seekFeedbackText.orEmpty(),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (snapshot != null) {
+                        Image(
+                            bitmap = snapshot.asImageBitmap(),
+                            contentDescription = "Actual cached seek preview frame",
+                            modifier = Modifier.width(160.dp).height(90.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    }
+                    Text(
+                        text = if (seekPreviewPositionMs >= 0L) "Seek to " + formatMs(seekPreviewPositionMs)
+                            else seekFeedbackText.orEmpty(),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (tvChrome && seekPreviewPositionMs >= 0L) {
+                        Text(
+                            "OK confirm · Back cancel",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
             }
         }
 
@@ -2478,7 +2571,7 @@ fun PlayerScreen(
 
         // Smart Resume Restart Prompt
         AnimatedVisibility(
-            visible = showResumeRestartOption && hudVisible,
+            visible = showResumeRestartOption && hudVisible && !tvChrome,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopEnd)
@@ -2833,9 +2926,13 @@ private fun TrackChoice(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .border(
+                if (focused) 3.dp else 0.dp,
+                if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                RoundedCornerShape(16.dp)
+            )
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onSelect)
-            .focusable(),
+            .clickable(onClick = onSelect),
         color = when {
             selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
             focused -> MaterialTheme.colorScheme.surfaceVariant
@@ -2865,6 +2962,7 @@ private fun PlayerHud(
     onOptionsToggle: () -> Unit,
     onOptionsClose: () -> Unit,
     onExit: () -> Unit,
+    onStartOver: () -> Unit,
     onRetry: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekBy: (Long) -> Unit,
@@ -2890,8 +2988,8 @@ private fun PlayerHud(
             runCatching { firstOptionFocusRequester.requestFocus() }
         }
     }
-    val edgePadding = if (compact) 12.dp else 32.dp
-    val innerPadding = if (compact) 14.dp else 22.dp
+    val edgePadding = if (isTv) 14.dp else if (compact) 12.dp else 32.dp
+    val innerPadding = if (isTv) 12.dp else if (compact) 14.dp else 22.dp
     val maxHudHeight = playerHudHeightLimit(
         LocalConfiguration.current.screenHeightDp.takeIf { it > 0 } ?: 720,
         compact
@@ -2946,8 +3044,12 @@ private fun PlayerHud(
                         )
                     }
                 }
-                BousygramButton("✕ Close", onExit)
+                if (isTv && state.durationTrusted && state.durationMs > 0L) {
+                    BousygramButton("↺ Start Over", onStartOver)
+                }
+                BousygramButton(if (isTv) "‹ Back" else "✕ Close", onExit)
             }
+            if (!isTv) {
             Spacer(Modifier.height(6.dp))
             // Separate context and timing rows instead of truncating cache details
             // when TV font scaling or phone accessibility text size is enabled.
@@ -3010,6 +3112,20 @@ private fun PlayerHud(
                 } else Modifier
             )
             Spacer(Modifier.height(if (compact) 10.dp else 15.dp))
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(statusText, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        formatMs(state.positionMs) + " / " + durationText(state),
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
             PlayerSeekBar(
                 mediaKey = state.mediaKey,
                 positionMs = state.positionMs,
@@ -3154,7 +3270,7 @@ private fun PlayerSeekBar(
                 .height(44.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .border(
-                    width = if (barFocused) 1.5.dp else 0.dp,
+                    width = if (barFocused) 3.dp else 0.dp,
                     color = if (barFocused) MaterialTheme.colorScheme.secondary else Color.Transparent,
                     shape = RoundedCornerShape(12.dp)
                 )

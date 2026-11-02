@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Bousygram TV and play logo">
+<title>Bousygram — original TV/play mark</title>
+<defs>
+ <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="var(--brand-light, #62A9FF)"/>
+  <stop offset=".48" stop-color="var(--brand-primary, #2675EE)"/>
+  <stop offset="1" stop-color="var(--brand-deep, #173AB8)"/>
+ </linearGradient>
+ <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+  <stop stop-color="#CBE9FF" stop-opacity=".9"/>
+  <stop offset=".45" stop-color="#A2D8FF" stop-opacity=".18"/>
+  <stop offset="1" stop-color="#05122F" stop-opacity=".55"/>
+ </linearGradient>
+ <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+  <stop stop-color="#162D59"/><stop offset="1" stop-color="#060F24"/>
+ </linearGradient>
+ <linearGradient id="play" x1="0" y1="0" x2="1" y2="1">
+  <stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#CBE9FF"/>
+ </linearGradient>
+</defs>
+<rect x="12" y="12" width="232" height="232" rx="62" fill="url(#shell)"/>
+<rect x="23" y="23" width="210" height="210" rx="53" fill="none" stroke="#D0EEFF" stroke-opacity=".35" stroke-width="2.5"/>
+<path d="M88 75 112 55 128 74 145 55 168 75" fill="none" stroke="#E6F6FF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="45" y="83" width="166" height="122" rx="28" fill="url(#screen)" stroke="#BDDBFF" stroke-width="7"/>
+<rect x="54" y="92" width="148" height="102" rx="21" fill="url(#glass)"/>
+<g fill="none" stroke="#8FD1FF" stroke-opacity=".21" stroke-width="1.5">
+ <path d="M60 169 Q107 109 187 111"/><path d="M60 180 Q130 133 190 143"/><path d="M61 106 Q118 148 192 177"/>
+</g>
+<circle cx="130" cy="143" r="42" fill="#113778" stroke="#C4EBFF" stroke-opacity=".55" stroke-width="2"/>
+<path d="M119 118 Q119 113 125 117 L157 139 Q162 143 157 148 L125 170 Q119 174 119 168 Z" fill="url(#play)"/>
+<path d="M55 109 Q73 90 117 91" fill="none" stroke="#FFFFFF" stroke-opacity=".40" stroke-width="5" stroke-linecap="round"/>
+<path d="M174 196 L184 196" stroke="#66C2FF" stroke-opacity=".65" stroke-width="3" stroke-linecap="round"/>
+</svg>

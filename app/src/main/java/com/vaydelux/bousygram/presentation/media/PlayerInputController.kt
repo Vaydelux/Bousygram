@@ -241,10 +241,11 @@ class PlayerInputController(
                 }
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     cancelSeekPreview(actions)
-                    // Show controls with focus on Button Row (never skip video!)
+                    // Open the existing in-session queue drawer. Directional presses
+                    // never skip to another video or leave the player.
                     isHudVisible = true
-                    currentFocusRow = 1
-                    actions.showHud(PlayerFocusTarget.BUTTON_PLAY_PAUSE)
+                    activeMenu = PlayerMenuType.EPISODES
+                    actions.openMenu(PlayerMenuType.EPISODES)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
@@ -291,11 +292,9 @@ class PlayerInputController(
                 return true // Never open menu or exit row!
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                if (currentFocusRow == 0) {
-                    currentFocusRow = 1
-                    actions.showHud(PlayerFocusTarget.BUTTON_PLAY_PAUSE)
-                }
-                return true // Never skip track!
+                activeMenu = PlayerMenuType.EPISODES
+                actions.openMenu(PlayerMenuType.EPISODES)
+                return true // Never skip track.
             }
             KeyEvent.KEYCODE_MENU,
             KeyEvent.KEYCODE_INFO,

@@ -67,6 +67,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -631,19 +635,23 @@ fun TvTopNavBar(
                                 }
                             )
                             .border(
-                                width = if (focused) 1.5.dp else 0.dp,
+                                width = if (focused) 3.dp else 0.dp,
                                 color = if (focused) colors.primary else Color.Transparent,
                                 shape = RoundedCornerShape(8.dp)
                             )
+                            .semantics {
+                                contentDescription = dest.label
+                                this.selected = isSelected
+                            }
+                            .onFocusChanged { focused = it.isFocused }
                             .clickable(
                                 interactionSource = interaction,
                                 indication = ripple(color = colors.primary),
+                                role = Role.Button,
                                 onClick = {
                                     if (dest == ShellDestination.Search) onOpenSearch() else onSelect(dest)
                                 }
                             )
-                            .onFocusChanged { focused = it.isFocused }
-                            .focusable()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -678,17 +686,18 @@ fun TvTopNavBar(
                     }
                 )
                 .border(
-                    width = if (profileFocused) 1.5.dp else 1.dp,
+                    width = if (profileFocused) 3.dp else 1.dp,
                     color = if (profileFocused) colors.primary else colors.outlineVariant,
                     shape = CircleShape
                 )
+                .semantics { contentDescription = "Profile and settings" }
+                .onFocusChanged { profileFocused = it.isFocused }
                 .clickable(
                     interactionSource = profileInteraction,
                     indication = ripple(color = colors.primary),
+                    role = Role.Button,
                     onClick = onOpenProfile
-                )
-                .onFocusChanged { profileFocused = it.isFocused }
-                .focusable(),
+                ),
             contentAlignment = Alignment.Center
         ) {
             ShellNavIcon(
@@ -777,17 +786,18 @@ fun TopBarIconButton(
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) colors.surfaceVariant else Color.Transparent)
             .border(
-                width = if (focused) 1.dp else 0.dp,
-                color = if (focused) colors.primary.copy(alpha = 0.5f) else Color.Transparent,
+                width = if (focused) 3.dp else 0.dp,
+                color = if (focused) colors.primary else Color.Transparent,
                 shape = RoundedCornerShape(10.dp)
             )
+            .semantics { this.contentDescription = contentDescription }
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
+                role = Role.Button,
                 onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable(),
+            ),
         contentAlignment = Alignment.Center
     ) {
         icon(tint)
@@ -888,9 +898,12 @@ fun TvFocusSurface(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(18.dp)
     val interaction = remember { MutableInteractionSource() }
+    // Respect Android's global animation setting and keep focus transitions fast.
+    val motionDisabled = android.os.Build.VERSION.SDK_INT >= 26 &&
+        !android.animation.ValueAnimator.areAnimatorsEnabled()
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.05f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (motionDisabled) 1f else if (focused) 1.025f else 1f,
+        animationSpec = tween(durationMillis = if (motionDisabled) 0 else 145),
         label = "focusScale"
     )
     val border by animateColorAsState(
@@ -920,14 +933,16 @@ fun TvFocusSurface(
                 shape = shape
             )
             .clip(shape)
+            // Clickable owns the only focus target and the selected semantics.
+            .semantics { this.selected = selected }
+            .onFocusChanged { focused = it.isFocused }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
                 enabled = enabled,
+                role = Role.Button,
                 onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable(enabled),
+            ),
         color = surface,
         shape = shape
     ) {
@@ -1140,7 +1155,7 @@ fun MediaPosterCard(
         modifier = modifier
             .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
             .graphicsLayer {
-                if (isWatched) alpha = 0.58f
+                if (isWatched && !focused) alpha = 0.58f
             }
             .onFocusChanged {
                 focused = it.isFocused

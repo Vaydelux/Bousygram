@@ -45,19 +45,27 @@ import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.shell.BousygramMode
+import com.vaydelux.bousygram.presentation.shell.BousygramModeSelection
+import com.vaydelux.bousygram.presentation.shell.ExtrasMaintenanceScreen
+import com.vaydelux.bousygram.presentation.shell.TelegramStartupLoadingScreen
 
 class MainActivity : ComponentActivity() {
     private val authViewModel: AuthViewModel by viewModels()
+    // Activity may be reused for real and debug-preview launch intents. Keep the
+    // route in observable state rather than reading a non-observable intent in Compose.
+    private var previewRequested by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        previewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)
         handleIncomingIntent(intent)
         setContent {
             var themePreset by remember {
                 mutableStateOf(BousygramThemePreset.fromId(EnterprisePreferences.visualThemeId()))
             }
             BousygramTheme(preset = themePreset) {
-                if (BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)) {
+                if (previewRequested) {
                     TvHybridPreviewHost()
                 } else {
                     BousygramAppRoot(
@@ -76,6 +84,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        previewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)
         handleIncomingIntent(intent)
     }
 
@@ -99,6 +108,9 @@ private fun BousygramAppRoot(
 ) {
     val context = LocalContext.current
     val authState by authViewModel.uiState.collectAsState()
+    // Mode is shell UI state only: it does not create an independent Telegram session.
+    var modeName by rememberSaveable { mutableStateOf(BousygramMode.SELECT.name) }
+    val mode = BousygramMode.entries.firstOrNull { it.name == modeName } ?: BousygramMode.SELECT
     var appScreen by remember { mutableStateOf<AppScreen>(AppScreen.Home) }
     var searchFocus by rememberSaveable(stateSaver = SearchFocusStateSaver) {
         mutableStateOf(SearchFocusState())
@@ -138,8 +150,36 @@ private fun BousygramAppRoot(
             return@LaunchedEffect
         }
         val req = CastReceiverManager.toPlaybackRequest(payload, preparation?.url)
+        modeName = BousygramMode.TELEGRAM.name
         appScreen = AppScreen.Player(req, returnTo = AppScreen.Home)
         CastReceiverManager.clearPendingRequest()
+    }
+
+    // The Extras screen is a dead-end maintenance route: no Telegram feature UI is mounted.
+    // The application process still owns existing TDLib infrastructure; separating that
+    // initialization is a future, explicitly reviewed lifecycle change.
+    if (mode == BousygramMode.SELECT) {
+        BousygramModeSelection(
+            onTelegram = { modeName = BousygramMode.TELEGRAM.name },
+            onExtras = { modeName = BousygramMode.EXTRAS_MAINTENANCE.name }
+        )
+        return
+    }
+    if (mode == BousygramMode.EXTRAS_MAINTENANCE) {
+        ExtrasMaintenanceScreen(onBack = { modeName = BousygramMode.SELECT.name })
+        return
+    }
+
+    // Auth is a child of Telegram Media mode. Back from a login/connection
+    // screen must return to mode choice, not unexpectedly finish the app.
+    BackHandler(enabled = authState.step != AuthStep.Authorized) {
+        modeName = BousygramMode.SELECT.name
+    }
+
+    // From the Telegram Home root, Back returns to mode choice instead of
+    // terminating the Activity. Inner folder/player BackHandlers take priority.
+    BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen == AppScreen.Home) {
+        modeName = BousygramMode.SELECT.name
     }
 
     BackHandler(enabled = authState.step == AuthStep.Authorized && appScreen !is AppScreen.Home && appScreen !is AppScreen.Player) {
@@ -155,6 +195,7 @@ private fun BousygramAppRoot(
     }
 
     when {
+        authState.step == AuthStep.Loading -> TelegramStartupLoadingScreen(authState.connectionStatus)
         authState.step != AuthStep.Authorized -> AuthScreen(viewModel = authViewModel)
         appScreen is AppScreen.Player -> {
             val screen = appScreen as AppScreen.Player
@@ -174,6 +215,22 @@ private fun BousygramAppRoot(
             }
             val lastPlayed = EnterprisePreferences.lastPlayed()
             val navFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+            if (appScreen == AppScreen.Home || appScreen == AppScreen.Library) {
+                // Dedicated, compact explorer owns Home navigation. Do not wrap
+                // a second oversized TV sidebar around the three-tab grid.
+                AuthorizedContent(
+                    appScreen = appScreen,
+                    themePreset = themePreset,
+                    onThemePresetChange = onThemePresetChange,
+                    searchFocus = searchFocus,
+                    onSearchFocusChange = { searchFocus = it },
+                    onAppScreenChange = { appScreen = it },
+                    resumeSignal = resumeSignal,
+                    onResumeConsumed = { resumeSignal = 0 },
+                    onBackToNavBar = {},
+                    onLogout = { authViewModel.logout() }
+                )
+            } else {
             BousygramAdaptiveShell(
                 selected = destination,
                 showResume = lastPlayed != null,
@@ -222,6 +279,7 @@ private fun BousygramAppRoot(
                     onBackToNavBar = { navFocusRequester.requestFocus() },
                     onLogout = { authViewModel.logout() }
                 )
+            }
             }
         }
     }

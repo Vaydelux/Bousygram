@@ -48,7 +48,41 @@ class MainActivitySmokeTest {
 
         val device = UiDevice.getInstance(instrumentation)
         assertTrue("Preview dashboard heading should be visible", device.wait(Until.hasObject(By.text("Bousygram")), 5_000))
-        assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Library")), 5_000))
+        assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Saved Messages")), 5_000))
+    }
+
+    /** Regression: Android can reuse the task's top Activity for a new launch intent. */
+    @Test
+    fun singleTopRelaunch_switchesBetweenRealModeAndDebugPreview() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val packageName = instrumentation.targetContext.packageName
+        val device = UiDevice.getInstance(instrumentation)
+
+        assertSuccessfulActivityStart(launchMainActivity(instrumentation, preview = true))
+        assertTrue(
+            "Debug preview must show its empty media grid",
+            device.wait(Until.hasObject(By.text("No playable media found in this folder")), 10_000)
+        )
+
+        // --activity-single-top delivers onNewIntent when MainActivity is on top.
+        val realOutput = instrumentation.runShellCommand(
+            "am start -W --activity-single-top -n $packageName/.app.MainActivity"
+        )
+        assertTrue(realOutput, realOutput.contains("Complete"))
+        assertTrue(
+            "Real mode chooser should replace the debug preview after onNewIntent",
+            device.wait(Until.hasObject(By.text("Choose how you want to explore.")), 10_000)
+        )
+
+        val previewOutput = instrumentation.runShellCommand(
+            "am start -W --activity-single-top -n $packageName/.app.MainActivity " +
+                "--ez ${MainActivity.EXTRA_UI_PREVIEW} true"
+        )
+        assertTrue(previewOutput, previewOutput.contains("Complete"))
+        assertTrue(
+            "Debug preview should return after a subsequent preview intent",
+            device.wait(Until.hasObject(By.text("No playable media found in this folder")), 10_000)
+        )
     }
 
     private fun launchMainActivity(
