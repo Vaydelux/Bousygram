@@ -136,23 +136,26 @@ internal fun SavedMessagesRepository.loadVideoChatsInternal(
                         listErrors[listIndex] = chatsResult.message
                     }
 
+                    // Finish this metadata batch BEFORE requesting more chat IDs.
+                    // Otherwise a large account accumulates thousands of GetChat /
+                    // GetSupergroup requests and can publish a terminal snapshot
+                    // while older detail callbacks are still running.
                     loadMissingDetails(ids) {
                         emitCurrentChats()
-                    }
-
-                    if (shouldContinue && chatsResult is TdApi.Chats && ids.size < maxVisibleChats) {
-                        client.send(TdApi.LoadChats(chatList, CHAT_PICKER_LOAD_BATCH)) { loadResult ->
-                            when (loadResult) {
-                                is TdApi.Ok -> syncAndLoadNext(shouldContinue = true)
-                                is TdApi.Error -> {
-                                    if (loadResult.code != 404) listErrors[listIndex] = loadResult.message
-                                    syncAndLoadNext(shouldContinue = false)
+                        if (shouldContinue && chatsResult is TdApi.Chats && ids.size < maxVisibleChats) {
+                            client.send(TdApi.LoadChats(chatList, CHAT_PICKER_LOAD_BATCH)) { loadResult ->
+                                when (loadResult) {
+                                    is TdApi.Ok -> syncAndLoadNext(shouldContinue = true)
+                                    is TdApi.Error -> {
+                                        if (loadResult.code != 404) listErrors[listIndex] = loadResult.message
+                                        syncAndLoadNext(shouldContinue = false)
+                                    }
+                                    else -> syncAndLoadNext(shouldContinue = false)
                                 }
-                                else -> syncAndLoadNext(shouldContinue = false)
                             }
+                        } else {
+                            finishChatList()
                         }
-                    } else {
-                        finishChatList()
                     }
                 }
             }
