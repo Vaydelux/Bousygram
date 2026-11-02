@@ -154,10 +154,31 @@ internal object TelegramChunkScheduler {
     const val HEAD_BURST_BYTES = 2L * 1024L * 1024L
     const val TAIL_BURST_BYTES = 4L * 1024L * 1024L
 
-    @Volatile
-    private var ewmaThroughputBps: Double = 3_000_000.0 // 3 MB/s default initial estimate
+    // This is a startup fallback for cache runway estimates, not a measured rate.
+    @Volatile private var ewmaThroughputBps: Double = 3_000_000.0
+    @Volatile private var hasMeasuredNetworkThroughput: Boolean = false
 
-    fun getAverageThroughput(): Long = ewmaThroughputBps.toLong()
+    /** Returns zero until a real TDLib UpdateFile transfer has been observed. */
+    fun getAverageThroughput(): Long =
+        if (hasMeasuredNetworkThroughput) ewmaThroughputBps.toLong() else 0L
+
+    private data class DownloadProgressSnapshot(
+        val offset: Long,
+        val prefixBytes: Long,
+        val observedAtMs: Long
+    )
+
+    private val downloadProgress = ConcurrentHashMap<Int, DownloadProgressSnapshot>()
+
+    /** Only monotonic growth in the *same* TDLib download window counts as transfer. */
+    internal fun downloadedByteDelta(
+        previousOffset: Long,
+        previousPrefix: Long,
+        nextOffset: Long,
+        nextPrefix: Long
+    ): Long = if (previousOffset == nextOffset && nextPrefix > previousPrefix) {
+        nextPrefix - previousPrefix
+    } else 0L
 
     private data class ChunkKey(
         val fileId: Int,
@@ -227,6 +248,31 @@ internal object TelegramChunkScheduler {
 
     fun onFileUpdated(file: TelegramGatewayFile) {
         latestFiles[file.fileId] = file
+        // Cache reads and ReadFilePart return bytes immediately, so timing those
+        // operations measures disk/IPC speed, NOT Telegram network throughput.
+        // Sample only positive contiguous TDLib download-prefix growth.
+        val nowMs = System.nanoTime() / 1_000_000L
+        var transferSample: Pair<Long, Long>? = null
+        if (file.isDownloadingActive && !file.isDownloadingCompleted) {
+            downloadProgress.compute(file.fileId) { _, previous ->
+                val next = DownloadProgressSnapshot(
+                    file.downloadOffset, file.downloadedPrefixSize.coerceAtLeast(0L), nowMs
+                )
+                if (previous == null) return@compute next
+                val elapsed = nowMs - previous.observedAtMs
+                if (elapsed in 0L..249L && previous.offset == next.offset &&
+                    next.prefixBytes >= previous.prefixBytes
+                ) return@compute previous // accumulate enough time for a stable rate
+                val bytes = downloadedByteDelta(
+                    previous.offset, previous.prefixBytes, next.offset, next.prefixBytes
+                )
+                if (bytes > 0L && elapsed >= 250L) transferSample = bytes to elapsed
+                next
+            }
+        } else {
+            downloadProgress.remove(file.fileId)
+        }
+        transferSample?.let { (bytes, elapsed) -> recordNetworkTransfer(file.fileId, bytes, elapsed) }
         if (file.isDownloadingCompleted) {
             cacheStates[file.fileId] = PlaybackCacheState.Cached
         } else if (cacheStates[file.fileId] == PlaybackCacheState.Cached) {
@@ -311,6 +357,9 @@ internal object TelegramChunkScheduler {
         scope.coroutineContext[Job]?.cancelChildren()
         playbackBusyUntilMs.clear()
         downloadWindows.clear()
+        downloadProgress.clear()
+        ewmaThroughputBps = 3_000_000.0
+        hasMeasuredNetworkThroughput = false
         fileSizes.clear()
         fileDurationsMs.clear()
         savedTails.clear()
@@ -412,6 +461,7 @@ internal object TelegramChunkScheduler {
             }
         }
         downloadWindows.remove(effectiveId)
+        downloadProgress.remove(effectiveId)
         playbackBusyUntilMs.remove(effectiveId)
         playbackReady.remove(effectiveId)
         coldStartFiles.remove(effectiveId)
@@ -420,12 +470,17 @@ internal object TelegramChunkScheduler {
         }
     }
 
-    private fun recordChunkSample(fileId: Int, bytes: Int, durationMs: Long) {
-        if (bytes <= 0 || durationMs <= 0) return
-        val sampleBps = (bytes.toDouble() * 1000.0) / durationMs.toDouble()
-        val alpha = 0.2
-        ewmaThroughputBps = alpha * sampleBps + (1.0 - alpha) * ewmaThroughputBps
-        if (fileId > 0) {
+    private fun recordNetworkTransfer(fileId: Int, bytes: Long, durationMs: Long) {
+        if (bytes <= 0L || durationMs <= 0L) return
+        // Drop implausibly large samples (window jumps/replays) instead of
+        // inflating the bandwidth estimate used for adaptive cache decisions.
+        val rate = (bytes.toDouble() * 1000.0) / durationMs.toDouble()
+        if (rate <= 0.0 || rate > 64.0 * 1024.0 * 1024.0) return
+        synchronized(downloadProgress) {
+            ewmaThroughputBps = if (hasMeasuredNetworkThroughput) {
+                0.2 * rate + 0.8 * ewmaThroughputBps
+            } else rate
+            hasMeasuredNetworkThroughput = true
             PlaybackTelemetryRecorder.recordThroughput(fileId, ewmaThroughputBps.toLong())
         }
     }
@@ -974,7 +1029,6 @@ internal object TelegramChunkScheduler {
         var file = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
         readReadyChunk(file, request)?.let { ready ->
             PlaybackTelemetryRecorder.recordCacheHit(request.fileId, ready.bytes.size)
-            recordChunkSample(request.fileId, ready.bytes.size, System.currentTimeMillis() - fetchStart)
             return ready
         }
         PlaybackTelemetryRecorder.recordCacheMiss(request.fileId)
@@ -985,7 +1039,6 @@ internal object TelegramChunkScheduler {
         file = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
         if (ready || file != null) {
             readReadyChunk(file, request)?.let { chunk ->
-                recordChunkSample(request.fileId, chunk.bytes.size, System.currentTimeMillis() - fetchStart)
                 return chunk
             }
         }
@@ -1000,7 +1053,6 @@ internal object TelegramChunkScheduler {
             ready = awaitPrefixReady(request.fileId, request.offset, neededBytes, timeoutMs = STALL_MS)
             file = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
             readReadyChunk(file, request)?.let { chunk ->
-                recordChunkSample(request.fileId, chunk.bytes.size, System.currentTimeMillis() - fetchStart)
                 return chunk
             }
         }
@@ -1008,11 +1060,9 @@ internal object TelegramChunkScheduler {
         val finalFile = latestFiles[request.fileId] ?: getFileStatus(request.fileId) ?: file
         if (finalFile != null) {
             readExactChunkFromDisk(finalFile, request.offset, request.limit)?.let { bytes ->
-                recordChunkSample(request.fileId, bytes.size, System.currentTimeMillis() - fetchStart)
                 return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.DirectDisk, retryCount = 0)
             }
             readChunkViaTdLib(request.fileId, request.offset, request.limit)?.let { bytes ->
-                recordChunkSample(request.fileId, bytes.size, System.currentTimeMillis() - fetchStart)
                 return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.ReadFilePart, retryCount = 0)
             }
         }
