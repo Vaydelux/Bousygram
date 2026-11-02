@@ -274,8 +274,20 @@ internal object TelegramChunkScheduler {
         backgroundPaused.set(false)
     }
 
-    internal fun isPlaybackBusy(fileId: Int): Boolean =
-        (playbackBusyUntilMs[resolveEffectiveFileId(fileId)] ?: 0L) > System.currentTimeMillis()
+    internal fun isPlaybackBusy(fileId: Int): Boolean {
+        val effectiveId = resolveEffectiveFileId(fileId)
+        if ((playbackBusyUntilMs[effectiveId] ?: 0L) > System.currentTimeMillis()) return true
+        // A long network stall can outlive the short activity timestamp. Protect
+        // the foreground download window for as long as a real player owns it.
+        // Prefetch and Offline consumers alone must not block background work.
+        return synchronized(leaseLock) {
+            activeLeases.values.any { lease ->
+                lease.fileId == effectiveId &&
+                    (lease.consumer == TelegramStreamConsumer.ExoPlayer ||
+                        lease.consumer == TelegramStreamConsumer.LocalHttp)
+            }
+        }
+    }
 
     internal fun noteFileSize(fileId: Int, size: Long) {
         val effectiveId = resolveEffectiveFileId(fileId)
