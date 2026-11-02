@@ -93,6 +93,12 @@ jobs:
           RELEASE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
+          # Fail closed until main has enforced review and CI rules.
+          protected="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.protected')"
+          [[ "$protected" == "true" ]] || {
+            echo '::error title=Unprotected main::Configure branch protection/rulesets and required CI checks before requesting production release.' >&2
+            exit 1
+          }
           runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-enterprise.yml/runs?head_sha=$RELEASE_SHA&event=push&per_page=100")"
           # shellcheck disable=SC2016
           ci_run_id="$(jq -r --arg sha "$RELEASE_SHA" '
