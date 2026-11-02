@@ -18,6 +18,10 @@ import kotlin.math.min
 object TelegramPreCacheEngine {
     private const val TAG = "TelegramPreCacheEngine"
     private const val HEAD_PRIME_BYTES = 2L * 1024L * 1024L
+    // 32 KiB is enough to see a header, but generally insufficient to call a
+    // next episode 'primed' on slower Telegram links. Require a useful runway.
+    internal fun requiredPrimedHeadBytes(headLength: Long): Int =
+        min(headLength.coerceAtLeast(1L), 256L * 1024L).toInt()
     private const val CACHE_AHEAD_BYTES = 32L * 1024L * 1024L
     private const val MIN_CACHE_AHEAD_SHIFT_BYTES = 8L * 1024L * 1024L
     private const val PRIME_PRIORITY = 12
@@ -76,8 +80,8 @@ object TelegramPreCacheEngine {
                 headReady = TelegramChunkScheduler.awaitPrefixReady(
                     fileId = fileId,
                     offset = 0L,
-                    minNeededBytes = min(headLength, 32L * 1024L).toInt().coerceAtLeast(1),
-                    timeoutMs = 750L
+                    minNeededBytes = requiredPrimedHeadBytes(headLength),
+                    timeoutMs = 2_500L
                 )
                 if (headReady && includeTail && size > 4L * 1024L * 1024L &&
                     !TelegramChunkScheduler.isPlaybackBusy(fileId)
