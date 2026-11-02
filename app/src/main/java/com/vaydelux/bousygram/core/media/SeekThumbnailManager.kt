@@ -10,6 +10,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/** Select a small byte-based budget for low-memory / 32-bit devices. */
+internal fun seekPreviewCacheBudgetKiB(heapMaxBytes: Long, isLowRam: Boolean): Int {
+    val fraction = if (isLowRam) 96L else 48L
+    val maxKiB = if (isLowRam) 2_048L else 6_144L
+    return (heapMaxBytes.coerceAtLeast(0L) / fraction / 1024L)
+        .coerceIn(1_024L, maxKiB).toInt()
+}
+
 /**
  * Generates and caches 8 frame preview snapshots per video file for frame-accurate seeking
  * on TV and mobile scrubber strips.
@@ -20,14 +28,30 @@ object SeekThumbnailManager {
     private const val TARGET_WIDTH = 160
     private const val TARGET_HEIGHT = 90
 
-    // Keep up to 24 video snapshot sets in memory (24 * 8 * 160 * 90 * 4B ≈ 11 MB RAM)
-    private val memoryCache = object : LruCache<String, List<Bitmap>>(24) {
-        override fun entryRemoved(evicted: Boolean, key: String?, oldValue: List<Bitmap>?, newValue: List<Bitmap>?) {
-            // Memory is managed by Android GC
+    // Count-based eviction lets full-resolution or unexpectedly large Bitmap
+    // allocations consume substantially more RAM than expected. Limit by bytes.
+    private val memoryCache by lazy {
+        val lowRam = runCatching {
+            PlayerBufferConfig.isLowRamDevice(
+                com.vaydelux.bousygram.app.BousygramApp.instance
+            )
+        }.getOrDefault(true)
+        object : LruCache<String, List<Bitmap>>(
+            seekPreviewCacheBudgetKiB(Runtime.getRuntime().maxMemory(), lowRam)
+        ) {
+            override fun sizeOf(key: String, value: List<Bitmap>): Int {
+                val bytes = value.sumOf { it.byteCount.toLong().coerceAtLeast(0L) }
+                return ((bytes + 1023L) / 1024L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+            }
         }
     }
 
     fun invalidateAccountResources() = memoryCache.evictAll()
+
+    fun trimMemory(critical: Boolean) {
+        if (critical) memoryCache.evictAll()
+        else memoryCache.trimToSize((memoryCache.maxSize() / 2).coerceAtLeast(1))
+    }
 
     private fun scopedKey(key: String): String? = AccountSession.current()?.let { "${it.accountId}:${it.generation}:$key" }
 
