@@ -30,6 +30,7 @@ sealed class VideoPlayerUiState {
     data object Loading : VideoPlayerUiState()
     data object Playing : VideoPlayerUiState()
     data object Buffering : VideoPlayerUiState()
+    data object Paused : VideoPlayerUiState()
     data class Error(val message: String) : VideoPlayerUiState()
     data object Ended : VideoPlayerUiState()
 }
@@ -48,20 +49,37 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var bufferingJob: Job? = null
     private var activeSession: PlaybackSession? = null
     private var currentErrorRetryCount = 0
+    private var resumeAfterBackground = false
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            PlaybackSessionController.setVideoPlaying(isPlaying)
+            // Output can stop during cache stalls without the user requesting Pause.
+            val playRequested = player.playWhenReady
+            PlaybackSessionController.setVideoPlaying(
+                isPlaying || (playRequested && player.playbackState == Player.STATE_BUFFERING)
+            )
+            if (!playRequested && player.playbackState == Player.STATE_READY) {
+                setState(VideoPlayerUiState.Paused)
+            }
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady && player.playbackState == Player.STATE_READY) {
+                setState(VideoPlayerUiState.Paused)
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
-                Player.STATE_BUFFERING -> showBufferingDebounced()
+                Player.STATE_BUFFERING -> {
+                    if (player.playWhenReady) showBufferingDebounced()
+                    else setState(VideoPlayerUiState.Paused)
+                }
                 Player.STATE_READY -> {
                     if (player.currentPosition > 0L) {
                         lastGoodPositionMs = player.currentPosition
                     }
-                    setState(VideoPlayerUiState.Playing)
+                    setState(if (player.playWhenReady) VideoPlayerUiState.Playing else VideoPlayerUiState.Paused)
                 }
                 Player.STATE_ENDED -> setState(VideoPlayerUiState.Ended)
                 Player.STATE_IDLE -> {
@@ -119,23 +137,41 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         lastGoodPositionMs = 0L
         currentErrorRetryCount = 0
 
+        resumeAfterBackground = false
         setState(VideoPlayerUiState.Loading)
         TelegramProxyManager.startProxy()
         playOption(playbackOptions.first(), resumePositionMs = 0L)
     }
 
+    /** User pause must survive buffering, lifecycle transitions and Activity recreation. */
     fun pausePlayback() {
+        resumeAfterBackground = false
         player.pause()
+        setState(VideoPlayerUiState.Paused)
     }
 
     fun resumePlayback() {
-        if (player.mediaItemCount > 0 && (player.playWhenReady || player.playbackState == Player.STATE_READY)) {
+        if (player.mediaItemCount > 0) {
             primeActiveOption()
             player.play()
         }
     }
 
+    fun onActivityStopped() {
+        resumeAfterBackground = player.playWhenReady
+        player.pause()
+        PlaybackSessionController.setVideoPlaying(false)
+    }
+
+    fun onActivityStarted() {
+        if (resumeAfterBackground) {
+            resumeAfterBackground = false
+            resumePlayback()
+        }
+    }
+
     fun stopPlayback() {
+        resumeAfterBackground = false
         bufferingJob?.cancel()
         player.pause()
         stopActiveCaching(PlaybackCacheStopReason.ViewModelStop)
@@ -154,7 +190,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         bufferingJob?.cancel()
         bufferingJob = viewModelScope.launch {
             delay(BUFFERING_DEBOUNCE_MS)
-            if (player.playbackState == Player.STATE_BUFFERING) {
+            if (player.playbackState == Player.STATE_BUFFERING && player.playWhenReady) {
                 _uiState.value = VideoPlayerUiState.Buffering
             }
         }
