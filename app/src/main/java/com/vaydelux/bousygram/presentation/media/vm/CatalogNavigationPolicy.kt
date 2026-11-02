@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.media.vm
 
+import com.vaydelux.bousygram.domain.model.MediaItem
+
 /**
  * Pure guards for account-scoped catalog pagination and in-folder searching.
  * Kept free of Android dependencies so boundary cases can be covered in JVM tests.
@@ -21,3 +23,9 @@ internal fun resolvedPageCursor(current: Long, returned: Long, isFinal: Boolean,
 
 internal fun freshCatalogTimestamp(savedAtMs: Long, nowMs: Long, ttlMs: Long): Boolean =
     ttlMs >= 0L && nowMs >= savedAtMs && nowMs - savedAtMs <= ttlMs
+
+/** Saved Messages must never display media from another Telegram chat or a global recent index. */
+internal fun savedMessagesOnly(items: List<MediaItem>, savedMessagesChatId: Long?): List<MediaItem> {
+    val id = savedMessagesChatId?.takeIf { it != 0L } ?: return emptyList()
+    return items.filter { it.chatId == id }
+}

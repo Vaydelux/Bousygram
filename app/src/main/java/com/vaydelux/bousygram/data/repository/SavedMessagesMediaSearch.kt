@@ -59,7 +59,7 @@ internal fun SavedMessagesRepository.searchMediaProgressiveInternal(
         // playable videos; normal results never wait for history scanning.
         loadMediaFromHistoryInternal(chatId, fromMessageId, pageLimit, topicId) { historyItems ->
             val finalItems = historyItems
-                .filter { it.type == MediaType.Video && it.fileId != null }
+                .filter { it.chatId == chatId && it.type == MediaType.Video && it.fileId != null }
                 .dedupeAndSort()
                 .take(pageLimit)
             val sequence = synchronized(lock) { ++updateSequence }
@@ -85,7 +85,7 @@ internal fun SavedMessagesRepository.searchMediaProgressiveInternal(
             if (!error.isNullOrBlank() && firstError == null) firstError = error
             snapshot = results
                 .asSequence()
-                .filter { it.type == MediaType.Video && it.fileId != null }
+                .filter { it.chatId == chatId && it.type == MediaType.Video && it.fileId != null }
                 .toList()
                 .dedupeAndSort()
                 .take(pageLimit)
@@ -184,7 +184,7 @@ private fun SavedMessagesRepository.loadMediaFromHistoryInternal(
 
                     val pageItems = messages
                         .mapNotNull { mapMessageToMediaInternal(it, topicId?.toLong()) }
-                        .filter { it.type == MediaType.Video && it.fileId != null }
+                        .filter { it.chatId == chatId && it.type == MediaType.Video && it.fileId != null }
                         .filter {
                             if (topicId == null || topicId == 0) true
                             else it.messageThreadId == topicId.toLong() ||
