@@ -29,6 +29,23 @@ class ExplorerSourcePolicyTest {
     }
 
     @Test
+    fun directoryStatusReflectsIncrementalSyncWithoutClaimingTotalMedia() {
+        assertEquals("2 channels found · Still syncing",
+            explorerDirectoryStatus(ExplorerSection.CHANNELS, 2, loading = true))
+        assertEquals("3 groups available",
+            explorerDirectoryStatus(ExplorerSection.GROUPS, 3, loading = false))
+    }
+
+    @Test
+    fun folderDetailsComeFromVerifiedTelegramSourceType() {
+        assertEquals("Channel", explorerSourceLabel(chats[1]))
+        assertEquals("Browse channel media and files", explorerSourceDetail(chats[1]))
+        assertEquals("Group", explorerSourceLabel(chats[2]))
+        assertEquals("Forum group", explorerSourceLabel(chats[3]))
+        assertEquals("Explore topics and shared media", explorerSourceDetail(chats[3]))
+    }
+
+    @Test
     fun savedMessagesIsNotDuplicatedAsSourceFolder() {
         assertTrue(explorerSources(chats, ExplorerSection.SAVED).isEmpty())
     }
