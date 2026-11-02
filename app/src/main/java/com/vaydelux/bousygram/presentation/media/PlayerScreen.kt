@@ -1044,14 +1044,13 @@ fun PlayerScreen(
         streamingSessionManager.acquireLocks()
         // A transient lifecycle pause must not become a permanent user pause.
         // Buffering can report isPlaying=false even when autoplay is armed.
-        var resumeAfterLifecyclePause = false
+        val foregroundIntent = ForegroundPlaybackIntent()
         val activity = context as? androidx.activity.ComponentActivity
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> streamingSessionManager.acquireLocks()
                 Lifecycle.Event.ON_PAUSE -> {
-                    resumeAfterLifecyclePause = activeLifecycleEngine.playWhenReady
-                    if (resumeAfterLifecyclePause) {
+                    if (foregroundIntent.onActivityPaused(activeLifecycleEngine.playWhenReady)) {
                         activeLifecycleEngine.pause()
                     }
                     queue.getOrNull(activeLifecycleQueueIndex)?.let { current ->
@@ -1068,8 +1067,7 @@ fun PlayerScreen(
                     }
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    if (resumeAfterLifecyclePause) {
-                        resumeAfterLifecyclePause = false
+                    if (foregroundIntent.consumeResume()) {
                         activeLifecycleEngine.play()
                     }
                 }
