@@ -1098,13 +1098,17 @@ fun PlayerScreen(
                 val current = queue.getOrNull(activeLifecycleQueueIndex)
             val totalPlayTime = System.currentTimeMillis() - playerSessionStartMs
             if (current != null && totalPlayTime > 1_000L) {
-                val rebufferTime = rebufferCount * 1_500L
-                val rebufferRatio = if (totalPlayTime > 0) (rebufferTime.toFloat() / totalPlayTime.toFloat()).coerceIn(0f, 1f) else 0f
+                // Record observed stall duration, never a fabricated fixed 1.5s/stall.
+                // A session may be disposed while the last buffering interval is open.
+                val rebufferTime = measuredRebufferDurationMs(
+                    totalRebufferMs, rebufferStartMs, System.currentTimeMillis()
+                ).coerceAtMost(totalPlayTime)
+                val rebufferRatio = (rebufferTime.toFloat() / totalPlayTime.toFloat()).coerceIn(0f, 1f)
                 StreamHealthTelemetry.recordSession(
                     SessionHealthRecord(
                         sessionId = "sess_${System.currentTimeMillis()}",
                         fileId = current.fileId,
-                        ttfbMs = firstFrameMs.takeIf { it > 0 } ?: 0L,
+                        ttfbMs = timeToFirstByteMs.takeIf { it > 0L } ?: 0L,
                         stallCount = rebufferCount,
                         totalPlayTimeMs = totalPlayTime,
                         totalRebufferTimeMs = rebufferTime,
