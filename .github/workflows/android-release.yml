@@ -76,7 +76,12 @@ jobs:
           resolved="$(git rev-parse "refs/tags/$RELEASE_TAG^{}")"
           [[ "$resolved" == "$RELEASE_SHA" ]] || { echo "Tag $RELEASE_TAG resolves to $resolved, not $RELEASE_SHA" >&2; exit 1; }
           git fetch origin main --force
-          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || { echo 'Release commit is not in protected origin/main lineage' >&2; exit 1; }
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || { echo 'Release commit is not in origin/main lineage' >&2; exit 1; }
+          protected="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protected')"
+          [[ "$protected" == "true" ]] || {
+            echo '::error title=Unprotected main::Release blocked until main is protected with required CI/reviews.' >&2
+            exit 1
+          }
           runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/android-enterprise.yml/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100")"
           # shellcheck disable=SC2016
           run_id="$(jq -r --arg sha "$RELEASE_SHA" '
