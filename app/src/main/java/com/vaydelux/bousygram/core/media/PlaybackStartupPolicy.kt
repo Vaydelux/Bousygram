@@ -13,3 +13,13 @@ internal fun shouldFailPlaybackStartup(
     startedAtMs: Long
 ): Boolean = sameEngine && sameStartTimestamp && startedAtMs > 0L &&
     !hasInitialOutput && !hasPlaybackError
+
+
+/** A ready engine may still be stopped after async demux/cache handoff.
+ * Only reassert Play when the user's intent is still armed; explicit Pause wins.
+ */
+internal fun shouldReassertPlaybackOnReady(
+    ready: Boolean,
+    playWhenReady: Boolean,
+    isPlaying: Boolean
+): Boolean = ready && playWhenReady && !isPlaying
