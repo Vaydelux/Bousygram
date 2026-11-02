@@ -345,7 +345,8 @@ class TelegramChunkSchedulerTest {
             bytes = bytes,
             completed = false,
             downloadOffset = 0L,
-            downloadedPrefixSize = 2L * 1024L * 1024L
+            downloadedPrefixSize = 2L * 1024L * 1024L,
+            enforcePartialRanges = true
         )
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(70, totalSize.toLong())
@@ -488,7 +489,8 @@ class TelegramChunkSchedulerTest {
         private val completed: Boolean = true,
         private val downloadOffset: Long = 0L,
         private val downloadedPrefixSize: Long = bytes.size.toLong(),
-        private val downloadDelayMs: Long = 0L
+        private val downloadDelayMs: Long = 0L,
+        private val enforcePartialRanges: Boolean = false
     ) : TelegramFileGateway {
         private val tempFile = File.createTempFile("fake-tdlib", ".bin").apply {
             writeBytes(bytes)
@@ -542,13 +544,21 @@ class TelegramChunkSchedulerTest {
             }
         }
 
-        override suspend fun downloadedPrefixSize(fileId: Int, offset: Long): Long =
-            bytes.size.toLong().coerceAtLeast(downloadedPrefixSize)
+        override suspend fun downloadedPrefixSize(fileId: Int, offset: Long): Long {
+            if (!enforcePartialRanges || completed) return bytes.size.toLong()
+            val windowStart = downloadRecords.lastOrNull { it.fileId == fileId }?.offset ?: downloadOffset
+            return if (offset < windowStart) 0L
+                else (downloadedPrefixSize - (offset - windowStart)).coerceAtLeast(0L)
+        }
 
         override suspend fun getFile(fileId: Int): TelegramGatewayFile =
             file(fileId)
 
         override suspend fun readFilePart(fileId: Int, offset: Long, limit: Int): ByteArray? {
+            if (enforcePartialRanges && !completed) {
+                val windowStart = downloadRecords.lastOrNull { it.fileId == fileId }?.offset ?: downloadOffset
+                if (offset < windowStart || offset + limit > windowStart + downloadedPrefixSize) return null
+            }
             val start = offset.toInt()
             val end = (offset + limit).toInt().coerceAtMost(bytes.size)
             return if (start in 0 until end && end - start == limit) bytes.copyOfRange(start, end) else null
