@@ -8,6 +8,21 @@ import org.junit.Test
 
 class PlaybackHelpersTest {
     @Test
+    fun activePlaybackExcludesPausesAndNetworkStalls() {
+        val clock = ActivePlaybackClock()
+        clock.reset(1_000L)
+        clock.update(true, 2_000L)
+        clock.update(false, 7_000L)
+        assertEquals(5_000L, clock.activeDurationMs(12_000L))
+        clock.update(true, 15_000L)
+        assertEquals(7_000L, clock.activeDurationMs(17_000L))
+        clock.update(false, 17_000L)
+        assertEquals(7_000L, clock.activeDurationMs(30_000L))
+        clock.reset(40_000L)
+        assertEquals(0L, clock.activeDurationMs(90_000L))
+    }
+
+    @Test
     fun bufferingDurationUsesActualTimeAndIncludesActiveStall() {
         assertEquals(0L, measuredRebufferDurationMs(0L, 0L, 50_000L))
         assertEquals(4_200L, measuredRebufferDurationMs(1_200L, 10_000L, 13_000L))
