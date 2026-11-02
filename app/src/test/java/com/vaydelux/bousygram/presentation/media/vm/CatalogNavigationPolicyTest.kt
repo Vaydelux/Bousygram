@@ -51,6 +51,19 @@ class CatalogNavigationPolicyTest {
         assertEquals(listOf(channelVideo), savedMessagesOnly(listOf(channelVideo), 320L))
     }
 
+    @Test fun continueWatchingIsScopedToTheSelectedTelegramChat() {
+        // This was the remaining cross-chat navigation leak after saved-media filtering.
+        assertTrue(canResumeInSource(true, 91L, 320L, 91L))
+        assertFalse(canResumeInSource(true, 91L, 320L, 320L))
+        assertFalse(canResumeInSource(true, 91L, 320L, 450L))
+        assertFalse(canResumeInSource(true, null, 320L, 320L))
+        assertFalse(canResumeInSource(true, 0L, 320L, 320L))
+        assertFalse(canResumeInSource(true, 91L, 320L, null))
+        assertTrue(canResumeInSource(false, 91L, 320L, 320L))
+        assertFalse(canResumeInSource(false, 91L, 320L, 91L))
+        assertFalse(canResumeInSource(false, 91L, null, 91L))
+    }
+
     @Test fun paginationErrorKeepsOldCursorAndAllowsRetry() {
         assertEquals(200L, resolvedPageCursor(200L, 0L, true, "network offline"))
         assertEquals(200L, resolvedPageCursor(200L, 150L, false, null))
