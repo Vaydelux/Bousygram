@@ -82,7 +82,7 @@ class FocusPrefetchManagerTest {
     }
 
     @Test
-    fun testMp4PrefetchDownloadsFirstAndLast2Mb() = runBlocking {
+    fun testMp4PrefetchDoesNotDisplaceStartupHeadWithTail() = runBlocking {
         val totalSize = 20L * 1024L * 1024L
         val item = createMediaItem(
             fileId = 301,
@@ -96,18 +96,12 @@ class FocusPrefetchManagerTest {
         Thread.sleep(600)
 
         val records = gateway.downloadRecords.filter { it.fileId == 301 }
-        assertEquals("MP4 should request both head and tail", 2, records.size)
+        assertEquals("MP4 focus prefetch must not override the head window", 1, records.size)
 
         val head = records[0]
         assertEquals(0L, head.offset)
         assertEquals(2 * 1024 * 1024, head.limit)
         assertEquals(FocusPrefetchManager.LOW_PRIORITY, head.priority)
-
-        val tail = records[1]
-        val expectedTailOffset = totalSize - (2L * 1024L * 1024L)
-        assertEquals(expectedTailOffset, tail.offset)
-        assertEquals(2 * 1024 * 1024, tail.limit)
-        assertEquals(FocusPrefetchManager.LOW_PRIORITY, tail.priority)
     }
 
     @Test
