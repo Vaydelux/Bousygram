@@ -64,6 +64,15 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun networkBandwidthEstimateExpiresAfterFifteenSeconds() {
+        assertFalse(TelegramChunkScheduler.isNetworkEstimateFresh(0L, 10_000L))
+        assertTrue(TelegramChunkScheduler.isNetworkEstimateFresh(10_000L, 15_000L))
+        assertTrue(TelegramChunkScheduler.isNetworkEstimateFresh(10_000L, 25_000L))
+        assertFalse(TelegramChunkScheduler.isNetworkEstimateFresh(10_000L, 25_001L))
+        assertFalse(TelegramChunkScheduler.isNetworkEstimateFresh(10_000L, 9_999L))
+    }
+
+    @Test
     fun downloadWindowProgressNeverCountsSeekJumpsAsNetworkBytes() {
         assertEquals(4096L, TelegramChunkScheduler.downloadedByteDelta(0L, 1024L, 0L, 5120L))
         assertEquals(0L, TelegramChunkScheduler.downloadedByteDelta(0L, 5120L, 8192L, 4096L))
