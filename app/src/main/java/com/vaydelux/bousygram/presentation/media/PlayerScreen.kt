@@ -290,6 +290,9 @@ fun PlayerScreen(
     var speed by remember { mutableFloatStateOf(EnterprisePreferences.preferredSpeed()) }
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
+    val activePlaybackClock = remember { ActivePlaybackClock().apply {
+        reset(android.os.SystemClock.elapsedRealtime())
+    } }
     var isOpening by remember { mutableStateOf(true) }
     var isReconnecting by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
@@ -792,6 +795,11 @@ fun PlayerScreen(
         val streamActive = isPlaying || (playerEngine.playWhenReady &&
             (isBuffering || isOpening || isReconnecting))
         PlaybackSessionController.setVideoPlaying(streamActive)
+        // Count decoded playback, not the time spent paused or waiting for bytes.
+        activePlaybackClock.update(
+            isPlaying && !isBuffering && !isOpening && playerEngine.isPlaying,
+            android.os.SystemClock.elapsedRealtime()
+        )
     }
 
     LaunchedEffect(isPlaying, isBuffering, isOpening, isReconnecting, playerEngine, position, speed, title, duration) {
@@ -1097,13 +1105,16 @@ fun PlayerScreen(
                 runCatching { commitPlaybackTelemetry() }
                     .onFailure { Log.w("BousygramPlayer", "Unable to record disposal metrics", it) }
                 val current = queue.getOrNull(activeLifecycleQueueIndex)
-            val totalPlayTime = System.currentTimeMillis() - playerSessionStartMs
+            // Wall time includes manual pauses, backgrounding and time in menus.
+            // Only output time plus real stalls belongs in a rebuffer ratio.
+            val outputTimeMs = activePlaybackClock.activeDurationMs(
+                android.os.SystemClock.elapsedRealtime()
+            )
+            val rebufferTime = measuredRebufferDurationMs(
+                totalRebufferMs, rebufferStartMs, System.currentTimeMillis()
+            )
+            val totalPlayTime = outputTimeMs + rebufferTime
             if (current != null && totalPlayTime > 1_000L) {
-                // Record observed stall duration, never a fabricated fixed 1.5s/stall.
-                // A session may be disposed while the last buffering interval is open.
-                val rebufferTime = measuredRebufferDurationMs(
-                    totalRebufferMs, rebufferStartMs, System.currentTimeMillis()
-                ).coerceAtMost(totalPlayTime)
                 val rebufferRatio = (rebufferTime.toFloat() / totalPlayTime.toFloat()).coerceIn(0f, 1f)
                 StreamHealthTelemetry.recordSession(
                     SessionHealthRecord(
@@ -1163,6 +1174,7 @@ fun PlayerScreen(
             commitPlaybackTelemetry()
         }
         playbackSessionId = "pb_${System.currentTimeMillis()}_$queueIndex"
+        activePlaybackClock.reset(android.os.SystemClock.elapsedRealtime())
         playbackCommitted = false
         hasFallenBackToMpv = false
         timeToFirstByteMs = 0L
