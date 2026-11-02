@@ -52,44 +52,18 @@ class CacheManagerTest {
     }
 
     @Test
-    fun preloadNextEpisode_triggersOncePerEpisode() {
-        var preloads = 0
-        val preloadedSet = mutableSetOf<Int>()
+    fun nextEpisodePrefetchRequiresHealthyForegroundBuffer() {
+        fun permits(position: Long, buffered: Long, busy: Boolean = false, play: Boolean = true) =
+            CacheManager.shouldPreloadNextEpisode(position, 100_000L, buffered, busy, play)
 
-        fun testPreload(nextFileId: Int) {
-            if (preloadedSet.add(nextFileId)) {
-                preloads++
-            }
-        }
-
-        // T = 70% of 100s: no preload
-        val durationMs = 100_000L
-        var posMs = 70_000L
-        if (posMs >= (durationMs * 0.80)) {
-            testPreload(999)
-        }
-        assertEquals(0, preloads)
-
-        // T = 80% of 100s: triggers preload
-        posMs = 80_000L
-        if (posMs >= (durationMs * 0.80)) {
-            testPreload(999)
-        }
-        assertEquals(1, preloads)
-
-        // T = 85% of 100s: deduplicated, no additional preload
-        posMs = 85_000L
-        if (posMs >= (durationMs * 0.80)) {
-            testPreload(999)
-        }
-        assertEquals(1, preloads)
-
-        // New episode 1001 reaches 80%: triggers exactly once
-        posMs = 80_000L
-        if (posMs >= (durationMs * 0.80)) {
-            testPreload(1001)
-        }
-        assertEquals(2, preloads)
+        assertFalse(permits(70_000L, 100_000L)) // below 80%
+        assertFalse(permits(80_000L, 82_000L)) // short lead
+        assertFalse(permits(80_000L, 99_000L, busy = true)) // rebuffering
+        assertFalse(permits(80_000L, 99_000L, play = false)) // manual pause
+        assertTrue(permits(80_000L, 95_000L))
+        assertTrue(permits(97_000L, 100_000L)) // near end: only remaining bytes needed
+        assertFalse(permits(100_000L, 100_000L)) // already ended
+        assertFalse(CacheManager.shouldPreloadNextEpisode(80L, 0L, 100L, false, true))
     }
 
     @Test
