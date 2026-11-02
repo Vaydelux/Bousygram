@@ -14,8 +14,8 @@ class SavedMessagesRepository {
     }
 
     internal val client = TdLibClient.accountClient()
-    internal var cachedMeId: Long? = null
-    internal var cachedSavedMessagesChatId: Long? = null
+    @Volatile internal var cachedMeId: Long? = null
+    @Volatile internal var cachedSavedMessagesChatId: Long? = null
 
     fun shutdown() {
         cachedMeId = null
