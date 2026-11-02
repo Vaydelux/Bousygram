@@ -504,15 +504,6 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(castState.connected, castState.positionMs, castState.playbackStatus) {
-        if (!castState.connected) return@LaunchedEffect
-        lastCastPositionMs = castState.positionMs
-        if (castState.durationMs > 0L) duration = castState.durationMs
-        position = castState.positionMs
-        isPlaying = castState.playbackStatus == CastPlaybackStatus.Playing
-        if (castState.playbackStatus == CastPlaybackStatus.Playing) pauseLocalPlayback()
-    }
-
     fun pauseLocalPlayback() {
         // User pause (or cast handoff) ends the current stall. Do not count
         // minutes spent manually paused as network rebuffering.
@@ -522,6 +513,15 @@ fun PlayerScreen(
         }
         playerEngine.pause()
         isPlaying = false
+    }
+
+    LaunchedEffect(castState.connected, castState.positionMs, castState.playbackStatus) {
+        if (!castState.connected) return@LaunchedEffect
+        lastCastPositionMs = castState.positionMs
+        if (castState.durationMs > 0L) duration = castState.durationMs
+        position = castState.positionMs
+        isPlaying = castState.playbackStatus == CastPlaybackStatus.Playing
+        if (castState.playbackStatus == CastPlaybackStatus.Playing) pauseLocalPlayback()
     }
 
     fun performTrackedSeek(targetMs: Long) {
