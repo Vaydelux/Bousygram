@@ -66,6 +66,31 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
+    fun onlyCurrentQueueItemOwnsForegroundDownload() {
+        val session = PlaybackSessionController.start(
+            queue = listOf(
+                com.vaydelux.bousygram.presentation.media.PlaybackQueueItem(
+                    chatId = 101L, messageId = 11L, title = "First", fileId = 801
+                ),
+                com.vaydelux.bousygram.presentation.media.PlaybackQueueItem(
+                    chatId = 101L, messageId = 12L, title = "Queued", fileId = 802
+                )
+            )
+        )
+        try {
+            assertTrue(PlaybackSessionController.isCurrentPlaybackFile(801))
+            assertFalse(PlaybackSessionController.isCurrentPlaybackFile(802))
+            assertTrue(PlaybackSessionController.isFileActive(802))
+            assertTrue(session.next())
+            assertFalse(PlaybackSessionController.isCurrentPlaybackFile(801))
+            assertTrue(PlaybackSessionController.isCurrentPlaybackFile(802))
+        } finally {
+            PlaybackSessionController.stop(session, PlaybackCacheStopReason.ViewModelStop, cancelTdLibDownload = false)
+        }
+        assertFalse(PlaybackSessionController.isCurrentPlaybackFile(802))
+    }
+
+    @Test
     fun byteOffsetUsesDurationWhenKnown() {
         assertEquals(
             500_000L,
