@@ -8,6 +8,14 @@ import org.junit.Test
 
 class PlaybackHelpersTest {
     @Test
+    fun bufferingDurationUsesActualTimeAndIncludesActiveStall() {
+        assertEquals(0L, measuredRebufferDurationMs(0L, 0L, 50_000L))
+        assertEquals(4_200L, measuredRebufferDurationMs(1_200L, 10_000L, 13_000L))
+        assertEquals(1_200L, measuredRebufferDurationMs(1_200L, 14_000L, 13_000L))
+        assertEquals(1_200L, measuredRebufferDurationMs(1_200L, 0L, 13_000L))
+    }
+
+    @Test
     fun queueCarriesMetadataWithoutPreissuingStreamUrls() {
         val items = listOf(
             MediaItem(
