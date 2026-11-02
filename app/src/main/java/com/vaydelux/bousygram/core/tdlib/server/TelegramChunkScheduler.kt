@@ -1235,7 +1235,11 @@ internal object TelegramChunkScheduler {
     ): Int {
         if (limit <= 0) return 0
         val known = knownPrefixBytes(file, offset)
-        val prefix = if (known >= limit) known else max(known, getDownloadedPrefixSize(fileId, offset))
+        // A positive contiguous prefix is already sufficient for a partial player
+        // read. Avoid a separate TDLib status roundtrip for every short Media3
+        // read: it can stall the decoder even though the bytes are on disk.
+        // Query TDLib only when UpdateFile has not exposed any bytes at this offset.
+        val prefix = if (known > 0L) known else getDownloadedPrefixSize(fileId, offset)
         if (prefix <= 0L) return 0
         val available = min(limit.toLong(), prefix).toInt()
         val isCompleted = file?.isDownloadingCompleted == true
