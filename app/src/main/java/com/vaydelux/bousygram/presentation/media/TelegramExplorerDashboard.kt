@@ -184,7 +184,7 @@ fun TelegramExplorerDashboard(
         if (adaptive.isTv || adaptive.isTabletLayout) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("BOUSYGRAM  /  TELEGRAM MEDIA",
+                    Text("Bousygram",
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelSmall)
                     Text("Your library", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -197,7 +197,7 @@ fun TelegramExplorerDashboard(
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("BOUSYGRAM", color = MaterialTheme.colorScheme.primary,
+                    Text("Bousygram", color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelSmall)
                     Text("Your library", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
