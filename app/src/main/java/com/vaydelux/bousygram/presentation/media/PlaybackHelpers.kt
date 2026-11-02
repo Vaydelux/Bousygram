@@ -3,6 +3,21 @@ package com.vaydelux.bousygram.presentation.media
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 
+/** Buffer completion starts playback only if the user has not explicitly paused. */
+internal fun shouldAutoResumeAfterReady(
+    isReady: Boolean,
+    playWhenReady: Boolean,
+    isPlaying: Boolean
+): Boolean = isReady && playWhenReady && !isPlaying
+
+/** During buffering isPlaying may be false even when autoplay is armed.
+ * The play/pause button must cancel that pending autoplay, not reissue play.
+ */
+internal fun shouldPauseOnTransportToggle(
+    isPlaying: Boolean,
+    playWhenReady: Boolean
+): Boolean = isPlaying || playWhenReady
+
 fun playableVideos(items: List<MediaItem>): List<MediaItem> =
     items.filter { (it.type == MediaType.Video || it.type == MediaType.Audio) && it.fileId != null }
 
