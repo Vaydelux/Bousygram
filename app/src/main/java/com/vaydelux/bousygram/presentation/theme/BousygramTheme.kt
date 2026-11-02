@@ -52,7 +52,7 @@ enum class BousygramThemePreset(
     }
 }
 
-private fun schemeFor(preset: BousygramThemePreset): ColorScheme {
+internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
     if (preset == BousygramThemePreset.LIGHT) {
         return lightColorScheme(
             primary = preset.primary,
