@@ -937,16 +937,17 @@ class MediaViewModel(
         val sourceGeneration = ++sourceRequestGeneration
         val selectedId = if (_uiState.value.isSavedMessagesSelected) repository.cachedSavedMessagesChatId else _uiState.value.selectedChatId
         _uiState.update { it.copy(isSidebarLoading = true, sidebarError = null) }
-        repository.loadVideoChats(10_000, selectedId) { chats, error ->
-            // A manual refresh may finish before an older outstanding request.
-            // Only the latest request may replace the directory or its error.
+        repository.loadVideoChats(10_000, selectedId) { chats, error, isFinal ->
+            // Callback batches arrive on TDLib threads. Ignore outdated account requests.
             if (!AccountSession.isCurrent(owner) || sourceGeneration != sourceRequestGeneration) return@loadVideoChats
-            hasLoadedVideoChats = error == null
+            hasLoadedVideoChats = isFinal && error == null
             _uiState.update { current ->
                 current.copy(
-                    videoChats = stableChatCatalog(current.videoChats, chats),
-                    isSidebarLoading = false,
-                    sidebarError = error
+                    // An early Saved-only snapshot must not clear channels already displayed
+                    // during a manual refresh. A finished scan is authoritative.
+                    videoChats = stableChatCatalog(current.videoChats, chats, retainMissing = !isFinal),
+                    isSidebarLoading = !isFinal,
+                    sidebarError = if (isFinal) error else null
                 )
             }
         }

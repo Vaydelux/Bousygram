@@ -326,7 +326,8 @@ class MpvPlayerEngine(
             _durationMs.value = 0L
             _bufferedPositionMs.value = 0L
             _playbackState.value = EnginePlaybackState.Buffering
-            _playWhenReady.value = true
+            // Re-preparing after a proxy rebind, network handoff or rebuffer must
+            // not silently override a user pause. New sessions explicitly call play().
             mpv.command(arrayOf("loadfile", streamUrl))
         } catch (e: Throwable) {
             Log.e(TAG, "MPV failed to load the active local stream (${e.javaClass.simpleName})")

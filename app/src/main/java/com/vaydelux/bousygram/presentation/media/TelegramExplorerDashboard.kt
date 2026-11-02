@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -139,14 +141,22 @@ fun TelegramExplorerDashboard(
         }
     }
 
+    // An async GetChat batch changes directory.size repeatedly. Restore focus once
+    // per directory visit, not on every batch (which steals D-pad focus mid-navigation).
+    var restoredDirectoryFocus by remember(position.section) { mutableStateOf(false) }
+    LaunchedEffect(showSources) {
+        if (!showSources) restoredDirectoryFocus = false
+    }
     LaunchedEffect(showSources, directory.size, sourceFolderRestoration.focusedMediaKey) {
+        if (!showSources || restoredDirectoryFocus) return@LaunchedEffect
         val target = sourceFolderRestoration.focusedMediaKey ?: return@LaunchedEffect
-        if (!showSources) return@LaunchedEffect
         val targetIndex = directory.indexOfFirst { it.chatId.toString() == target }
         if (targetIndex >= 0) {
             folderGrid.scrollToItem(targetIndex)
             delay(60L)
-            runCatching { sourceFocusRequester.requestFocus() }
+            if (runCatching { sourceFocusRequester.requestFocus() }.isSuccess) {
+                restoredDirectoryFocus = true
+            }
         }
     }
 
@@ -240,6 +250,27 @@ fun TelegramExplorerDashboard(
                 else -> selectedChatTitle + " / Media"
             }
             Text(path, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        // Keep the already discovered sources navigable during TDLib pagination.
+        // A non-modal status indicator communicates that more channels may still appear.
+        if (showSources && isLoadingSources && directory.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
+                Text(
+                    text = "Loading Telegram " +
+                        (if (position.section == ExplorerSection.CHANNELS) "channels" else "groups") +
+                        "… ${directory.size} found",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when {
