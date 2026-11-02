@@ -3,6 +3,33 @@ package com.vaydelux.bousygram.presentation.media
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 
+/**
+ * Tracks decoder output time, excluding startup, user pauses and network stalls.
+ * All inputs use monotonic elapsed time from the caller, never wall-clock dates.
+ */
+internal class ActivePlaybackClock {
+    private var activeMs = 0L
+    private var changedAtMs = 0L
+    private var playing = false
+
+    fun reset(nowMs: Long) {
+        activeMs = 0L
+        changedAtMs = nowMs
+        playing = false
+    }
+
+    fun update(playingNow: Boolean, nowMs: Long) {
+        if (playing && nowMs >= changedAtMs) {
+            activeMs += nowMs - changedAtMs
+        }
+        changedAtMs = nowMs
+        playing = playingNow
+    }
+
+    fun activeDurationMs(nowMs: Long): Long =
+        activeMs + if (playing && nowMs >= changedAtMs) nowMs - changedAtMs else 0L
+}
+
 /** The current buffering interval is included even if playback is disposed mid-stall. */
 internal fun measuredRebufferDurationMs(
     completedMs: Long,
