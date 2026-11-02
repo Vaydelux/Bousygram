@@ -559,6 +559,12 @@ class MediaViewModel(
 
     fun canResumeLastPlayedInCurrentSource(lastPlayedChatId: Long?): Boolean {
         val selected = _uiState.value
+        val position = _explorerPosition.value
+        // Switching to Channels/Groups only changes the directory route at first.
+        // Never leave a Saved Messages Continue action visible in a different tab.
+        if (position.level != ExplorerLevel.MEDIA ||
+            (position.section == ExplorerSection.SAVED) != selected.isSavedMessagesSelected
+        ) return false
         return canResumeInSource(
             selected.isSavedMessagesSelected,
             repository.cachedSavedMessagesChatId,
