@@ -520,8 +520,9 @@ fun PlayerScreen(
         lastCastPositionMs = castState.positionMs
         if (castState.durationMs > 0L) duration = castState.durationMs
         position = castState.positionMs
-        isPlaying = castState.playbackStatus == CastPlaybackStatus.Playing
         if (castState.playbackStatus == CastPlaybackStatus.Playing) pauseLocalPlayback()
+        // Local decoder is paused for casting, but the remote session is playing.
+        isPlaying = castState.playbackStatus == CastPlaybackStatus.Playing
     }
 
     fun performTrackedSeek(targetMs: Long) {
