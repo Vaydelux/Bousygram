@@ -61,6 +61,34 @@ class TdLibDataSourceTest {
     }
 
     @Test
+    fun readAheadNeverCrossesADataSpecOrFileBoundary() {
+        assertEquals(256 * 1024, readAheadRequestBytes(4096, C.LENGTH_UNSET.toLong()))
+        assertEquals(4096, readAheadRequestBytes(4096, 4096L))
+        assertEquals(16, readAheadRequestBytes(4096, 16L))
+        assertEquals(256 * 1024, readAheadRequestBytes(256 * 1024, 1_000_000L))
+        assertEquals(512 * 1024, readAheadRequestBytes(512 * 1024, 1_000_000L))
+    }
+
+    @Test
+    fun repeatedSmallReadsReuseBufferedBytesAndKeepOrderedPositions() {
+        PlaybackSessionController.bindActiveFile(testFileId)
+        val source = TdLibDataSource()
+        val uri = TdLibDataSource.buildUri(testFileId, testFileSize)
+        source.open(DataSpec(uri, 0L, testFileSize))
+        val buffer = ByteArray(testFileSize.toInt())
+        var total = 0
+        while (total < buffer.size) {
+            val count = source.read(buffer, total, min(511, buffer.size - total))
+            assertTrue("Short TDLib read must make progress", count > 0)
+            total += count
+        }
+        assertEquals(testFileSize.toInt(), total)
+        assertArrayEquals(testBytes, buffer)
+        assertEquals(C.RESULT_END_OF_INPUT, source.read(ByteArray(1), 0, 1))
+        source.close()
+    }
+
+    @Test
     fun rejectsUnauthorizedAccessWhenNoActiveSession() {
         val dataSource = TdLibDataSource()
         val uri = TdLibDataSource.buildUri(testFileId, testFileSize)
