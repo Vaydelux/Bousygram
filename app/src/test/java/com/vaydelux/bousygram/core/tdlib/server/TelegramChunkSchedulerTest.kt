@@ -34,6 +34,25 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun networkThroughputIsNotEstimatedFromCachedReads() = runBlocking {
+        assertEquals(0L, TelegramChunkScheduler.getAverageThroughput())
+        val bytes = ByteArray(16 * 1024) { 7 }
+        TelegramFileGatewayRegistry.installForTests(FakeTelegramFileGateway(bytes))
+        val ready = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(610, 0L, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+        assertTrue(ready is TelegramChunkResult.Ready)
+        assertEquals(0L, TelegramChunkScheduler.getAverageThroughput())
+    }
+
+    @Test
+    fun downloadWindowProgressNeverCountsSeekJumpsAsNetworkBytes() {
+        assertEquals(4096L, TelegramChunkScheduler.downloadedByteDelta(0L, 1024L, 0L, 5120L))
+        assertEquals(0L, TelegramChunkScheduler.downloadedByteDelta(0L, 5120L, 8192L, 4096L))
+        assertEquals(0L, TelegramChunkScheduler.downloadedByteDelta(0L, 5120L, 0L, 2048L))
+    }
+
+    @Test
     fun staleCachedFileIsMarkedForPreparationWhenTdLibReportsEviction() {
         TelegramChunkScheduler.onFileUpdated(
             TelegramGatewayFile(
