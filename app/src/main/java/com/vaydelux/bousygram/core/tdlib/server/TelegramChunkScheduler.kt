@@ -776,6 +776,13 @@ internal object TelegramChunkScheduler {
     private suspend fun fetchWithFallback(request: TelegramChunkRequest): TelegramChunkResult {
         if (isPlaybackPurpose(request.purpose)) {
             touchPlayback(request.fileId)
+            // Check the current TDLib file window before deciding to reposition it.
+            // MKV cue and MP4 moov bytes may already have arrived through UpdateFile;
+            // seeking again would discard usable bytes and slow startup.
+            readReadyChunk(latestFiles[request.fileId] ?: getFileStatus(request.fileId), request)?.let { cached ->
+                PlaybackTelemetryRecorder.recordCacheHit(request.fileId, cached.bytes.size)
+                return cached
+            }
             // A distant extractor seek must not reopen the head window first.
             if (request.offset < HEAD_BURST_BYTES) {
                 ensurePlaybackPrefix(request.fileId)?.let { return it }
