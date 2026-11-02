@@ -228,7 +228,7 @@ class TelegramChunkSchedulerTest {
     fun seekOutsideWindowCancelsStaleDownloadAndStartsNewRangeAtHighPriority() = runBlocking {
         val totalSize = 100 * 1024 * 1024 // 100 MB file
         val bytes = ByteArray(totalSize) { index -> (index % 199).toByte() }
-        val gateway = FakeTelegramFileGateway(bytes, completed = false, downloadOffset = 0L, downloadedPrefixSize = 4096L)
+        val gateway = FakeTelegramFileGateway(bytes, completed = false, downloadOffset = 0L, downloadedPrefixSize = 4096L, enforcePartialRanges = true)
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(66, totalSize.toLong())
 
@@ -309,7 +309,7 @@ class TelegramChunkSchedulerTest {
     fun testSeekMidFile() = runBlocking {
         val totalSize = 50 * 1024 * 1024 // 50 MB
         val bytes = ByteArray(totalSize) { index -> (index % 179).toByte() }
-        val gateway = FakeTelegramFileGateway(bytes, completed = false, downloadOffset = 0L, downloadedPrefixSize = 8192L)
+        val gateway = FakeTelegramFileGateway(bytes, completed = false, downloadOffset = 0L, downloadedPrefixSize = 8192L, enforcePartialRanges = true)
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(67, totalSize.toLong())
 
