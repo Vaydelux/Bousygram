@@ -785,10 +785,14 @@ fun PlayerScreen(
         onDispose { closeBridge() }
     }
 
-    LaunchedEffect(isPlaying, position, speed, title, duration) {
-        PlaybackSessionController.setVideoPlaying(isPlaying)
+    LaunchedEffect(isPlaying, isBuffering, isOpening, isReconnecting, playerEngine, position, speed, title, duration) {
+        // Buffering interrupts output, not the user's Play intent. Keep the
+        // active download protected and avoid advertising a false manual pause.
+        val streamActive = isPlaying || (playerEngine.playWhenReady &&
+            (isBuffering || isOpening || isReconnecting))
+        PlaybackSessionController.setVideoPlaying(streamActive)
         mediaSessionBridge.updateState(
-            isPlaying = isPlaying,
+            isPlaying = streamActive,
             positionMs = position,
             speed = speed,
             title = title,
