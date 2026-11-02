@@ -1,16 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome simplified Chow Chow + paper-plane variant of the approved BousyGram mascot.
+     The full-color mascot asset is shared by Android launchers and README. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Simple monochrome Android companion to theme-aware master SVG. -->
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M27,30 H81 Q86,30 86,35 V75 Q86,80 81,80 H27 Q22,80 22,75 V35 Q22,30 27,30 Z"/>
-    <path android:fillColor="#FF0A1933"
-        android:pathData="M30,36 H78 Q80,36 80,38 V72 Q80,74 78,74 H30 Q28,74 28,72 V38 Q28,36 30,36 Z"/>
-    <path android:fillColor="#FFFFFFFF" android:pathData="M46,45 L67,55 L46,65 Z"/>
-    <path android:fillColor="#FFFFFFFF" android:strokeWidth="3"
-        android:strokeColor="#FFFFFFFF" android:strokeLineCap="round"
-        android:pathData="M37,30 L47,20 L55,30 L64,20 L73,30"/>
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M34,28 L25,13 Q17,28 23,44 Q15,55 21,73 Q27,88 51,86 Q73,91 86,75 Q95,57 85,42 Q89,24 81,12 L69,29 Q51,18 34,28 Z M45,48 A4,4 0,1 0,45.1 48 Z M66,48 A4,4 0,1 0,66.1 48 Z" />
+    <path android:fillColor="#FF000000" android:pathData="M44,51 L47,47 L50,51 Z M63,51 L66,47 L69,51 Z"/>
+    <path android:fillColor="#FF000000" android:pathData="M49,60 Q54,55 59,60 L54,64 Z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M11,81 L99,62 L63,99 L58,80 L36,75 Z"/>
+    <path android:fillColor="#FF000000" android:pathData="M58,80 L86,69 L62,91 Z"/>
 </vector>
