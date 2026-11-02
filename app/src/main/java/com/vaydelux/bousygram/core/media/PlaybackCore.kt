@@ -186,6 +186,10 @@ object PlaybackCore {
                         preparingWatchdogJob?.cancel()
                         if (engine.isPlaying) {
                             stateMachine.onPlaying(session, engine.currentPositionMs, engine.durationMs)
+                        } else if (engine.playWhenReady) {
+                            // Decoder/demuxer has reached READY, but still has no output.
+                            // Keep the pending playback intent instead of reporting a pause.
+                            stateMachine.onBuffering(session, engine.currentPositionMs, engine.durationMs)
                         } else {
                             stateMachine.onPaused(session, engine.currentPositionMs, engine.durationMs)
                         }
