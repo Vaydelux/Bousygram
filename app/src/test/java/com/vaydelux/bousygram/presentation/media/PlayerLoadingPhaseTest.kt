@@ -27,6 +27,21 @@ class PlayerLoadingPhaseTest {
         assertEquals("Restoring your connection", playerLoadingCopy(PlayerLoadingPhase.RECONNECTING, 0).detail)
         assertEquals("Restoring playback · attempt 2", playerLoadingCopy(PlayerLoadingPhase.RECONNECTING, 2).detail)
     }
+    @Test fun autoResumeStatusOnlyAppearsWhilePlayIsArmed() {
+        assertEquals("Buffering · auto-resume",
+            playerPlaybackStatusText(false, false, false, true, true))
+        assertEquals("Paused",
+            playerPlaybackStatusText(false, false, false, true, false))
+        assertEquals("Reconnecting · auto-resume",
+            playerPlaybackStatusText(false, true, false, true, true))
+        assertEquals("Paused",
+            playerPlaybackStatusText(false, true, false, true, false))
+        assertEquals("Preparing playback",
+            playerPlaybackStatusText(false, false, true, true, true))
+        assertEquals("Playback error",
+            playerPlaybackStatusText(true, false, false, false, true))
+    }
+
     @Test fun idleCopyIsEmpty() {
         assertEquals(PlayerLoadingCopy("", ""), playerLoadingCopy(PlayerLoadingPhase.NONE, 0))
     }
