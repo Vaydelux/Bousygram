@@ -35,6 +35,14 @@ class PlaybackCoreLifecycleTest {
     }
 
     @Test
+    fun readyEngineRetriesOnlyWhileUserWantsPlayback() {
+        assertTrue(shouldReassertPlaybackOnReady(ready = true, playWhenReady = true, isPlaying = false))
+        assertFalse(shouldReassertPlaybackOnReady(ready = false, playWhenReady = true, isPlaying = false))
+        assertFalse(shouldReassertPlaybackOnReady(ready = true, playWhenReady = false, isPlaying = false))
+        assertFalse(shouldReassertPlaybackOnReady(ready = true, playWhenReady = true, isPlaying = true))
+    }
+
+    @Test
     fun playbackStateMachineTransitionsCorrectly() {
         val stateMachine = PlaybackStateMachine()
         val queue = sampleQueue(2)
