@@ -877,11 +877,12 @@ fun PlayerScreen(
             when (state) {
                 is EnginePlaybackState.Buffering -> {
                     isBuffering = true
-                    if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)) {
+                    if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) &&
+                        rebufferStartMs == 0L && playerEngine.playWhenReady
+                    ) {
+                        // Count a new stall only once, even if Buffering is re-emitted.
                         rebufferCount++
-                        if (rebufferStartMs == 0L) {
-                            rebufferStartMs = System.currentTimeMillis()
-                        }
+                        rebufferStartMs = System.currentTimeMillis()
                         recordMetrics()
                     }
                 }
