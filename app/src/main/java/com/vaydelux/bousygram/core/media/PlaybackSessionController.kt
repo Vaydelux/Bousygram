@@ -182,6 +182,23 @@ object PlaybackSessionController {
         }
     }
 
+    /**
+     * Keep the active video's TDLib window through Media3 DataSource reopens.
+     *
+     * isFileActive() grants access to queued media as well, but only the current
+     * playback item can prevent a download-window cleanup. A queued episode
+     * must never keep an unused download alive.
+     */
+    fun isCurrentPlaybackFile(fileId: Int): Boolean {
+        if (fileId <= 0) return false
+        return activeSessions.any { session ->
+            !session.isStopped() &&
+                session.currentItem?.fileId?.let { currentId ->
+                    com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.resolveEffectiveFileId(currentId) == fileId
+                } == true
+        }
+    }
+
     fun recordFirstFrame(session: PlaybackSession, firstFrameMs: Long) {
         if (firstFrameMs in 1L..4_000L) {
             session.consecutiveRangeStalls = 0
