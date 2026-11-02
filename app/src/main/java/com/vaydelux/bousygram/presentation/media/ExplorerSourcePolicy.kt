@@ -19,3 +19,27 @@ internal fun explorerSources(
     }
     .distinctBy { it.chatId }
     .toList()
+
+/** UI labels use real Telegram source metadata, never guessed media counts. */
+internal fun explorerSourceLabel(source: VideoChatItem): String = when {
+    source.isForum -> "Forum group"
+    source.kind == ChatSourceKind.CHANNEL -> "Channel"
+    source.kind == ChatSourceKind.GROUP -> "Group"
+    else -> "Telegram chat"
+}
+
+internal fun explorerDirectoryStatus(
+    section: ExplorerSection,
+    discovered: Int,
+    loading: Boolean
+): String {
+    val noun = if (section == ExplorerSection.CHANNELS) "channels" else "groups"
+    return if (loading) "$discovered $noun found · Still syncing"
+    else "$discovered $noun available"
+}
+
+internal fun explorerSourceDetail(source: VideoChatItem): String = when {
+    source.isForum -> "Explore topics and shared media"
+    source.kind == ChatSourceKind.CHANNEL -> "Browse channel media and files"
+    else -> "Browse shared videos and audio"
+}
