@@ -151,17 +151,13 @@ object FocusPrefetchManager {
                         TelegramChunkScheduler.fileSize(fileId)
                     }
 
-                    // 1. Download first ~2 MB at low priority (priority 1)
+                    // Prime only the sequential head. TDLib maintains one effective
+                    // download window per file; immediately seeking to the MP4 tail
+                    // after an early partial head response evicts useful startup bytes.
+                    // The actual extractor will request moov/Cues ranges if necessary.
                     val headLimit = if (fileSize > 0L) min(PREFETCH_CHUNK_BYTES, fileSize) else PREFETCH_CHUNK_BYTES
                     downloadSegment(fileId, offset = 0L, limit = headLimit.toInt())
-
-                    // 2. For MP4 containers, also download last ~2 MB at low priority
-                    if (isActive && !PlaybackSessionController.isVideoPlaying() && isMp4Container(item) && fileSize > PREFETCH_CHUNK_BYTES) {
-                        val tailOffset = (fileSize - PREFETCH_CHUNK_BYTES).coerceAtLeast(0L)
-                        val tailLimit = min(PREFETCH_CHUNK_BYTES, fileSize - tailOffset).toInt()
-                        downloadSegment(fileId, offset = tailOffset, limit = tailLimit)
-                    }
-                    Log.i(TAG, "Completed focus prefetch for fileId=$fileId")
+                    Log.i(TAG, "Completed head-only focus prefetch for fileId=$fileId")
                 }
             } catch (e: CancellationException) {
                 releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
