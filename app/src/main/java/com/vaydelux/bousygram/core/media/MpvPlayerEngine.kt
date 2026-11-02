@@ -31,6 +31,7 @@ class MpvPlayerEngine(
     private val mpv: MPVLib = MPVLib.create(context)
         ?: throw IllegalStateException("Failed to create libmpv instance from native context")
     private val isDestroyed = AtomicBoolean(false)
+    @Volatile private var pausedForCache = false
     private var isCellular = initialIsCellular
     private var bufferConfig = PlayerBufferConfig.resolveMpvConfig(context, initialIsCellular)
 
@@ -168,10 +169,13 @@ class MpvPlayerEngine(
             if (isDestroyed.get()) return
             when (property) {
                 "pause" -> {
-                    _isPlaying.value = !value
+                    // Native output stops during cache stalls without changing user intent.
+                    _isPlaying.value = !value && !pausedForCache
                 }
                 "paused-for-cache" -> {
+                    pausedForCache = value
                     if (value) {
+                        _isPlaying.value = false
                         _playbackState.value = EnginePlaybackState.Buffering
                     } else if (_playbackState.value is EnginePlaybackState.Buffering) {
                         _playbackState.value = EnginePlaybackState.Ready
@@ -226,7 +230,7 @@ class MpvPlayerEngine(
                         runCatching { mpv.setPropertyBoolean("pause", false) }
                             .onFailure { Log.w(TAG, "Unable to start loaded media", it) }
                     }
-                    _isPlaying.value = _playWhenReady.value
+                    _isPlaying.value = _playWhenReady.value && !pausedForCache
                     readNativeDurationAfterLoad()
                     refreshTracks()
                     setResizeMode(currentResizeMode)
@@ -331,6 +335,8 @@ class MpvPlayerEngine(
             _currentPositionMs.value = 0L
             _durationMs.value = 0L
             _bufferedPositionMs.value = 0L
+            pausedForCache = false
+            _isPlaying.value = false
             _playbackState.value = EnginePlaybackState.Buffering
             // Re-preparing after a proxy rebind, network handoff or rebuffer must
             // not silently override a user pause. New sessions explicitly call play().
@@ -346,7 +352,7 @@ class MpvPlayerEngine(
         try {
             _playWhenReady.value = true
             mpv.setPropertyBoolean("pause", false)
-            _isPlaying.value = true
+            _isPlaying.value = !pausedForCache && _playbackState.value is EnginePlaybackState.Ready
         } catch (e: Throwable) {
             Log.e(TAG, "Error setting pause false", e)
         }
