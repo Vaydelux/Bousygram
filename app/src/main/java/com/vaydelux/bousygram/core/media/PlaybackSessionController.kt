@@ -209,6 +209,10 @@ object PlaybackSessionController {
         record(session)
     }
 
+    /** Frequent position updates stay in memory; disk diagnostics are periodic. */
+    internal fun shouldPersistProgressDiagnostics(nowMs: Long, previousMs: Long): Boolean =
+        previousMs <= 0L || nowMs < previousMs || nowMs - previousMs >= 5_000L
+
     fun recordProgress(
         session: PlaybackSession,
         positionMs: Long,
@@ -217,7 +221,11 @@ object PlaybackSessionController {
     ) {
         session.currentPositionMs = positionMs.coerceAtLeast(0L)
         session.currentOffsetBytes = positionToOffset(totalSize, session.currentPositionMs, durationMs)
-        record(session)
+        val nowMs = System.nanoTime() / 1_000_000L
+        if (shouldPersistProgressDiagnostics(nowMs, session.lastProgressDiagnosticsAtMs)) {
+            session.lastProgressDiagnosticsAtMs = nowMs
+            record(session)
+        }
     }
 
     fun cacheAhead(
