@@ -621,10 +621,11 @@ fun PlayerScreen(
                 val hotSwappedUrl = "$newPrefix?$query"
                 Log.i("PlayerScreen", "Rebinding the active local stream after proxy restart")
                 val pos = playerEngine.currentPositionMs
+                val resumeAfterRebind = playerEngine.playWhenReady
                 activeLocalStreamUrl = hotSwappedUrl
                 playerEngine.prepare(hotSwappedUrl)
                 if (pos > 0L) playerEngine.seekTo(pos)
-                if (isPlaying) playerEngine.play()
+                if (resumeAfterRebind) playerEngine.play()
             }
         }
     }
@@ -649,9 +650,10 @@ fun PlayerScreen(
                     Log.i("PlayerScreen", "Rotated the active stream capability after network change")
                     activeLocalStreamUrl = newUrl
                     val pos = playerEngine.currentPositionMs
+                    val resumeAfterRebind = playerEngine.playWhenReady
                     playerEngine.prepare(newUrl)
                     if (pos > 0L) playerEngine.seekTo(pos)
-                    if (isPlaying) playerEngine.play()
+                    if (resumeAfterRebind) playerEngine.play()
                 }
             }
             previousWasCellular = isCell
@@ -1038,15 +1040,17 @@ fun PlayerScreen(
     val activeLifecycleEngine by rememberUpdatedState(playerEngine)
     val activeLifecycleQueueIndex by rememberUpdatedState(queueIndex)
     val activeLifecycleDuration by rememberUpdatedState(duration)
-    val activeLifecycleIsPlaying by rememberUpdatedState(isPlaying)
     DisposableEffect(lifecycleOwner, playbackSession, streamingSessionManager) {
         streamingSessionManager.acquireLocks()
+        // A transient lifecycle pause must not become a permanent user pause.
+        // Buffering can report isPlaying=false even when autoplay is armed.
+        val foregroundIntent = ForegroundPlaybackIntent()
         val activity = context as? androidx.activity.ComponentActivity
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> streamingSessionManager.acquireLocks()
                 Lifecycle.Event.ON_PAUSE -> {
-                    if (activeLifecycleEngine.isPlaying) {
+                    if (foregroundIntent.onActivityPaused(activeLifecycleEngine.playWhenReady)) {
                         activeLifecycleEngine.pause()
                     }
                     queue.getOrNull(activeLifecycleQueueIndex)?.let { current ->
@@ -1062,7 +1066,11 @@ fun PlayerScreen(
                         }
                     }
                 }
-                Lifecycle.Event.ON_RESUME -> if (activeLifecycleIsPlaying) activeLifecycleEngine.play()
+                Lifecycle.Event.ON_RESUME -> {
+                    if (foregroundIntent.consumeResume()) {
+                        activeLifecycleEngine.play()
+                    }
+                }
                 Lifecycle.Event.ON_STOP -> {
                     stopCurrentCache(PlaybackCacheStopReason.LifecycleStop)
                     streamingSessionManager.releaseLocks()

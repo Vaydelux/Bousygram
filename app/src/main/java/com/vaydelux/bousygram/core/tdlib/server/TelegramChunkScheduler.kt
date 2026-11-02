@@ -748,6 +748,15 @@ internal object TelegramChunkScheduler {
     private fun prefetchAhead(fileId: Int, offset: Long, length: Int) {
         val totalSize = fileSizes[fileId] ?: 0L
         val nextOffset = offset + length
+        // Media3 may deliver hundreds of short sequential reads while an existing
+        // 4-MiB cache-ahead job is active. Avoid launching overlapping TDLib jobs
+        // for every short read; playback still has its own high-priority request.
+        val alreadyPrefetching = synchronized(prefetchLock) {
+            activePrefetchRanges[fileId]?.any { (range, job) ->
+                job.isActive && nextOffset in range
+            } == true
+        }
+        if (alreadyPrefetching) return
         if (totalSize > 0L && nextOffset >= totalSize) return
         val prefetchBytes = min(4L * 1024L * 1024L, if (totalSize > 0L) totalSize - nextOffset else 4L * 1024L * 1024L)
         if (prefetchBytes > 0L) {

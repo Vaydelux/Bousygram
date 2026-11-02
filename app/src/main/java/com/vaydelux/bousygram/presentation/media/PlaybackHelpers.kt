@@ -18,6 +18,26 @@ internal fun shouldPauseOnTransportToggle(
     playWhenReady: Boolean
 ): Boolean = isPlaying || playWhenReady
 
+/**
+ * Lifecycle-only playback suppression. Temporary loss of Activity foreground must
+ * not erase the user's Play intent (including while the engine is buffering).
+ * Explicitly paused playback never gets an automatic resume.
+ */
+internal class ForegroundPlaybackIntent {
+    private var pendingResume = false
+
+    fun onActivityPaused(playWhenReady: Boolean): Boolean {
+        if (playWhenReady) pendingResume = true
+        return playWhenReady
+    }
+
+    fun consumeResume(): Boolean {
+        val resume = pendingResume
+        pendingResume = false
+        return resume
+    }
+}
+
 fun playableVideos(items: List<MediaItem>): List<MediaItem> =
     items.filter { (it.type == MediaType.Video || it.type == MediaType.Audio) && it.fileId != null }
 

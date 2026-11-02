@@ -175,6 +175,12 @@ class MpvPlayerEngine(
                         _playbackState.value = EnginePlaybackState.Buffering
                     } else if (_playbackState.value is EnginePlaybackState.Buffering) {
                         _playbackState.value = EnginePlaybackState.Ready
+                        // mpv's internal cache pause is not a user-requested pause.
+                        // Unblock playback once bytes return, unless the user paused explicitly.
+                        if (_playWhenReady.value) {
+                            runCatching { mpv.setPropertyBoolean("pause", false) }
+                                .onFailure { Log.w(TAG, "Unable to resume after cache fill", it) }
+                        }
                     }
                 }
                 "eof-reached" -> {

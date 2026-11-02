@@ -229,7 +229,7 @@ fun TelegramExplorerDashboard(
                 var tabFocused by remember(section) { mutableStateOf(false) }
                 OutlinedButton(
                     onClick = { if (!active) onSelectTab(section) },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                         .border(
                             if (tabFocused) 3.dp else 1.dp,
                             if (tabFocused || active) MaterialTheme.colorScheme.primary
@@ -328,7 +328,7 @@ fun TelegramExplorerDashboard(
                     if (showSources && !isLoadingSources) {
                         OutlinedButton(
                             onClick = onRefreshSources,
-                            modifier = Modifier.heightIn(min = 44.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) { Text("Refresh") }
                     }
@@ -337,8 +337,12 @@ fun TelegramExplorerDashboard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if ((showSources && isLoadingSources) || (showTopics && isLoadingTopics) || (showMedia && isLoading)) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    // Reserve progress-icon width so asynchronous source updates do not
+                    // make the title shift horizontally on each loading transition.
+                    Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) {
+                        if ((showSources && isLoadingSources) || (showTopics && isLoadingTopics) || (showMedia && isLoading)) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        }
                     }
                     Text(collectionStatus, style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -484,7 +488,7 @@ private fun ExplorerMessage(message: String, onRetry: (() -> Unit)? = null) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (onRetry != null) {
-                OutlinedButton(onClick = onRetry) {
+                OutlinedButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Retry")
                 }
             }
