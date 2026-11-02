@@ -89,6 +89,8 @@ object TelegramPreCacheEngine {
         maxBytes: Long = CACHE_AHEAD_BYTES
     ) {
         if (fileId <= 0 || totalSize <= 0L) return
+        // Playback has an open-ended high-priority window; avoid competing cache requests.
+        if (TelegramChunkScheduler.isPlaybackBusy(fileId)) return
         val offset = positionToOffset(totalSize, positionMs, durationMs)
         val effectiveMax = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) {
             4L * 1024L * 1024L
