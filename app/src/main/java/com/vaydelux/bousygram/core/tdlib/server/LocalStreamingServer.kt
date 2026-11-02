@@ -34,6 +34,9 @@ internal data class StreamPreparation(
     val warmupStarted: Boolean
 )
 
+/** Avoid unlimited subtitle allocations and oversized responses on low-RAM TVs. */
+internal fun allowedSubtitleBytes(length: Long): Boolean = length in 0L..(16L * 1024L * 1024L)
+
 object LocalStreamingServer {
     private const val TAG = "LocalStreamingServer"
     private const val VERBOSE_STREAM_LOGS = false
@@ -586,9 +589,24 @@ object LocalStreamingServer {
             return
         }
 
-        val fileBytes = file.readBytes()
-        writeHeaders(out, buildBodyHeaders("text/plain", fileBytes.size))
-        out.write(fileBytes)
+        val length = file.length()
+        if (!allowedSubtitleBytes(length)) {
+            send413(socket)
+            return
+        }
+        // Subtitles need not be loaded into one large byte array. Limit the
+        // transfer to the declared length even if the file grows while reading.
+        writeHeaders(out, buildBodyHeaders("text/plain", length.toInt()))
+        file.inputStream().buffered(16 * 1024).use { input ->
+            var left = length
+            val buffer = ByteArray(16 * 1024)
+            while (left > 0L) {
+                val count = input.read(buffer, 0, min(buffer.size.toLong(), left).toInt())
+                if (count < 0) throw IOException("Subtitle file shortened during streaming")
+                out.write(buffer, 0, count)
+                left -= count
+            }
+        }
         out.flush()
     }
 
@@ -892,6 +910,18 @@ object LocalStreamingServer {
         runCatching {
             val out = socket.getOutputStream()
             out.write("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nContent-Length: ${message.toByteArray().size}\r\nConnection: close\r\n\r\n$message".toByteArray())
+            out.flush()
+        }
+    }
+
+    private fun send413(socket: Socket) {
+        runCatching {
+            val body = "Subtitle exceeds maximum allowed size"
+            val data = body.toByteArray(Charsets.UTF_8)
+            val out = socket.getOutputStream()
+            out.write(("HTTP/1.1 413 Content Too Large\r\nContent-Type: text/plain\r\n" +
+                "Content-Length: ${data.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.UTF_8))
+            out.write(data)
             out.flush()
         }
     }
