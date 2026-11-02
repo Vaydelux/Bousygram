@@ -91,6 +91,15 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
+    fun diagnosticSnapshotsAreThrottledWithoutDroppingInMemoryProgress() {
+        assertTrue(PlaybackSessionController.shouldPersistProgressDiagnostics(10_000L, 0L))
+        assertFalse(PlaybackSessionController.shouldPersistProgressDiagnostics(10_500L, 10_000L))
+        assertFalse(PlaybackSessionController.shouldPersistProgressDiagnostics(14_999L, 10_000L))
+        assertTrue(PlaybackSessionController.shouldPersistProgressDiagnostics(15_000L, 10_000L))
+        assertTrue(PlaybackSessionController.shouldPersistProgressDiagnostics(500L, 10_000L))
+    }
+
+    @Test
     fun byteOffsetUsesDurationWhenKnown() {
         assertEquals(
             500_000L,
