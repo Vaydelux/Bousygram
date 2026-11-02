@@ -174,7 +174,11 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         resumeAfterBackground = false
         bufferingJob?.cancel()
         player.pause()
+        player.stop()
+        player.clearMediaItems()
         stopActiveCaching(PlaybackCacheStopReason.ViewModelStop)
+        currentPlaybackKey = null
+        activeOptions = emptyList()
     }
 
     override fun onCleared() {
