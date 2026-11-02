@@ -10,9 +10,14 @@ internal fun libraryOtherChatSources(sources: List<VideoChatItem>): List<VideoCh
  * Re-sorting/replacing the whole list while the user scrolls sends the sidebar to the top.
  * Removed chats disappear, existing sources keep their positions, new chats append once.
  */
-internal fun stableChatCatalog(previous: List<com.vaydelux.bousygram.domain.model.VideoChatItem>, incoming: List<com.vaydelux.bousygram.domain.model.VideoChatItem>): List<com.vaydelux.bousygram.domain.model.VideoChatItem> {
+internal fun stableChatCatalog(
+    previous: List<VideoChatItem>,
+    incoming: List<VideoChatItem>,
+    retainMissing: Boolean = false
+): List<VideoChatItem> {
     val latestById = incoming.associateBy { it.chatId }
-    val retained = previous.mapNotNull { latestById[it.chatId] }.distinctBy { it.chatId }
+    val retained = previous.mapNotNull { latestById[it.chatId] ?: if (retainMissing) it else null }
+        .distinctBy { it.chatId }
     val alreadyIncluded = retained.mapTo(mutableSetOf()) { it.chatId }
     return retained + incoming.filter { alreadyIncluded.add(it.chatId) }
 }
