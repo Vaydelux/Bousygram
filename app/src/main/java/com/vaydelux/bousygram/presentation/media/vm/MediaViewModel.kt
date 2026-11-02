@@ -254,6 +254,7 @@ class MediaViewModel(
     private var chatUpdateJob: Job? = null
     private var deferredChatSourceLoadJob: Job? = null
     private var quickSearchJob: Job? = null
+    private var deferredThumbnailJob: Job? = null
     private val requestedThumbnailFileIds =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
     private val thumbnailFailureTimesMs = java.util.concurrent.ConcurrentHashMap<Int, Long>()
@@ -325,6 +326,7 @@ class MediaViewModel(
             chatUpdateJob?.cancel()
             deferredChatSourceLoadJob?.cancel()
             quickSearchJob?.cancel()
+            deferredThumbnailJob?.cancel()
             _uiState.value = MediaUiState()
             _explorerPosition.value = ExplorerPosition()
             browseRestorations.clear()
@@ -476,6 +478,8 @@ class MediaViewModel(
         deferredChatSourceLoadJob = null
         quickSearchJob?.cancel()
         quickSearchJob = null
+        deferredThumbnailJob?.cancel()
+        deferredThumbnailJob = null
         TdLibClient.removeNewMessageHandler(newMessageHandler)
         TdLibClient.removeDeleteMessageHandler(deleteMessageHandler)
         TdLibClient.removeUpdateHandler(chatUpdateHandler)
@@ -905,13 +909,26 @@ class MediaViewModel(
     private fun fetchThumbnails(items: List<MediaItem>) {
         val owner = AccountSession.current() ?: return
         if (com.vaydelux.bousygram.core.media.PlaybackSessionController.isVideoPlaying()) return
-        // Prime only the likely visible first row(s). Further thumbnails are
-        // fetched on focus, instead of queuing the entire folder while a video
-        // is streaming or sources are still being discovered.
-        items.asSequence()
-            .filter { it.thumbnailPath.isNullOrBlank() && it.thumbnailFileId != null }
-            .take(MAX_INITIAL_THUMBNAIL_REQUESTS)
-            .forEach { item -> item.thumbnailFileId?.let { fetchThumbnailIfNeeded(it, owner) } }
+        // Load the likely visible cards first, then the rest after a short
+        // pause. Non-focus touch devices also need offscreen thumbnail updates
+        // when scrolling; do not permanently skip anything after the first row.
+        val ids = items.asSequence()
+            .filter { it.thumbnailPath.isNullOrBlank() }
+            .mapNotNull { it.thumbnailFileId }
+            .distinct()
+            .toList()
+        ids.take(MAX_INITIAL_THUMBNAIL_REQUESTS).forEach { fetchThumbnailIfNeeded(it, owner) }
+        deferredThumbnailJob?.cancel()
+        val remaining = ids.drop(MAX_INITIAL_THUMBNAIL_REQUESTS)
+        if (remaining.isNotEmpty()) {
+            deferredThumbnailJob = viewModelScope.launch {
+                delay(THUMBNAIL_BACKGROUND_DELAY_MS)
+                if (!AccountSession.isCurrent(owner) ||
+                    com.vaydelux.bousygram.core.media.PlaybackSessionController.isVideoPlaying()
+                ) return@launch
+                remaining.forEach { fileId -> fetchThumbnailIfNeeded(fileId, owner) }
+            }
+        }
     }
 
     /**
@@ -1207,6 +1224,7 @@ class MediaViewModel(
 private const val CHAT_SOURCE_LOAD_DELAY_MS = 300L
 private const val MAX_INITIAL_THUMBNAIL_REQUESTS = 12
 private const val THUMBNAIL_RETRY_DELAY_MS = 60_000L
+private const val THUMBNAIL_BACKGROUND_DELAY_MS = 900L
 private const val MEDIA_FIRST_PAGE_PRIORITY_POLL_MS = 150L
 private const val MEDIA_FIRST_PAGE_PRIORITY_MAX_WAIT_MS = 3_000L
 
