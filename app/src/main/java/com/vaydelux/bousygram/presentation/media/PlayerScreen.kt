@@ -2064,8 +2064,10 @@ fun PlayerScreen(
                         if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
                         else CastSessionController.play()
                     } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
-                    playerEngine.pause()
-                } else playerEngine.play()
+                        playerEngine.pause()
+                    } else {
+                        playerEngine.play()
+                    }
                 },
                 onSeekBy = { delta ->
                     hudInteractionTick++
