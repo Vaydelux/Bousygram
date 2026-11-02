@@ -17,6 +17,17 @@ internal fun quickSearchScope(
 ): Long? = (if (isSavedMessages) savedMessagesChatId else selectedChatId)
     ?.takeIf { it != 0L }
 
+/** Continue/Resume must not surface a recently played video from a different source. */
+internal fun canResumeInSource(
+    isSavedMessages: Boolean,
+    savedMessagesChatId: Long?,
+    selectedChatId: Long?,
+    lastPlayedChatId: Long?
+): Boolean {
+    val sourceId = quickSearchScope(isSavedMessages, savedMessagesChatId, selectedChatId) ?: return false
+    return lastPlayedChatId != null && sourceId == lastPlayedChatId
+}
+
 /** An error/partial callback cannot advance a cursor or declare end-of-list. */
 internal fun resolvedPageCursor(current: Long, returned: Long, isFinal: Boolean, error: String?): Long =
     if (isFinal && error == null) returned else current
