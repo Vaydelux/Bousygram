@@ -510,7 +510,18 @@ fun PlayerScreen(
         if (castState.durationMs > 0L) duration = castState.durationMs
         position = castState.positionMs
         isPlaying = castState.playbackStatus == CastPlaybackStatus.Playing
-        if (castState.playbackStatus == CastPlaybackStatus.Playing) playerEngine.pause()
+        if (castState.playbackStatus == CastPlaybackStatus.Playing) pauseLocalPlayback()
+    }
+
+    fun pauseLocalPlayback() {
+        // User pause (or cast handoff) ends the current stall. Do not count
+        // minutes spent manually paused as network rebuffering.
+        if (rebufferStartMs > 0L) {
+            totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
+            rebufferStartMs = 0L
+        }
+        playerEngine.pause()
+        isPlaying = false
     }
 
     fun performTrackedSeek(targetMs: Long) {
@@ -1738,7 +1749,7 @@ fun PlayerScreen(
                     if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
                     else CastSessionController.play()
                 } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
-                    playerEngine.pause()
+                    pauseLocalPlayback()
                 } else playerEngine.play()
                 hudVisible = true
             }
@@ -1753,7 +1764,7 @@ fun PlayerScreen(
             override fun pause() {
                 hudInteractionTick++
                 if (castState.connected) CastSessionController.pause()
-                else if (playerEngine.playWhenReady || playerEngine.isPlaying) playerEngine.pause()
+                else if (playerEngine.playWhenReady || playerEngine.isPlaying) pauseLocalPlayback()
                 hudVisible = true
             }
 
@@ -1825,7 +1836,7 @@ fun PlayerScreen(
             override fun cancelAutoNext() {
                 autoNextCardVisible = false
                 playerInputController.isAutoNextActive = false
-                playerEngine.pause()
+                pauseLocalPlayback()
                 hudVisible = true
                 hudInteractionTick++
             }
@@ -2102,7 +2113,7 @@ fun PlayerScreen(
                         if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
                         else CastSessionController.play()
                     } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
-                        playerEngine.pause()
+                        pauseLocalPlayback()
                     } else {
                         playerEngine.play()
                     }
@@ -2321,7 +2332,7 @@ fun PlayerScreen(
                             onClick = {
                                 autoNextCardVisible = false
                                 playerInputController.isAutoNextActive = false
-                                playerEngine.pause()
+                                pauseLocalPlayback()
                                 hudVisible = true
                                 hudInteractionTick++
                             }
