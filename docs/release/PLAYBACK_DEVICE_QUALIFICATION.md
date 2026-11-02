@@ -53,6 +53,20 @@ network type, source file ID (redacted in shared logs), outcome and issue link.
     20 times; look for native-client growth, pending TDLib handlers,
     leaked sockets, ANRs, crashes or increasing memory use.
 
+## Windows / ADB evidence capture
+
+For **each real device**, use the signed candidate APK from the protected `signed-build` job (not a debug prerelease). On Windows, connect and authorize USB debugging, install Android platform-tools so `adb` is on PATH, then run:
+
+```powershell
+.\tools\qualification\Capture-BousygramDevice.ps1 -ApkPath ".\release-artifacts\Bousygram-vX.Y.Z-hardenedRelease-arm64-v8a.apk" -Install
+```
+
+For an older 32-bit TV use the `armeabi-v7a` signed APK; test the universal signed APK on the tablet. The PowerShell script records only the candidate SHA-256, OS/model/ABI and initial **not-run** test statuses. It does **not** collect private Telegram media, logcat, account identifiers, passwords or device serials. It deliberately does not mark any test passed.
+
+Record at least three real playback runs per device, plus a sustained-viewing session, real Telegram authentication, full MKV/TS and network-recovery outcomes. Verify installed version, signed candidate hash, codec, audio/first-frame behavior, decoder, device memory and log evidence privately. Sanitized reviewer-accessible HTTPS evidence is needed before approval.
+
+The signed-artifact proof must match all required entries in [the protected device qualification record](../ci/RELEASE_DEVICE_QUALIFICATION_RECORD.md). Do not supply fabricated results just to satisfy the validator.
+
 ## Evidence required for each case
 
 Record: commit SHA, CI run URL, APK checksum, device build fingerprint or model,
