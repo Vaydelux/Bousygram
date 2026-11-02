@@ -14,6 +14,7 @@ import com.vaydelux.bousygram.core.tdlib.utils.ThumbnailExtractor
 import com.vaydelux.bousygram.data.store.ManagedAppConfiguration
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.media.AccountMediaResources
+import com.vaydelux.bousygram.core.media.SeekThumbnailManager
 import com.vaydelux.bousygram.data.database.AppDatabase
 import com.vaydelux.bousygram.data.database.RecentSearchRepository
 import com.vaydelux.bousygram.data.repository.ContinueWatchingRepository
@@ -93,11 +94,13 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
                 level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
                 TelegramPreCacheEngine.pauseBackgroundCaching()
                 ThumbnailExtractor.trimMemory(critical = true)
+                SeekThumbnailManager.trimMemory(critical = true)
             }
             level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE ||
                 level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
                 TelegramPreCacheEngine.pauseBackgroundCaching()
                 ThumbnailExtractor.trimMemory(critical = false)
+                SeekThumbnailManager.trimMemory(critical = false)
             }
         }
     }
