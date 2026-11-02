@@ -1983,7 +1983,7 @@ fun PlayerScreen(
             castBuffering = castState.playbackStatus == CastPlaybackStatus.Buffering,
             opening = isOpening,
             reconnecting = isReconnecting,
-            buffering = isBuffering,
+            buffering = isBuffering && (castState.connected || playerEngine.playWhenReady),
             error = playbackError
         )
         if (loadingPhase == PlayerLoadingPhase.OPENING) {
@@ -2999,23 +2999,22 @@ private fun PlayerHud(
         compact
     )
     val isPlayingOrPending = (state.playWhenReady && state.error == null) || state.isPlaying
-    val statusText = when {
-        state.error != null -> "Playback error"
-        state.isReconnecting -> "Retrying download"
-        state.isOpening -> "Downloading"
-        state.isBuffering -> "Buffering"
-        isPlayingOrPending -> "Playing"
-        else -> "Paused"
-    }
+    val statusText = playerPlaybackStatusText(
+        error = state.error != null,
+        reconnecting = state.isReconnecting,
+        opening = state.isOpening,
+        buffering = state.isBuffering,
+        playRequested = isPlayingOrPending
+    )
     val hudShape = RoundedCornerShape(if (compact) 18.dp else 26.dp)
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .padding(edgePadding)
             .heightIn(max = maxHudHeight)
-            .border(1.dp, Color(0x555A7998), hudShape),
-        color = Color(0xF0111A28),
-        contentColor = Color.White,
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, hudShape),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = hudShape,
         shadowElevation = 14.dp
     ) {
