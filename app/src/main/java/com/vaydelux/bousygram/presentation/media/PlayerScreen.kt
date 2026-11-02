@@ -897,7 +897,11 @@ fun PlayerScreen(
                     }
                     // Preserve autoplay intent across asynchronous MKV demux/decoder readiness.
                     // An explicit user pause clears playWhenReady and is never overridden.
-                    if (playerEngine.playWhenReady && !playerEngine.isPlaying) playerEngine.play()
+                    if (shouldAutoResumeAfterReady(
+                            isReady = true,
+                            playWhenReady = playerEngine.playWhenReady,
+                            isPlaying = playerEngine.isPlaying
+                        )) playerEngine.play()
                     isPlaying = playerEngine.isPlaying
                     if (isPlaying) audioFocusController.request(playerEngine)
 
@@ -1695,7 +1699,9 @@ fun PlayerScreen(
                 if (castState.connected) {
                     if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
                     else CastSessionController.play()
-                } else if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
+                    playerEngine.pause()
+                } else playerEngine.play()
                 hudVisible = true
             }
 
@@ -1709,7 +1715,7 @@ fun PlayerScreen(
             override fun pause() {
                 hudInteractionTick++
                 if (castState.connected) CastSessionController.pause()
-                else if (playerEngine.isPlaying) playerEngine.pause()
+                else if (playerEngine.playWhenReady || playerEngine.isPlaying) playerEngine.pause()
                 hudVisible = true
             }
 
@@ -2057,7 +2063,9 @@ fun PlayerScreen(
                     if (castState.connected) {
                         if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
                         else CastSessionController.play()
-                    } else if (playerEngine.isPlaying) playerEngine.pause() else playerEngine.play()
+                    } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
+                    playerEngine.pause()
+                } else playerEngine.play()
                 },
                 onSeekBy = { delta ->
                     hudInteractionTick++
