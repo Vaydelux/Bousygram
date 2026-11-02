@@ -1545,7 +1545,7 @@ fun PlayerScreen(
     val menuOpen = tracksPanelVisible || episodesDrawerVisible || optionsPanelVisible
     LaunchedEffect(hudVisible, isPlaying, isBuffering, playbackError, menuOpen, seekScrubbing, autoNextCardVisible, queueIndex, hudInteractionTick) {
         if (shouldAutoHidePlayerHud(hudVisible, isPlaying, isBuffering, playbackError != null, menuOpen, seekScrubbing, autoNextCardVisible)) {
-            delay(4_000L)
+            delay(com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudHideAfterInteractionMs)
             // State keys cancel the timer on interaction, scrub, buffering, or menu changes.
             if (shouldAutoHidePlayerHud(hudVisible, isPlaying, isBuffering, playbackError != null, menuOpen, seekScrubbing, autoNextCardVisible)) {
                 hudVisible = false
@@ -2043,7 +2043,12 @@ fun PlayerScreen(
                     )
             )
         }
-        if (hudVisible) {
+        AnimatedVisibility(
+            visible = hudVisible,
+            enter = fadeIn() + slideInVertically { it / 6 },
+            exit = fadeOut() + slideOutVertically { it / 6 },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
             PlayerHud(
                 state = PlayerHudState(
                     title = title,
@@ -2205,7 +2210,7 @@ fun PlayerScreen(
                 firstOptionFocusRequester = firstOptionFocusRequester,
                 seekBarFocusRequester = seekBarFocusRequester,
                 retryFocusRequester = retryFocusRequester,
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier
             )
         }
         if (tracksPanelVisible) {
@@ -3054,7 +3059,11 @@ private fun PlayerHud(
             .padding(edgePadding)
             .heightIn(max = maxHudHeight)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, hudShape),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        color = MaterialTheme.colorScheme.surface.copy(
+            alpha = if (MaterialTheme.colorScheme.background.red > 0.5f)
+                com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.lightHudOpacity
+            else com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.darkHudOpacity
+        ),
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = hudShape,
         shadowElevation = 14.dp
@@ -3088,7 +3097,10 @@ private fun PlayerHud(
                         )
                     }
                 }
-                if (isTv && state.durationTrusted && state.durationMs > 0L) {
+                if (isTv && onEpisodes != null) {
+                    BousygramButton("▦ Episodes", onEpisodes)
+                }
+                if (isTv && state.durationTrusted && state.durationMs > 0L && !compact) {
                     BousygramButton("↺ Start Over", onStartOver)
                 }
                 BousygramButton(if (isTv) "‹ Back" else "✕ Close", onExit)
