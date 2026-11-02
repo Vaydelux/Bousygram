@@ -59,8 +59,11 @@ object PlaybackSessionController {
     private val isVideoPlayingFlag = AtomicBoolean(false)
 
     fun setVideoPlaying(playing: Boolean) {
-        isVideoPlayingFlag.set(playing)
-        if (playing) {
+        // Player UI updates its position frequently; cancelling focus prefetch
+        // on each tick creates needless work on low-memory Android TV hardware.
+        // Only the actual transition into foreground playback needs this cleanup.
+        val wasPlaying = isVideoPlayingFlag.getAndSet(playing)
+        if (playing && !wasPlaying) {
             FocusPrefetchManager.cancelAll()
         }
     }
