@@ -67,6 +67,27 @@ class CacheManagerTest {
     }
 
     @Test
+    fun prefetchYieldsToForegroundWhenNetworkCannotKeepUpWithBitrate() {
+        // A 100 MB / 100 second video consumes 1MB/s on average.
+        val fileSize = 100L * 1024L * 1024L
+        fun permitted(rate: Long, size: Long = fileSize) =
+            CacheManager.shouldPreloadNextEpisode(
+                positionMs = 80_000L,
+                durationMs = 100_000L,
+                bufferedPositionMs = 98_000L,
+                isBuffering = false,
+                playWhenReady = true,
+                currentFileSizeBytes = size,
+                measuredThroughputBytesPerSec = rate
+            )
+        assertFalse(permitted(900_000L)) // below video bitrate
+        assertFalse(permitted(1_250_000L)) // insufficient safety margin
+        assertTrue(permitted(1_600_000L)) // measured headroom permits optional preload
+        assertTrue(permitted(0L)) // unknown network preserves existing policy
+        assertTrue(permitted(900_000L, 0L)) // unknown file size: no invented bitrate
+    }
+
+    @Test
     fun slidingWindowRange_computesAccurateBounds() {
         val newPositionMs = 60_000L // 1 minute
         val durationMs = 120_000L   // 2 minutes
