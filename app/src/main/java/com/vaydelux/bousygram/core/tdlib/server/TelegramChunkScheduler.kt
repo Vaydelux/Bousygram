@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
 import android.util.Log
+import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
@@ -395,6 +396,11 @@ internal object TelegramChunkScheduler {
     private fun cancelFileIfUnused(fileId: Int, offset: Long) {
         val effectiveId = resolveEffectiveFileId(fileId)
         if (activeLeaseCount(effectiveId) > 0 || OfflineCacheManager.isPinned(effectiveId)) return
+        // ExoPlayer/Media3 closes the old DataSource before opening a new one
+        // during a seek or container metadata probe. No reader lease exists in
+        // that short gap, but the active playback session still owns the file.
+        // The explicit session stop/track-switch path cancels the download.
+        if (PlaybackSessionController.isCurrentPlaybackFile(effectiveId)) return
         Log.i(TAG, "Last transient consumer released fileId=$effectiveId offset=$offset")
         cancelPrefetch(effectiveId)
         activeRequests.entries.removeIf { (key, deferred) ->
