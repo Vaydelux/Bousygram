@@ -473,39 +473,57 @@ internal object TelegramChunkScheduler {
     }
 
     /**
-     * Opens playback: immediately schedules two high-priority downloads:
-     * the first ~2 MB and the last ~4 MB of the file (clamped for small files),
-     * using TDLib downloadFile with explicit offset and limit.
+     * Start one continuous foreground TDLib download for the current file.
+     *
+     * Media3 reopens DataSources for seeks, MKV cues and MP4 metadata. Repeating
+     * the head download on every reopen discards the current TDLib download
+     * window and can stall playback near the initial 2 MiB boundary.
+     * Keep the open-ended window until a true seek or the final consumer exits.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun openPlayback(fileId: Int, totalSize: Long, isMp4: Boolean = false): Job = scope.launch {
         if (fileId <= 0) return@launch
         val effectiveId = resolveEffectiveFileId(fileId)
-        val initialFile = latestFiles[effectiveId] ?: getFileStatus(effectiveId)
-        val resolvedSize = if (totalSize > 0L) totalSize else (initialFile?.size ?: 0L)
-        if (resolvedSize > 0L) noteFileSize(effectiveId, resolvedSize)
-        markState(effectiveId, PlaybackCacheState.Preparing)
-        touchPlayback(effectiveId)
+        val prepareLock = prepareLocks.getOrPut(effectiveId) { Mutex() }
+        var started = false
+        var fullyCached = false
+        prepareLock.withLock {
+            val existing = downloadWindows[effectiveId]
+            if (playbackReady.contains(effectiveId) && existing != null) {
+                // Even a distant metadata/seek reopen must not reset the head.
+                touchPlayback(effectiveId)
+                return@withLock
+            }
 
-        val isFullyCached = initialFile?.isDownloadingCompleted == true
-        PlaybackTelemetryRecorder.recordFullyCachedAtStart(effectiveId, isFullyCached)
+            val initialFile = latestFiles[effectiveId] ?: getFileStatus(effectiveId)
+            val resolvedSize = if (totalSize > 0L) totalSize else (initialFile?.size ?: 0L)
+            if (resolvedSize > 0L) noteFileSize(effectiveId, resolvedSize)
+            fullyCached = initialFile?.isDownloadingCompleted == true
+            PlaybackTelemetryRecorder.recordFullyCachedAtStart(effectiveId, fullyCached)
+            touchPlayback(effectiveId)
+            if (fullyCached) {
+                markState(effectiveId, PlaybackCacheState.Cached)
+                playbackReady.add(effectiveId)
+                return@withLock
+            }
 
-        val headLimit = if (resolvedSize > 0L) min(HEAD_BURST_BYTES, resolvedSize).toInt() else HEAD_BURST_BYTES.toInt()
-        val headStartMs = System.currentTimeMillis()
-        rememberWindow(effectiveId, 0L, headLimit.toLong(), TelegramChunkPurpose.Streaming)
-        startChunkDownload(effectiveId, offset = 0L, limit = headLimit, priority = PLAYBACK_PRIORITY)
-        awaitPrefixReady(effectiveId, 0L, min(headLimit, MIN_PARTIAL_BYTES), timeoutMs = 15_000L)
-        val headElapsed = if (isFullyCached) 0L else (System.currentTimeMillis() - headStartMs).coerceAtLeast(1L)
-        PlaybackTelemetryRecorder.recordHeaderChunkTime(effectiveId, headElapsed)
-
-        // Do not supersede the sequential playback window with a speculative
-        // MP4 metadata tail request. The extractor fetches that range on demand.
-        if (isMp4 && !isFullyCached) {
-            Log.d(TAG, "MP4 metadata requested on demand for fileId=$effectiveId")
+            markState(effectiveId, PlaybackCacheState.Preparing)
+            // A single open-ended download advances through the entire media
+            // while the session is active. Seek handling repositions it on demand.
+            val failure = issueOpenEnded(effectiveId, 0L)
+            if (failure != null) {
+                PlaybackDiagnostics.recordStreamError("Unable to open playback window fileId=$effectiveId")
+                return@withLock
+            }
+            playbackReady.add(effectiveId)
+            started = true
         }
-        if (isFullyCached) {
-            markState(effectiveId, PlaybackCacheState.Cached)
+        if (started) {
+            val headStartMs = System.currentTimeMillis()
+            val headLimit = if (totalSize > 0L) min(HEAD_BURST_BYTES, totalSize).toInt() else HEAD_BURST_BYTES.toInt()
+            awaitPrefixReady(effectiveId, 0L, min(headLimit, MIN_PARTIAL_BYTES), timeoutMs = 15_000L)
+            PlaybackTelemetryRecorder.recordHeaderChunkTime(effectiveId, (System.currentTimeMillis() - headStartMs).coerceAtLeast(1L))
         }
-        playbackReady.add(effectiveId)
     }
 
     fun cancelPrefetch(fileId: Int) {
