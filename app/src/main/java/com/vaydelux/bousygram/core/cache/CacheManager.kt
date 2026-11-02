@@ -68,6 +68,8 @@ object CacheManager {
 
     private val pinnedFiles = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
     private val preloadedNextEpisodes = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
+    private val preloadAttemptsMs = ConcurrentHashMap<Int, Long>()
+    private const val PRELOAD_RETRY_COOLDOWN_MS = 30_000L
     private val isEvictionScheduled = AtomicBoolean(false)
     private var pinnedAccountId: Long? = null
 
@@ -93,6 +95,7 @@ object CacheManager {
         pinnedFiles.clear()
         pinnedAccountId = null
         preloadedNextEpisodes.clear()
+        preloadAttemptsMs.clear()
     }
 
     // --- Dynamic Quota Calculation ---
@@ -175,38 +178,81 @@ object CacheManager {
         LocalStreamingServer.prefetchAtPosition(fileId, totalSize, newPositionMs, durationMs)
     }
 
-    // --- Next-Episode 80% Head Preload ---
+    // --- Next episode: healthy-buffer-only, verified head preload ---
 
     /**
-     * Preloads the head (first 8 MB) of the next queued item once playback reaches >= 80% of current item.
+     * Never compete with a starving foreground stream for the next video.
+     * A prefetch request is useful only after 80% progress with >=15s of real
+     * buffered media (or all remaining media if fewer than 15s remain).
      */
+    internal fun shouldPreloadNextEpisode(
+        positionMs: Long,
+        durationMs: Long,
+        bufferedPositionMs: Long,
+        isBuffering: Boolean,
+        playWhenReady: Boolean
+    ): Boolean {
+        if (isBuffering || !playWhenReady || durationMs <= 0L ||
+            positionMs < 0L || positionMs >= durationMs
+        ) return false
+        if (positionMs.toDouble() / durationMs.toDouble() < 0.80) return false
+        val requiredLead = min(15_000L, durationMs - positionMs)
+        return bufferedPositionMs - positionMs >= requiredLead
+    }
+
     fun onPlaybackProgress(
         currentFileId: Int,
         currentPositionMs: Long,
         durationMs: Long,
         nextItemFileId: Int?,
-        nextItemTotalSize: Long = 0L
+        nextItemTotalSize: Long = 0L,
+        currentBufferedPositionMs: Long = 0L,
+        isBuffering: Boolean = false,
+        playWhenReady: Boolean = true
     ) {
-        if (nextItemFileId == null || nextItemFileId <= 0) return
-        if (durationMs > 0L && currentPositionMs >= (durationMs * 0.80)) {
-            preloadNextEpisode(nextItemFileId, nextItemTotalSize)
-        }
+        if (currentFileId <= 0 || nextItemFileId == null ||
+            nextItemFileId <= 0 || nextItemFileId == currentFileId
+        ) return
+        if (shouldPreloadNextEpisode(
+                currentPositionMs, durationMs, currentBufferedPositionMs,
+                isBuffering, playWhenReady
+            )
+        ) preloadNextEpisode(nextItemFileId, nextItemTotalSize)
     }
 
     fun preloadNextEpisode(nextFileId: Int, totalSize: Long = 0L) {
-        if (nextFileId <= 0 || AccountSession.current() == null) return
-        if (preloadedNextEpisodes.add(nextFileId)) {
-            Log.i(TAG, "Preloading head of next episode fileId=$nextFileId (8 MB burst)")
-            TelegramPreCacheEngine.primeVideoCache(
-                tdLibClient = TdLibClient.client,
-                fileId = nextFileId,
-                totalSize = totalSize
-            )
+        val owner = AccountSession.current() ?: return
+        if (nextFileId <= 0 || preloadedNextEpisodes.contains(nextFileId)) return
+        val now = System.nanoTime() / 1_000_000L
+        var shouldLaunch = false
+        preloadAttemptsMs.compute(nextFileId) { _, previous ->
+            if (previous == null || now - previous >= PRELOAD_RETRY_COOLDOWN_MS) {
+                shouldLaunch = true
+                now
+            } else previous
         }
+        if (!shouldLaunch) return
+        Log.d(TAG, "Preloading next video head fileId=$nextFileId")
+        TelegramPreCacheEngine.primeVideoCache(
+            tdLibClient = TdLibClient.client,
+            fileId = nextFileId,
+            totalSize = totalSize,
+            includeTail = false,
+            onComplete = { headReady ->
+                // Do not let a callback from a logged-out account mark another
+                // account's file id as successfully primed.
+                if (headReady && AccountSession.isCurrent(owner)) {
+                    preloadedNextEpisodes.add(nextFileId)
+                } else {
+                    Log.d(TAG, "Next-video head prefetch was not ready fileId=$nextFileId; retry permitted after cooldown")
+                }
+            }
+        )
     }
 
     fun clearPreloadTracking() {
         preloadedNextEpisodes.clear()
+        preloadAttemptsMs.clear()
     }
 
     // --- Eviction & Cleanup ---
