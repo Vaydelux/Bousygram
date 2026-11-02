@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.media.vm
 
+import com.vaydelux.bousygram.domain.model.MediaItem
+import com.vaydelux.bousygram.domain.model.MediaType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -20,6 +22,33 @@ class CatalogNavigationPolicyTest {
         assertNull(quickSearchScope(true, null, 320L))
         assertNull(quickSearchScope(false, 91L, null))
         assertNull(quickSearchScope(true, 0L, 320L))
+    }
+
+    private fun media(chatId: Long, messageId: Long): MediaItem = MediaItem(
+        chatId = chatId,
+        messageId = messageId,
+        date = 1,
+        type = MediaType.Video,
+        title = "Test video",
+        fileId = 10
+    )
+
+    @Test fun savedMessagesNeverContainsRecentlyViewedVideosFromOtherChats() {
+        val saved = media(91L, 101L)
+        val recentlyViewedFromChannel = media(320L, 201L)
+        val recentlyViewedFromGroup = media(450L, 301L)
+        val mixedRecentIndex = listOf(recentlyViewedFromChannel, saved, recentlyViewedFromGroup)
+        assertEquals(listOf(saved), savedMessagesOnly(mixedRecentIndex, 91L))
+        assertTrue(savedMessagesOnly(mixedRecentIndex, null).isEmpty())
+        assertTrue(savedMessagesOnly(mixedRecentIndex, 0L).isEmpty())
+        assertTrue(savedMessagesOnly(mixedRecentIndex, 999L).isEmpty())
+    }
+
+    @Test fun savedMessagesSnapshotDoesNotReuseAnotherChatWhenSwitchingSources() {
+        val channelVideo = media(320L, 999L)
+        val savedVideo = media(91L, 1000L)
+        assertEquals(listOf(savedVideo), savedMessagesOnly(listOf(channelVideo, savedVideo), 91L))
+        assertEquals(listOf(channelVideo), savedMessagesOnly(listOf(channelVideo), 320L))
     }
 
     @Test fun paginationErrorKeepsOldCursorAndAllowsRetry() {
