@@ -38,6 +38,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
@@ -109,6 +110,8 @@ fun TelegramExplorerDashboard(
     val directory = remember(sources, position.section) {
         explorerSources(sources, position.section)
     }
+    val channelCount = remember(sources) { explorerSources(sources, ExplorerSection.CHANNELS).size }
+    val groupCount = remember(sources) { explorerSources(sources, ExplorerSection.GROUPS).size }
     val showSources = position.level == ExplorerLevel.SOURCES && position.section != ExplorerSection.SAVED
     val showTopics = position.level == ExplorerLevel.TOPICS && position.section == ExplorerSection.GROUPS
     val showMedia = !showSources && !showTopics
@@ -180,7 +183,12 @@ fun TelegramExplorerDashboard(
         // actions on one line; use two comfortable touch rows on phones.
         if (adaptive.isTv || adaptive.isTabletLayout) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Bousygram", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Bousygram",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall)
+                    Text("Your library", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
                 if (hasResume) OutlinedButton(onClick = onResume, modifier = Modifier.heightIn(min = 48.dp)) { Text("Continue") }
                 OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
                 OutlinedButton(onClick = onFavorites, modifier = Modifier.heightIn(min = 48.dp)) { Text("Favorites") }
@@ -188,7 +196,11 @@ fun TelegramExplorerDashboard(
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Bousygram", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Bousygram", color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall)
+                    Text("Your library", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
                 OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
                 OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Settings") }
             }
@@ -206,6 +218,14 @@ fun TelegramExplorerDashboard(
                     ExplorerSection.GROUPS -> "Groups"
                 }
                 val active = section == position.section
+                val detailCount = when (section) {
+                    ExplorerSection.SAVED -> 0
+                    ExplorerSection.CHANNELS -> channelCount
+                    ExplorerSection.GROUPS -> groupCount
+                }
+                val tabTitle = if (section != ExplorerSection.SAVED && !adaptive.isPhoneLayout) {
+                    "$label · $detailCount"
+                } else label
                 var tabFocused by remember(section) { mutableStateOf(false) }
                 OutlinedButton(
                     onClick = { if (!active) onSelectTab(section) },
@@ -224,7 +244,7 @@ fun TelegramExplorerDashboard(
                     contentPadding = PaddingValues(horizontal = 3.dp, vertical = if (adaptive.isTv) 11.dp else 13.dp)
                 ) {
                     Text(
-                        label,
+                        tabTitle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = if (adaptive.isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelMedium
@@ -232,44 +252,101 @@ fun TelegramExplorerDashboard(
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!showSources && position.section != ExplorerSection.SAVED) {
-                OutlinedButton(
-                    onClick = onGoUp,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Text("‹ Back")
-                }
-            }
-            val path = when {
-                position.section == ExplorerSection.SAVED -> "Saved Messages / Media"
-                showSources -> if (position.section == ExplorerSection.GROUPS) "Groups" else "Channels"
-                showTopics -> "Groups / " + selectedChatTitle + " / Topics"
-                selectedTopicId != null -> "Groups / " + selectedChatTitle + " / Topic / Media"
-                else -> selectedChatTitle + " / Media"
-            }
-            Text(path, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Contextual collection header: concise on phones, comfortably readable on TV.
+        val folderTitle = when {
+            position.section == ExplorerSection.SAVED -> "Saved Messages"
+            showSources && position.section == ExplorerSection.CHANNELS -> "Your channels"
+            showSources -> "Your groups"
+            showTopics -> "Forum topics"
+            else -> selectedChatTitle
         }
-        // Keep the already discovered sources navigable during TDLib pagination.
-        // A non-modal status indicator communicates that more channels may still appear.
-        if (showSources && isLoadingSources && directory.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        val folderDescription = when {
+            position.section == ExplorerSection.SAVED -> "Media saved to your own Telegram chat"
+            showSources && position.section == ExplorerSection.CHANNELS -> "Explore media from channels you follow"
+            showSources -> "Explore your groups and forum discussions"
+            showTopics -> "Choose a topic to browse its shared media"
+            else -> "Videos, audio and documents in this Telegram collection"
+        }
+        val collectionStatus = when {
+            showSources -> explorerDirectoryStatus(position.section, directory.size, isLoadingSources)
+            showTopics -> if (isLoadingTopics) "${topics.size} topics found · Syncing" else "${topics.size} topics available"
+            isLoading -> "${videos.size} media shown · Loading"
+            else -> "${videos.size} media shown"
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer
+        ) {
+            Column(
+                modifier = Modifier.padding(
+                    horizontal = if (adaptive.isTv) 20.dp else 14.dp,
+                    vertical = if (adaptive.isTv) 18.dp else 12.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
-                )
-                Text(
-                    text = "Loading Telegram " +
-                        (if (position.section == ExplorerSection.CHANNELS) "channels" else "groups") +
-                        "… ${directory.size} found",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!showSources && position.section != ExplorerSection.SAVED) {
+                        OutlinedButton(
+                            onClick = onGoUp,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) { Text("‹ Back") }
+                    }
+                    Text(
+                        when (position.section) {
+                            ExplorerSection.SAVED -> "PERSONAL  /  SAVED"
+                            ExplorerSection.CHANNELS -> "TELEGRAM  /  CHANNELS"
+                            ExplorerSection.GROUPS -> "TELEGRAM  /  GROUPS"
+                        },
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            folderTitle,
+                            style = if (adaptive.isTv) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            folderDescription,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = if (adaptive.isPhoneLayout) 2 else 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (showSources && !isLoadingSources) {
+                        OutlinedButton(
+                            onClick = onRefreshSources,
+                            modifier = Modifier.heightIn(min = 44.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) { Text("Refresh") }
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if ((showSources && isLoadingSources) || (showTopics && isLoadingTopics) || (showMedia && isLoading)) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    }
+                    Text(collectionStatus, style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (privacyMode) {
+                        Text("· Privacy mode", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                }
             }
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -290,7 +367,11 @@ fun TelegramExplorerDashboard(
                         items(directory, key = { "chat:" + it.chatId }) { source ->
                             ExplorerFolderCard(
                                 title = source.title,
-                                subtitle = if (source.isForum) "Topics" else "Media files",
+                                subtitle = explorerSourceLabel(source),
+                                detail = explorerSourceDetail(source),
+                                badge = if (source.isArchived) "ARCHIVED" else if (source.isForum) "TOPICS" else "MEDIA",
+                                symbol = if (source.isForum) "▦" else if (source.kind == com.vaydelux.bousygram.domain.model.ChatSourceKind.CHANNEL) "▣" else "▤",
+                                isTv = adaptive.isTv,
                                 modifier = if (sourceFolderRestoration.focusedMediaKey == source.chatId.toString()) {
                                     Modifier.focusRequester(sourceFocusRequester)
                                 } else Modifier,
@@ -321,6 +402,10 @@ fun TelegramExplorerDashboard(
                             ExplorerFolderCard(
                                 title = topic.name,
                                 subtitle = if (topic.isGeneral) "General topic" else "Forum topic",
+                                detail = "Open messages and shared media",
+                                badge = if (topic.isGeneral) "GENERAL" else "TOPIC",
+                                symbol = "▦",
+                                isTv = adaptive.isTv,
                                 modifier = if (focusedTopicId == topic.id) {
                                     Modifier.focusRequester(topicFocusRequester)
                                 } else Modifier,
@@ -407,32 +492,100 @@ private fun ExplorerMessage(message: String, onRetry: (() -> Unit)? = null) {
     }
 }
 
+/**
+ * One shared card for channels, groups and real forum topics.
+ * Metadata is derived from TDLib; no placeholder ratings, thumbnails or item counts.
+ * The whole card remains accessible via touch, keyboard and TV D-pad.
+ */
 @Composable
 private fun ExplorerFolderCard(
     title: String,
     subtitle: String,
+    detail: String,
+    badge: String,
+    symbol: String,
+    isTv: Boolean,
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(20.dp)
+    val accent = MaterialTheme.colorScheme.primary
     Surface(
-        modifier = modifier.fillMaxWidth()
-            .border(if (focused) 3.dp else 1.dp,
-                if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, shape)
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = if (isTv) 164.dp else 148.dp)
+            .border(
+                if (focused) 3.dp else 1.dp,
+                if (focused) accent else MaterialTheme.colorScheme.outlineVariant,
+                shape
+            )
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .clickable(role = Role.Button, onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "$title, $subtitle. $detail" },
         shape = shape,
-        color = if (focused) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+        color = if (focused) MaterialTheme.colorScheme.surfaceContainerHighest
+            else MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = if (focused) 6.dp else 1.dp
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("▣", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        symbol,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    badge,
+                    color = if (focused) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "›",
+                    color = accent,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                color = accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
