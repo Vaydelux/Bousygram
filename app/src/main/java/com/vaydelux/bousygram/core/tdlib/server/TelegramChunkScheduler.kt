@@ -157,10 +157,16 @@ internal object TelegramChunkScheduler {
     // This is a startup fallback for cache runway estimates, not a measured rate.
     @Volatile private var ewmaThroughputBps: Double = 3_000_000.0
     @Volatile private var hasMeasuredNetworkThroughput: Boolean = false
+    @Volatile private var throughputLastSampleAtMs: Long = 0L
 
-    /** Returns zero until a real TDLib UpdateFile transfer has been observed. */
+    internal fun isNetworkEstimateFresh(sampleAtMs: Long, nowMs: Long): Boolean =
+        sampleAtMs > 0L && nowMs >= sampleAtMs && nowMs - sampleAtMs <= 15_000L
+
+    /** Stale bandwidth must not authorize speculative downloads after a network change. */
     fun getAverageThroughput(): Long =
-        if (hasMeasuredNetworkThroughput) ewmaThroughputBps.toLong() else 0L
+        if (hasMeasuredNetworkThroughput &&
+            isNetworkEstimateFresh(throughputLastSampleAtMs, System.nanoTime() / 1_000_000L)
+        ) ewmaThroughputBps.toLong() else 0L
 
     private data class DownloadProgressSnapshot(
         val offset: Long,
@@ -360,6 +366,7 @@ internal object TelegramChunkScheduler {
         downloadProgress.clear()
         ewmaThroughputBps = 3_000_000.0
         hasMeasuredNetworkThroughput = false
+        throughputLastSampleAtMs = 0L
         fileSizes.clear()
         fileDurationsMs.clear()
         savedTails.clear()
@@ -472,6 +479,10 @@ internal object TelegramChunkScheduler {
 
     private fun recordNetworkTransfer(fileId: Int, bytes: Long, durationMs: Long) {
         if (bytes <= 0L || durationMs <= 0L) return
+        // During playback, TDLib callbacks from thumbnail/other-file traffic
+        // must not be mistaken for sustainable throughput of the active stream.
+        if (PlaybackSessionController.isVideoPlaying() &&
+            !PlaybackSessionController.isCurrentPlaybackFile(fileId)) return
         // Drop implausibly large samples (window jumps/replays) instead of
         // inflating the bandwidth estimate used for adaptive cache decisions.
         val rate = (bytes.toDouble() * 1000.0) / durationMs.toDouble()
@@ -481,6 +492,7 @@ internal object TelegramChunkScheduler {
                 0.2 * rate + 0.8 * ewmaThroughputBps
             } else rate
             hasMeasuredNetworkThroughput = true
+            throughputLastSampleAtMs = System.nanoTime() / 1_000_000L
             PlaybackTelemetryRecorder.recordThroughput(fileId, ewmaThroughputBps.toLong())
         }
     }
