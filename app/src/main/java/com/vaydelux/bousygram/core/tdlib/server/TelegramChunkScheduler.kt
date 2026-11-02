@@ -497,38 +497,10 @@ internal object TelegramChunkScheduler {
         val headElapsed = if (isFullyCached) 0L else (System.currentTimeMillis() - headStartMs).coerceAtLeast(1L)
         PlaybackTelemetryRecorder.recordHeaderChunkTime(effectiveId, headElapsed)
 
-        val headProbe = if (isMp4 && !isFullyCached && resolvedSize > 0L) {
-            readRange(effectiveId, 0L, min(headLimit, MIN_PARTIAL_BYTES))
-        } else {
-            null
-        }
-        val hasFaststartMoov = headProbe?.let {
-            com.vaydelux.bousygram.core.media.ContainerHeaderParser.findFaststartMoovSize(it) != null
-        } ?: false
-        val (tailOffset, tailLimit) = when {
-            isFullyCached || !isMp4 || hasFaststartMoov -> Pair(-1L, 0)
-            resolvedSize <= 0L -> Pair(-1L, 0)
-            resolvedSize <= HEAD_BURST_BYTES -> Pair(0L, 0)
-            resolvedSize <= HEAD_BURST_BYTES + TAIL_BURST_BYTES -> {
-                val offset = HEAD_BURST_BYTES
-                val limit = (resolvedSize - HEAD_BURST_BYTES).toInt()
-                Pair(offset, limit)
-            }
-            else -> {
-                val offset = resolvedSize - TAIL_BURST_BYTES
-                val limit = TAIL_BURST_BYTES.toInt()
-                Pair(offset, limit)
-            }
-        }
-
-        if (tailLimit > 0 && tailOffset >= 0L) {
-            rememberWindow(effectiveId, tailOffset, tailOffset + tailLimit, TelegramChunkPurpose.Streaming)
-            PlaybackTelemetryRecorder.recordSupersededWindow(effectiveId)
-            startChunkDownload(effectiveId, offset = tailOffset, limit = tailLimit, priority = PLAYBACK_PRIORITY)
-            // Tail bytes are speculative. Do not hold playback startup for up to a minute
-            // while TDLib downloads them; a later range request waits for the bytes it needs.
-        } else {
-            PlaybackTelemetryRecorder.recordTailChunkTime(effectiveId, headElapsed)
+        // Do not supersede the sequential playback window with a speculative
+        // MP4 metadata tail request. The extractor fetches that range on demand.
+        if (isMp4 && !isFullyCached) {
+            Log.d(TAG, "MP4 metadata requested on demand for fileId=$effectiveId")
         }
         if (isFullyCached) {
             markState(effectiveId, PlaybackCacheState.Cached)
@@ -746,6 +718,7 @@ internal object TelegramChunkScheduler {
     }
 
     private fun prefetchAhead(fileId: Int, offset: Long, length: Int) {
+        if (isPlaybackBusy(fileId)) return // Open-ended playback owns TDLib's download window.
         val totalSize = fileSizes[fileId] ?: 0L
         val nextOffset = offset + length
         // Media3 may deliver hundreds of short sequential reads while an existing
@@ -785,25 +758,14 @@ internal object TelegramChunkScheduler {
     private suspend fun fetchWithFallback(request: TelegramChunkRequest): TelegramChunkResult {
         if (isPlaybackPurpose(request.purpose)) {
             touchPlayback(request.fileId)
-            ensurePlaybackPrefix(request.fileId)?.let { return it }
+            // A distant extractor seek must not reopen the head window first.
+            if (request.offset < HEAD_BURST_BYTES) {
+                ensurePlaybackPrefix(request.fileId)?.let { return it }
+            }
             sliceSavedTail(request.fileId, request.offset, request.limit)?.let { bytes ->
                 return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.DirectDisk, retryCount = 0)
             }
-            val totalSize = fileSizes[request.fileId] ?: 0L
-            if (totalSize > MIN_FILE_FOR_TAIL_BYTES && !savedTails.containsKey(request.fileId)) {
-                val optimalTail = com.vaydelux.bousygram.core.media.ContainerHeaderParser.calculateOptimalTailSize(
-                    sampleTail = null,
-                    fileTotalSize = totalSize,
-                    isMkv = false
-                )
-                val tailThreshold = totalSize - optimalTail
-                if (request.offset >= tailThreshold) {
-                    captureTail(request.fileId, totalSize)
-                    sliceSavedTail(request.fileId, request.offset, request.limit)?.let { bytes ->
-                        return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.DirectDisk, retryCount = 0)
-                    }
-                }
-            }
+            // Avoid waiting for a full tail probe before a small urgent range.
             handleSeek(request)
             val result = awaitPlaybackChunk(request)
             if (result is TelegramChunkResult.Ready) {
