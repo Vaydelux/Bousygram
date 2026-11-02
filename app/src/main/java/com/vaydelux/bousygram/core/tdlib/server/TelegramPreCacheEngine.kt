@@ -33,15 +33,30 @@ object TelegramPreCacheEngine {
         val job: Job
     )
 
+    /**
+     * Prime bytes before a player requests them. A caller may observe the result:
+     * a launched prefetch is not considered successful until TDLib actually exposes
+     * the initial bytes. Head-only priming is best for the next queued episode.
+     */
     @Suppress("UNUSED_PARAMETER")
-    fun primeVideoCache(tdLibClient: Client, fileId: Int, totalSize: Long = 0L) {
-        if (fileId <= 0) return
-        // A tail download uses TDLib's only window for this file and cancels the bytes
-        // playback is waiting on. Playback owns that window once it starts.
-        if (TelegramChunkScheduler.isPlaybackBusy(fileId)) return
+    fun primeVideoCache(
+        tdLibClient: Client,
+        fileId: Int,
+        totalSize: Long = 0L,
+        includeTail: Boolean = true,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        if (fileId <= 0 || TelegramChunkScheduler.isPlaybackBusy(fileId)) {
+            onComplete?.invoke(false)
+            return
+        }
         val trackedJobs = Collections.synchronizedList(mutableListOf<Job>())
-        if (activePrimeJobs.putIfAbsent(fileId, trackedJobs) != null) return
+        if (activePrimeJobs.putIfAbsent(fileId, trackedJobs) != null) {
+            onComplete?.invoke(false)
+            return
+        }
         val outerJob = scope.launch {
+            var headReady = false
             try {
                 if (TelegramChunkScheduler.isPlaybackBusy(fileId)) return@launch
                 val size = totalSize.takeIf { it > 0L } ?: LocalStreamingServer.resolveFileSize(fileId)
@@ -56,10 +71,17 @@ object TelegramPreCacheEngine {
                 )
                 trackedJobs += headJob
                 headJob.join()
-
-                // Dual-Ended Tail Probing: For large files (> 4MB), pre-cache the tail (last 2MB)
-                // so non-faststart MP4 (moov atom at end) or MKV Cues resolve instantly without demuxer timeout.
-                if (size > 4L * 1024L * 1024L && !TelegramChunkScheduler.isPlaybackBusy(fileId)) {
+                // A completed Job only means the request has ended, not that TDLib
+                // delivered usable bytes. Verify the actual downloaded prefix.
+                headReady = TelegramChunkScheduler.awaitPrefixReady(
+                    fileId = fileId,
+                    offset = 0L,
+                    minNeededBytes = min(headLength, 32L * 1024L).toInt().coerceAtLeast(1),
+                    timeoutMs = 750L
+                )
+                if (headReady && includeTail && size > 4L * 1024L * 1024L &&
+                    !TelegramChunkScheduler.isPlaybackBusy(fileId)
+                ) {
                     val tailLength = min(HEAD_PRIME_BYTES, size)
                     val tailOffset = size - tailLength
                     val tailJob = TelegramChunkScheduler.prefetchRange(
@@ -71,11 +93,12 @@ object TelegramPreCacheEngine {
                     )
                     trackedJobs += tailJob
                     tailJob.join()
-                    Log.d(TAG, "Primed Telegram video tail fileId=$fileId offset=$tailOffset length=$tailLength")
                 }
-                Log.d(TAG, "Primed Telegram video head & tail fileId=$fileId size=$size")
+                Log.d(TAG, "Telegram prime completed fileId=$fileId headReady=$headReady tail=$includeTail")
             } finally {
                 activePrimeJobs.remove(fileId, trackedJobs)
+                runCatching { onComplete?.invoke(headReady) }
+                    .onFailure { Log.w(TAG, "Prefetch completion callback failed", it) }
             }
         }
         trackedJobs += outerJob
