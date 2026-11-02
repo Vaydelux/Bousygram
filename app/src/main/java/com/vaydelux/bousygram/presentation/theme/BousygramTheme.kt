@@ -30,9 +30,9 @@ enum class BousygramThemePreset(
     val outline: Color
 ) {
     DARK(
-        "dark", "Dark", "Deep navy with vibrant mint and cyan highlights",
-        Color(0xFF5EE5BE), Color(0xFF4AC4E2), Color(0xFFFFD98A),
-        Color(0xFF0A0F1D), Color(0xFF111927), Color(0xFF16243A), Color(0xFF223249)
+        "dark", "Midnight blue", "Cinematic navy, ice cyan, and Chow gold",
+        Color(0xFF37D7F2), Color(0xFF82C3FF), Color(0xFFFFC67D),
+        Color(0xFF061426), Color(0xFF0D223A), Color(0xFF19354F), Color(0xFF68809B)
     ),
     HIGH_CONTRAST(
         "high_contrast", "High contrast", "Bright focus indicators and enhanced text contrast",
@@ -40,9 +40,9 @@ enum class BousygramThemePreset(
         Color(0xFF060708), Color(0xFF0F1215), Color(0xFF1E2429), Color(0xFFE1E7EF)
     ),
     LIGHT(
-        "light", "Light", "Bright high-legibility palette for handheld screens",
-        Color(0xFF075F53), Color(0xFF005C7A), Color(0xFF884A00),
-        Color(0xFFF8FBFC), Color(0xFFFFFFFF), Color(0xFFE6EDF0), Color(0xFF667780)
+        "light", "Daylight", "Bright ice-blue surfaces with deep accessible ink",
+        Color(0xFF075B83), Color(0xFF19548B), Color(0xFF805016),
+        Color(0xFFF5FAFF), Color(0xFFFFFFFF), Color(0xFFE4F0F8), Color(0xFF70849A)
     );
 
     companion object {
@@ -57,22 +57,22 @@ private fun schemeFor(preset: BousygramThemePreset): ColorScheme {
         return lightColorScheme(
             primary = preset.primary,
             onPrimary = Color.White,
-            primaryContainer = Color(0xFFD4F3EB),
-            onPrimaryContainer = Color(0xFF063B32),
+            primaryContainer = Color(0xFFD9F3FF),
+            onPrimaryContainer = Color(0xFF07364B),
             secondary = preset.secondary,
             onSecondary = Color.White,
             tertiary = preset.tertiary,
             onTertiary = Color.White,
             background = preset.background,
-            onBackground = Color(0xFF17242C),
+            onBackground = Color(0xFF13273D),
             surface = preset.surface,
-            onSurface = Color(0xFF17242C),
+            onSurface = Color(0xFF13273D),
             surfaceVariant = preset.surfaceVariant,
-            onSurfaceVariant = Color(0xFF354851),
-            surfaceContainer = Color(0xFFF1F5F7),
+            onSurfaceVariant = Color(0xFF344F66),
+            surfaceContainer = Color(0xFFEBF4FC),
             surfaceContainerHigh = preset.surfaceVariant,
             outline = preset.outline,
-            outlineVariant = Color(0xFFBCC8CE),
+            outlineVariant = Color(0xFFB8C9D8),
             error = Color(0xFFB42335),
             onError = Color.White
         )
@@ -81,15 +81,16 @@ private fun schemeFor(preset: BousygramThemePreset): ColorScheme {
     return darkColorScheme(
     primary = preset.primary,
     onPrimary = Color(0xFF071014),
-    primaryContainer = preset.primary.copy(alpha = 0.22f),
+    // Opaque semantic containers retain contrast even over video surfaces.
+    primaryContainer = Color(0xFF123D56),
     onPrimaryContainer = Color(0xFFF8FBFF),
     secondary = preset.secondary,
     onSecondary = Color(0xFF06120F),
-    secondaryContainer = preset.secondary.copy(alpha = 0.18f),
+    secondaryContainer = Color(0xFF1B3A56),
     onSecondaryContainer = Color(0xFFF3FFFB),
     tertiary = preset.tertiary,
     onTertiary = Color(0xFF17110A),
-    tertiaryContainer = preset.tertiary.copy(alpha = 0.18f),
+    tertiaryContainer = Color(0xFF52351E),
     onTertiaryContainer = Color(0xFFFFF8EF),
     background = preset.background,
     onBackground = if (highContrast) Color.White else Color(0xFFF4F7FC),
