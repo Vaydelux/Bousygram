@@ -1606,7 +1606,10 @@ fun PlayerScreen(
                 currentPositionMs = position,
                 durationMs = duration,
                 nextItemFileId = nextItem?.fileId,
-                nextItemTotalSize = nextItem?.fileSizeBytes ?: 0L
+                nextItemTotalSize = nextItem?.fileSizeBytes ?: 0L,
+                currentBufferedPositionMs = playerEngine.bufferedPositionMs,
+                isBuffering = isBuffering,
+                playWhenReady = playerEngine.playWhenReady
             )
             if (position > 0 && position - lastSavedPosition >= 5_000L) {
                 PlaybackProgressTracker.saveMessagePosition(
