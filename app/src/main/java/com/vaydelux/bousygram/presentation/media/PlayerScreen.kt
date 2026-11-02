@@ -1634,7 +1634,10 @@ fun PlayerScreen(
                 nextItemTotalSize = nextItem?.fileSizeBytes ?: 0L,
                 currentBufferedPositionMs = playerEngine.bufferedPositionMs,
                 isBuffering = isBuffering,
-                playWhenReady = playerEngine.playWhenReady
+                playWhenReady = playerEngine.playWhenReady,
+                currentFileSizeBytes = current.fileSizeBytes,
+                measuredThroughputBytesPerSec =
+                    com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.getAverageThroughput()
             )
             if (position > 0 && position - lastSavedPosition >= 5_000L) {
                 PlaybackProgressTracker.saveMessagePosition(
