@@ -16,6 +16,19 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry
 import java.io.File
 import java.io.FileOutputStream
 
+/** Budget thumbnail/preview caches by actual allocation instead of entry count. */
+internal fun thumbnailMemoryBudgetKiB(heapBytes: Long, lowRam: Boolean, preview: Boolean): Int {
+    val divisor = if (preview) 96L else 64L
+    val ceilingKiB = when {
+        lowRam && preview -> 2_048L
+        lowRam -> 3_072L
+        preview -> 6_144L
+        else -> 8_192L
+    }
+    return (heapBytes.coerceAtLeast(0L) / divisor / 1024L)
+        .coerceIn(1_024L, ceilingKiB).toInt()
+}
+
 object ThumbnailExtractor {
     private const val TAG = "ThumbnailExtractor"
 
@@ -29,14 +42,26 @@ object ThumbnailExtractor {
         }
     }
 
-    private val maxThumbnailCache = if (isLowRam) 16 else 48
-    private val maxPreviewCache = if (isLowRam) 24 else 80
+    // Byte-based budgets prevent full-resolution source thumbnails from silently
+    // occupying a large fraction of a 32-bit TV's heap.
+    private val thumbnailBudgetKiB = thumbnailMemoryBudgetKiB(
+        Runtime.getRuntime().maxMemory(), isLowRam, preview = false
+    )
+    private val previewBudgetKiB = thumbnailMemoryBudgetKiB(
+        Runtime.getRuntime().maxMemory(), isLowRam, preview = true
+    )
 
     private data class ThumbnailKey(val accountId: Long, val fileId: Int)
-    private val memoryCache = android.util.LruCache<ThumbnailKey, Bitmap>(maxThumbnailCache)
+    private val memoryCache = object : android.util.LruCache<ThumbnailKey, Bitmap>(thumbnailBudgetKiB) {
+        override fun sizeOf(key: ThumbnailKey, value: Bitmap): Int =
+            ((value.byteCount.toLong() + 1023L) / 1024L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
 
     data class PreviewKey(val accountId: Long, val fileId: Int, val timeBucketMs: Long)
-    private val previewCache = android.util.LruCache<PreviewKey, Bitmap>(maxPreviewCache)
+    private val previewCache = object : android.util.LruCache<PreviewKey, Bitmap>(previewBudgetKiB) {
+        override fun sizeOf(key: PreviewKey, value: Bitmap): Int =
+            ((value.byteCount.toLong() + 1023L) / 1024L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
     private val diskWriteLock = Any()
     private val localFramePermits = Semaphore(2)
 
