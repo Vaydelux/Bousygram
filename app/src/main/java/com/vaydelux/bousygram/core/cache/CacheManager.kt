@@ -203,7 +203,10 @@ object CacheManager {
         // Do not steal network capacity from a bitrate-limited foreground video.
         // Downloaded-byte throughput is measured through TDLib updates, not disk
         // cache reads. Unknown rates preserve the existing buffer-runway policy.
-        if (currentFileSizeBytes > 0L && measuredThroughputBytesPerSec > 0L) {
+        if (currentFileSizeBytes > 0L) {
+            // Without a fresh network sample, speculative downloading is only
+            // safe if the entire remaining movie is already buffered.
+            if (measuredThroughputBytesPerSec <= 0L) return bufferedPositionMs >= durationMs
             val mediaBytesPerSecond = currentFileSizeBytes.toDouble() * 1000.0 / durationMs
             if (measuredThroughputBytesPerSec.toDouble() < mediaBytesPerSecond * 1.35) return false
         }
