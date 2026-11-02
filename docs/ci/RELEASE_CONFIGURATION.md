@@ -1,5 +1,11 @@
 # Release Configuration
 
+## Production prerequisite: protect main
+
+The current repository may report `main.protected=false`. **The two stable-release entry points now fail closed unless `main` reports protected.** Configure GitHub Settings → Branches or Rulesets for `main`, require pull-request reviews and the exact-commit **Android Enterprise Checks** statuses, restrict force pushes and deletions, and enable enforcement for administrators where supported. The production-signing and qualification environment approvals remain separate.
+
+Do not trigger the stable release dispatcher to bypass protection or approvals. Debug prereleases are not production-signed.
+
 ## Required GitHub environments
 
 Create the following protected environments in **Settings → Environments**, with appropriate required reviewers and restricted access:
