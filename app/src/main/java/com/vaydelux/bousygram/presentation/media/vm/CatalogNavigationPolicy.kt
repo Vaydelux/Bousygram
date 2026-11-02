@@ -40,3 +40,9 @@ internal fun savedMessagesOnly(items: List<MediaItem>, savedMessagesChatId: Long
     val id = savedMessagesChatId?.takeIf { it != 0L } ?: return emptyList()
     return items.filter { it.chatId == id }
 }
+
+
+/** Retry unavailable thumbnails only after a bounded interval; honor clock resets. */
+internal fun allowThumbnailRetry(lastFailureAtMs: Long?, nowMs: Long, cooldownMs: Long): Boolean =
+    lastFailureAtMs == null || nowMs < lastFailureAtMs ||
+        nowMs - lastFailureAtMs >= cooldownMs
