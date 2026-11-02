@@ -46,6 +46,24 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun availablePrefixIsServedWithoutAnotherTdLibStatusQuery() = runBlocking {
+        val bytes = ByteArray(16 * 1024) { 8 }
+        val gateway = FakeTelegramFileGateway(
+            bytes = bytes,
+            completed = false,
+            downloadedPrefixSize = 4096L,
+            enforcePartialRanges = true
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        val result = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(612, 0L, 16 * 1024, 32, TelegramChunkPurpose.Streaming)
+        )
+        assertTrue(result is TelegramChunkResult.Ready)
+        assertEquals(4096, (result as TelegramChunkResult.Ready).bytes.size)
+        assertEquals(0, gateway.downloadedPrefixQueries.get())
+    }
+
+    @Test
     fun downloadWindowProgressNeverCountsSeekJumpsAsNetworkBytes() {
         assertEquals(4096L, TelegramChunkScheduler.downloadedByteDelta(0L, 1024L, 0L, 5120L))
         assertEquals(0L, TelegramChunkScheduler.downloadedByteDelta(0L, 5120L, 8192L, 4096L))
@@ -560,6 +578,7 @@ class TelegramChunkSchedulerTest {
         private val enforcePartialRanges: Boolean = false,
         private val simulateColdDownload: Boolean = false
     ) : TelegramFileGateway {
+        val downloadedPrefixQueries = AtomicInteger(0)
         private val tempFile = File.createTempFile("fake-tdlib", ".bin").apply {
             writeBytes(bytes)
             deleteOnExit()
@@ -613,6 +632,7 @@ class TelegramChunkSchedulerTest {
         }
 
         override suspend fun downloadedPrefixSize(fileId: Int, offset: Long): Long {
+            downloadedPrefixQueries.incrementAndGet()
             if (isStillCold(fileId)) return 0L
             if (!enforcePartialRanges || completed) return bytes.size.toLong()
             val windowStart = downloadRecords.lastOrNull { it.fileId == fileId }?.offset ?: downloadOffset
