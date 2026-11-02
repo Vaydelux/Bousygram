@@ -17,6 +17,13 @@ class TelegramPreCacheEngineTest {
     }
 
     @Test
+    fun nextEpisodePrimingRequiresUsefulBytesNotJustHeader() {
+        assertTrue(TelegramPreCacheEngine.requiredPrimedHeadBytes(2L * 1024L * 1024L) == 256 * 1024)
+        assertTrue(TelegramPreCacheEngine.requiredPrimedHeadBytes(100_000L) == 100_000)
+        assertTrue(TelegramPreCacheEngine.requiredPrimedHeadBytes(0L) == 1)
+    }
+
+    @Test
     fun cacheAheadIsTrackedAndStopCachingCancelsIt() = runBlocking {
         TelegramFileGatewayRegistry.installForTests(SlowTelegramFileGateway())
 
