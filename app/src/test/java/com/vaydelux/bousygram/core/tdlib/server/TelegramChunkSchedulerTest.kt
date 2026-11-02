@@ -77,7 +77,7 @@ class TelegramChunkSchedulerTest {
     @Test
     fun duplicateChunkRequestsAreCoalesced() = runBlocking {
         val bytes = ByteArray(TelegramChunkScheduler.CHUNK_SIZE_BYTES) { 7 }
-        val gateway = FakeTelegramFileGateway(bytes, downloadDelayMs = 150L)
+        val gateway = FakeTelegramFileGateway(bytes, downloadDelayMs = 150L, simulateColdDownload = true)
         TelegramFileGatewayRegistry.installForTests(gateway)
 
         val first = async(Dispatchers.IO) {
@@ -119,7 +119,7 @@ class TelegramChunkSchedulerTest {
     @Test
     fun activeChunkDownloadsAreSerializedPerFile() = runBlocking {
         val bytes = ByteArray(TelegramChunkScheduler.CHUNK_SIZE_BYTES * 8) { 3 }
-        val gateway = FakeTelegramFileGateway(bytes, downloadDelayMs = 120L)
+        val gateway = FakeTelegramFileGateway(bytes, downloadDelayMs = 120L, simulateColdDownload = true)
         TelegramFileGatewayRegistry.installForTests(gateway)
 
         val jobs = (0 until 12).map { index ->
@@ -143,7 +143,7 @@ class TelegramChunkSchedulerTest {
     @Test
     fun playbackKeepsOneDownloadWindowAndIgnoresBackgroundSteals() = runBlocking {
         val bytes = ByteArray(256 * 1024) { index -> (index % 97).toByte() }
-        val gateway = FakeTelegramFileGateway(bytes)
+        val gateway = FakeTelegramFileGateway(bytes, simulateColdDownload = true)
         TelegramFileGatewayRegistry.installForTests(gateway)
 
         val first = TelegramChunkScheduler.fetchChunk(
@@ -166,7 +166,7 @@ class TelegramChunkSchedulerTest {
     fun playbackCopiesTheTailOnceAndDoesNotOpenASecondDownload() = runBlocking {
         val size = 8 * 1024 * 1024
         val bytes = ByteArray(size) { index -> (index % 251).toByte() }
-        val gateway = FakeTelegramFileGateway(bytes)
+        val gateway = FakeTelegramFileGateway(bytes, simulateColdDownload = true)
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(77, size.toLong())
 
@@ -279,7 +279,7 @@ class TelegramChunkSchedulerTest {
     fun downloadFailureReResolvesFileIdViaGetMessageAndRetriesOnce() = runBlocking {
         val totalSize = 1024 * 1024
         val bytes = ByteArray(totalSize) { 9 }
-        val gateway = FakeTelegramFileGateway(bytes, completed = true)
+        val gateway = FakeTelegramFileGateway(bytes, completed = true, simulateColdDownload = true)
         val oldFileId = 100
         val newFileId = 101
 
@@ -506,7 +506,8 @@ class TelegramChunkSchedulerTest {
         private val downloadOffset: Long = 0L,
         private val downloadedPrefixSize: Long = bytes.size.toLong(),
         private val downloadDelayMs: Long = 0L,
-        private val enforcePartialRanges: Boolean = false
+        private val enforcePartialRanges: Boolean = false,
+        private val simulateColdDownload: Boolean = false
     ) : TelegramFileGateway {
         private val tempFile = File.createTempFile("fake-tdlib", ".bin").apply {
             writeBytes(bytes)
@@ -561,6 +562,7 @@ class TelegramChunkSchedulerTest {
         }
 
         override suspend fun downloadedPrefixSize(fileId: Int, offset: Long): Long {
+            if (isStillCold(fileId)) return 0L
             if (!enforcePartialRanges || completed) return bytes.size.toLong()
             val windowStart = downloadRecords.lastOrNull { it.fileId == fileId }?.offset ?: downloadOffset
             return if (offset < windowStart) 0L
@@ -571,6 +573,7 @@ class TelegramChunkSchedulerTest {
             file(fileId)
 
         override suspend fun readFilePart(fileId: Int, offset: Long, limit: Int): ByteArray? {
+            if (isStillCold(fileId)) return null
             if (enforcePartialRanges && !completed) {
                 val windowStart = downloadRecords.lastOrNull { it.fileId == fileId }?.offset ?: downloadOffset
                 if (offset < windowStart || offset + limit > windowStart + downloadedPrefixSize) return null
@@ -593,14 +596,21 @@ class TelegramChunkSchedulerTest {
 
         fun totalDownloadCalls(): Int = counts.values.sumOf { it.get() }
 
+        private fun isStillCold(fileId: Int): Boolean =
+            simulateColdDownload && downloadRecords.none { it.fileId == fileId }
+
         private fun file(fileId: Int, offset: Long? = null): TelegramGatewayFile {
             val effOffset = offset ?: downloadRecords.lastOrNull { it.fileId == fileId }?.offset ?: downloadOffset
             return TelegramGatewayFile(
                 fileId = fileId,
                 localPath = tempFile.absolutePath,
-                isDownloadingCompleted = completed,
+                isDownloadingCompleted = completed && !isStillCold(fileId),
                 downloadOffset = effOffset,
-                downloadedPrefixSize = if (completed) bytes.size.toLong() else downloadedPrefixSize
+                downloadedPrefixSize = when {
+                    isStillCold(fileId) -> 0L
+                    completed -> bytes.size.toLong()
+                    else -> downloadedPrefixSize
+                }
             )
         }
     }
