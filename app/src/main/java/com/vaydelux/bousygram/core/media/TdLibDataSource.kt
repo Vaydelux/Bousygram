@@ -26,6 +26,16 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.min
 
 /**
+ * Bounds each native fetch while respecting the exact byte range promised to
+ * Media3. A partial or cue-seek DataSpec must never read outside its range.
+ */
+internal fun readAheadRequestBytes(requested: Int, remaining: Long): Int {
+    val desired = maxOf(requested, 256 * 1024)
+    return if (remaining == C.LENGTH_UNSET.toLong()) desired
+        else min(desired.toLong(), remaining.coerceAtLeast(0L)).toInt()
+}
+
+/**
  * Direct in-process Media3 [DataSource] for ExoPlayer.
  *
  * Reads byte ranges directly from [TelegramChunkScheduler] and TDLib without an intermediate
@@ -231,7 +241,6 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         const val SCHEME = "tdlib"
         const val STREAM_PRIORITY = 32
         private const val DIRECT_READ_TIMEOUT_MS = 12_000L
-        internal const val MAX_READ_AHEAD_BYTES = 256 * 1024
 
         fun isTdLibUri(uri: Uri?): Boolean =
             uri?.scheme.equals(SCHEME, ignoreCase = true)
