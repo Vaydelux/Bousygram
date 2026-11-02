@@ -187,8 +187,16 @@ object PlaybackCore {
                         if (engine.isPlaying) {
                             stateMachine.onPlaying(session, engine.currentPositionMs, engine.durationMs)
                         } else if (engine.playWhenReady) {
-                            // Decoder/demuxer has reached READY, but still has no output.
-                            // Keep the pending playback intent instead of reporting a pause.
+                            // READY without output is not a user pause. Some native engines
+                            // clear their internal pause after a stalled range completes.
+                            // Reassert Play only while the user's intent remains armed.
+                            if (shouldReassertPlaybackOnReady(
+                                    ready = true,
+                                    playWhenReady = engine.playWhenReady,
+                                    isPlaying = engine.isPlaying
+                                )) {
+                                engine.play()
+                            }
                             stateMachine.onBuffering(session, engine.currentPositionMs, engine.durationMs)
                         } else {
                             stateMachine.onPaused(session, engine.currentPositionMs, engine.durationMs)
