@@ -476,6 +476,38 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun datasourceSeekGapMustNotCancelCurrentPlaybackWindow() = runBlocking {
+        val fileId = 504
+        val gateway = FakeTelegramFileGateway(ByteArray(512 * 1024) { 9 })
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        val session = com.vaydelux.bousygram.core.media.PlaybackSessionController.start(fileId)
+        val reader = TelegramChunkScheduler.acquireLease(
+            fileId, 0L, 4096L, TelegramStreamConsumer.ExoPlayer,
+            TelegramChunkScheduler.PLAYBACK_PRIORITY
+        )
+        try {
+            TelegramChunkScheduler.releaseLease(reader)
+            TelegramChunkScheduler.onClientDisconnected(fileId, offset = 4096L)
+            kotlinx.coroutines.delay(100L)
+            assertEquals(0, TelegramChunkScheduler.activeLeaseCount(fileId))
+            assertEquals(0, gateway.cancelCalls.get())
+            assertTrue(com.vaydelux.bousygram.core.media.PlaybackSessionController.isCurrentPlaybackFile(fileId))
+        } finally {
+            com.vaydelux.bousygram.core.media.PlaybackSessionController.stop(
+                session,
+                com.vaydelux.bousygram.core.media.PlaybackCacheStopReason.ViewModelStop,
+                cancelTdLibDownload = false
+            )
+        }
+        TelegramChunkScheduler.onClientDisconnected(fileId, offset = 4096L)
+        val deadline = System.currentTimeMillis() + 2_000L
+        while (gateway.cancelCalls.get() == 0 && System.currentTimeMillis() < deadline) {
+            kotlinx.coroutines.delay(10L)
+        }
+        assertEquals(1, gateway.cancelCalls.get())
+    }
+
+    @Test
     fun releasingOneLeaseDoesNotCancelWorkNeededByAnotherConsumer() = runBlocking {
         val gateway = FakeTelegramFileGateway(ByteArray(32 * 1024) { 1 })
         TelegramFileGatewayRegistry.installForTests(gateway)
