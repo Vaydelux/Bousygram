@@ -127,6 +127,7 @@ fun BrowseScreen(
     // Keep the sidebar viewport across incremental Telegram chat catalog updates.
     val sourceSidebarListState = rememberLazyListState()
     val lastPlayed = EnterprisePreferences.lastPlayed()
+    val hasSourceResume = viewModel.canResumeLastPlayedInCurrentSource(lastPlayed?.chatId)
     val videos = remember(state.filteredAndSortedItems, hideWatched) {
         val playable = playableVideos(state.filteredAndSortedItems)
         if (hideWatched) {
@@ -237,10 +238,14 @@ fun BrowseScreen(
 
     fun openLastPlayed() {
         val last = EnterprisePreferences.lastPlayed()
+        if (!viewModel.canResumeLastPlayedInCurrentSource(last?.chatId)) {
+            onStreamError("This video was watched in a different chat. Open that source to continue.")
+            return
+        }
         val loaded = last?.let { saved ->
             state.filteredAndSortedItems.firstOrNull {
                 it.chatId == saved.chatId && it.messageId == saved.messageId
-            } ?: videos.firstOrNull { it.fileId == saved.fileId }
+            } ?: videos.firstOrNull { it.chatId == saved.chatId && it.fileId == saved.fileId }
         }
         if (loaded != null) {
             openVideo(loaded)
@@ -249,7 +254,11 @@ fun BrowseScreen(
         viewModel.loadLastPlayed { item, error ->
             val activity = context as? Activity
             val action = {
-                if (item != null) openVideo(item) else onStreamError(error ?: "Could not load the last-played item")
+                if (item != null && viewModel.canResumeLastPlayedInCurrentSource(item.chatId)) {
+                    openVideo(item)
+                } else {
+                    onStreamError(error ?: "The last-played video is not in the selected chat")
+                }
             }
             if (activity != null) activity.runOnUiThread(action) else action()
         }
@@ -326,12 +335,16 @@ fun BrowseScreen(
                 onRefreshTopics = { state.selectedChatId?.let(viewModel::refreshForumTopics) },
                 onRefreshMedia = viewModel::refreshCurrentMedia,
                 onSearch = {
-                    val chatId = if (state.isSavedMessagesSelected) null else state.selectedChatId
-                    onOpenSearch(chatId, state.selectedChatTitle)
+                    val chatId = viewModel.currentSearchChatId()
+                    if (state.isSavedMessagesSelected && chatId == null) {
+                        onStreamError("Saved Messages is still loading. Try searching again shortly.")
+                    } else {
+                        onOpenSearch(chatId, state.selectedChatTitle)
+                    }
                 },
                 onFavorites = onOpenFavorites,
                 onSettings = onOpenSettings,
-                hasResume = lastPlayed != null,
+                hasResume = hasSourceResume,
                 onResume = ::openLastPlayed,
                 modifier = Modifier.fillMaxSize()
             )
