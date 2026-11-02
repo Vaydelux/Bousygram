@@ -69,6 +69,8 @@ class PlaybackSession(
         internal set
     var currentOffsetBytes: Long = 0L
         internal set
+    /** Monotonic timestamp of last persisted progress diagnostics, not a UI clock. */
+    internal var lastProgressDiagnosticsAtMs: Long = 0L
     var retryCount: Int = 0
         internal set
     var consecutiveRangeStalls: Int = 0
