@@ -66,10 +66,10 @@ fun VideoPlayerScreen(
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     streamingSessionManager.acquireLocks()
-                    viewModel.resumePlayback()
+                    viewModel.onActivityStarted()
                 }
                 Lifecycle.Event.ON_STOP -> {
-                    viewModel.stopPlayback()
+                    viewModel.onActivityStopped()
                     streamingSessionManager.releaseLocks()
                 }
                 Lifecycle.Event.ON_DESTROY -> streamingSessionManager.releaseLocks()
