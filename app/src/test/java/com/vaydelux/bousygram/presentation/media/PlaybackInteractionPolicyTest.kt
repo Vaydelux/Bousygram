@@ -35,6 +35,19 @@ class PlaybackInteractionPolicyTest {
         assertEquals(listOf(2L, 3L), stableChatCatalog(previous, incoming).map { it.chatId })
     }
 
+    @Test fun temporaryLifecyclePauseResumesOnlyPreviouslyRequestedPlayback() {
+        val intent = ForegroundPlaybackIntent()
+        assertFalse(intent.onActivityPaused(playWhenReady = false))
+        assertFalse(intent.consumeResume())
+        assertTrue(intent.onActivityPaused(playWhenReady = true))
+        assertTrue(intent.consumeResume())
+        assertFalse(intent.consumeResume()) // no surprise second play command
+        assertTrue(intent.onActivityPaused(playWhenReady = true))
+        // A duplicate lifecycle pause after the engine auto-paused must not erase intent.
+        assertFalse(intent.onActivityPaused(playWhenReady = false))
+        assertTrue(intent.consumeResume())
+    }
+
     @Test fun bufferingAutoplayStartsWhenReadyAndPreservesExplicitPause() {
         assertTrue(shouldAutoResumeAfterReady(isReady = true, playWhenReady = true, isPlaying = false))
         assertFalse(shouldAutoResumeAfterReady(isReady = false, playWhenReady = true, isPlaying = false))
