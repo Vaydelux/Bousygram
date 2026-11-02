@@ -197,8 +197,9 @@ class TelegramChunkSchedulerTest {
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(55, totalSize.toLong())
 
-        // On open, parallel head and tail are triggered:
+        // Startup must not displace the head with a speculative tail request.
         TelegramChunkScheduler.openPlayback(fileId = 55, totalSize = totalSize.toLong(), isMp4 = true).join()
+        assertTrue(gateway.downloadRecords.all { it.offset == 0L })
 
         // Simulate TDLib delivering tail bytes first via UpdateFile
         TelegramChunkScheduler.onFileUpdated(
@@ -219,10 +220,8 @@ class TelegramChunkSchedulerTest {
 
         val ready = tailResult as TelegramChunkResult.Ready
         assertArrayEquals(bytes.copyOfRange(tailOffset.toInt(), (tailOffset + 4096).toInt()), ready.bytes)
-        // Verify tail download was requested with PLAYBACK_PRIORITY (32) and without waiting for isDownloadingCompleted
-        val tailDownload = gateway.downloadRecords.firstOrNull { it.fileId == 55 && it.offset > 0L }
-        assertNotNull(tailDownload)
-        assertEquals(TelegramChunkScheduler.PLAYBACK_PRIORITY, tailDownload!!.priority)
+        // Cached tail bytes must be returned without starting a new download.
+        assertTrue(gateway.downloadRecords.all { it.offset == 0L })
     }
 
     @Test
@@ -351,22 +350,11 @@ class TelegramChunkSchedulerTest {
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(70, totalSize.toLong())
 
-        // Stream opens: parallel head and tail are scheduled
+        // The actual extractor request should trigger the first distant range.
         TelegramChunkScheduler.openPlayback(fileId = 70, totalSize = totalSize.toLong(), isMp4 = true).join()
+        assertTrue(gateway.downloadRecords.all { it.offset == 0L })
 
-        // TDLib delivers tail bytes via UpdateFile
-        TelegramChunkScheduler.onFileUpdated(
-            TelegramGatewayFile(
-                fileId = 70,
-                localPath = gateway.tempFileAbsolutePath,
-                isDownloadingCompleted = false,
-                downloadOffset = totalSize - 4L * 1024L * 1024L,
-                downloadedPrefixSize = 4L * 1024L * 1024L,
-                size = totalSize.toLong()
-            )
-        )
-
-        // Player requests tail first (MKV cues or MP4 moov atom at end of file)
+        // Player requests the tail for MKV cues or MP4 moov metadata.
         val tailResult = TelegramChunkScheduler.fetchChunk(
             TelegramChunkRequest(70, tailOffset, 4096, 32, TelegramChunkPurpose.Streaming)
         )
@@ -378,8 +366,8 @@ class TelegramChunkSchedulerTest {
         val tailDownload = gateway.downloadRecords.firstOrNull { it.fileId == 70 && it.offset > 0L }
         assertNotNull(tailDownload)
         assertEquals(TelegramChunkScheduler.PLAYBACK_PRIORITY, tailDownload!!.priority)
-        assertEquals(totalSize - TelegramChunkScheduler.TAIL_BURST_BYTES, tailDownload.offset)
-        assertEquals(TelegramChunkScheduler.TAIL_BURST_BYTES.toInt(), tailDownload.limit)
+        assertEquals(tailOffset, tailDownload.offset)
+        assertEquals(0, tailDownload.limit)
     }
 
     @Test
