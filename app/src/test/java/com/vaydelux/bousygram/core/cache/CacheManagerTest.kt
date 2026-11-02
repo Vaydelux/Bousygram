@@ -83,8 +83,11 @@ class CacheManagerTest {
         assertFalse(permitted(900_000L)) // below video bitrate
         assertFalse(permitted(1_250_000L)) // insufficient safety margin
         assertTrue(permitted(1_600_000L)) // measured headroom permits optional preload
-        assertTrue(permitted(0L)) // unknown network preserves existing policy
+        assertFalse(permitted(0L)) // no recent network estimate: protect unfinished video
         assertTrue(permitted(900_000L, 0L)) // unknown file size: no invented bitrate
+        assertTrue(CacheManager.shouldPreloadNextEpisode(
+            80_000L, 100_000L, 100_000L, false, true, fileSize, 0L
+        )) // entire video is cached: no risk to the current stream
     }
 
     @Test
