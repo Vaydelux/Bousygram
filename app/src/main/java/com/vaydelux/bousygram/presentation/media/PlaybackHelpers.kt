@@ -3,6 +3,18 @@ package com.vaydelux.bousygram.presentation.media
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 
+/** The current buffering interval is included even if playback is disposed mid-stall. */
+internal fun measuredRebufferDurationMs(
+    completedMs: Long,
+    activeStallStartedMs: Long,
+    nowMs: Long
+): Long {
+    val completed = completedMs.coerceAtLeast(0L)
+    if (activeStallStartedMs <= 0L) return completed
+    val active = (nowMs - activeStallStartedMs).coerceAtLeast(0L)
+    return if (Long.MAX_VALUE - completed < active) Long.MAX_VALUE else completed + active
+}
+
 /** Buffer completion starts playback only if the user has not explicitly paused. */
 internal fun shouldAutoResumeAfterReady(
     isReady: Boolean,
