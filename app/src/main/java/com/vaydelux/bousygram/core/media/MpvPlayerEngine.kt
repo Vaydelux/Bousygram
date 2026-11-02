@@ -170,7 +170,8 @@ class MpvPlayerEngine(
             when (property) {
                 "pause" -> {
                     // Native output stops during cache stalls without changing user intent.
-                    _isPlaying.value = !value && !pausedForCache
+                    _isPlaying.value = _playWhenReady.value && !value && !pausedForCache &&
+                        _playbackState.value is EnginePlaybackState.Ready
                 }
                 "paused-for-cache" -> {
                     pausedForCache = value
