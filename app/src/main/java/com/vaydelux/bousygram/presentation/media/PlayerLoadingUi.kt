@@ -78,6 +78,22 @@ internal fun playerLoadingPhaseForSession(
 
 internal data class PlayerLoadingCopy(val title: String, val detail: String)
 
+/** Loading must not advertise automatic resume after an explicit user pause. */
+internal fun playerPlaybackStatusText(
+    error: Boolean,
+    reconnecting: Boolean,
+    opening: Boolean,
+    buffering: Boolean,
+    playRequested: Boolean
+): String = when {
+    error -> "Playback error"
+    !playRequested -> "Paused"
+    reconnecting -> "Reconnecting · auto-resume"
+    opening -> "Preparing playback"
+    buffering -> "Buffering · auto-resume"
+    else -> "Playing"
+}
+
 /** Never invent a percentage: the TDLib stream can seek and buffer discontinuous ranges. */
 internal fun playerLoadingCopy(phase: PlayerLoadingPhase, retryCount: Int): PlayerLoadingCopy = when (phase) {
     PlayerLoadingPhase.OPENING -> PlayerLoadingCopy("Preparing playback", "Connecting to your Telegram video")
@@ -99,7 +115,11 @@ internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifi
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF070C15), Color(0xFF101C2D), Color(0xFF070C15))))
+            .background(Brush.verticalGradient(listOf(
+                MaterialTheme.colorScheme.background,
+                MaterialTheme.colorScheme.surfaceVariant,
+                MaterialTheme.colorScheme.background
+            )))
             .testTag("player_opening_skeleton")
             .semantics { contentDescription = "Preparing playback" },
         contentAlignment = Alignment.Center
@@ -134,7 +154,7 @@ internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifi
             Text(
                 "Getting your video ready",
                 style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFB8C8D9)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -162,7 +182,7 @@ internal fun PlayerStatusChip(label: String, isError: Boolean, isBusy: Boolean) 
             Box(Modifier.size(6.dp).clip(CircleShape).background(accent))
             Text(
                 label,
-                color = Color(0xFFE9F1FA),
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1
             )
