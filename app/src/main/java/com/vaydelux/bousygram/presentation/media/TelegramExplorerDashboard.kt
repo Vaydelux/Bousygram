@@ -367,7 +367,11 @@ fun TelegramExplorerDashboard(
                         items(directory, key = { "chat:" + it.chatId }) { source ->
                             ExplorerFolderCard(
                                 title = source.title,
-                                subtitle = if (source.isForum) "Topics" else "Media files",
+                                subtitle = explorerSourceLabel(source),
+                                detail = explorerSourceDetail(source),
+                                badge = if (source.isArchived) "ARCHIVED" else if (source.isForum) "TOPICS" else "MEDIA",
+                                symbol = if (source.isForum) "▦" else if (source.kind == com.vaydelux.bousygram.domain.model.ChatSourceKind.CHANNEL) "▣" else "▤",
+                                isTv = adaptive.isTv,
                                 modifier = if (sourceFolderRestoration.focusedMediaKey == source.chatId.toString()) {
                                     Modifier.focusRequester(sourceFocusRequester)
                                 } else Modifier,
@@ -398,6 +402,10 @@ fun TelegramExplorerDashboard(
                             ExplorerFolderCard(
                                 title = topic.name,
                                 subtitle = if (topic.isGeneral) "General topic" else "Forum topic",
+                                detail = "Open messages and shared media",
+                                badge = if (topic.isGeneral) "GENERAL" else "TOPIC",
+                                symbol = "▦",
+                                isTv = adaptive.isTv,
                                 modifier = if (focusedTopicId == topic.id) {
                                     Modifier.focusRequester(topicFocusRequester)
                                 } else Modifier,
@@ -484,32 +492,100 @@ private fun ExplorerMessage(message: String, onRetry: (() -> Unit)? = null) {
     }
 }
 
+/**
+ * One shared card for channels, groups and real forum topics.
+ * Metadata is derived from TDLib; no placeholder ratings, thumbnails or item counts.
+ * The whole card remains accessible via touch, keyboard and TV D-pad.
+ */
 @Composable
 private fun ExplorerFolderCard(
     title: String,
     subtitle: String,
+    detail: String,
+    badge: String,
+    symbol: String,
+    isTv: Boolean,
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(20.dp)
+    val accent = MaterialTheme.colorScheme.primary
     Surface(
-        modifier = modifier.fillMaxWidth()
-            .border(if (focused) 3.dp else 1.dp,
-                if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, shape)
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = if (isTv) 164.dp else 148.dp)
+            .border(
+                if (focused) 3.dp else 1.dp,
+                if (focused) accent else MaterialTheme.colorScheme.outlineVariant,
+                shape
+            )
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .clickable(role = Role.Button, onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "$title, $subtitle. $detail" },
         shape = shape,
-        color = if (focused) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+        color = if (focused) MaterialTheme.colorScheme.surfaceContainerHighest
+            else MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = if (focused) 6.dp else 1.dp
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("▣", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        symbol,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    badge,
+                    color = if (focused) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "›",
+                    color = accent,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                color = accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
