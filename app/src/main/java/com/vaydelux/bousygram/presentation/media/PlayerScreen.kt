@@ -785,12 +785,18 @@ fun PlayerScreen(
         onDispose { closeBridge() }
     }
 
-    LaunchedEffect(isPlaying, isBuffering, isOpening, isReconnecting, playerEngine, position, speed, title, duration) {
-        // Buffering interrupts output, not the user's Play intent. Keep the
-        // active download protected and avoid advertising a false manual pause.
+    // Playback ownership changes only on transport/buffering transitions, not
+    // with each 500 ms position update. Keep the TDLib/focus scheduler off the
+    // frequent MediaSession metadata-update path.
+    LaunchedEffect(isPlaying, isBuffering, isOpening, isReconnecting, playerEngine) {
         val streamActive = isPlaying || (playerEngine.playWhenReady &&
             (isBuffering || isOpening || isReconnecting))
         PlaybackSessionController.setVideoPlaying(streamActive)
+    }
+
+    LaunchedEffect(isPlaying, isBuffering, isOpening, isReconnecting, playerEngine, position, speed, title, duration) {
+        val streamActive = isPlaying || (playerEngine.playWhenReady &&
+            (isBuffering || isOpening || isReconnecting))
         mediaSessionBridge.updateState(
             isPlaying = streamActive,
             positionMs = position,
