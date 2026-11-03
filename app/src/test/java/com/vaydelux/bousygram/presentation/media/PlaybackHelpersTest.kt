@@ -138,6 +138,43 @@ class PlaybackHelpersTest {
     }
 
     @Test
+    fun resumeCheckpointUsesElapsedTimeAndRecordsBackwardSeeks() {
+        val checkpoint = PlaybackProgressCheckpoint()
+        assertFalse(checkpoint.shouldPersist(0L, 1_000L, playbackReady = true))
+        assertFalse(checkpoint.shouldPersist(100_000L, 1_000L, playbackReady = false))
+        assertTrue(checkpoint.shouldPersist(100_000L, 1_000L, playbackReady = true))
+        assertFalse(checkpoint.shouldPersist(101_000L, 2_000L, playbackReady = true))
+        assertTrue(checkpoint.shouldPersist(103_000L, 6_000L, playbackReady = true))
+        // This was previously missed because 20 seconds is below the last 103 seconds.
+        assertTrue(checkpoint.shouldPersist(20_000L, 6_300L, playbackReady = true))
+        assertFalse(checkpoint.shouldPersist(20_000L, 9_000L, playbackReady = true))
+        assertTrue(checkpoint.shouldPersist(21_000L, 11_400L, playbackReady = true))
+    }
+
+    @Test
+    fun resumeCheckpointNeverClearsOldResumeAtUnseekedStartupZero() {
+        val checkpoint = PlaybackProgressCheckpoint()
+        assertFalse(checkpoint.shouldPersist(0L, 100L, playbackReady = true))
+        assertTrue(checkpoint.shouldPersist(30_000L, 1_000L, playbackReady = true))
+        checkpoint.onExplicitSeek(0L)
+        assertFalse(checkpoint.shouldPersist(30_000L, 1_100L, playbackReady = true))
+        assertFalse(checkpoint.shouldPersist(0L, 1_200L, playbackReady = false))
+        assertTrue(checkpoint.shouldPersist(0L, 1_300L, playbackReady = true))
+        assertFalse(checkpoint.shouldPersist(0L, 1_400L, playbackReady = true))
+        checkpoint.reset()
+        assertFalse(checkpoint.shouldPersist(0L, 1_500L, playbackReady = true))
+    }
+
+    @Test
+    fun resumeCheckpointHandlesForwardSeekAndMonotonicClockReset() {
+        val checkpoint = PlaybackProgressCheckpoint()
+        assertTrue(checkpoint.shouldPersist(5_000L, 100_000L, playbackReady = true))
+        assertTrue(checkpoint.shouldPersist(95_000L, 100_100L, playbackReady = true))
+        assertFalse(checkpoint.shouldPersist(96_000L, 100_200L, playbackReady = true))
+        assertTrue(checkpoint.shouldPersist(97_000L, 200L, playbackReady = true))
+    }
+
+    @Test
     fun progressUiSamplingStaysResponsiveWithoutContinuousHiddenHudWork() {
         assertEquals(1_000L, playbackUiPollingDelayMs(
             isHudVisible = false, isSeeking = false, isPreparingOrBuffering = false
