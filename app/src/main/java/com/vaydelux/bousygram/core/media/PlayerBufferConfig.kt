@@ -50,6 +50,11 @@ object PlayerBufferConfig {
     const val MPV_PHONE_DEMUXER_MAX_BYTES = 64L * 1024L * 1024L     // ~64 MB on phones
     const val MPV_LOW_RAM_DEMUXER_MAX_BYTES = 32L * 1024L * 1024L   // ~32 MB on low-RAM sticks
     const val MPV_CELLULAR_DEMUXER_MAX_BYTES = 20L * 1024L * 1024L  // ~20 MB on cellular
+    // Android TVs with ~256-384 MB app heap need a middle tier: the ordinary
+    // 150 MB demuxer cache can compete with hardware decoder and Compose memory.
+    const val MPV_COMPACT_TV_DEMUXER_MAX_BYTES = 64L * 1024L * 1024L
+    const val MPV_COMPACT_TV_MAX_BACK_BYTES = 12L * 1024L * 1024L
+    const val MPV_COMPACT_TV_READAHEAD_SECS = 40
 
     const val MPV_DEFAULT_READAHEAD_SECS = 60
     const val MPV_LOW_RAM_READAHEAD_SECS = 30
@@ -166,10 +171,20 @@ object PlayerBufferConfig {
             .build()
     }
 
-    fun resolveMpvConfig(isLowRam: Boolean, isTv: Boolean, isCellular: Boolean = false): MpvBufferConfig {
+    internal fun shouldUseCompactTvMpvCache(
+        isTv: Boolean, memoryClassMb: Int, isLowRam: Boolean
+    ): Boolean = isTv && !isLowRam && memoryClassMb in 193..384
+
+    fun resolveMpvConfig(
+        isLowRam: Boolean,
+        isTv: Boolean,
+        isCellular: Boolean = false,
+        isCompactTv: Boolean = false
+    ): MpvBufferConfig {
         val (maxBytes, backBytes, readaheadSecs) = when {
             isCellular -> Triple(MPV_CELLULAR_DEMUXER_MAX_BYTES, MPV_LOW_RAM_MAX_BACK_BYTES, MPV_LOW_RAM_READAHEAD_SECS)
             isLowRam -> Triple(MPV_LOW_RAM_DEMUXER_MAX_BYTES, MPV_LOW_RAM_MAX_BACK_BYTES, MPV_LOW_RAM_READAHEAD_SECS)
+            isCompactTv && isTv -> Triple(MPV_COMPACT_TV_DEMUXER_MAX_BYTES, MPV_COMPACT_TV_MAX_BACK_BYTES, MPV_COMPACT_TV_READAHEAD_SECS)
             isTv -> Triple(MPV_TV_DEMUXER_MAX_BYTES, MPV_TV_MAX_BACK_BYTES, MPV_DEFAULT_READAHEAD_SECS)
             else -> Triple(MPV_PHONE_DEMUXER_MAX_BYTES, MPV_PHONE_MAX_BACK_BYTES, MPV_DEFAULT_READAHEAD_SECS)
         }
@@ -179,6 +194,7 @@ object PlayerBufferConfig {
         val typeLabel = when {
             isCellular -> "cellular"
             isLowRam -> "low_ram"
+            isCompactTv && isTv -> "compact_tv"
             isTv -> "tv"
             else -> "phone"
         }
@@ -193,10 +209,17 @@ object PlayerBufferConfig {
         )
     }
 
-    fun resolveMpvConfig(context: Context, isCellular: Boolean = false): MpvBufferConfig =
-        resolveMpvConfig(
-            isLowRam = isLowRamDevice(context),
-            isTv = isTv(context),
-            isCellular = isCellular
+    fun resolveMpvConfig(context: Context, isCellular: Boolean = false): MpvBufferConfig {
+        val tv = isTv(context)
+        val lowRam = isLowRamDevice(context)
+        val memoryClassMb = runCatching {
+            (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.memoryClass ?: 0
+        }.getOrDefault(0)
+        return resolveMpvConfig(
+            isLowRam = lowRam,
+            isTv = tv,
+            isCellular = isCellular,
+            isCompactTv = shouldUseCompactTvMpvCache(tv, memoryClassMb, lowRam)
         )
+    }
 }
