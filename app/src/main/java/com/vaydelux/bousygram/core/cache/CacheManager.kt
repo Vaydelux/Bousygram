@@ -165,17 +165,18 @@ object CacheManager {
     // --- Sliding Read-Ahead Window & Seek ---
 
     /**
-     * Called when a seek occurs. Cancels out-of-window requests outside the 32 MB window.
+     * A time-based seek is NOT a known byte offset for variable-bitrate MKV/TS.
+     * The actual Media3 DataSpec or mpv HTTP Range request owns the byte-accurate
+     * window reposition, which TelegramChunkScheduler.handleSeek handles.
+     *
+     * Only cancel obsolete low-priority speculative work here. In particular do
+     * not start a competing download at timeMs * fileSize / durationMs: on VBR
+     * content it may evict the exact range the decoder is waiting to read.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun onSeek(fileId: Int, newPositionMs: Long, totalSize: Long, durationMs: Long) {
         if (fileId <= 0) return
-        val offset = if (durationMs > 0L && totalSize > 0L) {
-            ((newPositionMs.coerceAtLeast(0L) * totalSize) / durationMs).coerceIn(0L, totalSize - 1)
-        } else {
-            min((newPositionMs.coerceAtLeast(0L) / 1000L) * 512_000L, (totalSize - 1).coerceAtLeast(0L))
-        }
-        TelegramPreCacheEngine.onSeek(fileId, offset, SLIDING_WINDOW_BYTES)
-        LocalStreamingServer.prefetchAtPosition(fileId, totalSize, newPositionMs, durationMs)
+        TelegramChunkScheduler.cancelPrefetch(fileId)
     }
 
     // --- Next episode: healthy-buffer-only, verified head preload ---
