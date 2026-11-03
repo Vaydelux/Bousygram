@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Pre-Android 8 launcher: same Chow mascot used by the adaptive launcher. -->
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:src="@drawable/ic_bousygram_mascot"
-    android:antialias="true"
-    android:filter="true" />
