@@ -473,7 +473,11 @@ fun PlayerScreen(
                     playerEngine.play()
                     isPlaying = true
                 } else {
-                    pauseLocalPlayback(userInitiated = true)
+                    // The remote session was explicitly paused; preserve that
+                    // intent when handing playback back to the local decoder.
+                    explicitlyPaused = true
+                    playerEngine.pause()
+                    isPlaying = false
                 }
             }
             return@LaunchedEffect
