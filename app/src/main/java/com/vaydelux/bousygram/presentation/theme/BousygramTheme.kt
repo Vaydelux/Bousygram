@@ -99,9 +99,11 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
     surfaceVariant = preset.surfaceVariant,
     onSurfaceVariant = if (highContrast) Color(0xFFE7EBF1) else Color(0xFFB4C0D2),
     surfaceContainerLowest = preset.background,
-    surfaceContainerLow = preset.surface.copy(alpha = 0.72f),
+    // Foreground labels must never inherit the underlying video/image colors.
+    // Opaque surfaces protect readable contrast in dark and high-contrast modes.
+    surfaceContainerLow = preset.surface,
     surfaceContainer = preset.surface,
-    surfaceContainerHigh = preset.surfaceVariant.copy(alpha = 0.88f),
+    surfaceContainerHigh = preset.surfaceVariant,
     surfaceContainerHighest = preset.surfaceVariant,
     outline = preset.outline,
     outlineVariant = preset.outline.copy(alpha = 0.46f),
