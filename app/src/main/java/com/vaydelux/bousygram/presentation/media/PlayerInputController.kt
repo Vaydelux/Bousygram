@@ -71,7 +71,7 @@ interface PlayerInputActions {
  * Enforces the exact Behavior Specification Table:
  * 1. Controls Hidden: First D-pad press ONLY shows controls (OK -> Play/Pause, Up -> Seek Bar, Down -> Play/Pause).
  * 2. Media Keys: Act immediately regardless of HUD state and show brief indicator.
- * 3. Left/Right while hidden: Visible seek preview overlay with accelerating steps (10s -> 30s -> 60s -> 120s).
+ * 3. Left/Right while hidden: each press seeks immediately by exactly 10 seconds.
  * 4. Controls Visible: Up/Down moves strictly between Seek Bar and Button row; never triggers action or menu.
  * 5. Menus: Back closes menu and restores button focus; auto-hide timer is paused while menu is open.
  * 6. Back: Closes menu -> Hides controls -> Exits player. Never skips straight out.
@@ -249,17 +249,13 @@ class PlayerInputController(
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    // Preview only. OK commits a single seek; Back cancels it.
-                    val step = calculateAcceleratingSeekStep(isForward = false, now = now)
-                    isSeekPreviewActive = true
-                    actions.previewSeekRelative(-step)
+                    // Cinematic remote: every press seeks backward exactly 10s.
+                    // No hidden preview/confirm step or seek acceleration.
+                    actions.seekRelative(-10)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    // Preview only. OK commits a single seek; Back cancels it.
-                    val step = calculateAcceleratingSeekStep(isForward = true, now = now)
-                    isSeekPreviewActive = true
-                    actions.previewSeekRelative(step)
+                    actions.seekRelative(10)
                     return true
                 }
                 KeyEvent.KEYCODE_BACK -> {
