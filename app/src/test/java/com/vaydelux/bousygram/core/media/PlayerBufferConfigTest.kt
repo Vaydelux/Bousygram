@@ -146,6 +146,30 @@ class PlayerBufferConfigTest {
     }
 
     @Test
+    fun compactTvMpvCacheAvoidsLargeNativeAllocationsOnLimitedHeaps() {
+        assertFalse(PlayerBufferConfig.shouldUseCompactTvMpvCache(true, 192, true))
+        assertTrue(PlayerBufferConfig.shouldUseCompactTvMpvCache(true, 256, false))
+        assertTrue(PlayerBufferConfig.shouldUseCompactTvMpvCache(true, 384, false))
+        assertFalse(PlayerBufferConfig.shouldUseCompactTvMpvCache(true, 512, false))
+        assertFalse(PlayerBufferConfig.shouldUseCompactTvMpvCache(false, 256, false))
+        assertFalse(PlayerBufferConfig.shouldUseCompactTvMpvCache(true, 0, false))
+
+        val compact = PlayerBufferConfig.resolveMpvConfig(
+            isLowRam = false, isTv = true, isCompactTv = true
+        )
+        assertEquals(64L * 1024L * 1024L, compact.demuxerMaxBytes)
+        assertEquals(12L * 1024L * 1024L, compact.demuxerMaxBackBytes)
+        assertEquals(40, compact.demuxerReadaheadSecs)
+        assertTrue(compact.description.startsWith("mpv:compact_tv"))
+
+        val cellular = PlayerBufferConfig.resolveMpvConfig(
+            isLowRam = false, isTv = true, isCellular = true, isCompactTv = true
+        )
+        assertEquals(PlayerBufferConfig.MPV_CELLULAR_DEMUXER_MAX_BYTES, cellular.demuxerMaxBytes)
+        assertTrue(cellular.description.startsWith("mpv:cellular"))
+    }
+
+    @Test
     fun buildLoadControlConstructsConfiguredDefaultLoadControl() {
         val normalConfig = PlayerBufferConfig.resolveExoConfig(isLowRam = false)
         val normalLoadControl = PlayerBufferConfig.buildLoadControl(normalConfig)
