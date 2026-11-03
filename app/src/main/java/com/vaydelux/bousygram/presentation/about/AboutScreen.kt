@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.presentation.about
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -30,11 +31,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vaydelux.bousygram.BuildConfig
+import com.vaydelux.bousygram.R
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
@@ -71,7 +74,7 @@ fun AboutScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = "About Bousygram",
+                        text = "About BousyGram",
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
@@ -135,30 +138,14 @@ private fun AppHeaderCard() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // App Icon Graphic
-            Box(
+            // Same approved Chow mascot shown by Android launcher, sign-in and README.
+            Image(
+                painter = painterResource(R.drawable.ic_bousygram_mascot),
+                contentDescription = "BousyGram Chow Chow and paper plane logo",
                 modifier = Modifier
                     .size(64.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.secondary
-                            )
-                        )
-                    )
-                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "B",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.SansSerif
-                )
-            }
+            )
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
@@ -166,7 +153,7 @@ private fun AppHeaderCard() {
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Bousygram",
+                        text = "BousyGram",
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
