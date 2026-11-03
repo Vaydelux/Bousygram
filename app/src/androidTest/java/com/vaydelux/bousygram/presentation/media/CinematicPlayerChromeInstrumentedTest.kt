@@ -24,6 +24,7 @@ class CinematicPlayerChromeInstrumentedTest {
         composeRule.setContent {
             BousygramTheme {
                 var options by remember { mutableStateOf(false) }
+                var section by remember { mutableStateOf(CinematicMenuSection.ROOT) }
                 val playFocus = remember { FocusRequester() }
                 val optionsFocus = remember { FocusRequester() }
                 val firstFocus = remember { FocusRequester() }
@@ -37,6 +38,8 @@ class CinematicPlayerChromeInstrumentedTest {
                     ),
                     isTv = true,
                     optionsVisible = options,
+                    menuSection = section,
+                    onMenuSectionChange = { section = it },
                     onScrub = {},
                     onOptions = { options = !options },
                     onCloseOptions = { options = false },
@@ -59,5 +62,21 @@ class CinematicPlayerChromeInstrumentedTest {
         composeRule.runOnIdle { assertEquals(1, playClicks) }
         composeRule.onNodeWithTag("cinematic_more").performClick()
         composeRule.onNodeWithTag("cinematic_navigation_menu").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_group_playback").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_group_library").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_group_advanced").assertExists()
+
+        composeRule.onNodeWithTag("cinematic_menu_group_playback").performClick()
+        composeRule.onNodeWithTag("cinematic_menu_tracks").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_speed").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_back").performClick()
+        composeRule.onNodeWithTag("cinematic_menu_group_library").performClick()
+        composeRule.onNodeWithTag("cinematic_menu_previous").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_next").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_back").performClick()
+        composeRule.onNodeWithTag("cinematic_menu_group_advanced").performClick()
+        composeRule.onNodeWithTag("cinematic_menu_decoder").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_help").performClick()
+        composeRule.onNodeWithTag("cinematic_menu_help_text").assertExists()
     }
 }
