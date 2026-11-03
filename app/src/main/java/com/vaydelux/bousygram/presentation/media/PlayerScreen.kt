@@ -3170,15 +3170,6 @@ private fun PlayerHud(
                         )
                     }
                 }
-                if (isTv && onEpisodes != null) {
-                    BousygramButton(
-                        "▦ Episodes",
-                        onEpisodes,
-                        modifier = if (episodesFocusRequester != null) {
-                            Modifier.focusRequester(episodesFocusRequester)
-                        } else Modifier
-                    )
-                }
                 if (isTv && state.durationTrusted && state.durationMs > 0L && !compact) {
                     BousygramButton("↺ Start Over", onStartOver)
                 }
@@ -3279,6 +3270,9 @@ private fun PlayerHud(
                 layout = chromeLayout,
                 isPlayingOrPending = isPlayingOrPending,
                 optionsExpanded = optionsVisible,
+                compactTv = compact,
+                onEpisodes = onEpisodes,
+                episodesFocusRequester = episodesFocusRequester,
                 onPrevious = onSkipPrevious,
                 onSeekBack = { onSeekBy(-SEEK_INCREMENT_MS) },
                 onPlayPause = onPlayPause,
