@@ -2076,8 +2076,13 @@ fun PlayerScreen(
         if (loadingPhase == PlayerLoadingPhase.OPENING) {
             PlayerOpeningSkeleton(compact = compactHud)
         }
-        // The scrim must fade with the controls. Removing it abruptly while
-        // the HUD fades causes a visible flash over bright video frames.
+        // Passive progress remains visible when controls fade away. It never
+        // intercepts input or covers the central video surface.
+        CinematicPassiveProgress(
+            position = if (castState.connected) castState.positionMs else position,
+            duration = playerSeekDurationMs(duration, castState.durationMs, castState.connected),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
         AnimatedVisibility(
             visible = hudVisible,
             enter = fadeIn(
@@ -2115,7 +2120,7 @@ fun PlayerScreen(
                     com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeOutMs
                 )
             ) + slideOutVertically { it / 6 },
-            modifier = Modifier.align(Alignment.BottomCenter)
+            modifier = Modifier.fillMaxSize()
         ) {
             PlayerHud(
                 state = PlayerHudState(
@@ -3116,225 +3121,40 @@ private fun PlayerHud(
     retryFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
-    val chromeLayout = playerChromeLayout(isTv, compact)
     LaunchedEffect(optionsVisible, isTv) {
         if (optionsVisible && isTv) {
             delay(80L)
             runCatching { firstOptionFocusRequester.requestFocus() }
         }
     }
-    val edgePadding = if (isTv) 14.dp else if (compact) 12.dp else 32.dp
-    val innerPadding = if (isTv) 12.dp else if (compact) 14.dp else 22.dp
-    val maxHudHeight = playerHudHeightLimit(
-        LocalConfiguration.current.screenHeightDp.takeIf { it > 0 } ?: 720,
-        compact
-    )
-    val isPlayingOrPending = (state.playWhenReady && state.error == null) || state.isPlaying
-    val statusText = playerPlaybackStatusText(
-        error = state.error != null,
-        reconnecting = state.isReconnecting,
-        opening = state.isOpening,
-        buffering = state.isBuffering,
-        playRequested = isPlayingOrPending
-    )
-    val hudShape = RoundedCornerShape(if (compact) 18.dp else 26.dp)
-    Surface(
+    CinematicPlayerChrome(
+        state = state,
+        isTv = isTv,
+        optionsVisible = optionsVisible,
+        onScrub = onScrubActiveChanged,
+        onOptions = onOptionsToggle,
+        onCloseOptions = onOptionsClose,
+        onExit = onExit,
+        onStartOver = onStartOver,
+        onRetry = onRetry,
+        onPlayPause = onPlayPause,
+        onSeekBy = onSeekBy,
+        onSeekTo = onSeekTo,
+        onPrevious = onSkipPrevious,
+        onNext = onSkipNext,
+        onTracks = onTracks,
+        onAspect = onToggleResizeMode,
+        onSpeed = onSpeed,
+        onEpisodes = onEpisodes,
+        episodesFocus = episodesFocusRequester,
+        onDecoder = onSwitchEngine,
+        playFocus = playPauseFocusRequester,
+        optionsFocus = optionsFocusRequester,
+        firstOptionFocus = firstOptionFocusRequester,
+        seekFocus = seekBarFocusRequester,
+        retryFocus = retryFocusRequester,
         modifier = modifier
-            .fillMaxWidth()
-            .padding(edgePadding)
-            .heightIn(max = maxHudHeight)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, hudShape),
-        color = MaterialTheme.colorScheme.surface.copy(
-            alpha = com.vaydelux.bousygram.presentation.theme.playerHudSurfaceOpacity(
-                MaterialTheme.colorScheme.background
-            )
-        ),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = hudShape,
-        shadowElevation = 14.dp
-    ) {
-        Column(
-            Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(innerPadding)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = state.title,
-                        style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (!state.fileName.isNullOrBlank() && state.fileName != state.title) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = state.fileName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                if (isTv && state.durationTrusted && state.durationMs > 0L && !compact) {
-                    BousygramButton("↺ Start Over", onStartOver)
-                }
-                BousygramButton(if (isTv) "‹ Back" else "✕ Close", onExit)
-            }
-            if (!isTv) {
-            Spacer(Modifier.height(6.dp))
-            // Separate context and timing rows instead of truncating cache details
-            // when TV font scaling or phone accessibility text size is enabled.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                PlayerStatusChip(
-                    label = statusText,
-                    isError = state.error != null,
-                    isBusy = state.isOpening || state.isBuffering || state.isReconnecting
-                )
-                Text(
-                    listOfNotNull(
-                        state.trackLabel,
-                        state.retryCount.takeIf { it > 0 }?.let { "retry $it/$MAX_AUTO_RETRIES" }
-                    ).joinToString(" · "),
-                    style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(Modifier.height(5.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    state.cacheStateLabel.orEmpty(),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    "${formatMs(state.positionMs)} / ${durationText(state)}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-                Text(
-                    "${speedLabel(state.speed)}x",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                state.error
-                    ?: if (state.isOpening || state.isReconnecting) "Fetching this video from Telegram. Playback starts as soon as the first bytes arrive."
-                    else if (compact) "Double-tap left/right to seek ±10s · drag timeline to scrub"
-                    else "D-pad navigate controls · OK select · Back hide controls · (Hidden HUD: ◀ ▶ seek preview · OK confirm)",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (state.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = if (state.error != null) 5 else if (compact) 2 else 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = if (state.error != null) Modifier.semantics {
-                    liveRegion = LiveRegionMode.Polite
-                } else Modifier
-            )
-            Spacer(Modifier.height(if (compact) 10.dp else 15.dp))
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(statusText, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
-                    Text(
-                        formatMs(state.positionMs) + " / " + durationText(state),
-                        color = MaterialTheme.colorScheme.secondary,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-            }
-            PlayerSeekBar(
-                mediaKey = state.mediaKey,
-                positionMs = state.positionMs,
-                bufferedPositionMs = state.bufferedPositionMs,
-                durationMs = state.durationMs,
-                enabled = state.durationTrusted && state.durationMs > 0L,
-                onSeekTo = onSeekTo,
-                onScrubActiveChanged = onScrubActiveChanged,
-                modifier = if (seekBarFocusRequester != null) Modifier.focusRequester(seekBarFocusRequester) else Modifier
-            )
-            Spacer(Modifier.height(10.dp))
-            // Primary transport actions remain on a single focus row for Android TV.
-            // Compact phones have four large touch targets; less-frequent actions
-            // are grouped behind an explicit Options button instead of tiny icons.
-            PlayerTransportControls(
-                layout = chromeLayout,
-                isPlayingOrPending = isPlayingOrPending,
-                optionsExpanded = optionsVisible,
-                compactTv = compact,
-                onEpisodes = onEpisodes,
-                episodesFocusRequester = episodesFocusRequester,
-                onPrevious = onSkipPrevious,
-                onSeekBack = { onSeekBy(-SEEK_INCREMENT_MS) },
-                onPlayPause = onPlayPause,
-                onSeekForward = { onSeekBy(SEEK_INCREMENT_MS) },
-                onNext = onSkipNext,
-                onOptions = onOptionsToggle,
-                playPauseFocusRequester = playPauseFocusRequester,
-                optionsFocusRequester = optionsFocusRequester
-            )
-            AnimatedVisibility(
-                visible = optionsVisible,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                val aspectLabel = when (state.resizeMode) {
-                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
-                    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
-                    else -> "Fit"
-                }
-                PlayerOptionsPanel(
-                    layout = chromeLayout,
-                    onTracks = onTracks,
-                    onSpeed = onSpeed,
-                    speedLabel = "${speedLabel(state.speed)}x",
-                    onAspect = onToggleResizeMode,
-                    aspectLabel = aspectLabel,
-                    onEpisodes = onEpisodes,
-                    onSwitchEngine = onSwitchEngine,
-                    onPrevious = onSkipPrevious,
-                    onNext = onSkipNext,
-                    onSeekBack30 = { onSeekBy(-30_000L) },
-                    onSeekForward30 = { onSeekBy(30_000L) },
-                    onClose = onOptionsClose,
-                    firstOptionFocusRequester = firstOptionFocusRequester
-                )
-            }
-            if (state.error != null) {
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    BousygramButton(
-                        text = "Retry",
-                        onClick = onRetry,
-                        selected = true,
-                        modifier = if (retryFocusRequester != null) Modifier.focusRequester(retryFocusRequester) else Modifier
-                    )
-                    BousygramButton("Skip", onSkipNext)
-                }
-            }
-        }
-    }
+    )
 }
 
 private fun durationText(state: PlayerHudState): String =
