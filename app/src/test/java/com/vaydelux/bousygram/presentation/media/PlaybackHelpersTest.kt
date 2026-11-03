@@ -23,6 +23,28 @@ class PlaybackHelpersTest {
     }
 
     @Test
+    fun unknownDurationNativeEofCanAutoAdvanceAfterGenuineMediaOutput() {
+        assertTrue(isCredibleNaturalPlaybackEnd(
+            durationMs = 0L, positionMs = 18_000L, hasProducedMedia = true
+        ))
+        assertTrue(isCredibleNaturalPlaybackEnd(
+            durationMs = -1L, positionMs = 18_000L, hasProducedMedia = true
+        ))
+        assertFalse(isCredibleNaturalPlaybackEnd(
+            durationMs = 0L, positionMs = 0L, hasProducedMedia = false
+        ))
+        assertFalse(isCredibleNaturalPlaybackEnd(
+            durationMs = 0L, positionMs = 2_500L, hasProducedMedia = true
+        ))
+        assertFalse(isCredibleNaturalPlaybackEnd(
+            durationMs = 360_000L, positionMs = 90_000L, hasProducedMedia = true
+        ))
+        assertTrue(isCredibleNaturalPlaybackEnd(
+            durationMs = 360_000L, positionMs = 356_000L, hasProducedMedia = true
+        ))
+    }
+
+    @Test
     fun bufferingDurationUsesActualTimeAndIncludesActiveStall() {
         assertEquals(0L, measuredRebufferDurationMs(0L, 0L, 50_000L))
         assertEquals(4_200L, measuredRebufferDurationMs(1_200L, 10_000L, 13_000L))
