@@ -1919,81 +1919,6 @@ fun PlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(queueIndex, duration, playerEngine) {
-                detectTapGestures(
-                    onDoubleTap = { offset ->
-                        val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
-                        if (max <= 0L || playbackError != null) {
-                            toastFeedbackText = "Seeking is available when playback is ready"
-                        } else {
-                            val delta = if (offset.x < size.width / 2f) -SEEK_INCREMENT_MS else SEEK_INCREMENT_MS
-                            val base = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
-                            val newPos = (base + delta).coerceIn(0L, max)
-                            if (castState.connected) CastSessionController.seekTo(newPos) else {
-                                performTrackedSeek(newPos)
-                                queue.getOrNull(queueIndex)?.let { current ->
-                                    CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, max)
-                                }
-                            }
-                            seekFeedbackText = if (delta < 0) "-10s" else "+10s"
-                            seekFeedbackSide = if (delta < 0) -1 else 1
-                        }
-                        hudVisible = true
-                        hudInteractionTick++
-                    },
-                    onTap = {
-                        if (optionsPanelVisible) {
-                            optionsPanelVisible = false
-                            playerInputController.activeMenu = PlayerMenuType.NONE
-                        } else if (playbackError != null) {
-                            // Keep the visible Retry action accessible on failed playback.
-                            hudVisible = true
-                        } else {
-                            hudVisible = !hudVisible
-                        }
-                        hudInteractionTick++
-                    }
-                )
-            }
-            .pointerInput(Unit) {
-                var isLeft = false
-                detectVerticalDragGestures(
-                    onDragStart = { offset ->
-                        isLeft = offset.x < size.width / 2f
-                    },
-                    onVerticalDrag = { change, dragAmount ->
-                        change.consume()
-                        if (isLeft) {
-                            if (currentActivity != null) {
-                                val current = currentActivity.window.attributes.screenBrightness.let { if (it < 0f) 0.5f else it }
-                                val next = (current - (dragAmount / size.height.toFloat())).coerceIn(0.01f, 1.0f)
-                                val lp = currentActivity.window.attributes
-                                lp.screenBrightness = next
-                                currentActivity.window.attributes = lp
-                                gestureBrightness = next
-                                showBrightnessHud = true
-                                hudInteractionTick++
-                            }
-                        } else {
-                            if (currentAudioManager != null) {
-                                val maxVol = currentAudioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                                val current = currentAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                                // Some audio routes have zero volume steps; avoid divide-by-zero gestures.
-                                val delta = if (maxVol > 0 && size.height > 0) {
-                                    (-dragAmount / (size.height / (maxVol * 1.5f))).toInt()
-                                } else 0
-                                if (delta != 0) {
-                                    val next = (current + delta).coerceIn(0, maxVol)
-                                    currentAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
-                                    gestureVolume = next
-                                    showVolumeHud = true
-                                    hudInteractionTick++
-                                }
-                            }
-                        }
-                    }
-                )
-            }
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -2065,6 +1990,69 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         }
+        if (!tvChrome) {
+            CinematicGesturePad(
+                onSingleTap = {
+                    if (optionsPanelVisible) {
+                        optionsPanelVisible = false
+                        playerInputController.activeMenu = PlayerMenuType.NONE
+                        hudInteractionTick++
+                    } else if (playbackError != null) {
+                        hudVisible = true
+                        hudInteractionTick++
+                    } else {
+                        playerInputActions.togglePlayPause()
+                    }
+                },
+                onDoubleTap = { forward ->
+                    val max = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
+                    if (max <= 0L || playbackError != null) {
+                        toastFeedbackText = "Seeking is available when playback is ready"
+                    } else {
+                        val delta = if (forward) SEEK_INCREMENT_MS else -SEEK_INCREMENT_MS
+                        val base = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
+                        val newPosition = (base + delta).coerceIn(0L, max)
+                        if (castState.connected) CastSessionController.seekTo(newPosition) else {
+                            performTrackedSeek(newPosition)
+                            queue.getOrNull(queueIndex)?.let { current ->
+                                CacheManager.onSeek(current.fileId, newPosition, fileSizeBytes, max)
+                            }
+                        }
+                        seekFeedbackText = if (forward) "+10s" else "-10s"
+                        seekFeedbackSide = if (forward) 1 else -1
+                    }
+                    hudVisible = true
+                    hudInteractionTick++
+                },
+                onVerticalDrag = { leftHalf, dragPx, heightPx ->
+                    if (heightPx > 0f && leftHalf && currentActivity != null) {
+                        val current = currentActivity.window.attributes.screenBrightness.let {
+                            if (it < 0f) 0.5f else it
+                        }
+                        val next = (current - dragPx / heightPx).coerceIn(0.01f, 1.0f)
+                        val params = currentActivity.window.attributes
+                        params.screenBrightness = next
+                        currentActivity.window.attributes = params
+                        gestureBrightness = next
+                        showBrightnessHud = true
+                        hudInteractionTick++
+                    } else if (heightPx > 0f && !leftHalf && currentAudioManager != null) {
+                        val maxVolume = currentAudioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                        val current = currentAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        val delta = if (maxVolume > 0) {
+                            (-dragPx / (heightPx / (maxVolume * 1.5f))).toInt()
+                        } else 0
+                        if (delta != 0) {
+                            val next = (current + delta).coerceIn(0, maxVolume)
+                            currentAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+                            gestureVolume = next
+                            showVolumeHud = true
+                            hudInteractionTick++
+                        }
+                    }
+                }
+            )
+        }
         val loadingPhase = playerLoadingPhaseForSession(
             castConnected = castState.connected,
             castBuffering = castState.playbackStatus == CastPlaybackStatus.Buffering,
@@ -2076,48 +2064,8 @@ fun PlayerScreen(
         if (loadingPhase == PlayerLoadingPhase.OPENING) {
             PlayerOpeningSkeleton(compact = compactHud)
         }
-        // The scrim must fade with the controls. Removing it abruptly while
-        // the HUD fades causes a visible flash over bright video frames.
-        AnimatedVisibility(
-            visible = hudVisible,
-            enter = fadeIn(
-                animationSpec = androidx.compose.animation.core.tween(
-                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeInMs
-                )
-            ),
-            exit = fadeOut(
-                animationSpec = androidx.compose.animation.core.tween(
-                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeOutMs
-                )
-            ),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(if (compactHud) 240.dp else 300.dp)
-                    .background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.36f))
-                        )
-                    )
-            )
-        }
-        AnimatedVisibility(
-            visible = hudVisible,
-            enter = fadeIn(
-                animationSpec = androidx.compose.animation.core.tween(
-                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeInMs
-                )
-            ) + slideInVertically { it / 6 },
-            exit = fadeOut(
-                animationSpec = androidx.compose.animation.core.tween(
-                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeOutMs
-                )
-            ) + slideOutVertically { it / 6 },
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            PlayerHud(
+            CinematicPlayerOverlay(
+                controlsVisible = hudVisible,
                 state = PlayerHudState(
                     title = title,
                     fileName = fileName,
@@ -2281,9 +2229,8 @@ fun PlayerScreen(
                 firstOptionFocusRequester = firstOptionFocusRequester,
                 seekBarFocusRequester = seekBarFocusRequester,
                 retryFocusRequester = retryFocusRequester,
-                modifier = Modifier
+                modifier = Modifier.fillMaxSize()
             )
-        }
         if (tracksPanelVisible) {
             TrackPickerOverlay(
                 playerEngine = playerEngine,
