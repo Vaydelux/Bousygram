@@ -18,12 +18,20 @@ class ThemePresetTest {
         assertNotEquals(BousygramThemePreset.DARK.primary, BousygramThemePreset.HIGH_CONTRAST.primary)
         assertNotEquals(BousygramThemePreset.LIGHT.background, BousygramThemePreset.DARK.background)
     }
+    @Test fun hudOpacityRespectsHighContrastWhileShowingMoreVideoInDarkMode() {
+        assertEquals(0.90f, playerHudSurfaceOpacity(BousygramThemePreset.DARK.background))
+        assertEquals(0.96f, playerHudSurfaceOpacity(BousygramThemePreset.LIGHT.background))
+        assertEquals(0.99f, playerHudSurfaceOpacity(BousygramThemePreset.HIGH_CONTRAST.background))
+    }
+
     @Test fun semanticTextOnSurfacesRemainsReadableInEveryTheme() {
         BousygramThemePreset.entries.forEach { preset ->
             val c = schemeFor(preset)
             val pairs = listOf(
                 "background" to themeContrastRatio(c.onBackground, c.background),
                 "surface" to themeContrastRatio(c.onSurface, c.surface),
+                "surface low" to themeContrastRatio(c.onSurface, c.surfaceContainerLow),
+                "surface high" to themeContrastRatio(c.onSurface, c.surfaceContainerHigh),
                 "surface variant" to themeContrastRatio(c.onSurfaceVariant, c.surfaceVariant),
                 "primary" to themeContrastRatio(c.onPrimary, c.primary),
                 "primary container" to themeContrastRatio(c.onPrimaryContainer, c.primaryContainer),
