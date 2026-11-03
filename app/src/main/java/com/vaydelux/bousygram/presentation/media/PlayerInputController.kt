@@ -69,10 +69,10 @@ interface PlayerInputActions {
 /**
  * Central input router for all TV remote, D-pad, and media key events in the Player.
  * Enforces the exact Behavior Specification Table:
- * 1. Controls Hidden: First D-pad press ONLY shows controls (OK -> Play/Pause, Up -> Seek Bar, Down -> Play/Pause).
+ * 1. Controls Hidden: OK exposes play/pause; Up exposes timeline; Down exposes More.
  * 2. Media Keys: Act immediately regardless of HUD state and show brief indicator.
- * 3. Left/Right while hidden: Visible seek preview overlay with accelerating steps (10s -> 30s -> 60s -> 120s).
- * 4. Controls Visible: Up/Down moves strictly between Seek Bar and Button row; never triggers action or menu.
+ * 3. Left/Right while hidden: directly seek -10s/+10s without showing navigation.
+ * 4. Controls Visible: Up/Down navigate timeline and button row; options require a deliberate click.
  * 5. Menus: Back closes menu and restores button focus; auto-hide timer is paused while menu is open.
  * 6. Back: Closes menu -> Hides controls -> Exits player. Never skips straight out.
  * 7. Auto-Next: 5-second countdown card, "Play Now" focused. Back cancels card and leaves finished video paused with controls visible.
@@ -241,25 +241,23 @@ class PlayerInputController(
                 }
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     cancelSeekPreview(actions)
-                    // Open the existing in-session queue drawer. Directional presses
-                    // never skip to another video or leave the player.
+                    // First Down reveals the More control for future navigation;
+                    // opening its dropdown requires an explicit OK press.
                     isHudVisible = true
-                    activeMenu = PlayerMenuType.EPISODES
-                    actions.openMenu(PlayerMenuType.EPISODES)
+                    currentFocusRow = 1
+                    actions.showHud(PlayerFocusTarget.BUTTON_OPTIONS)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    // Preview only. OK commits a single seek; Back cancels it.
-                    val step = calculateAcceleratingSeekStep(isForward = false, now = now)
-                    isSeekPreviewActive = true
-                    actions.previewSeekRelative(-step)
+                    // Hidden HUD uses immediate, fixed -10s; never changes the
+                    // current focus or opens bulky navigation while watching.
+                    cancelSeekPreview(actions)
+                    actions.seekRelative(-10)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    // Preview only. OK commits a single seek; Back cancels it.
-                    val step = calculateAcceleratingSeekStep(isForward = true, now = now)
-                    isSeekPreviewActive = true
-                    actions.previewSeekRelative(step)
+                    cancelSeekPreview(actions)
+                    actions.seekRelative(10)
                     return true
                 }
                 KeyEvent.KEYCODE_BACK -> {
@@ -288,13 +286,17 @@ class PlayerInputController(
                 if (currentFocusRow == 1) {
                     currentFocusRow = 0
                     actions.showHud(PlayerFocusTarget.SEEK_BAR)
+                    return true
                 }
-                return true // Never open menu or exit row!
+                return false // Let Compose move among top-edge focus targets.
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                activeMenu = PlayerMenuType.EPISODES
-                actions.openMenu(PlayerMenuType.EPISODES)
-                return true // Never skip track.
+                if (currentFocusRow == 0) {
+                    currentFocusRow = 1
+                    actions.showHud(PlayerFocusTarget.BUTTON_PLAY_PAUSE)
+                    return true
+                }
+                return false // Let Compose navigate buttons; never auto-open episodes.
             }
             KeyEvent.KEYCODE_MENU,
             KeyEvent.KEYCODE_INFO,
