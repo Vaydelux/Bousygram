@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Bousygram</string>
+    <string name="app_name">BousyGram</string>
     <string name="auth_phone_hint">Phone number</string>
     <string name="auth_code_hint">Login code</string>
     <string name="auth_password_hint">2FA password</string>
