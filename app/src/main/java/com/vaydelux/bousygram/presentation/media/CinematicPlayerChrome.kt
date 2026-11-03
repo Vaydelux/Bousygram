@@ -56,7 +56,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -184,6 +183,7 @@ internal fun CinematicPlayerOverlay(
         if (controlsVisible && optionsVisible) {
             CinematicNavigationDropdown(
                 state = state, isTv = isTv,
+                maxMenuHeight = (maxHeight - 120.dp).coerceIn(1.dp, 380.dp),
                 onTracks = onTracks, onSpeed = onSpeed, onAspect = onToggleResizeMode,
                 onEpisodes = onEpisodes, onSwitchEngine = onSwitchEngine,
                 onPrevious = onSkipPrevious, onNext = onSkipNext,
@@ -257,7 +257,7 @@ private fun CinematicEdgeAction(label: String, description: String,
 /** Future navigation features can be appended here without expanding the HUD. */
 @Composable
 private fun CinematicNavigationDropdown(
-    state: PlayerHudState, isTv: Boolean,
+    state: PlayerHudState, isTv: Boolean, maxMenuHeight: Dp,
     onTracks: () -> Unit, onSpeed: () -> Unit, onAspect: () -> Unit,
     onEpisodes: (() -> Unit)?, onSwitchEngine: (() -> Unit)?,
     onPrevious: () -> Unit, onNext: () -> Unit,
@@ -265,7 +265,6 @@ private fun CinematicNavigationDropdown(
     onStartOver: () -> Unit, onClose: () -> Unit,
     firstFocusRequester: FocusRequester, modifier: Modifier = Modifier
 ) {
-    val height = (LocalConfiguration.current.screenHeightDp - 120).coerceIn(140, 380).dp
     LaunchedEffect(isTv) {
         if (isTv) {
             delay(80L)
@@ -273,7 +272,7 @@ private fun CinematicNavigationDropdown(
         }
     }
     Column(modifier.widthIn(min = 210.dp, max = 288.dp)
-        .heightIn(max = height).clip(RoundedCornerShape(12.dp))
+        .heightIn(max = maxMenuHeight).clip(RoundedCornerShape(12.dp))
         .background(Color.Black.copy(alpha = .86f))
         .border(1.dp, CinemaWhite.copy(alpha = .2f), RoundedCornerShape(12.dp))
         .verticalScroll(rememberScrollState()).padding(10.dp)
