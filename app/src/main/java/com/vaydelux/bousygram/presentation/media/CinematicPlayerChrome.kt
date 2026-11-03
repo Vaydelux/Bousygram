@@ -31,8 +31,14 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,13 +56,17 @@ internal fun cinematicFraction(position: Long, duration: Long) =
     }
 }
 
-/** Two-dp active hairline. The hit target remains 36dp and the thumb appears only on drag. */
+/**
+ * Two-dp active hairline; a 48dp touch target meets Android accessibility
+ * guidance. TV focus makes the track 4dp, but the thumb is drag-only.
+ */
 @Composable internal fun CinematicScrubber(
     mediaKey: String, position: Long, buffered: Long, duration: Long,
     onSeek: (Long) -> Unit, onScrub: (Boolean) -> Unit, focus: FocusRequester?
 ) {
     var dragging by remember(mediaKey) { mutableStateOf(false) }
     var selected by remember(mediaKey) { mutableLongStateOf(0L) }
+    var isFocused by remember(mediaKey) { mutableStateOf(false) }
     val active = duration > 0L
     // Never restart pointer handlers or cancel an active scrub when a media
     // extractor refines a *known* duration (common with MKV/TS containers).
@@ -70,8 +80,9 @@ internal fun cinematicFraction(position: Long, duration: Long) =
     }
     val shown = if (dragging) selected else position
     Box(
-        Modifier.fillMaxWidth().height(36.dp)
+        Modifier.fillMaxWidth().height(48.dp)
             .then(if (focus != null) Modifier.focusRequester(focus) else Modifier)
+            .onFocusChanged { isFocused = it.isFocused }
             .onKeyEvent { event ->
                 if (!active || event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
                 when (event.key) {
@@ -114,10 +125,27 @@ internal fun cinematicFraction(position: Long, duration: Long) =
                     ) ?: selected
                 }
             }
-            .semantics { contentDescription = "Playback timeline" }
+            .semantics {
+                contentDescription = if (active) "Playback timeline" else "Playback duration unknown"
+                if (active) {
+                    progressBarRangeInfo = ProgressBarRangeInfo(
+                        cinematicFraction(shown, duration),
+                        0f..1f
+                    )
+                    stateDescription = "${formatCinematicTime(shown)} of ${formatCinematicTime(duration)}"
+                    setProgress { fraction ->
+                        val target = playerScrubTarget(fraction, latestDuration)
+                        if (target == null) false
+                        else {
+                            latestSeek(target)
+                            true
+                        }
+                    }
+                }
+            }
             .testTag("cinematic_scrubber"), contentAlignment = Alignment.BottomCenter
     ) {
-        Canvas(Modifier.fillMaxWidth().height(2.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(if (isFocused) 4.dp else 2.dp)) {
             val y = size.height / 2f
             drawLine(Color.White.copy(alpha = 0.22f), Offset(0f, y), Offset(size.width, y), size.height)
             drawLine(Color.White.copy(alpha = 0.36f), Offset(0f, y),
@@ -173,6 +201,12 @@ internal fun cinematicFraction(position: Long, duration: Long) =
     retryFocus: FocusRequester?, modifier: Modifier = Modifier
 ) {
     val duration = state.durationMs.takeIf { state.durationTrusted && it > 0L } ?: 0L
+    // In landscape, a fixed 320dp menu can cover the title and video.
+    // Bound the dropdown to the device's available height; rows scroll.
+    val windowHeight = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.height.toDp()
+    }
+    val maxMenuHeight = cinematicMenuHeightLimit(windowHeight)
     Box(modifier.fillMaxSize().testTag("cinematic_player_chrome")) {
         // Animate two short edge bands rather than translating a fullscreen
         // layer on every HUD open/close. The video center stays untouched.
@@ -304,7 +338,7 @@ internal fun cinematicFraction(position: Long, duration: Long) =
                 onDecoder = onDecoder,
                 onDiagnostics = onDiagnostics,
                 firstFocus = firstOptionFocus,
-                modifier = Modifier.heightIn(max = 320.dp)
+                modifier = Modifier.heightIn(max = maxMenuHeight)
             )
         }
         if (state.error != null) {
@@ -327,3 +361,7 @@ private fun formatCinematicTime(ms: Long): String {
     return if (s >= 3600L) "%d:%02d:%02d".format(s / 3600L, s / 60L % 60L, s % 60L)
         else "%d:%02d".format(s / 60L, s % 60L)
 }
+
+/** Upper bound for player menus on compact landscape phones and Android TVs. */
+internal fun cinematicMenuHeightLimit(windowHeight: androidx.compose.ui.unit.Dp) =
+    (windowHeight.coerceAtLeast(0.dp) * 0.58f).coerceIn(112.dp, 320.dp)
