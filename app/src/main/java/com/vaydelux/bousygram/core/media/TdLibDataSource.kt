@@ -30,7 +30,10 @@ import kotlin.math.min
  * Media3. A partial or cue-seek DataSpec must never read outside its range.
  */
 internal fun readAheadRequestBytes(requested: Int, remaining: Long): Int {
-    val desired = maxOf(requested, 256 * 1024)
+    if (requested <= 0) return 0
+    // A decoder can ask for arbitrarily large reads. The TDLib scheduler and
+    // device heap must not allocate an unbounded byte array for one Media3 call.
+    val desired = maxOf(requested, 256 * 1024).coerceAtMost(1024 * 1024)
     return if (remaining == C.LENGTH_UNSET.toLong()) desired
         else min(desired.toLong(), remaining.coerceAtLeast(0L)).toInt()
 }
@@ -134,6 +137,11 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
         if (isClosed || !opened) return C.RESULT_END_OF_INPUT
+        // An account switch/logout revokes access even to bytes already buffered
+        // in this DataSource; the lease granted during open() is not perpetual.
+        if (!PlaybackSessionController.isFileActive(fileId)) {
+            throw IOException("TDLib direct read access revoked for this playback session")
+        }
 
         val bytesToRead = if (bytesRemaining != C.LENGTH_UNSET.toLong()) {
             min(length.toLong(), bytesRemaining).toInt()

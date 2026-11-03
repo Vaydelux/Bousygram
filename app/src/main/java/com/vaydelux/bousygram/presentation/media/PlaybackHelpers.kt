@@ -23,6 +23,53 @@ internal fun playbackUiPollingDelayMs(
 }
 
 /**
+ * Separates resume checkpoint policy from Compose frame updates.
+ *
+ * Saving only when a position grows by 5 seconds silently loses backward seeks
+ * if the process dies before Back/ON_PAUSE. Use monotonic elapsed time for normal
+ * checkpoints, and persist immediately after a confirmed large discontinuity.
+ * A zero position is only persisted following an explicit Start Over, never
+ * during the initial player preparation before resume has been applied.
+ */
+internal class PlaybackProgressCheckpoint {
+    private var lastSavedPositionMs = -1L
+    private var lastSavedAtElapsedMs = -1L
+    private var waitingForStartOver = false
+
+    fun reset() {
+        lastSavedPositionMs = -1L
+        lastSavedAtElapsedMs = -1L
+        waitingForStartOver = false
+    }
+
+    fun onExplicitSeek(targetMs: Long) {
+        waitingForStartOver = targetMs <= 0L
+    }
+
+    fun shouldPersist(positionMs: Long, elapsedMs: Long, playbackReady: Boolean): Boolean {
+        if (!playbackReady || positionMs < 0L) return false
+        if (waitingForStartOver && positionMs != 0L) return false
+        if (positionMs == 0L && !waitingForStartOver) return false
+        val last = lastSavedPositionMs
+        if (positionMs == last && !waitingForStartOver) return false
+
+        val jumped = last >= 0L && (
+            (positionMs > last && positionMs - last >= 8_000L) ||
+            (positionMs < last && last - positionMs >= 8_000L)
+        )
+        val periodic = lastSavedAtElapsedMs < 0L ||
+            elapsedMs < lastSavedAtElapsedMs ||
+            elapsedMs - lastSavedAtElapsedMs >= 5_000L
+        if (!waitingForStartOver && !jumped && !periodic) return false
+
+        lastSavedPositionMs = positionMs
+        lastSavedAtElapsedMs = elapsedMs
+        waitingForStartOver = false
+        return true
+    }
+}
+
+/**
  * Tracks decoder output time, excluding startup, user pauses and network stalls.
  * All inputs use monotonic elapsed time from the caller, never wall-clock dates.
  */

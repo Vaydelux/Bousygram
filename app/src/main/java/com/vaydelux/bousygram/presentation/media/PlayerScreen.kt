@@ -303,7 +303,7 @@ fun PlayerScreen(
     var reloadNonce by remember { mutableIntStateOf(0) }
     var retryCount by remember { mutableIntStateOf(0) }
     var rebufferCount by remember { mutableIntStateOf(0) }
-    var lastSavedPosition by remember { mutableLongStateOf(0L) }
+    val progressCheckpoint = remember(playbackSession) { PlaybackProgressCheckpoint() }
     var lastGoodPosition by remember { mutableLongStateOf(0L) }
     var lastAheadPrefetchPosition by remember { mutableLongStateOf(0L) }
     var fileSizeBytes by remember { mutableLongStateOf(0L) }
@@ -542,6 +542,7 @@ fun PlayerScreen(
     }
 
     fun performTrackedSeek(targetMs: Long) {
+        progressCheckpoint.onExplicitSeek(targetMs)
         pendingSeekTargetMs = targetMs.coerceAtLeast(0L)
         pendingSeekStartedAtMs = android.os.SystemClock.elapsedRealtime()
         seekPreviewPositionMs = -1L
@@ -1286,7 +1287,7 @@ fun PlayerScreen(
             .takeIf { it > 0L }
             ?.let { duration = it }
             ?: item.durationSeconds.takeIf { it > 0 }?.let { duration = it * 1000L }
-        lastSavedPosition = 0L
+        progressCheckpoint.reset()
         val videoMime = VideoFormatSupport.exoMimeType(item.mimeType, item.fileName, item.title)
         val isExo = playerEngine is ExoPlayerEngine
         val streamUrl = if (isExo) {
@@ -1667,16 +1668,21 @@ fun PlayerScreen(
                 measuredThroughputBytesPerSec =
                     com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.getAverageThroughput()
             )
-            if (position > 0 && position - lastSavedPosition >= 5_000L) {
+            if (progressCheckpoint.shouldPersist(
+                    positionMs = position,
+                    elapsedMs = nowMs,
+                    playbackReady = playerEngine.playbackState.value is EnginePlaybackState.Ready &&
+                        !isOpening && !isBuffering && !isReconnecting
+                )
+            ) {
                 PlaybackProgressTracker.saveMessagePosition(
                     current.chatId,
                     current.messageId,
-                    position.toInt(),
+                    position.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                     duration,
                     current.fileId,
                     current.title
                 )
-                lastSavedPosition = position
             }
 
             val currentItem = queue.getOrNull(queueIndex)

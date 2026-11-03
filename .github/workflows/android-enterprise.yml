@@ -51,19 +51,24 @@ jobs:
             git diff --check "$GITHUB_SHA^" "$GITHUB_SHA"
           fi
 
-      - name: Validate Windows device qualification tool syntax
+      - name: Validate Windows device and playback profiling tool syntax
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
+          foreach ($script in @(
             "tools/qualification/Capture-BousygramDevice.ps1",
-            [ref] $tokens,
-            [ref] $errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.ToString() }
-            exit 1
+            "tools/qualification/Capture-BousygramPlaybackPerf.ps1"
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $script,
+              [ref] $tokens,
+              [ref] $errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$script : $_" }
+              exit 1
+            }
           }
 
       - name: Exercise release identity and qualification failure fixtures
