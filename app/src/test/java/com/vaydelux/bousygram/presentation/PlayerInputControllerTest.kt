@@ -133,36 +133,30 @@ class PlayerInputControllerTest {
     }
 
     @Test
-    fun controlsHidden_dpadDown_opensRelatedSourceTray_neverSkipsTrack() {
+    fun hiddenDownRevealsMoreControlWithoutOpeningTheQueue() {
         controller.isHudVisible = false
-
-        val handled = sendKey(KeyEvent.KEYCODE_DPAD_DOWN)
-
-        assertTrue(handled)
-        assertTrue(controller.isHudVisible)
-        assertEquals(PlayerMenuType.EPISODES, controller.activeMenu)
-        assertEquals(listOf("openMenu:EPISODES"), recordedActions)
-        assertFalse(recordedActions.contains("skipNext"))
-        assertFalse(recordedActions.contains("exitPlayer"))
-    }
-
-    @Test
-    fun visibleDownOpensRelatedTray_backClosesWithoutExitingVideo() {
-        controller.isHudVisible = true
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_DOWN))
-        assertEquals(PlayerMenuType.EPISODES, controller.activeMenu)
-        assertTrue(recordedActions.contains("openMenu:EPISODES"))
-
-        recordedActions.clear()
+        assertTrue(controller.isHudVisible)
+        assertEquals(PlayerMenuType.NONE, controller.activeMenu)
+        assertEquals(listOf("showHud"), recordedActions)
+        assertEquals(PlayerFocusTarget.BUTTON_OPTIONS, lastFocusTarget)
+        assertFalse(recordedActions.contains("skipNext"))
+    }
+    @Test
+    fun visibleDownMovesFromTimelineToButtonsWithoutOpeningEpisodes() {
+        controller.isHudVisible = true
+        controller.currentFocusRow = 0
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_DOWN))
+        assertEquals(PlayerFocusTarget.BUTTON_PLAY_PAUSE, lastFocusTarget)
+        assertEquals(PlayerMenuType.NONE, controller.activeMenu)
+        currentTimeMs += 120L
+        assertFalse(sendKey(KeyEvent.KEYCODE_DPAD_DOWN))
+        assertFalse(recordedActions.any { it.startsWith("openMenu") })
         currentTimeMs += 120L
         assertTrue(sendKey(KeyEvent.KEYCODE_BACK))
-        assertEquals(PlayerMenuType.NONE, controller.activeMenu)
-        assertTrue(recordedActions.contains("closeMenu"))
+        assertFalse(controller.isHudVisible)
         assertFalse(recordedActions.contains("exitPlayer"))
-        assertFalse(recordedActions.contains("skipPrevious"))
-        assertFalse(recordedActions.contains("skipNext"))
     }
-
     @Test
     fun controlsHidden_dpadLeft_relativeSeekBackward() {
         controller.isHudVisible = false
@@ -170,42 +164,32 @@ class PlayerInputControllerTest {
         val handled = sendKey(KeyEvent.KEYCODE_DPAD_LEFT)
 
         assertTrue(handled)
-        assertEquals(listOf("previewSeekRelative:-10"), recordedActions)
+        assertEquals(listOf("seekRelative:-10"), recordedActions)
         assertEquals(-10, lastSeekRelativeSeconds)
     }
 
     @Test
-    fun controlsHidden_dpadRight_relativeSeekForwardWithAcceleration() {
+    fun hiddenRightAlwaysSeeksTenSecondsWithoutAcceleration() {
         controller.isHudVisible = false
-
-        val handled1 = sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertTrue(handled1)
-        assertEquals(10, lastSeekRelativeSeconds)
-
-        // Rapid second press within acceleration window (200ms later, > 50ms debounce, < 1200ms window)
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
+        assertEquals(listOf("seekRelative:10"), recordedActions)
         currentTimeMs += 200L
-        val handled2 = sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertTrue(handled2)
-        assertEquals(30, lastSeekRelativeSeconds)
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
+        assertEquals(listOf("seekRelative:10", "seekRelative:10"), recordedActions)
+        assertFalse(controller.isSeekPreviewActive)
+        assertFalse(controller.isHudVisible)
     }
-
     @Test
-    fun controlsHidden_leftAndRightNeverSkipAndDirectionChangeResetsAcceleration() {
+    fun hiddenLeftAndRightNeverSkipOrOpenNavigation() {
         controller.isHudVisible = false
-
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
         currentTimeMs += 200L
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
-        assertEquals(30, lastSeekRelativeSeconds)
-
         currentTimeMs += 200L
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_LEFT))
-
-        assertEquals(-10, lastSeekRelativeSeconds)
-        assertFalse(recordedActions.contains("skipNext"))
-        assertFalse(recordedActions.contains("skipPrevious"))
+        assertEquals(listOf("seekRelative:10", "seekRelative:10", "seekRelative:-10"), recordedActions)
+        assertEquals(PlayerMenuType.NONE, controller.activeMenu)
     }
-
     @Test
     fun controlsVisible_leftAndRightAreLeftToFocusedControlAndNeverSkip() {
         controller.isHudVisible = true
@@ -220,23 +204,20 @@ class PlayerInputControllerTest {
     }
 
     @Test
-    fun hiddenSeekPreview_okCommitsOnceAndBackCancelsWithoutExiting() {
+    fun hiddenSeekIsImmediateAndCenterOnlyOpensControls() {
         controller.isHudVisible = false
-
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
         currentTimeMs += 100L
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_CENTER))
-        assertEquals(1, recordedActions.count { it == "confirmSeekPreview" })
-        assertFalse(recordedActions.any { it.startsWith("seekRelative:") })
-
-        currentTimeMs += 100L
-        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_LEFT))
+        assertEquals(listOf("seekRelative:10", "showHud"), recordedActions)
+        assertTrue(controller.isHudVisible)
+        assertFalse(recordedActions.contains("confirmSeekPreview"))
         currentTimeMs += 100L
         assertTrue(sendKey(KeyEvent.KEYCODE_BACK))
-        assertTrue(recordedActions.contains("cancelSeekPreview"))
+        assertFalse(controller.isHudVisible)
+        assertFalse(recordedActions.contains("cancelSeekPreview"))
         assertFalse(recordedActions.contains("exitPlayer"))
     }
-
     @Test
     fun mediaKeys_actImmediatelyInAllStates() {
         controller.isHudVisible = false
@@ -419,23 +400,18 @@ class PlayerInputControllerTest {
     }
 
     @Test
-    fun seekPreviewAccelerationReset() {
+    fun hiddenSeekDoesNotEnterLegacyPreviewState() {
         controller.isHudVisible = false
-        // Perform multiple fast right seeks to increase step index
-        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
         currentTimeMs += 100L
-        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertTrue(controller.isSeekPreviewActive)
-
-        // Reset seek preview state
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
+        assertFalse(controller.isSeekPreviewActive)
         controller.resetSeekPreviewState()
-        // Next seek should start fresh from first step interval
         recordedActions.clear()
         currentTimeMs += 2000L
-        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertEquals(listOf("previewSeekRelative:10"), recordedActions)
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
+        assertEquals(listOf("seekRelative:10"), recordedActions)
     }
-
     @Test
     fun optionsMenuBackClosesPanelAndRestoresOptionsFocus() {
         controller.isHudVisible = true
