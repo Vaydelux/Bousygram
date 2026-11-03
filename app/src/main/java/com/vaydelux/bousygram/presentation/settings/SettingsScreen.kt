@@ -203,20 +203,31 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                BousygramThemePreset.values().forEach { preset ->
-                                    val isSelected = themePreset == preset
+                            // Large text and narrow phones must not clip theme choices.
+                            val isNarrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 480
+                            @Composable
+                            fun ThemeChoices() {
+                                BousygramThemePreset.entries.forEach { preset ->
                                     BousygramChip(
                                         text = preset.displayName,
-                                        selected = isSelected,
+                                        selected = themePreset == preset,
                                         onClick = {
                                             onThemePresetChange(preset)
                                             EnterprisePreferences.setVisualThemeId(preset.id)
                                         }
                                     )
+                                }
+                            }
+                            if (isNarrow) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    ThemeChoices()
+                                }
+                            } else {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    ThemeChoices()
                                 }
                             }
                         }
