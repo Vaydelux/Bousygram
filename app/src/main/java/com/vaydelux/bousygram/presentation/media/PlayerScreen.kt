@@ -1949,7 +1949,9 @@ fun PlayerScreen(
                             // Keep the visible Retry action accessible on failed playback.
                             hudVisible = true
                         } else {
-                            hudVisible = !hudVisible
+                            // Cinematic touch contract: tap the clean video surface to
+                            // toggle playback. Options and error overlays still own taps.
+                            playerInputActions.togglePlayPause()
                         }
                         hudInteractionTick++
                     }
