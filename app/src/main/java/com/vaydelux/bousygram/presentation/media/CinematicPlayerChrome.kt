@@ -2,11 +2,14 @@ package com.vaydelux.bousygram.presentation.media
 
 import android.view.KeyEvent
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,7 +33,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.ui.AspectRatioFrameLayout
-import com.vaydelux.bousygram.presentation.components.BousygramButton
 
 private val red = Color(0xFFD72C42)
 internal fun cinematicFraction(position: Long, duration: Long) =
@@ -110,8 +112,30 @@ internal fun cinematicFraction(position: Long, duration: Long) =
     }
 }
 
+/** Native transparent touch/focus target: no pill/card backgrounds over the film. */
 @Composable private fun EdgeButton(label: String, description: String, click: () -> Unit, modifier: Modifier = Modifier) {
-    BousygramButton(label, click, modifier = modifier.semantics { contentDescription = description })
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        modifier
+            .onFocusChanged { focused = it.isFocused }
+            .border(
+                if (focused) 2.dp else 0.dp,
+                if (focused) Color.White else Color.Transparent,
+                RoundedCornerShape(8.dp)
+            )
+            .background(
+                if (focused) Color.White.copy(alpha = 0.18f) else Color.Transparent,
+                RoundedCornerShape(8.dp)
+            )
+            .clickable(onClick = click)
+            .semantics { contentDescription = description }
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 @Composable internal fun CinematicPlayerChrome(
