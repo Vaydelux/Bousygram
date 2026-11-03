@@ -138,6 +138,7 @@ internal fun cinematicFraction(position: Long, duration: Long) =
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable internal fun CinematicPlayerChrome(
     state: PlayerHudState, isTv: Boolean, optionsVisible: Boolean,
     onScrub: (Boolean) -> Unit, onOptions: () -> Unit, onCloseOptions: () -> Unit,
