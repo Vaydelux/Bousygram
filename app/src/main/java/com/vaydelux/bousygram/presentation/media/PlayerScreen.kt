@@ -1566,6 +1566,24 @@ fun PlayerScreen(
     }
 
     val menuOpen = tracksPanelVisible || episodesDrawerVisible || optionsPanelVisible
+
+    // TV Back, close button and D-pad Up should return to the same Episodes
+    // control, without stealing focus if the user switched into Options/Tracks.
+    var restoreEpisodesFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(episodesDrawerVisible, hudVisible, tvChrome, tracksPanelVisible, optionsPanelVisible) {
+        if (episodesDrawerVisible) {
+            restoreEpisodesFocus = true
+        } else if (restoreEpisodesFocus && hudVisible && tvChrome &&
+            !tracksPanelVisible && !optionsPanelVisible
+        ) {
+            restoreEpisodesFocus = false
+            delay(75L)
+            if (!episodesDrawerVisible) {
+                runCatching { episodesButtonFocusRequester.requestFocus() }
+            }
+        }
+    }
+
     LaunchedEffect(hudVisible, isPlaying, isBuffering, playbackError, menuOpen, seekScrubbing, autoNextCardVisible, queueIndex, hudInteractionTick) {
         if (shouldAutoHidePlayerHud(hudVisible, isPlaying, isBuffering, playbackError != null, menuOpen, seekScrubbing, autoNextCardVisible)) {
             delay(com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudHideAfterInteractionMs)
@@ -2074,8 +2092,16 @@ fun PlayerScreen(
         }
         AnimatedVisibility(
             visible = hudVisible,
-            enter = fadeIn() + slideInVertically { it / 6 },
-            exit = fadeOut() + slideOutVertically { it / 6 },
+            enter = fadeIn(
+                animationSpec = androidx.compose.animation.core.tween(
+                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeInMs
+                )
+            ) + slideInVertically { it / 6 },
+            exit = fadeOut(
+                animationSpec = androidx.compose.animation.core.tween(
+                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeOutMs
+                )
+            ) + slideOutVertically { it / 6 },
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             PlayerHud(
