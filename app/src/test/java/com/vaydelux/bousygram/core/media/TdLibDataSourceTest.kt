@@ -67,6 +67,9 @@ class TdLibDataSourceTest {
         assertEquals(16, readAheadRequestBytes(4096, 16L))
         assertEquals(256 * 1024, readAheadRequestBytes(256 * 1024, 1_000_000L))
         assertEquals(512 * 1024, readAheadRequestBytes(512 * 1024, 1_000_000L))
+        assertEquals(1024 * 1024, readAheadRequestBytes(Int.MAX_VALUE, C.LENGTH_UNSET.toLong()))
+        assertEquals(700_000, readAheadRequestBytes(Int.MAX_VALUE, 700_000L))
+        assertEquals(0, readAheadRequestBytes(0, C.LENGTH_UNSET.toLong()))
     }
 
     @Test
@@ -86,6 +89,25 @@ class TdLibDataSourceTest {
         assertArrayEquals(testBytes, buffer)
         assertEquals(C.RESULT_END_OF_INPUT, source.read(ByteArray(1), 0, 1))
         source.close()
+    }
+
+    @Test
+    fun revokingSessionPreventsCachedReadAheadBytesAfterLogout() {
+        PlaybackSessionController.bindActiveFile(testFileId)
+        val source = TdLibDataSource()
+        source.open(DataSpec(TdLibDataSource.buildUri(testFileId, testFileSize)))
+        assertEquals(128, source.read(ByteArray(128), 0, 128))
+        // The remaining bytes are already in aheadBytes. They must not outlive
+        // the session that authorized the original open() call.
+        PlaybackSessionController.unbindActiveFile(testFileId)
+        try {
+            source.read(ByteArray(128), 0, 128)
+            fail("Read-ahead bytes escaped after playback authorization was revoked")
+        } catch (expected: IOException) {
+            assertTrue(expected.message.orEmpty().contains("revoked"))
+        } finally {
+            source.close()
+        }
     }
 
     @Test
