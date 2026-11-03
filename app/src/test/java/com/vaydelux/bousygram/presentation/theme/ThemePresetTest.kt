@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.presentation.theme
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ThemePresetTest {
@@ -17,4 +18,23 @@ class ThemePresetTest {
         assertNotEquals(BousygramThemePreset.DARK.primary, BousygramThemePreset.HIGH_CONTRAST.primary)
         assertNotEquals(BousygramThemePreset.LIGHT.background, BousygramThemePreset.DARK.background)
     }
+    @Test fun semanticTextOnSurfacesRemainsReadableInEveryTheme() {
+        BousygramThemePreset.entries.forEach { preset ->
+            val c = schemeFor(preset)
+            val pairs = listOf(
+                "background" to themeContrastRatio(c.onBackground, c.background),
+                "surface" to themeContrastRatio(c.onSurface, c.surface),
+                "surface variant" to themeContrastRatio(c.onSurfaceVariant, c.surfaceVariant),
+                "primary" to themeContrastRatio(c.onPrimary, c.primary),
+                "primary container" to themeContrastRatio(c.onPrimaryContainer, c.primaryContainer),
+                "secondary" to themeContrastRatio(c.onSecondary, c.secondary),
+                "tertiary" to themeContrastRatio(c.onTertiary, c.tertiary),
+                "error" to themeContrastRatio(c.onError, c.error)
+            )
+            pairs.forEach { (role, ratio) ->
+                assertTrue("${preset.id} on $role has contrast $ratio (< 4.5)", ratio >= 4.5)
+            }
+        }
+    }
+
 }
