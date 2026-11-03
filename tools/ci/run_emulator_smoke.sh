@@ -72,7 +72,7 @@ fi
 # Give the emulator a stable window transition before the instrumentation runner.
 sleep 2
 
-test_classes='com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest,com.vaydelux.bousygram.app.MainActivitySmokeTest,com.vaydelux.bousygram.app.AndroidTvNavigationSmokeTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.media.PlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.ChatSourcePickerInstrumentedTest,com.vaydelux.bousygram.presentation.components.TvFocusIndicatorInstrumentedTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest'
+test_classes='com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest,com.vaydelux.bousygram.app.MainActivitySmokeTest,com.vaydelux.bousygram.app.AndroidTvNavigationSmokeTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.media.PlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.CinematicPlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.CinematicScrubberInstrumentedTest,com.vaydelux.bousygram.presentation.media.ChatSourcePickerInstrumentedTest,com.vaydelux.bousygram.presentation.components.TvFocusIndicatorInstrumentedTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest'
 runner='com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner'
 
 # Preserve the actual instrumentation exit status through tee. The test run

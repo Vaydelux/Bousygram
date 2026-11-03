@@ -54,6 +54,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -71,10 +72,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -101,7 +99,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onKeyEvent
@@ -2098,30 +2095,17 @@ fun PlayerScreen(
         if (loadingPhase == PlayerLoadingPhase.OPENING) {
             PlayerOpeningSkeleton(compact = compactHud)
         }
-        // Passive progress remains visible when controls fade away. It never
-        // intercepts input or covers the central video surface.
-        CinematicPassiveProgress(
-            position = if (castState.connected) castState.positionMs else position,
-            duration = playerSeekDurationMs(duration, castState.durationMs, castState.connected),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
-        // The cinematic chrome already provides a short bottom-edge vignette.
-        // Avoid stacking a second 300dp scrim over the actual picture.
-        AnimatedVisibility(
-            visible = hudVisible,
-            enter = fadeIn(
-                animationSpec = androidx.compose.animation.core.tween(
-                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeInMs
-                )
-            ) + slideInVertically { it / 6 },
-            exit = fadeOut(
-                animationSpec = androidx.compose.animation.core.tween(
-                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeOutMs
-                )
-            ) + slideOutVertically { it / 6 },
-            modifier = Modifier.fillMaxSize()
-        ) {
-            PlayerHud(
+        // Keep only the passive white hairline while chrome is hidden.
+        // Match the active scrubber's system navigation-bar inset on phones.
+        if (!hudVisible) {
+            CinematicPassiveProgress(
+                position = if (castState.connected) castState.positionMs else position,
+                duration = playerSeekDurationMs(duration, castState.durationMs, castState.connected),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+            )
+        }
+        // The fullscreen chrome host is static; only short edge bands animate.
+        PlayerHud(
                 state = PlayerHudState(
                     title = title,
                     fileName = fileName,
@@ -2148,6 +2132,7 @@ fun PlayerScreen(
                 compact = compactHud,
                 isTv = tvChrome,
                 optionsVisible = optionsPanelVisible,
+                controlsVisible = hudVisible,
                 menuSection = cinematicMenuSection,
                 onMenuSectionChange = { next ->
                     cinematicMenuSection = next
@@ -2298,8 +2283,7 @@ fun PlayerScreen(
                 seekBarFocusRequester = seekBarFocusRequester,
                 retryFocusRequester = retryFocusRequester,
                 modifier = Modifier
-            )
-        }
+        )
         if (tracksPanelVisible) {
             TrackPickerOverlay(
                 playerEngine = playerEngine,
@@ -3108,6 +3092,7 @@ private fun PlayerHud(
     compact: Boolean,
     isTv: Boolean,
     optionsVisible: Boolean,
+    controlsVisible: Boolean,
     menuSection: CinematicMenuSection,
     onMenuSectionChange: (CinematicMenuSection) -> Unit,
     onDiagnostics: (() -> Unit)? = null,
@@ -3135,16 +3120,11 @@ private fun PlayerHud(
     retryFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
-    LaunchedEffect(optionsVisible, isTv, menuSection) {
-        if (optionsVisible && isTv) {
-            delay(80L)
-            runCatching { firstOptionFocusRequester.requestFocus() }
-        }
-    }
     CinematicPlayerChrome(
         state = state,
         isTv = isTv,
         optionsVisible = optionsVisible,
+        controlsVisible = controlsVisible,
         menuSection = menuSection,
         onMenuSectionChange = onMenuSectionChange,
         onDiagnostics = onDiagnostics,
@@ -3172,149 +3152,6 @@ private fun PlayerHud(
         retryFocus = retryFocusRequester,
         modifier = modifier
     )
-}
-
-private fun durationText(state: PlayerHudState): String =
-    if (state.durationTrusted && state.durationMs > 0L) formatMs(state.durationMs) else "Unknown"
-
-@Composable
-private fun PlayerSeekBar(
-    mediaKey: String = "",
-    positionMs: Long,
-    bufferedPositionMs: Long,
-    durationMs: Long,
-    enabled: Boolean,
-    onSeekTo: (Long) -> Unit,
-    onScrubActiveChanged: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var dragging by remember(mediaKey) { mutableStateOf(false) }
-    var dragPosition by remember(mediaKey) { mutableLongStateOf(positionMs) }
-    LaunchedEffect(mediaKey, enabled) {
-        // A track change or unknown duration must release any prior scrub lock.
-        dragging = false
-        onScrubActiveChanged(false)
-    }
-    var barFocused by remember { mutableStateOf(false) }
-    val shown = if (dragging) dragPosition else positionMs
-    val fraction = if (enabled && durationMs > 0L) (shown.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
-    val buffered = if (enabled && durationMs > 0L) {
-        (bufferedPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val previewBitmap = remember(mediaKey, shown, durationMs) {
-        if (mediaKey.isNotBlank() && durationMs > 0L) {
-            SeekThumbnailManager.getSnapshotAt(mediaKey, shown, durationMs)
-        } else {
-            null
-        }
-    }
-    Column(Modifier.fillMaxWidth()) {
-        if ((dragging || barFocused) && enabled) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    "${formatMs(shown)} / ${formatMs(durationMs)}",
-                    color = MaterialTheme.colorScheme.secondary,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                if (previewBitmap != null) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Black.copy(alpha = 0.90f),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                    ) {
-                        Image(
-                            bitmap = previewBitmap.asImageBitmap(),
-                            contentDescription = "Seek frame preview",
-                            modifier = Modifier.size(width = 84.dp, height = 48.dp),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                        )
-                    }
-                }
-            }
-        }
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(44.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .border(
-                    width = if (barFocused) 3.dp else 0.dp,
-                    color = if (barFocused) MaterialTheme.colorScheme.secondary else Color.Transparent,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .padding(horizontal = 6.dp)
-                .onFocusChanged { barFocused = it.isFocused }
-                .focusable()
-                .onKeyEvent { event ->
-                    if (!enabled || event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
-                    val repeat = event.nativeKeyEvent.repeatCount
-                    val step = when {
-                        repeat >= 8 -> 60_000L
-                        repeat >= 3 -> 30_000L
-                        else -> SEEK_INCREMENT_MS
-                    }
-                    when (event.key) {
-                        Key.DirectionLeft -> {
-                            onSeekTo((shown - step).coerceAtLeast(0L))
-                            true
-                        }
-                        Key.DirectionRight -> {
-                            onSeekTo((shown + step).coerceAtMost(durationMs))
-                            true
-                        }
-                        else -> false
-                    }
-                }
-        ) {
-            LinearProgressIndicator(
-                progress = { buffered },
-                modifier = Modifier.fillMaxWidth().height(4.dp).align(Alignment.Center),
-                color = MaterialTheme.colorScheme.outline,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-            Slider(
-                value = fraction,
-                onValueChange = { value ->
-                    if (!enabled) return@Slider
-                    val target = playerScrubTarget(value, durationMs) ?: return@Slider
-                    if (!dragging) {
-                        dragging = true
-                        onScrubActiveChanged(true)
-                    }
-                    dragPosition = target
-                },
-                onValueChangeFinished = {
-                    if (enabled && dragging) onSeekTo(dragPosition)
-                    dragging = false
-                    onScrubActiveChanged(false)
-                },
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth().align(Alignment.Center),
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = Color.Transparent
-                )
-            )
-        }
-        if (dragging && enabled && previewBitmap == null) {
-            Text(
-                "${formatMs(dragPosition)} / ${formatMs(durationMs)}",
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
-    }
 }
 
 private fun PlaybackCacheState.playerLabel(): String =

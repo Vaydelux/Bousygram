@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.presentation.media
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -19,11 +20,14 @@ import org.junit.runner.RunWith
 class CinematicPlayerChromeInstrumentedTest {
     @get:Rule val composeRule = createComposeRule()
     private var playClicks = 0
+    private var changeChromeVisibility: ((Boolean) -> Unit)? = null
     @Test fun cinematicOverlayHasEdgeActionsAndExpandableNavigation() {
         playClicks = 0
         composeRule.setContent {
             BousygramTheme {
                 var options by remember { mutableStateOf(false) }
+                var chromeVisible by remember { mutableStateOf(true) }
+                changeChromeVisibility = { chromeVisible = it }
                 var section by remember { mutableStateOf(CinematicMenuSection.ROOT) }
                 val playFocus = remember { FocusRequester() }
                 val optionsFocus = remember { FocusRequester() }
@@ -38,6 +42,7 @@ class CinematicPlayerChromeInstrumentedTest {
                     ),
                     isTv = true,
                     optionsVisible = options,
+                    controlsVisible = chromeVisible,
                     menuSection = section,
                     onMenuSectionChange = { section = it },
                     onScrub = {},
@@ -74,9 +79,23 @@ class CinematicPlayerChromeInstrumentedTest {
         composeRule.onNodeWithTag("cinematic_menu_previous").assertExists()
         composeRule.onNodeWithTag("cinematic_menu_next").assertExists()
         composeRule.onNodeWithTag("cinematic_menu_back").performClick()
+        composeRule.onNodeWithTag("cinematic_menu_group_library").assertIsFocused()
         composeRule.onNodeWithTag("cinematic_menu_group_advanced").performClick()
         composeRule.onNodeWithTag("cinematic_menu_decoder").assertExists()
         composeRule.onNodeWithTag("cinematic_menu_help").performClick()
         composeRule.onNodeWithTag("cinematic_menu_help_text").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_back").performClick()
+        composeRule.onNodeWithTag("cinematic_menu_group_advanced").assertIsFocused()
+
+        // The fullscreen container stays mounted as controls fade out;
+        // focusable buttons and the dropdown must leave the semantics tree.
+        composeRule.runOnIdle { changeChromeVisibility?.invoke(false) }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("cinematic_player_chrome").assertExists()
+        composeRule.onNodeWithTag("cinematic_play").assertDoesNotExist()
+        composeRule.onNodeWithTag("cinematic_navigation_menu").assertDoesNotExist()
+        composeRule.runOnIdle { changeChromeVisibility?.invoke(true) }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("cinematic_play").assertExists()
     }
 }
