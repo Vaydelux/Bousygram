@@ -289,6 +289,9 @@ fun PlayerScreen(
     var duration by remember { mutableLongStateOf(0L) }
     var speed by remember { mutableFloatStateOf(EnterprisePreferences.preferredSpeed()) }
     var isPlaying by remember { mutableStateOf(true) }
+    // This state is explicit user intent, not the decoder's isPlaying output.
+    // A buffering/reconnect preparation must not override a manual Pause.
+    var explicitlyPaused by remember(request, queueIndex) { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(false) }
     val activePlaybackClock = remember { ActivePlaybackClock().apply {
         reset(android.os.SystemClock.elapsedRealtime())
@@ -453,6 +456,7 @@ fun PlayerScreen(
     val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
     var castWasConnected by remember { mutableStateOf(false) }
+    var castWasPlaying by remember { mutableStateOf(false) }
     var lastCastPositionMs by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(context) {
@@ -464,8 +468,13 @@ fun PlayerScreen(
             if (castWasConnected) {
                 castWasConnected = false
                 playerEngine.seekTo(lastCastPositionMs.coerceAtLeast(0L))
-                playerEngine.play()
-                isPlaying = true
+                if (castWasPlaying) {
+                    explicitlyPaused = false
+                    playerEngine.play()
+                    isPlaying = true
+                } else {
+                    pauseLocalPlayback(userInitiated = true)
+                }
             }
             return@LaunchedEffect
         }
@@ -504,9 +513,9 @@ fun PlayerScreen(
         }
     }
 
-    fun pauseLocalPlayback() {
-        // User pause (or cast handoff) ends the current stall. Do not count
-        // minutes spent manually paused as network rebuffering.
+    fun pauseLocalPlayback(userInitiated: Boolean = true) {
+        if (userInitiated) explicitlyPaused = true
+        // Pausing ends the current stall; do not count time spent paused as network buffering.
         if (rebufferStartMs > 0L) {
             totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
             rebufferStartMs = 0L
@@ -520,7 +529,9 @@ fun PlayerScreen(
         lastCastPositionMs = castState.positionMs
         if (castState.durationMs > 0L) duration = castState.durationMs
         position = castState.positionMs
-        if (castState.playbackStatus == CastPlaybackStatus.Playing) pauseLocalPlayback()
+        castWasPlaying = castState.playbackStatus == CastPlaybackStatus.Playing ||
+            castState.playbackStatus == CastPlaybackStatus.Buffering
+        if (castWasPlaying) pauseLocalPlayback(userInitiated = false)
         // Local decoder is paused for casting, but the remote session is playing.
         isPlaying = castState.playbackStatus == CastPlaybackStatus.Playing
     }
@@ -1358,8 +1369,15 @@ fun PlayerScreen(
         pendingResumeMs = resumePosition
         playerEngine.prepare(streamUrl)
         playerEngine.setPlaybackSpeed(speed)
-        playerEngine.play()
-        isPlaying = true
+        if (explicitlyPaused) {
+            // Network retry and cache-ahead state changes cannot re-arm Play.
+            playerEngine.pause()
+            isPlaying = false
+        } else {
+            // New selection auto-plays immediately; buffering is not a Pause.
+            playerEngine.play()
+            isPlaying = true
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -1754,14 +1772,20 @@ fun PlayerScreen(
                     else CastSessionController.play()
                 } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
                     pauseLocalPlayback()
-                } else playerEngine.play()
+                } else {
+                    explicitlyPaused = false
+                    playerEngine.play()
+                }
                 hudVisible = true
             }
 
             override fun play() {
                 hudInteractionTick++
                 if (castState.connected) CastSessionController.play()
-                else if (!playerEngine.isPlaying) playerEngine.play()
+                else if (!playerEngine.isPlaying) {
+                    explicitlyPaused = false
+                    playerEngine.play()
+                }
                 hudVisible = true
             }
 
@@ -2114,6 +2138,7 @@ fun PlayerScreen(
                     isReconnecting = true
                     lastGoodPosition = maxOf(lastGoodPosition, playerEngine.currentPositionMs).coerceAtLeast(0L)
                     playbackError = null
+                    explicitlyPaused = false
                     reloadNonce++
                 },
                 onPlayPause = {
@@ -2124,6 +2149,7 @@ fun PlayerScreen(
                     } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
                         pauseLocalPlayback()
                     } else {
+                        explicitlyPaused = false
                         playerEngine.play()
                     }
                 },
