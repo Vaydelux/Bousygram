@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -117,17 +118,19 @@ internal fun CinematicPlayerOverlay(
         state.isBuffering -> "Buffering…"
         else -> state.trackLabel
     }
-    Box(modifier.fillMaxSize().testTag("cinematic_player_overlay")) {
-        // Only top and bottom 15% have vignettes: the center stays raw video.
+    BoxWithConstraints(modifier.fillMaxSize().testTag("cinematic_player_overlay")) {
+        // Exactly 70% of the real viewport remains entirely free of vignette.
+        val topVignetteHeight = maxHeight * 0.12f
+        val bottomVignetteHeight = maxHeight * 0.18f
         AnimatedVisibility(controlsVisible, enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)) {
-            Box(Modifier.fillMaxWidth().height(102.dp).background(
+            Box(Modifier.fillMaxWidth().height(topVignetteHeight).background(
                 Brush.verticalGradient(listOf(Color.Black.copy(alpha = .52f), Color.Transparent))
             ))
         }
         AnimatedVisibility(controlsVisible, enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)) {
-            Box(Modifier.fillMaxWidth().height(152.dp).background(
+            Box(Modifier.fillMaxWidth().height(bottomVignetteHeight).background(
                 Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .62f)))
             ))
         }
@@ -280,23 +283,23 @@ private fun CinematicNavigationDropdown(
             color = CinemaWhite.copy(alpha = .65f),
             modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp))
         CinematicEdgeAction("Audio & subtitles", "Choose audio or subtitle tracks",
-            onTracks, focusRequester = firstFocusRequester, tag = "cinematic_audio")
-        CinematicEdgeAction("Speed · ${state.speed}×", "Change playback speed", onSpeed)
-        CinematicEdgeAction("Aspect ratio", "Change video aspect ratio", onAspect)
+            onTracks, modifier = Modifier.fillMaxWidth(), focusRequester = firstFocusRequester, tag = "cinematic_audio")
+        CinematicEdgeAction("Speed · ${state.speed}×", "Change playback speed", onSpeed, modifier = Modifier.fillMaxWidth())
+        CinematicEdgeAction("Aspect ratio", "Change video aspect ratio", onAspect, modifier = Modifier.fillMaxWidth())
         if (onEpisodes != null) {
-            CinematicEdgeAction("Episodes & queue", "Browse playback queue", onEpisodes)
+            CinematicEdgeAction("Episodes & queue", "Browse playback queue", onEpisodes, modifier = Modifier.fillMaxWidth())
         }
-        CinematicEdgeAction("Previous video", "Play previous video", onPrevious)
-        CinematicEdgeAction("Next video", "Play next video", onNext)
-        CinematicEdgeAction("Rewind 30 seconds", "Seek backward 30 seconds", onSeekBack30)
-        CinematicEdgeAction("Forward 30 seconds", "Seek forward 30 seconds", onSeekForward30)
+        CinematicEdgeAction("Previous video", "Play previous video", onPrevious, modifier = Modifier.fillMaxWidth())
+        CinematicEdgeAction("Next video", "Play next video", onNext, modifier = Modifier.fillMaxWidth())
+        CinematicEdgeAction("Rewind 30 seconds", "Seek backward 30 seconds", onSeekBack30, modifier = Modifier.fillMaxWidth())
+        CinematicEdgeAction("Forward 30 seconds", "Seek forward 30 seconds", onSeekForward30, modifier = Modifier.fillMaxWidth())
         if (state.durationTrusted && state.durationMs > 0L) {
-            CinematicEdgeAction("Start over", "Restart video from beginning", onStartOver)
+            CinematicEdgeAction("Start over", "Restart video from beginning", onStartOver, modifier = Modifier.fillMaxWidth())
         }
         if (onSwitchEngine != null) {
-            CinematicEdgeAction("Playback engine", "Switch video decoder", onSwitchEngine)
+            CinematicEdgeAction("Playback engine", "Switch video decoder", onSwitchEngine, modifier = Modifier.fillMaxWidth())
         }
-        CinematicEdgeAction("Close menu", "Close playback options", onClose)
+        CinematicEdgeAction("Close menu", "Close playback options", onClose, modifier = Modifier.fillMaxWidth())
     }
 }
 
