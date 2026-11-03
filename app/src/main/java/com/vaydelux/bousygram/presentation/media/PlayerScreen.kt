@@ -2077,15 +2077,29 @@ fun PlayerScreen(
         if (loadingPhase == PlayerLoadingPhase.OPENING) {
             PlayerOpeningSkeleton(compact = compactHud)
         }
-        if (hudVisible) {
+        // The scrim must fade with the controls. Removing it abruptly while
+        // the HUD fades causes a visible flash over bright video frames.
+        AnimatedVisibility(
+            visible = hudVisible,
+            enter = fadeIn(
+                animationSpec = androidx.compose.animation.core.tween(
+                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeInMs
+                )
+            ),
+            exit = fadeOut(
+                animationSpec = androidx.compose.animation.core.tween(
+                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeOutMs
+                )
+            ),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
             Box(
                 Modifier
-                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(if (compactHud) 270.dp else 340.dp)
+                    .height(if (compactHud) 240.dp else 300.dp)
                     .background(
                         androidx.compose.ui.graphics.Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.54f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.36f))
                         )
                     )
             )
