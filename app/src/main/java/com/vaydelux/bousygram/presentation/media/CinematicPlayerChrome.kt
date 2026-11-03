@@ -291,6 +291,7 @@ internal fun cinematicFraction(position: Long, duration: Long) =
             }
             CinematicNavigationMenu(
                 section = menuSection,
+                isTv = isTv,
                 onSectionChange = onMenuSectionChange,
                 onClose = onCloseOptions,
                 onTracks = onTracks,
