@@ -137,6 +137,25 @@ class PlaybackHelpersTest {
         assertEquals(71L, queueItemFromRequest(request).topicId)
     }
 
+    @Test
+    fun progressUiSamplingStaysResponsiveWithoutContinuousHiddenHudWork() {
+        assertEquals(1_000L, playbackUiPollingDelayMs(
+            isHudVisible = false, isSeeking = false, isPreparingOrBuffering = false
+        ))
+        assertEquals(500L, playbackUiPollingDelayMs(
+            isHudVisible = false, isSeeking = false, isPreparingOrBuffering = true
+        ))
+        assertEquals(250L, playbackUiPollingDelayMs(
+            isHudVisible = true, isSeeking = false, isPreparingOrBuffering = false
+        ))
+        assertEquals(250L, playbackUiPollingDelayMs(
+            isHudVisible = false, isSeeking = true, isPreparingOrBuffering = false
+        ))
+        assertEquals(250L, playbackUiPollingDelayMs(
+            isHudVisible = true, isSeeking = true, isPreparingOrBuffering = true
+        ))
+    }
+
     private fun queueItem(chatId: Long, messageId: Long, fileId: Int, title: String) = PlaybackQueueItem(
         chatId = chatId,
         messageId = messageId,

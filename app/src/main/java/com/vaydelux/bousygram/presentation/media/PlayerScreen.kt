@@ -1708,7 +1708,13 @@ fun PlayerScreen(
                 else -> {}
             }
 
-            delay(500)
+            delay(
+                playbackUiPollingDelayMs(
+                    isHudVisible = hudVisible,
+                    isSeeking = pendingSeekTargetMs >= 0L || seekPreviewPositionMs >= 0L,
+                    isPreparingOrBuffering = isOpening || isBuffering || isReconnecting
+                )
+            )
         }
     }
 
