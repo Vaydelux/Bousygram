@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -232,27 +233,13 @@ private fun EnterpriseBrandHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(
+            Image(
+                painter = painterResource(R.drawable.ic_bousygram_mascot),
+                contentDescription = "BousyGram mascot logo",
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.secondary
-                            )
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "▶",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            )
 
             Column {
                 Text(
@@ -263,7 +250,7 @@ private fun EnterpriseBrandHeader(
                     letterSpacing = (-0.5).sp
                 )
                 Text(
-                    text = "Enterprise Telegram Client",
+                    text = "Private Telegram media player",
                     color = MaterialTheme.colorScheme.secondary,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
