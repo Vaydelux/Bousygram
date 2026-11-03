@@ -951,8 +951,16 @@ fun PlayerScreen(
                         Log.d("PlayerScreen", "Ignoring duplicate Ended event for index $queueIndex")
                         return@collect
                     }
-                    // Auto-Next Guard: Ensure video reached actual conclusion before advancing
-                    val reachedEnd = duration > 5_000L && playerEngine.currentPositionMs >= (duration - 5_000L)
+                    // Trust a native EOF only after real media output; for MPEG-TS
+                    // and other unknown-duration files, do not loop forever trying
+                    // to seek an unavailable timeline before showing the next episode.
+                    val reachedEnd = isCredibleNaturalPlaybackEnd(
+                        durationMs = duration,
+                        positionMs = playerEngine.currentPositionMs,
+                        hasProducedMedia = hasInitialMediaOutput(
+                            firstFrameMs, firstAudioReadyMs, firstProgressReadyMs
+                        )
+                    )
                     if (reachedEnd) {
                         lastHandledEndedTrackIndex = queueIndex
                         commitPlaybackTelemetry(fatalError = null)
