@@ -170,7 +170,7 @@ class PlayerInputControllerTest {
         val handled = sendKey(KeyEvent.KEYCODE_DPAD_LEFT)
 
         assertTrue(handled)
-        assertEquals(listOf("previewSeekRelative:-10"), recordedActions)
+        assertEquals(listOf("seekRelative:-10"), recordedActions)
         assertEquals(-10, lastSeekRelativeSeconds)
     }
 
@@ -186,7 +186,7 @@ class PlayerInputControllerTest {
         currentTimeMs += 200L
         val handled2 = sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
         assertTrue(handled2)
-        assertEquals(30, lastSeekRelativeSeconds)
+        assertEquals(10, lastSeekRelativeSeconds)
     }
 
     @Test
@@ -196,7 +196,7 @@ class PlayerInputControllerTest {
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
         currentTimeMs += 200L
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
-        assertEquals(30, lastSeekRelativeSeconds)
+        assertEquals(10, lastSeekRelativeSeconds)
 
         currentTimeMs += 200L
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_LEFT))
@@ -220,21 +220,15 @@ class PlayerInputControllerTest {
     }
 
     @Test
-    fun hiddenSeekPreview_okCommitsOnceAndBackCancelsWithoutExiting() {
+    fun hiddenDpadSeekExecutesWithoutPreviewOrConfirmation() {
         controller.isHudVisible = false
-
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_RIGHT))
         currentTimeMs += 100L
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_CENTER))
-        assertEquals(1, recordedActions.count { it == "confirmSeekPreview" })
-        assertFalse(recordedActions.any { it.startsWith("seekRelative:") })
-
-        currentTimeMs += 100L
-        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_LEFT))
-        currentTimeMs += 100L
-        assertTrue(sendKey(KeyEvent.KEYCODE_BACK))
-        assertTrue(recordedActions.contains("cancelSeekPreview"))
-        assertFalse(recordedActions.contains("exitPlayer"))
+        assertTrue(recordedActions.contains("seekRelative:10"))
+        assertFalse(recordedActions.contains("confirmSeekPreview"))
+        assertFalse(controller.isSeekPreviewActive)
+        assertTrue(recordedActions.contains("showHud"))
     }
 
     @Test
@@ -419,21 +413,15 @@ class PlayerInputControllerTest {
     }
 
     @Test
-    fun seekPreviewAccelerationReset() {
+    fun hiddenRepeatedDpadSeeksAreAlwaysTenSeconds() {
         controller.isHudVisible = false
-        // Perform multiple fast right seeks to increase step index
         sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
         currentTimeMs += 100L
         sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertTrue(controller.isSeekPreviewActive)
-
-        // Reset seek preview state
-        controller.resetSeekPreviewState()
-        // Next seek should start fresh from first step interval
-        recordedActions.clear()
-        currentTimeMs += 2000L
-        sendKey(KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertEquals(listOf("previewSeekRelative:10"), recordedActions)
+        currentTimeMs += 100L
+        sendKey(KeyEvent.KEYCODE_DPAD_LEFT)
+        assertEquals(listOf("seekRelative:10", "seekRelative:10", "seekRelative:-10"), recordedActions)
+        assertFalse(controller.isSeekPreviewActive)
     }
 
     @Test
