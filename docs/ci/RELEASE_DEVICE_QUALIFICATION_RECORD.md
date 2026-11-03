@@ -65,6 +65,11 @@ The following example shows the **schema**. All `passed` values are placeholders
 }
 ```
 
+For reproducible performance observations during manual testing, use the
+[playback performance test plan](PLAYBACK_PERFORMANCE_TEST_PLAN.md).
+That developer tool produces *observations only*, not release approval, and
+never changes the protected production-qualification requirements.
+
 ## What each reviewer must verify
 
 - **Hardware execution:** test with actual Telegram authentication and real files. Verify TDLib native initialization on every supported ABI. Use the full scenario checklist in [PLAYBACK_DEVICE_QUALIFICATION.md](../release/PLAYBACK_DEVICE_QUALIFICATION.md). Each device must have at least three recorded playback iterations; the long-session scenario must include sustained viewing and restart/recovery checks.
