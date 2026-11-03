@@ -2432,9 +2432,14 @@ fun PlayerScreen(
                 .padding(bottom = if (compactHud) 110.dp else 135.dp)
         ) {
             val relatedQueue = relatedSourceQueue(queue, queueIndex)
+            // Window size reflects split-screen and system insets more accurately
+            // than Configuration.screenWidthDp (which Android Compose lint forbids).
+            val availableWidthDp = with(androidx.compose.ui.platform.LocalDensity.current) {
+                androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp().value
+            }
             val trayColumns = when {
-                configuration.screenWidthDp < 540 -> 2
-                configuration.screenWidthDp < 940 -> 3
+                availableWidthDp < 540f -> 2
+                availableWidthDp < 940f -> 3
                 else -> 4
             }
             LaunchedEffect(episodesDrawerVisible, queueIndex) {
