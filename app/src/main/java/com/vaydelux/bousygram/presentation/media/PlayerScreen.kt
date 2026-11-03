@@ -262,6 +262,7 @@ fun PlayerScreen(
     val playPauseFocusRequester = remember { FocusRequester() }
     val optionsFocusRequester = remember { FocusRequester() }
     val firstOptionFocusRequester = remember { FocusRequester() }
+    val episodesButtonFocusRequester = remember { FocusRequester() }
     val retryFocusRequester = remember { FocusRequester() }
     var optionsPanelVisible by remember { mutableStateOf(false) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
@@ -2230,6 +2231,7 @@ fun PlayerScreen(
                     playerInputController.activeMenu =
                         if (episodesDrawerVisible) PlayerMenuType.EPISODES else PlayerMenuType.NONE
                 } } else null,
+                episodesFocusRequester = episodesButtonFocusRequester,
                 onSwitchEngine = {
                     optionsPanelVisible = false
                     playerInputController.activeMenu = PlayerMenuType.NONE
@@ -2404,7 +2406,11 @@ fun PlayerScreen(
                 .padding(bottom = if (compactHud) 110.dp else 135.dp)
         ) {
             val relatedQueue = relatedSourceQueue(queue, queueIndex)
-            val trayColumns = if (compactHud) 2 else 4
+            val trayColumns = when {
+                configuration.screenWidthDp < 540 -> 2
+                configuration.screenWidthDp < 940 -> 3
+                else -> 4
+            }
             LaunchedEffect(episodesDrawerVisible, queueIndex) {
                 if (episodesDrawerVisible && relatedQueue.isNotEmpty()) {
                     trayFocusedIndex = 0
@@ -2436,6 +2442,10 @@ fun PlayerScreen(
                         BousygramButton("Close", {
                             episodesDrawerVisible = false
                             playerInputController.activeMenu = PlayerMenuType.NONE
+                            scope.launch {
+                                delay(60L)
+                                runCatching { episodesButtonFocusRequester.requestFocus() }
+                            }
                         })
                     }
                     LazyVerticalGrid(
@@ -2453,7 +2463,7 @@ fun PlayerScreen(
                                     hudVisible = true
                                     scope.launch {
                                         delay(50L)
-                                        runCatching { playPauseFocusRequester.requestFocus() }
+                                        runCatching { episodesButtonFocusRequester.requestFocus() }
                                     }
                                     true
                                 } else false
@@ -3053,6 +3063,7 @@ private fun PlayerHud(
     onToggleResizeMode: () -> Unit,
     onSpeed: () -> Unit,
     onEpisodes: (() -> Unit)? = null,
+    episodesFocusRequester: FocusRequester? = null,
     onSwitchEngine: (() -> Unit)? = null,
     playPauseFocusRequester: FocusRequester,
     optionsFocusRequester: FocusRequester,
@@ -3128,7 +3139,13 @@ private fun PlayerHud(
                     }
                 }
                 if (isTv && onEpisodes != null) {
-                    BousygramButton("▦ Episodes", onEpisodes)
+                    BousygramButton(
+                        "▦ Episodes",
+                        onEpisodes,
+                        modifier = if (episodesFocusRequester != null) {
+                            Modifier.focusRequester(episodesFocusRequester)
+                        } else Modifier
+                    )
                 }
                 if (isTv && state.durationTrusted && state.durationMs > 0L && !compact) {
                     BousygramButton("↺ Start Over", onStartOver)
