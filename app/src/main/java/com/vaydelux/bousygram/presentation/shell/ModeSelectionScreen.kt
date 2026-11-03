@@ -53,11 +53,11 @@ fun BousygramModeSelection(
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 Image(
-                    painter = painterResource(R.drawable.ic_bousygram_mark),
+                    painter = painterResource(R.drawable.ic_bousygram_mascot),
                     contentDescription = "Bousygram media logo",
                     modifier = Modifier.size(82.dp)
                 )
-                Text("Bousygram", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text("BousyGram", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 Text(
                     "Your media. Your way.",
                     style = MaterialTheme.typography.titleLarge,
@@ -149,7 +149,7 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                         .padding(horizontal = 35.dp, vertical = 26.dp)
                 ) {
                     Image(
-                        painter = painterResource(R.drawable.ic_bousygram_mark),
+                        painter = painterResource(R.drawable.ic_bousygram_mascot),
                         contentDescription = "Bousygram maintenance logo",
                         modifier = Modifier.size(76.dp)
                     )
@@ -186,7 +186,7 @@ fun TelegramStartupLoadingScreen(connectionStatus: String?) {
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 Image(
-                    painter = painterResource(R.drawable.ic_bousygram_mark),
+                    painter = painterResource(R.drawable.ic_bousygram_mascot),
                     contentDescription = "Bousygram startup logo",
                     modifier = Modifier.size(88.dp)
                 )
