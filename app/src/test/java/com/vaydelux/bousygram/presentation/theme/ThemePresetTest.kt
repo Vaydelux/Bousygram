@@ -19,9 +19,9 @@ class ThemePresetTest {
         assertNotEquals(BousygramThemePreset.LIGHT.background, BousygramThemePreset.DARK.background)
     }
     @Test fun hudOpacityRespectsHighContrastWhileShowingMoreVideoInDarkMode() {
-        assertEquals(0.90f, playerHudSurfaceOpacity(BousygramThemePreset.DARK.background))
-        assertEquals(0.96f, playerHudSurfaceOpacity(BousygramThemePreset.LIGHT.background))
-        assertEquals(0.99f, playerHudSurfaceOpacity(BousygramThemePreset.HIGH_CONTRAST.background))
+        assertEquals(0.90f, playerHudSurfaceOpacity(BousygramThemePreset.DARK.background), 0.001f)
+        assertEquals(0.96f, playerHudSurfaceOpacity(BousygramThemePreset.LIGHT.background), 0.001f)
+        assertEquals(0.99f, playerHudSurfaceOpacity(BousygramThemePreset.HIGH_CONTRAST.background), 0.001f)
     }
 
     @Test fun semanticTextOnSurfacesRemainsReadableInEveryTheme() {
