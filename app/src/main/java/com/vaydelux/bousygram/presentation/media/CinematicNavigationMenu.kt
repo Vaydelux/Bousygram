@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -106,6 +107,8 @@ internal fun CinematicNavigationMenu(
     modifier: Modifier = Modifier
 ) {
     var helpExpanded by remember(section) { mutableStateOf(false) }
+    val menuScroll = rememberScrollState()
+    LaunchedEffect(section) { menuScroll.scrollTo(0) }
     Column(
         modifier
             .widthIn(min = 216.dp, max = 290.dp)
@@ -122,7 +125,7 @@ internal fun CinematicNavigationMenu(
                 } else false
             }
             .focusGroup()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(menuScroll)
             .padding(8.dp)
             .testTag("cinematic_navigation_menu"),
         verticalArrangement = Arrangement.spacedBy(2.dp)
