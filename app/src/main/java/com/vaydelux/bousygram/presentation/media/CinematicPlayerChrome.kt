@@ -31,7 +31,8 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
@@ -202,7 +203,10 @@ internal fun cinematicFraction(position: Long, duration: Long) =
     val duration = state.durationMs.takeIf { state.durationTrusted && it > 0L } ?: 0L
     // In landscape, a fixed 320dp menu can cover the title and video.
     // Bound the dropdown to the device's available height; rows scroll.
-    val maxMenuHeight = cinematicMenuHeightLimit(LocalConfiguration.current.screenHeightDp)
+    val windowHeight = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.height.toDp()
+    }
+    val maxMenuHeight = cinematicMenuHeightLimit(windowHeight)
     Box(modifier.fillMaxSize().testTag("cinematic_player_chrome")) {
         // Animate two short edge bands rather than translating a fullscreen
         // layer on every HUD open/close. The video center stays untouched.
@@ -359,5 +363,5 @@ private fun formatCinematicTime(ms: Long): String {
 }
 
 /** Upper bound for player menus on compact landscape phones and Android TVs. */
-internal fun cinematicMenuHeightLimit(screenHeightDp: Int) =
-    (screenHeightDp.coerceAtLeast(0) * 0.58f).dp.coerceIn(112.dp, 320.dp)
+internal fun cinematicMenuHeightLimit(windowHeight: androidx.compose.ui.unit.Dp) =
+    (windowHeight.coerceAtLeast(0.dp) * 0.58f).coerceIn(112.dp, 320.dp)
