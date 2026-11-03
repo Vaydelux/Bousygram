@@ -9,6 +9,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import org.junit.Assert.assertEquals
@@ -98,4 +100,27 @@ class CinematicPlayerChromeInstrumentedTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("cinematic_play").assertExists()
     }
+    @Test fun timelineExposesAccessibleSeekActionWithoutAddingAVisibleThumb() {
+        var seekResultMs = -1L
+        composeRule.setContent {
+            BousygramTheme {
+                CinematicScrubber(
+                    mediaKey = "accessibility-test",
+                    position = 15_000L,
+                    buffered = 90_000L,
+                    duration = 120_000L,
+                    onSeek = { seekResultMs = it },
+                    onScrub = {},
+                    focus = remember { FocusRequester() }
+                )
+            }
+        }
+        composeRule.onNodeWithTag("cinematic_scrubber").performSemanticsAction(
+            SemanticsActions.SetProgress
+        ) { performSeek -> performSeek(0.5f) }
+        composeRule.runOnIdle {
+            assertEquals(60_000L, seekResultMs)
+        }
+    }
+
 }
