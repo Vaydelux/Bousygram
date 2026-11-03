@@ -661,35 +661,12 @@ fun PlayerScreen(
         }
     }
 
-    // Token Rotation on Network Change: refresh stream token on Wi-Fi -> Cellular handoff
-    LaunchedEffect(Unit) {
-        var previousWasCellular = com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular
-        com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.networkState.collect { netState ->
-            val isCell = netState.isCellular
-            if (!previousWasCellular && isCell) {
-                val current = queue.getOrNull(queueIndex)
-                if (current != null && activeLocalStreamUrl != null) {
-                    val newToken = com.vaydelux.bousygram.core.tdlib.server.StreamAccessRegistry.issueFile(current.fileId)
-                    val newUrl = com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager.getStreamUrl(
-                        fileId = current.fileId,
-                        size = fileSizeBytes,
-                        title = current.title,
-                        mimeType = current.mimeType,
-                        fileName = current.fileName,
-                        token = newToken
-                    )
-                    Log.i("PlayerScreen", "Rotated the active stream capability after network change")
-                    activeLocalStreamUrl = newUrl
-                    val pos = playerEngine.currentPositionMs
-                    val resumeAfterRebind = playerEngine.playWhenReady
-                    playerEngine.prepare(newUrl)
-                    if (pos > 0L) playerEngine.seekTo(pos)
-                    if (resumeAfterRebind) playerEngine.play()
-                }
-            }
-            previousWasCellular = isCell
-        }
-    }
+    // The loopback server remains on 127.0.0.1 when Wi-Fi changes to cellular.
+    // Reissuing a stream token and calling prepare() solely for a network
+    // handoff aborts Media3's current buffer and causes an unnecessary stall.
+    // TDLib reconnects on its own; the existing proxy-port rebind and stream
+    // error/retry paths refresh the URL only if the local stream actually fails.
+    // PlayerEngine.updateNetworkState already tunes caches for the new network.
 
     // Seek preview snapshot generation
     LaunchedEffect(queueIndex, duration, activeLocalStreamUrl) {
@@ -1077,6 +1054,8 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playerEngine) {
+        // A network transport change is NOT a decoder pause or a reason to
+        // discard already buffered bytes. Only tune the active engine.
         NetworkConnectivityObserver.networkState.collect { net ->
             playerEngine.updateNetworkState(net.isCellular)
         }
