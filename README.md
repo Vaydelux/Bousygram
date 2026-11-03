@@ -1,166 +1,145 @@
-# Bousygram
-
-Bousygram is a video-first Android TV application for browsing and streaming videos from Telegram chats and Saved Messages. It is built with **Jetpack Compose**, **Media3 ExoPlayer**, TDLib, and a loopback streaming server.
-
-Normal local playback connects directly to Telegram on the device through TDLib (`libtdjni.so`) and does not require a Bousygram backend.
-
-> **Release status:** source-level checks and local Android builds are automated, but real Telegram playback, physical 32-bit/64-bit TV validation, and production-certificate verification are still required before distribution. See `RELEASE_STATUS.md`.
-
----
-
-## Features
-
-- **Jetpack Compose for TV**: Focus-aware Android TV interface built for D-pad navigation.
-- **Playback Stability**: Media3 ExoPlayer integration with session-aware Telegram cache-ahead, retry recovery, and diagnostics.
-- **Safe Cache Behavior**: Active cache/download work stops when playback exits or the app backgrounds, while partial cache is kept for faster resume.
-- **Secure On-Device Sign-in**: Phone/code/2FA authentication and QR login support.
-- **Direct local mode**: Direct MTProto connection between the TV client and Telegram for normal local streaming.
-- **Library navigation**: Dedicated Home, Library, Favorites, Search, and Settings destinations, with return navigation preserved when moving between them.
-- **Protected local stream URLs**: Short-lived, unpredictable URL tokens scoped to a specific TDLib file or generated playlist.
-- **Protected credential storage**: Telegram API credentials are encrypted using an AES-GCM key held by Android Keystore; new TDLib databases receive a persisted encryption key when the installation is initialized fresh.
+<div align="center">
+  <img src="brand/bousygram-mascot.webp" alt="Bousygram — Chow Chow and Telegram paper-plane emblem" width="154" />
+  <h1>Bousygram</h1>
+  <p><strong>Your Telegram media. One cinematic, local-first player.</strong></p>
+  <p>Designed for Android TV · Adapted for phones and tablets</p>
+  <p>
+    <a href="https://github.com/Vaydelux/Bousygram/actions/workflows/android-enterprise.yml"><img src="https://github.com/Vaydelux/Bousygram/actions/workflows/android-enterprise.yml/badge.svg" alt="Android Enterprise Checks" /></a>
+    <a href="https://github.com/Vaydelux/Bousygram/releases"><img src="https://img.shields.io/github/v/release/Vaydelux/Bousygram?include_prereleases&label=latest%20build" alt="Latest build" /></a>
+    <img src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-4268E8" alt="Kotlin and Jetpack Compose" />
+  </p>
+  <p>
+    <a href="#quick-start">Quick start</a> ·
+    <a href="#playback--tv-controls">Player controls</a> ·
+    <a href="#how-it-works">Architecture</a> ·
+    <a href="#developer-setup">Build</a> ·
+    <a href="#release-readiness">Release checks</a>
+  </p>
+</div>
 
 ---
 
-## Getting Telegram API Credentials
+## A media player built for the living room
 
-Before using Bousygram, create your own Telegram API ID and Hash:
+**Bousygram** lets you browse Telegram chats, channels, groups, topics, and Saved Messages and play media directly on your Android device. Videos are fetched via **TDLib** and served to **Media3 ExoPlayer** through a local, byte-range-capable stream. **libmpv** is available as a fallback when a container or decoder needs a different playback engine.
 
-1. Go to [https://my.telegram.org/apps](https://my.telegram.org/apps).
-2. Log in with your Telegram phone number.
-3. Open **API development tools**.
-4. Create an Android app:
-   - **App title**: Bousygram
-   - **Short name**: bousygram
-   - **Platform**: Android
-   - **Description**: Android TV client for Telegram media
-5. Save your **api_id** and **api_hash** somewhere secure.
+The app is **local-first**: ordinary playback does not require a Bousygram cloud backend or a server that receives your videos. It is not an official Telegram client and is not affiliated with Telegram.
 
----
+### Designed around the way you watch
 
-## Installation
+| Experience | Details |
+|:--|:--|
+| 📺 **Android TV** | D-pad navigation, clear focus, episode drawer, compact auto-hiding playback controls |
+| 📱 **Phone & tablet** | Adaptive layout, touch-friendly controls, saved playback position |
+| ▶️ **Video playback** | MP4, MKV, and MPEG-TS best-effort support; seek, retry, audio/subtitle tracks where supported |
+| 📂 **Media discovery** | Saved Messages, chats, groups, channels, forum topics, local metadata/index caching |
+| ⚡ **Local streaming** | TDLib partial downloads, byte-range reads, foreground stream priority, bounded prefetch |
+| 🎨 **Appearance** | Midnight-blue, daylight, and high-contrast themes built from the Chow + paper-plane identity |
+| 🔒 **Privacy** | Android Keystore-backed credential protection and account-scoped media/cache boundaries |
 
-### Option 1: USB or File Manager
+**Compatibility depends on the actual file codecs, device decoder support, and network conditions.** Buffering cannot be eliminated when a connection is slower than a video's sustained bitrate.
 
-1. Download the latest release APK.
-2. Copy the APK file to a USB flash drive.
-3. Insert the USB drive into your Android TV device.
-4. Use a file manager app on the TV to locate and install the APK.
+## Quick start
 
-### Option 2: Android Debug Bridge
-
-1. Enable Developer Options and Network Debugging on the Android TV device.
-2. Find the TV IP address in Settings > Network.
-3. Connect and install with ADB:
+1. Open the [Releases](https://github.com/Vaydelux/Bousygram/releases) page and choose the appropriate APK: **armeabi-v7a** for older 32-bit TVs, **arm64-v8a** for most newer devices, or **universal** when uncertain.
+2. Install the APK with your device's file manager or Android Debug Bridge:
    ```bash
-   adb connect <your-tv-ip>
-   adb install app-debug.apk
+   adb install -r Bousygram-<version>-<variant>.apk
    ```
+3. Obtain your personal Telegram `api_id` and `api_hash` from [my.telegram.org/apps](https://my.telegram.org/apps), using **API development tools**.
+4. Sign in with your Telegram account via the in-app supported authentication flow.
+5. Browse a source, select a video, and begin playback.
 
----
+> Debug prereleases are for testing. Production release signing, physical-device evidence, and approvals have their own gates. **Do not treat a green CI badge as certification of uninterrupted playback.**
 
-## Initial Setup
+## Playback & TV controls
 
-1. Enter the Telegram API ID and API Hash.
-2. Sign in with phone verification or scan the QR code using Telegram on your phone.
-3. Browse chats, channels, groups, or Saved Messages and start playback.
+| Control | Behavior |
+|:--|:--|
+| **OK / Select** | Show controls; activate the focused control |
+| **Left / Right** | Seek preview in the hidden-HUD TV experience; use the seek bar when visible |
+| **Play / Pause** | Pause explicitly or arm playback; buffering must preserve the user's intent |
+| **Episodes** | Open **More from this source** without requiring D-pad Up |
+| **Options** | Playback speed, display mode, tracks, decoder selection, and additional actions |
+| **Back** | Close the current overlay or return to the previous screen |
+| **Loading / Buffering** | The HUD automatically hides when appropriate; visible statuses should not imply a manual pause |
 
----
+The episode tray is restricted to the current source/topic. Available tracks and controls vary by file and playback engine. The player HUD fades away during active viewing but stays available for errors, seeking, and menu interaction.
 
-## Developer Guide
+## How it works
 
-### Local Properties
+```text
+Telegram account / chats / Saved Messages
+                 │
+                 ▼
+     TDLib (MTProto / libtdjni)
+                 │
+         file metadata & partial bytes
+                 │
+                 ▼
+    Local range-capable stream gateway
+                 │
+                 ├──► Media3 ExoPlayer (primary)
+                 └──► libmpv (fallback)
+                 │
+                 ▼
+      Android TV / phone / tablet
+```
 
-Create `local.properties` in the repository root. This file is ignored by Git and must not be committed.
+- **Progressive playback:** the player can start before a file is fully downloaded. Seeking requests missing ranges on demand.
+- **Foreground priority:** speculative thumbnail or next-episode prefetch should not displace bytes needed by the currently playing video.
+- **Audio/video intent:** rebuffering is distinct from a user-requested Pause; audio focus and Activity lifecycle rules still apply.
+- **No automatic DASH transcoding:** Telegram files are not necessarily supplied as adaptive video renditions. Creating DASH/HLS segments from arbitrary originals on the device would add CPU, memory, and startup cost; see the actual optimization decisions and device results before changing the streaming architecture.
+
+## Developer setup
+
+**Requirements:** Android SDK, a compatible JDK/Gradle environment, and the native TDLib binaries expected by the repository. The Gradle wrapper is the build entry point.
+
+Keep local credentials in ignored `local.properties` or protected environment variables — **never commit live API keys or keystores**.
 
 ```properties
-sdk.dir=C\:\path\to\Android\Sdk
-TELEGRAM_API_ID=your_api_id_here
-TELEGRAM_API_HASH=your_api_hash_here
+sdk.dir=C:\\path\\to\\Android\\Sdk
+TELEGRAM_API_ID=your_api_id
+TELEGRAM_API_HASH=your_api_hash
 ```
-
-Adjust `sdk.dir` for your own machine if needed.
-
-Optional release signing can be supplied from `local.properties` or environment variables:
-
-```properties
-RELEASE_STORE_FILE=C\:\\path\\to\\release.keystore
-RELEASE_STORE_PASSWORD=your_store_password
-RELEASE_KEY_ALIAS=your_key_alias
-RELEASE_KEY_PASSWORD=your_key_password
-```
-
-Release and hardened-release tasks fail closed when those signing values are missing; they never fall back to the debug certificate. The CI hardened-release job additionally requires `RELEASE_CERT_SHA256` and verifies every generated split/universal APK against that certificate. Configure GitHub Actions secrets `RELEASE_KEYSTORE_BASE64` (base64-encoded JKS/PKCS12), `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`, and `RELEASE_CERT_SHA256` (SHA-256 certificate digest; colons/spaces are optional).
-
-For the protected `production-signing` GitHub environment, certificate verification, device-qualification prerequisites, and how to resolve a missing-signing-secrets failure, see [RELEASE_SIGNING_SETUP.md](RELEASE_SIGNING_SETUP.md).
-
-See `tools/mock-tests/README.md` for standalone Kotlin checks. Passing these tests does **not** replace the Android Gradle build or device playback tests.
-
-Firebase Test Lab smoke tests run when both `FIREBASE_SERVICE_ACCOUNT` and `FIREBASE_PROJECT_ID` Actions secrets are available. Secret-less and fork pull requests safely skip the protected device and release jobs.
-
-### Build Commands
 
 ```powershell
-.\gradlew.bat :app:verifyTdlibAbiCoverage
-.\gradlew.bat :app:verifyTvHardeningContract
-.\gradlew.bat :app:compileDebugKotlin
-.\gradlew.bat :app:testDebugUnitTest
-.\gradlew.bat :app:assembleDebug
+.\\gradlew.bat :app:verifyTdlibAbiCoverage :app:verifyTvHardeningContract
+.\\gradlew.bat :app:compileDebugKotlin :app:lintDebug :app:testDebugUnitTest
+.\\gradlew.bat :app:assembleDebug
 ```
 
-Production-signed hardened release build:
+On macOS/Linux use `./gradlew` with the same task names.
 
-```powershell
-.\gradlew.bat :app:assembleHardenedRelease
-```
+**Production signing:** use the protected GitHub environments and the [Release Signing Setup](RELEASE_SIGNING_SETUP.md). `assembleHardenedRelease` fails closed without production signing and certificate verification. Do not use debug APKs as proof of production signing.
 
-APK files are named with the app version, variant, and ABI split, for example `Bousygram-v1.0-release-arm64-v8a.apk`.
+## Release readiness
 
----
+The [Android Enterprise Checks](https://github.com/Vaydelux/Bousygram/actions/workflows/android-enterprise.yml) workflow validates code, TDLib compatibility gates, lint, tests, APK packaging, and supported ABI inventory. Real-world device qualification remains distinct from automated checks.
 
-## Release Checklist
+Before calling a build production-ready, verify playback on the exact signed candidate across an older ARM32 TV, modern ARM64 TV, phone, and tablet. Test cold-start, MP4/MKV/TS seeks, 30–60 minute viewing, network interruptions, restart/reopen, manual Pause, focus navigation, and account logout.
 
-Before sharing an APK:
+- [Release checklist](docs/release/PLAYBACK_DEVICE_QUALIFICATION.md)
+- [Protected device evidence](docs/ci/RELEASE_DEVICE_QUALIFICATION_RECORD.md)
+- [Production configuration](docs/ci/RELEASE_CONFIGURATION.md)
+- [Project issues](https://github.com/Vaydelux/Bousygram/issues)
 
-1. Run `.\gradlew.bat :app:verifyTdlibAbiCoverage :app:verifyTvHardeningContract`.
-2. Run `.\gradlew.bat :app:compileDebugKotlin`.
-3. Run `.\gradlew.bat :app:testDebugUnitTest`.
-4. Run `.\gradlew.bat :app:assembleDebug`.
-5. Confirm `CHANGELOG.md` has notes for the version being shared.
-6. Install on an Android TV device and verify:
-   - cold play of a large Telegram video
-   - repeated seek forward/back
-   - Back button stops playback cache work
-   - app backgrounding stops active cache work
-   - reopening the same video resumes from partial cache
-   - Settings diagnostics copy/export works
-   - Settings storage manager reports cache size and preserves pinned/active media during safe tracked-file pruning
-7. Record known issues and APK path before release.
+## Branding
 
----
+The approved Bousygram emblem is the **Chow Chow mascot with a cyan ring and Telegram-style paper plane**. The small icon deliberately omits the wordmark, which becomes unreadable at favicon sizes.
 
-## How It Is Built
+- [Branding and icon rules](brand/README.md)
+- [Icon preview](brand/bousygram-mascot.webp)
+- [Favicon](brand/favicon.ico)
 
-- **Jetpack Compose for TV** for the Android TV interface.
-- **Kotlin Coroutines and Flow** for asynchronous state.
-- **Media3 ExoPlayer** for media playback.
-- **TDLib** through native JNI for direct Telegram connectivity.
-- **Loopback Streaming** for local HTTP range reads from Telegram media, with strict single-range parsing and per-resource capability tokens.
-- **Keystore-backed protection** for API credentials and encryption keys for newly created TDLib databases. Existing unencrypted TDLib databases deliberately keep their prior empty-key configuration during upgrade so the app does not accidentally lock existing users out; migrate such databases only through a separate tested migration procedure.
+Theme accents use deep navy, bright cyan/blue, and warm Chow gold. UI controls use semantic text/background roles for readable dark, light, and high-contrast appearances.
+
+## Privacy & security
+
+TDLib connects to Telegram locally and maintains account data on the device. The app uses protected local stream endpoints with short-lived capability tokens rather than exposing arbitrary filesystem paths. Telegram credentials are stored with Android Keystore-backed encryption; older TDLib database migrations require explicit testing to prevent account lockouts. Local caches may retain partial media to make resuming quicker; logout and account-scoped cleanup prevent cross-account reuse.
+
+Never attach personal Telegram logs, session credentials, playback tokens, or private media files to public GitHub issues.
 
 ---
 
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
-Developed and published by **Vaydelux**.
-
-## Latest media-loading performance revision
-
-The video grid now prioritizes TDLib media metadata: video-oriented searches run concurrently and publish partial results as they arrive. Thumbnail downloads are low-priority and bounded, and moving focus across cards no longer downloads video bytes. Library and compact grids fetch more metadata when the user nears the end. Selecting a video still uses the existing stream-preparation and ExoPlayer path.
-
-See [`MEDIA_LOADING_OPTIMIZATION.md`](MEDIA_LOADING_OPTIMIZATION.md) for the exact behavior, tests, and remaining device-verification steps. A full Android Gradle build and real Telegram playback test are still required before release.
-
-## Latest source-picker revision
-
-See [SOURCE_PICKER_REVISION.md](SOURCE_PICKER_REVISION.md) for the all-chat source picker, video-only browsing behavior, format-recognition additions, and the current verification limits.
+<sub>Made by **Vaydelux** · Licensed under the [MIT License](LICENSE) · Android TV first, Android everywhere.</sub>
