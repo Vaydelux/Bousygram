@@ -42,6 +42,23 @@ internal fun measuredRebufferDurationMs(
     return if (Long.MAX_VALUE - completed < active) Long.MAX_VALUE else completed + active
 }
 
+/**
+ * Native Ended is authoritative only near the end of a known timeline.
+ * For MPEG-TS/other unknown-duration containers, a genuine output event plus
+ * measurable playback progress is enough to accept Ended; otherwise treat
+ * an immediate EOF as a transient stream failure and retry instead of
+ * unexpectedly skipping to the next episode.
+ */
+internal fun isCredibleNaturalPlaybackEnd(
+    durationMs: Long,
+    positionMs: Long,
+    hasProducedMedia: Boolean
+): Boolean = when {
+    !hasProducedMedia -> false
+    durationMs > 5_000L -> positionMs >= durationMs - 5_000L
+    else -> positionMs >= 5_000L
+}
+
 /** Buffer completion starts playback only if the user has not explicitly paused. */
 internal fun shouldAutoResumeAfterReady(
     isReady: Boolean,
