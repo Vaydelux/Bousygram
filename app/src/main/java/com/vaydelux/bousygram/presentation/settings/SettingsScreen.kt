@@ -204,7 +204,9 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             // Large text and narrow phones must not clip theme choices.
-                            val isNarrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 480
+                            val isNarrow = with(androidx.compose.ui.platform.LocalDensity.current) {
+                                androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp() < 480.dp
+                            }
                             @Composable
                             fun ThemeChoices() {
                                 BousygramThemePreset.entries.forEach { preset ->
