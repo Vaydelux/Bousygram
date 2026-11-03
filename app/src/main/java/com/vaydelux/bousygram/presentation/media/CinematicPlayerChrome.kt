@@ -44,15 +44,6 @@ private val red = Color(0xFFD72C42)
 internal fun cinematicFraction(position: Long, duration: Long) =
     if (duration <= 0L) 0f else (position.toDouble() / duration.toDouble()).toFloat().coerceIn(0f, 1f)
 
-@Composable internal fun CinematicVignettes() {
-    Box(Modifier.fillMaxSize().testTag("cinematic_vignettes")) {
-        Box(Modifier.fillMaxWidth().height(110.dp).align(Alignment.TopCenter)
-            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.58f), Color.Transparent))))
-        Box(Modifier.fillMaxWidth().height(150.dp).align(Alignment.BottomCenter)
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f)))))
-    }
-}
-
 @Composable internal fun CinematicPassiveProgress(position: Long, duration: Long, modifier: Modifier = Modifier) {
     val fraction = cinematicFraction(position, duration)
     Canvas(modifier.fillMaxWidth().height(1.dp).testTag("cinematic_passive_progress")) {
@@ -68,9 +59,18 @@ internal fun cinematicFraction(position: Long, duration: Long) =
 ) {
     var dragging by remember(mediaKey) { mutableStateOf(false) }
     var selected by remember(mediaKey) { mutableLongStateOf(0L) }
-    LaunchedEffect(mediaKey, duration) { dragging = false; onScrub(false) }
-    val shown = if (dragging) selected else position
     val active = duration > 0L
+    // Never restart pointer handlers or cancel an active scrub when a media
+    // extractor refines a *known* duration (common with MKV/TS containers).
+    val latestDuration by rememberUpdatedState(duration)
+    val latestPosition by rememberUpdatedState(position)
+    val latestSeek by rememberUpdatedState(onSeek)
+    val latestScrub by rememberUpdatedState(onScrub)
+    LaunchedEffect(mediaKey, active) {
+        dragging = false
+        latestScrub(false)
+    }
+    val shown = if (dragging) selected else position
     Box(
         Modifier.fillMaxWidth().height(36.dp)
             .then(if (focus != null) Modifier.focusRequester(focus) else Modifier)
@@ -83,24 +83,37 @@ internal fun cinematicFraction(position: Long, duration: Long) =
                 }
             }
             .focusable(active)
-            .pointerInput(mediaKey, duration) {
+            .pointerInput(mediaKey, active) {
                 if (!active) return@pointerInput
                 detectTapGestures { point ->
-                    playerScrubTarget(point.x / size.width.coerceAtLeast(1).toFloat(), duration)?.let(onSeek)
+                    playerScrubTarget(point.x / size.width.coerceAtLeast(1).toFloat(), latestDuration)
+                        ?.let(latestSeek)
                 }
             }
-            .pointerInput(mediaKey, duration) {
+            .pointerInput(mediaKey, active) {
                 if (!active) return@pointerInput
                 detectDragGestures(
                     onDragStart = { point ->
-                        dragging = true; onScrub(true)
-                        selected = playerScrubTarget(point.x / size.width.coerceAtLeast(1).toFloat(), duration) ?: position
+                        dragging = true
+                        latestScrub(true)
+                        selected = playerScrubTarget(
+                            point.x / size.width.coerceAtLeast(1).toFloat(), latestDuration
+                        ) ?: latestPosition
                     },
-                    onDragEnd = { if (dragging) onSeek(selected); dragging = false; onScrub(false) },
-                    onDragCancel = { dragging = false; onScrub(false) }
+                    onDragEnd = {
+                        if (dragging) latestSeek(selected.coerceIn(0L, latestDuration))
+                        dragging = false
+                        latestScrub(false)
+                    },
+                    onDragCancel = {
+                        dragging = false
+                        latestScrub(false)
+                    }
                 ) { change, _ ->
                     change.consume()
-                    selected = playerScrubTarget(change.position.x / size.width.coerceAtLeast(1).toFloat(), duration) ?: selected
+                    selected = playerScrubTarget(
+                        change.position.x / size.width.coerceAtLeast(1).toFloat(), latestDuration
+                    ) ?: selected
                 }
             }
             .semantics { contentDescription = "Playback timeline" }
@@ -147,6 +160,7 @@ internal fun cinematicFraction(position: Long, duration: Long) =
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable internal fun CinematicPlayerChrome(
     state: PlayerHudState, isTv: Boolean, optionsVisible: Boolean,
+    controlsVisible: Boolean = true,
     menuSection: CinematicMenuSection,
     onMenuSectionChange: (CinematicMenuSection) -> Unit,
     onScrub: (Boolean) -> Unit, onOptions: () -> Unit, onCloseOptions: () -> Unit,
@@ -162,41 +176,104 @@ internal fun cinematicFraction(position: Long, duration: Long) =
 ) {
     val duration = state.durationMs.takeIf { state.durationTrusted && it > 0L } ?: 0L
     Box(modifier.fillMaxSize().testTag("cinematic_player_chrome")) {
-        CinematicVignettes()
-        Row(
-            Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding()
-                .padding(horizontal = if (isTv) 22.dp else 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
+        // Animate two short edge bands rather than translating a fullscreen
+        // layer on every HUD open/close. The video center stays untouched.
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.TopStart).fillMaxWidth()
         ) {
-            EdgeButton("‹", "Back", onExit)
-            Column(Modifier.weight(1f)) {
-                Text(state.title, color = Color.White, style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("cinematic_title"))
-                Text(state.trackLabel, color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelSmall)
-            }
-            if (duration > 0L) EdgeButton("↺", "Start over", onStartOver)
-        }
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = if (isTv) 22.dp else 12.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatCinematicTime(state.positionMs) + " / " +
-                    (if (duration > 0L) formatCinematicTime(duration) else "--:--"),
-                    color = Color.White, style = MaterialTheme.typography.labelSmall)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    EdgeButton(if (state.isPlaying || state.playWhenReady) "Ⅱ" else "▶",
-                        "Play or pause", onPlayPause, Modifier.focusRequester(playFocus).testTag("cinematic_play"))
-                    if (isTv && onEpisodes != null) EdgeButton("Episodes", "Browse episodes", onEpisodes,
-                        if (episodesFocus != null) Modifier.focusRequester(episodesFocus) else Modifier)
-                    EdgeButton("⋯ More", "More playback options", onOptions,
-                        Modifier.focusRequester(optionsFocus).testTag("cinematic_more"))
+            Box(Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier.fillMaxWidth().height(110.dp).align(Alignment.TopCenter)
+                        .background(Brush.verticalGradient(
+                            listOf(Color.Black.copy(alpha = 0.58f), Color.Transparent)
+                        ))
+                )
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding()
+                        .padding(horizontal = if (isTv) 22.dp else 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    EdgeButton("‹", "Back", onExit)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            state.title, color = Color.White,
+                            style = MaterialTheme.typography.titleMedium, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("cinematic_title")
+                        )
+                        Text(
+                            state.trackLabel, color = Color.White.copy(alpha = 0.72f),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    if (duration > 0L) EdgeButton("↺", "Start over", onStartOver)
                 }
             }
-            CinematicScrubber(state.mediaKey, state.positionMs, state.bufferedPositionMs,
-                duration, onSeekTo, onScrub, seekFocus)
         }
         AnimatedVisibility(
-            visible = optionsVisible,
+            visible = controlsVisible,
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+        ) {
+            Box(Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier.fillMaxWidth().height(150.dp).align(Alignment.BottomCenter)
+                        .background(Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f))
+                        ))
+                )
+                Column(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(
+                            horizontal = if (isTv) 22.dp else 12.dp
+                        ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            formatCinematicTime(state.positionMs) + " / " +
+                                (if (duration > 0L) formatCinematicTime(duration) else "--:--"),
+                            color = Color.White, style = MaterialTheme.typography.labelSmall
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            EdgeButton(
+                                if (state.isPlaying || state.playWhenReady) "Ⅱ" else "▶",
+                                "Play or pause", onPlayPause,
+                                Modifier.focusRequester(playFocus).testTag("cinematic_play")
+                            )
+                            if (isTv && onEpisodes != null) {
+                                EdgeButton(
+                                    "Episodes", "Browse episodes", onEpisodes,
+                                    if (episodesFocus != null) Modifier.focusRequester(episodesFocus)
+                                    else Modifier
+                                )
+                            }
+                            EdgeButton(
+                                "⋯ More", "More playback options", onOptions,
+                                Modifier.focusRequester(optionsFocus).testTag("cinematic_more")
+                            )
+                        }
+                    }
+                    CinematicScrubber(
+                        state.mediaKey, state.positionMs, state.bufferedPositionMs,
+                        duration, onSeekTo, onScrub, seekFocus
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = controlsVisible && optionsVisible,
             enter = fadeIn(tween(160)) + slideInVertically(
                 animationSpec = tween(170), initialOffsetY = { it / 8 }
             ),
