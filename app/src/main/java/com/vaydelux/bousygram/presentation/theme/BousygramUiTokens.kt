@@ -16,8 +16,9 @@ object BousygramUiTokens {
     const val hudFadeInMs = 210
     const val hudFadeOutMs = 240
     const val hudHideAfterInteractionMs = 4_000L
-    const val darkHudOpacity = 0.94f
-    const val lightHudOpacity = 0.97f
+    const val darkHudOpacity = 0.90f
+    const val lightHudOpacity = 0.96f
+    const val contrastHudOpacity = 0.99f
 
     /** The cyan/blue/amber roles come from the approved Chow Chow mascot. */
     val mascotCyan = Color(0xFF37D7F2)
@@ -36,4 +37,11 @@ internal fun themeContrastRatio(foreground: Color, background: Color): Double {
     val a = luminance(foreground)
     val b = luminance(background)
     return (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
+}
+
+/** Select surface opacity without sacrificing the high-contrast reading mode. */
+internal fun playerHudSurfaceOpacity(background: Color): Float = when (background) {
+    BousygramThemePreset.HIGH_CONTRAST.background -> BousygramUiTokens.contrastHudOpacity
+    BousygramThemePreset.LIGHT.background -> BousygramUiTokens.lightHudOpacity
+    else -> BousygramUiTokens.darkHudOpacity
 }
