@@ -80,6 +80,9 @@ internal fun PlayerTransportControls(
     layout: PlayerChromeLayout,
     isPlayingOrPending: Boolean,
     optionsExpanded: Boolean,
+    compactTv: Boolean = false,
+    onEpisodes: (() -> Unit)? = null,
+    episodesFocusRequester: FocusRequester? = null,
     onPrevious: () -> Unit,
     onSeekBack: () -> Unit,
     onPlayPause: () -> Unit,
@@ -115,13 +118,16 @@ internal fun PlayerTransportControls(
                 .testTag("player_seek_back")
         )
         BousygramButton(
-            text = if (isTv) {
+            text = if (isTv && !compactTv) {
                 if (isPlayingOrPending) "❚❚ Pause" else "▶ Play"
             } else if (isPlayingOrPending) "❚❚" else "▶",
             onClick = onPlayPause,
             selected = true,
             modifier = Modifier
-                .then(if (isTv) Modifier.widthIn(min = 116.dp, max = 145.dp) else Modifier.weight(1.3f))
+                .then(if (isTv) Modifier.widthIn(
+                    min = if (compactTv) 70.dp else 116.dp,
+                    max = if (compactTv) 88.dp else 145.dp
+                ) else Modifier.weight(1.3f))
                 .heightIn(min = touchMin)
                 .focusRequester(playPauseFocusRequester)
                 .semantics { contentDescription = if (isPlayingOrPending) "Pause playback" else "Play video" }
@@ -143,12 +149,32 @@ internal fun PlayerTransportControls(
                     .testTag("player_next")
             )
         }
+        if (isTv && onEpisodes != null) {
+            BousygramButton(
+                text = if (compactTv) "▦" else "▦ Episodes",
+                onClick = onEpisodes,
+                modifier = Modifier
+                    .widthIn(
+                        min = if (compactTv) 52.dp else 106.dp,
+                        max = if (compactTv) 62.dp else 136.dp
+                    )
+                    .heightIn(min = touchMin)
+                    .then(if (episodesFocusRequester != null) {
+                        Modifier.focusRequester(episodesFocusRequester)
+                    } else Modifier)
+                    .semantics { contentDescription = "Browse episodes from this source" }
+                    .testTag("player_episodes")
+            )
+        }
         BousygramButton(
-            text = if (isTv) "⚙ More" else "⋯",
+            text = if (isTv && !compactTv) "⚙ More" else if (isTv) "⚙" else "⋯",
             onClick = onOptions,
             selected = optionsExpanded,
             modifier = Modifier
-                .then(if (isTv) Modifier.widthIn(min = 98.dp, max = 126.dp) else Modifier.weight(1f))
+                .then(if (isTv) Modifier.widthIn(
+                    min = if (compactTv) 58.dp else 98.dp,
+                    max = if (compactTv) 72.dp else 126.dp
+                ) else Modifier.weight(1f))
                 .heightIn(min = touchMin)
                 .focusRequester(optionsFocusRequester)
                 .semantics { contentDescription = if (optionsExpanded) "Close playback options" else "More playback options" }
