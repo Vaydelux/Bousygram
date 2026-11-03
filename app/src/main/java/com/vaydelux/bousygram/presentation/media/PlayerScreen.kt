@@ -3125,9 +3125,9 @@ private fun PlayerHud(
             .heightIn(max = maxHudHeight)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, hudShape),
         color = MaterialTheme.colorScheme.surface.copy(
-            alpha = if (MaterialTheme.colorScheme.background.red > 0.5f)
-                com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.lightHudOpacity
-            else com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.darkHudOpacity
+            alpha = com.vaydelux.bousygram.presentation.theme.playerHudSurfaceOpacity(
+                MaterialTheme.colorScheme.background
+            )
         ),
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = hudShape,
