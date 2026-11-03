@@ -1,6 +1,12 @@
 package com.vaydelux.bousygram.presentation.media
 
 import android.view.KeyEvent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -141,12 +147,15 @@ internal fun cinematicFraction(position: Long, duration: Long) =
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable internal fun CinematicPlayerChrome(
     state: PlayerHudState, isTv: Boolean, optionsVisible: Boolean,
+    menuSection: CinematicMenuSection,
+    onMenuSectionChange: (CinematicMenuSection) -> Unit,
     onScrub: (Boolean) -> Unit, onOptions: () -> Unit, onCloseOptions: () -> Unit,
     onExit: () -> Unit, onStartOver: () -> Unit, onRetry: () -> Unit,
     onPlayPause: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
     onPrevious: () -> Unit, onNext: () -> Unit, onTracks: () -> Unit,
     onAspect: () -> Unit, onSpeed: () -> Unit, onEpisodes: (() -> Unit)?,
     episodesFocus: FocusRequester?, onDecoder: (() -> Unit)?,
+    onDiagnostics: (() -> Unit)? = null,
     playFocus: FocusRequester, optionsFocus: FocusRequester,
     firstOptionFocus: FocusRequester, seekFocus: FocusRequester?,
     retryFocus: FocusRequester?, modifier: Modifier = Modifier
@@ -186,34 +195,41 @@ internal fun cinematicFraction(position: Long, duration: Long) =
             CinematicScrubber(state.mediaKey, state.positionMs, state.bufferedPositionMs,
                 duration, onSeekTo, onScrub, seekFocus)
         }
-        if (optionsVisible) {
-            Column(
-                Modifier.align(Alignment.BottomEnd).navigationBarsPadding()
-                    .padding(end = 14.dp, bottom = 74.dp)
-                    .widthIn(min = 180.dp, max = 275.dp).heightIn(max = 330.dp)
-                    .background(Color.Black.copy(alpha = 0.88f), RoundedCornerShape(10.dp))
-                    .verticalScroll(rememberScrollState()).padding(8.dp)
-                    .testTag("cinematic_navigation_menu"),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text("PLAYBACK OPTIONS", color = Color.White.copy(alpha = 0.78f),
-                    style = MaterialTheme.typography.labelSmall)
-                EdgeButton("Audio / CC", "Audio and subtitles", onTracks, Modifier.focusRequester(firstOptionFocus))
-                EdgeButton("Speed", "Change speed", onSpeed)
-                val aspect = when (state.resizeMode) {
-                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
-                    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
-                    else -> "Fit"
-                }
-                EdgeButton("Aspect: " + aspect, "Video aspect ratio", onAspect)
-                if (onEpisodes != null) EdgeButton("Episodes", "Episode queue", onEpisodes)
-                EdgeButton("Previous", "Previous video", onPrevious)
-                EdgeButton("Next", "Next video", onNext)
-                EdgeButton("Back 30s", "Seek back 30 seconds", { onSeekBy(-30_000L) })
-                EdgeButton("Forward 30s", "Seek forward 30 seconds", { onSeekBy(30_000L) })
-                if (onDecoder != null) EdgeButton("Decoder", "Switch playback engine", onDecoder)
-                EdgeButton("Close", "Close navigation menu", onCloseOptions)
+        AnimatedVisibility(
+            visible = optionsVisible,
+            enter = fadeIn(tween(160)) + slideInVertically(
+                animationSpec = tween(170), initialOffsetY = { it / 8 }
+            ),
+            exit = fadeOut(tween(130)) + slideOutVertically(
+                animationSpec = tween(140), targetOffsetY = { it / 8 }
+            ),
+            modifier = Modifier.align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = if (isTv) 24.dp else 12.dp, bottom = 76.dp)
+        ) {
+            val aspect = when (state.resizeMode) {
+                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
+                else -> "Fit"
             }
+            CinematicNavigationMenu(
+                section = menuSection,
+                onSectionChange = onMenuSectionChange,
+                onClose = onCloseOptions,
+                onTracks = onTracks,
+                onSpeed = onSpeed,
+                speedLabel = "${state.speed}x",
+                onAspect = onAspect,
+                aspectLabel = aspect,
+                onEpisodes = onEpisodes,
+                onPrevious = onPrevious,
+                onNext = onNext,
+                onSeekBy = onSeekBy,
+                onDecoder = onDecoder,
+                onDiagnostics = onDiagnostics,
+                firstFocus = firstOptionFocus,
+                modifier = Modifier.heightIn(max = 320.dp)
+            )
         }
         if (state.error != null) {
             Column(Modifier.align(Alignment.Center).widthIn(max = 400.dp)

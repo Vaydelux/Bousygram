@@ -265,6 +265,7 @@ fun PlayerScreen(
     val episodesButtonFocusRequester = remember { FocusRequester() }
     val retryFocusRequester = remember { FocusRequester() }
     var optionsPanelVisible by remember { mutableStateOf(false) }
+    var cinematicMenuSection by remember { mutableStateOf(CinematicMenuSection.ROOT) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
     var episodesDrawerVisible by remember { mutableStateOf(false) }
     var trayFocusedIndex by remember { mutableIntStateOf(0) }
@@ -1902,14 +1903,25 @@ fun PlayerScreen(
         }
     }
 
+    // Back within More returns to its category list first. Only a second Back
+    // closes More; the input controller continues to own all other back states.
+    fun handlePlayerBack() {
+        if (optionsPanelVisible && cinematicMenuSection != CinematicMenuSection.ROOT) {
+            cinematicMenuSection = CinematicMenuSection.ROOT
+            hudInteractionTick++
+        } else {
+            playerInputController.handleBack(playerInputActions)
+        }
+    }
+
     BackHandler(enabled = true) {
-        playerInputController.handleBack(playerInputActions)
+        handlePlayerBack()
     }
 
     PredictiveBackHandler(enabled = true) { progress ->
         try {
             progress.collect { /* handle predictive progress */ }
-            playerInputController.handleBack(playerInputActions)
+            handlePlayerBack()
         } catch (_: CancellationException) {
             // gesture cancelled by user
         }
@@ -2014,6 +2026,14 @@ fun PlayerScreen(
                 false
             }
             .onKeyEvent { event ->
+                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
+                    event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK &&
+                    optionsPanelVisible && cinematicMenuSection != CinematicMenuSection.ROOT
+                ) {
+                    cinematicMenuSection = CinematicMenuSection.ROOT
+                    hudInteractionTick++
+                    return@onKeyEvent true
+                }
                 val handled = playerInputController.handleKeyEvent(event, playerInputActions)
                 if (handled) {
                     hudInteractionTick++
@@ -2085,31 +2105,8 @@ fun PlayerScreen(
             duration = playerSeekDurationMs(duration, castState.durationMs, castState.connected),
             modifier = Modifier.align(Alignment.BottomCenter)
         )
-        AnimatedVisibility(
-            visible = hudVisible,
-            enter = fadeIn(
-                animationSpec = androidx.compose.animation.core.tween(
-                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeInMs
-                )
-            ),
-            exit = fadeOut(
-                animationSpec = androidx.compose.animation.core.tween(
-                    com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.hudFadeOutMs
-                )
-            ),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(if (compactHud) 240.dp else 300.dp)
-                    .background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.36f))
-                        )
-                    )
-            )
-        }
+        // The cinematic chrome already provides a short bottom-edge vignette.
+        // Avoid stacking a second 300dp scrim over the actual picture.
         AnimatedVisibility(
             visible = hudVisible,
             enter = fadeIn(
@@ -2151,6 +2148,17 @@ fun PlayerScreen(
                 compact = compactHud,
                 isTv = tvChrome,
                 optionsVisible = optionsPanelVisible,
+                menuSection = cinematicMenuSection,
+                onMenuSectionChange = { next ->
+                    cinematicMenuSection = next
+                    hudInteractionTick++
+                },
+                onDiagnostics = if (BuildConfig.DEBUG) { {
+                    debugHudVisible = !debugHudVisible
+                    EnterprisePreferences.setVideoDebugHudEnabled(debugHudVisible)
+                    toastFeedbackText = if (debugHudVisible) "Playback diagnostics on" else "Playback diagnostics off"
+                    hudInteractionTick++
+                } } else null,
                 onScrubActiveChanged = { active ->
                     seekScrubbing = active
                     hudInteractionTick++
@@ -2163,6 +2171,7 @@ fun PlayerScreen(
                         episodesDrawerVisible = false
                     }
                     optionsPanelVisible = openingOptions
+                    cinematicMenuSection = CinematicMenuSection.ROOT
                     playerInputController.activeMenu =
                         if (openingOptions) PlayerMenuType.OPTIONS else PlayerMenuType.NONE
                 },
@@ -3099,6 +3108,9 @@ private fun PlayerHud(
     compact: Boolean,
     isTv: Boolean,
     optionsVisible: Boolean,
+    menuSection: CinematicMenuSection,
+    onMenuSectionChange: (CinematicMenuSection) -> Unit,
+    onDiagnostics: (() -> Unit)? = null,
     onScrubActiveChanged: (Boolean) -> Unit,
     onOptionsToggle: () -> Unit,
     onOptionsClose: () -> Unit,
@@ -3123,7 +3135,7 @@ private fun PlayerHud(
     retryFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
-    LaunchedEffect(optionsVisible, isTv) {
+    LaunchedEffect(optionsVisible, isTv, menuSection) {
         if (optionsVisible && isTv) {
             delay(80L)
             runCatching { firstOptionFocusRequester.requestFocus() }
@@ -3133,6 +3145,9 @@ private fun PlayerHud(
         state = state,
         isTv = isTv,
         optionsVisible = optionsVisible,
+        menuSection = menuSection,
+        onMenuSectionChange = onMenuSectionChange,
+        onDiagnostics = onDiagnostics,
         onScrub = onScrubActiveChanged,
         onOptions = onOptionsToggle,
         onCloseOptions = onOptionsClose,
