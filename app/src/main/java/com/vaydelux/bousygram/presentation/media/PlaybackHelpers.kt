@@ -4,6 +4,25 @@ import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 
 /**
+ * Poll decoder progress frequently while controls or seek feedback are visible,
+ * but avoid waking the entire Compose playback screen twice per second during
+ * ordinary full-screen viewing. Buffering retains the previous 500 ms cadence
+ * so recovery and progress diagnostics remain responsive.
+ *
+ * This changes only UI/maintenance sampling; the TDLib streaming scheduler,
+ * native player clock and Media3 playback callbacks continue independently.
+ */
+internal fun playbackUiPollingDelayMs(
+    isHudVisible: Boolean,
+    isSeeking: Boolean,
+    isPreparingOrBuffering: Boolean
+): Long = when {
+    isHudVisible || isSeeking -> 250L
+    isPreparingOrBuffering -> 500L
+    else -> 1_000L
+}
+
+/**
  * Tracks decoder output time, excluding startup, user pauses and network stalls.
  * All inputs use monotonic elapsed time from the caller, never wall-clock dates.
  */
