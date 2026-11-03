@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -90,6 +91,7 @@ private fun MenuAction(
 @Composable
 internal fun CinematicNavigationMenu(
     section: CinematicMenuSection,
+    isTv: Boolean,
     onSectionChange: (CinematicMenuSection) -> Unit,
     onClose: () -> Unit,
     onTracks: () -> Unit,
@@ -108,7 +110,27 @@ internal fun CinematicNavigationMenu(
 ) {
     var helpExpanded by remember(section) { mutableStateOf(false) }
     val menuScroll = rememberScrollState()
-    LaunchedEffect(section) { menuScroll.scrollTo(0) }
+    // Restore the category the user opened rather than forcing Playback
+    // every time Back returns to the root. The same focus requester belongs
+    // to the first back row in each submenu.
+    var lastRootSection by remember { mutableStateOf(CinematicMenuSection.PLAYBACK) }
+    val libraryFocus = remember { FocusRequester() }
+    val advancedFocus = remember { FocusRequester() }
+    val rootFocus = when (lastRootSection) {
+        CinematicMenuSection.LIBRARY -> libraryFocus
+        CinematicMenuSection.ADVANCED -> advancedFocus
+        else -> firstFocus
+    }
+    LaunchedEffect(section, isTv) {
+        menuScroll.scrollTo(0)
+        if (isTv) {
+            // Focus the row after composition attaches it, without a
+            // guessed fixed 80ms timer or focus race with slide animations.
+            withFrameNanos { }
+            val requester = if (section == CinematicMenuSection.ROOT) rootFocus else firstFocus
+            runCatching { requester.requestFocus() }
+        }
+    }
     Column(
         modifier
             .widthIn(min = 216.dp, max = 290.dp)
@@ -140,14 +162,23 @@ internal fun CinematicNavigationMenu(
         if (section == CinematicMenuSection.ROOT) {
             MenuAction("Playback  ›", "Open playback settings and seek controls",
                 "cinematic_menu_group_playback",
-                { onSectionChange(CinematicMenuSection.PLAYBACK) },
+                {
+                    lastRootSection = CinematicMenuSection.PLAYBACK
+                    onSectionChange(CinematicMenuSection.PLAYBACK)
+                },
                 Modifier.focusRequester(firstFocus))
             MenuAction("Library  ›", "Open episode and queue navigation",
                 "cinematic_menu_group_library",
-                { onSectionChange(CinematicMenuSection.LIBRARY) })
+                {
+                    lastRootSection = CinematicMenuSection.LIBRARY
+                    onSectionChange(CinematicMenuSection.LIBRARY)
+                }, Modifier.focusRequester(libraryFocus))
             MenuAction("Advanced  ›", "Open decoder and accessibility options",
                 "cinematic_menu_group_advanced",
-                { onSectionChange(CinematicMenuSection.ADVANCED) })
+                {
+                    lastRootSection = CinematicMenuSection.ADVANCED
+                    onSectionChange(CinematicMenuSection.ADVANCED)
+                }, Modifier.focusRequester(advancedFocus))
             MenuAction("Close", "Close playback navigation",
                 "cinematic_menu_close", onClose)
         } else {
