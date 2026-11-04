@@ -1,4 +1,6 @@
-# Bousygram Extras — Future Architecture RFC
+# Bousygram Extras — Historical Architecture RFC
+
+> **Superseded (2026-11-04):** This document records the October 2026 *proposal and maintenance placeholder*. The TMDB/AniList native metadata catalogs have since been implemented and merged in PRs #62 and #63. See [EXTRAS_IMPLEMENTATION.md](EXTRAS_IMPLEMENTATION.md) for the current implementation and release requirements. Statements below describing an unimplemented future Extras client are historical, not current behavior.
 
 **Status: proposal only; no implementation authorized.**
 
