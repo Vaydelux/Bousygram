@@ -28,6 +28,9 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         arrayListOf("--no-video-title-show", "--no-stats")
     )
     private val nativePlayer = MediaPlayer(vlc)
+    // Keep native VLC calls off its event callback thread to prevent reentry
+    // deadlocks. This Handler belongs only to this engine and is cleared on release.
+    private val eventHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val state = MutableStateFlow<EnginePlaybackState>(EnginePlaybackState.Idle)
     private val activeTracks = MutableStateFlow<List<MediaTrackInfo>>(emptyList())
     private val dimensions = MutableStateFlow(0 to 0)
@@ -64,10 +67,16 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     state.value = EnginePlaybackState.Buffering
                 }
                 MediaPlayer.Event.Buffering -> {
-                    val running = runCatching { nativePlayer.isPlaying }.getOrDefault(false)
-                    playing = running && wantedPlayback
+                    // A buffering notification does not mean a running
+                    // decoder stopped. Avoid calling native VLC from its
+                    // callback thread and preserve the user Pause intention.
+                    val running = playing && wantedPlayback
                     state.value = libVlcBufferState(wantedPlayback, running)
-                    if (running && !wantedPlayback) requestNativePause()
+                    if (!wantedPlayback) {
+                        eventHandler.post {
+                            if (!released.get() && filePrepared && !wantedPlayback) requestNativePause()
+                        }
+                    }
                 }
                 MediaPlayer.Event.Playing -> {
                     // Native VLC may deliver a stale Playing event after Pause
@@ -75,7 +84,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     if (!wantedPlayback) {
                         playing = false
                         state.value = EnginePlaybackState.Ready
-                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        eventHandler.post {
                             if (!released.get() && !wantedPlayback && filePrepared) {
                                 requestNativePause()
                             }
@@ -84,9 +93,13 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                         pauseCommandPending = false
                         playing = true
                         state.value = EnginePlaybackState.Ready
-                        knownDurationMs = runCatching { nativePlayer.length }.getOrDefault(-1L)
-                            .coerceAtLeast(0L)
-                        refreshTracks()
+                        eventHandler.post {
+                            if (!released.get() && filePrepared && wantedPlayback) {
+                                knownDurationMs = runCatching { nativePlayer.length }
+                                    .getOrDefault(-1L).coerceAtLeast(0L)
+                                refreshTracks()
+                            }
+                        }
                     }
                 }
                 MediaPlayer.Event.Paused -> {
@@ -98,8 +111,12 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     timestampMs = event.timeChanged.coerceAtLeast(0L)
                 }
                 MediaPlayer.Event.LengthChanged -> {
-                    knownDurationMs = runCatching { nativePlayer.length }.getOrDefault(-1L)
-                        .coerceAtLeast(0L)
+                    eventHandler.post {
+                        if (!released.get() && filePrepared) {
+                            knownDurationMs = runCatching { nativePlayer.length }
+                                .getOrDefault(-1L).coerceAtLeast(0L)
+                        }
+                    }
                 }
                 MediaPlayer.Event.EndReached -> {
                     playing = false
@@ -313,6 +330,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
 
     override fun release() {
         if (!released.compareAndSet(false, true)) return
+        eventHandler.removeCallbacksAndMessages(null)
         stoppedByOwner = true
         playing = false
         wantedPlayback = false
