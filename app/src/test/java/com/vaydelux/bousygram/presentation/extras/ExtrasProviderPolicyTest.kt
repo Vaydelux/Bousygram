@@ -44,6 +44,18 @@ class ExtrasProviderPolicyTest {
         assertNull(ExtrasProviderPolicy.youtubeId("a"))
     }
 
+    @Test fun externalEpisodeLinksMustBePublicHttpsUrls() {
+        assertEquals("https://www.crunchyroll.com/watch/test",
+            ExtrasProviderPolicy.safeExternalHttps("https://www.crunchyroll.com/watch/test"))
+        assertNull(ExtrasProviderPolicy.safeExternalHttps("javascript:alert(1)"))
+        assertNull(ExtrasProviderPolicy.safeExternalHttps("http://example.org/video"))
+        assertNull(ExtrasProviderPolicy.safeExternalHttps("https://localhost/private"))
+        assertNull(ExtrasProviderPolicy.safeExternalHttps("https://127.0.0.1/secrets"))
+        assertNull(ExtrasProviderPolicy.safeExternalHttps("https://user:pass@example.org/episode"))
+        assertNull(ExtrasProviderPolicy.safeExternalHttps("https://example.org:4443/video"))
+        assertNull(ExtrasProviderPolicy.safeExternalHttps("https://internal.local/video"))
+    }
+
     @Test fun filtersAreProviderSpecificAndDefaultSafe() {
         assertTrue(ExtrasProviderPolicy.genres(ExtrasType.MOVIES).any { it.first == "Horror" && it.second == "27" })
         assertTrue(ExtrasProviderPolicy.genres(ExtrasType.TV).any { it.first == "Mystery" })

@@ -1,9 +1,11 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,9 +60,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.vaydelux.bousygram.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
@@ -82,6 +90,14 @@ private data class TabState(
 @Composable
 fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val metrics = rememberAdaptiveMetrics()
+    val context = LocalContext.current
+    // Some Android TV boxes advertise Leanback even when UiModeManager does not.
+    // Keep all such devices on the native YouTube TV route, never the WebView.
+    val supportsLeanback = remember(context) {
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
+    }
+    val isAndroidTv = metrics.isTv || supportsLeanback
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val type = ExtrasType.entries[selectedTab.coerceIn(0, ExtrasType.entries.lastIndex)]
     var movies by remember { mutableStateOf(TabState()) }
@@ -110,6 +126,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     var detailItem by remember { mutableStateOf<ExtrasItem?>(null) }
     val detailHistory = remember { mutableStateListOf<ExtrasItem>() }
+    val selectedPoster = remember { mutableStateMapOf<ExtrasType, Int>() }
+    val moviePosterFocus = remember { FocusRequester() }
+    val tvPosterFocus = remember { FocusRequester() }
+    val animePosterFocus = remember { FocusRequester() }
+    val posterFocus = when (type) {
+        ExtrasType.MOVIES -> moviePosterFocus
+        ExtrasType.TV -> tvPosterFocus
+        ExtrasType.ANIME -> animePosterFocus
+    }
+    var restorePosterFocus by remember { mutableIntStateOf(0) }
+    var restoredPosterFocus by remember { mutableIntStateOf(0) }
+    var showCredits by remember { mutableStateOf(false) }
     var detailRetry by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<ExtrasDetail?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
@@ -120,6 +148,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var seasonLoading by remember { mutableStateOf(false) }
 
     fun openFromResults(item: ExtrasItem) {
+        selectedPoster[type] = item.id
         detailHistory.clear()
         detailItem = item
     }
@@ -128,10 +157,52 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         detail = null
         selectedSeason = null
         episodes = emptyList()
+        if (detailItem == null) restorePosterFocus += 1
+    }
+
+    // Restore the poster *and* grid position after leaving the details route.
+    LaunchedEffect(restorePosterFocus, detailItem, selectedTab, state.results.size) {
+        if (restorePosterFocus <= restoredPosterFocus || detailItem != null) return@LaunchedEffect
+        val id = selectedPoster[type] ?: return@LaunchedEffect
+        val index = state.results.indexOfFirst { it.id == id }
+        if (index < 0) return@LaunchedEffect
+        activeGrid.scrollToItem(index)
+        withFrameNanos { }
+        runCatching { posterFocus.requestFocus() }
+        restoredPosterFocus = restorePosterFocus
     }
 
     BackHandler {
-        if (detailItem != null) goBackFromDetails() else onExit()
+        when {
+            showCredits -> showCredits = false
+            detailItem != null -> goBackFromDetails()
+            else -> onExit()
+        }
+    }
+
+    if (showCredits) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showCredits = false },
+            title = { Text("Extras · Sources & Credits") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_tmdb_official),
+                        contentDescription = "TMDB logo",
+                        modifier = Modifier.width(72.dp).height(52.dp)
+                    )
+                    Text("Movies and TV Shows: The Movie Database (TMDB).")
+                    Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
+                    Text("Anime: AniList. Titles, artwork, community ratings and linked episodes come from AniList.")
+                    Text("Trailers and official episode links open in external apps. Bousygram does not host or stream those videos.")
+                    Text("TMDB: themoviedb.org · AniList: anilist.co",
+                        style = MaterialTheme.typography.labelSmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCredits = false }) { Text("Close") }
+            }
+        )
     }
 
     // Debounce queries, cancel obsolete network coroutines, and isolate per-tab results.
@@ -161,6 +232,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     LaunchedEffect(detailItem, detailRetry) {
         val selected = detailItem ?: return@LaunchedEffect
+        val retry = detailRetry
         detail = null
         detailError = null
         detailLoading = true
@@ -173,7 +245,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         } catch (e: Exception) {
             detailError = e.message ?: "Unable to load details"
         } finally {
-            detailLoading = false
+            if (detailItem == selected && detailRetry == retry) detailLoading = false
         }
     }
     LaunchedEffect(detail?.item?.id, selectedSeason) {
@@ -190,7 +262,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         } catch (e: Exception) {
             episodeError = e.message ?: "Unable to load episodes"
         } finally {
-            seasonLoading = false
+            if (selectedSeason == season && detail?.item?.id == current.item.id) {
+                seasonLoading = false
+            }
         }
     }
 
@@ -202,12 +276,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     OutlinedButton(onClick = {
                         if (detailItem != null) goBackFromDetails() else onExit()
                     }) { Text("← Back") }
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
                             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text("Catalog metadata · TMDB / AniList",
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    TextButton(onClick = { showCredits = true }) { Text("Credits") }
                 }
                 if (detailItem == null) {
                     Spacer(Modifier.height(8.dp))
@@ -236,11 +311,15 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
                     onSeason = { selectedSeason = it },
                     onOpenItem = { related ->
-                        detailItem?.let { detailHistory.add(it) }
+                        detailItem?.let {
+                            if (detailHistory.size >= 20) detailHistory.removeAt(0)
+                            detailHistory.add(it)
+                        }
                         detailItem = related
                     },
                     modifier = Modifier.padding(padding),
-                    compact = metrics.isCompact)
+                    compact = metrics.isCompact,
+                    isAndroidTv = isAndroidTv)
             }
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
@@ -358,7 +437,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(state.results, key = { "${it.type}:${it.id}" }) { item ->
-                            ExtrasPosterCard(item) { openFromResults(item) }
+                            ExtrasPosterCard(item,
+                                modifier = if (selectedPoster[type] == item.id) {
+                                    Modifier.focusRequester(posterFocus)
+                                } else Modifier,
+                                onClick = { openFromResults(item) })
                         }
                         if (state.hasMore && state.results.isNotEmpty()) {
                             item {
@@ -377,10 +460,14 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
 }
 
 @Composable
-private fun ExtrasPosterCard(item: ExtrasItem, onClick: () -> Unit) {
+private fun ExtrasPosterCard(
+    item: ExtrasItem,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
     Card(onClick = onClick,
-        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(if (focused) 3.dp else 1.dp,
             if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
@@ -425,7 +512,8 @@ private fun ExtrasDetailContent(
     onSeason: (Int) -> Unit,
     onOpenItem: (ExtrasItem) -> Unit,
     modifier: Modifier,
-    compact: Boolean
+    compact: Boolean,
+    isAndroidTv: Boolean
 ) {
     val context = LocalContext.current
     LazyColumn(modifier = modifier.fillMaxSize(),
@@ -451,14 +539,30 @@ private fun ExtrasDetailContent(
         }
         info.youtubeId?.let { youtube ->
             item {
-                Button(onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$youtube"))
-                    runCatching { context.startActivity(intent) }
-                }) { Text("▶ Watch trailer on YouTube") }
+                ExtrasYouTubeTrailer(
+                    videoId = youtube,
+                    isAndroidTv = isAndroidTv,
+                    compact = compact
+                )
+            }
+        }
+        if (info.legalStreamingLinks.isNotEmpty()) {
+            item { Text("Officially listed episode links", style = MaterialTheme.typography.titleMedium) }
+            items(info.legalStreamingLinks, key = { it.url }) { link ->
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link.url))
+                        runCatching { context.startActivity(intent) }
+                            .onFailure { android.widget.Toast.makeText(
+                                context, "No compatible browser installed", android.widget.Toast.LENGTH_SHORT
+                            ).show() }
+                    }
+                ) { Text("${link.site}: ${link.title}", maxLines = 2) }
             }
         }
         if (info.cast.isNotEmpty()) {
-            item { Text(if (info.item.type == ExtrasType.ANIME) "Characters & staff" else "Cast",
+            item { Text(if (info.item.type == ExtrasType.ANIME) "Characters, voice actors & staff" else "Cast",
                 style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
