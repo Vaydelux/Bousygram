@@ -6,7 +6,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -17,6 +16,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vaydelux.bousygram.BuildConfig
@@ -51,7 +66,6 @@ import com.vaydelux.bousygram.presentation.extras.ExtrasCatalogScreen
 import com.vaydelux.bousygram.presentation.shell.TelegramStartupLoadingScreen
 
 class MainActivity : ComponentActivity() {
-    private val authViewModel: AuthViewModel by viewModels()
     // Activity may be reused for real and debug-preview launch intents. Keep the
     // route in observable state rather than reading a non-observable intent in Compose.
     private var previewRequested by mutableStateOf(false)
@@ -69,7 +83,6 @@ class MainActivity : ComponentActivity() {
                     TvHybridPreviewHost()
                 } else {
                     BousygramAppRoot(
-                        authViewModel = authViewModel,
                         themePreset = themePreset,
                         onThemePresetChange = { preset ->
                             EnterprisePreferences.setVisualThemeId(preset.id)
@@ -102,12 +115,10 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun BousygramAppRoot(
-    authViewModel: AuthViewModel,
     themePreset: BousygramThemePreset,
     onThemePresetChange: (BousygramThemePreset) -> Unit
 ) {
     val context = LocalContext.current
-    val authState by authViewModel.uiState.collectAsState()
     // Mode is shell UI state only: it does not create an independent Telegram session.
     var modeName by rememberSaveable { mutableStateOf(BousygramMode.SELECT.name) }
     val mode = BousygramMode.entries.firstOrNull { it.name == modeName } ?: BousygramMode.SELECT
@@ -117,25 +128,108 @@ private fun BousygramAppRoot(
     }
     var resumeSignal by remember { mutableIntStateOf(0) }
 
-    // The previous account's player request must never survive logout and re-login.
-    // The navigation state is deliberately session-local, not persisted across identities.
+    // Observe incoming Cast requests before selecting a mode. A genuine Cast
+    // target must initialize Telegram, even if Extras or the chooser is visible.
+    val pendingCast by CastReceiverManager.pendingCastRequest.collectAsState()
+    LaunchedEffect(pendingCast) {
+        val requested = TelegramRuntimePolicy.routeForPendingCast(mode, pendingCast != null)
+        if (requested != mode) modeName = requested.name
+    }
+
+    val application = context.applicationContext as BousygramApp
+    var telegramReady by remember { mutableStateOf(application.telegramRuntimeStarted) }
+    var telegramStartupError by remember { mutableStateOf<String?>(null) }
+    var telegramStartupAttempt by remember { mutableIntStateOf(0) }
+
+    // Dispatch the expensive native/server setup away from Compose's UI thread.
+    // Extras and UI preview never invoke this path.
+    LaunchedEffect(mode, telegramStartupAttempt) {
+        if (!TelegramRuntimePolicy.needsTelegramRuntime(mode) || telegramReady) return@LaunchedEffect
+        telegramStartupError = null
+        try {
+            withContext(Dispatchers.IO) { application.ensureTelegramRuntimeStarted() }
+            telegramReady = true
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            telegramStartupError = error.message ?: "Telegram Media could not initialize."
+        }
+    }
+
+    // Extras has no Telegram ViewModel, TDLib client, HTTP loopback or Netty proxy.
+    // Process-wide account invalidation is still installed by BousygramApp.onCreate.
+    if (mode == BousygramMode.SELECT) {
+        BousygramModeSelection(
+            onTelegram = { modeName = BousygramMode.TELEGRAM.name },
+            onExtras = { modeName = BousygramMode.EXTRAS_MAINTENANCE.name }
+        )
+        return
+    }
+    if (mode == BousygramMode.EXTRAS_MAINTENANCE) {
+        ExtrasCatalogScreen(onExit = { modeName = BousygramMode.SELECT.name })
+        return
+    }
+    if (!telegramReady) {
+        // Physical remote Back must return to mode selection, not finish the Activity.
+        BackHandler {
+            CastReceiverManager.clearPendingRequest()
+            modeName = BousygramMode.SELECT.name
+        }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                if (telegramStartupError != null) {
+                    Text(
+                        telegramStartupError ?: "Unable to start Telegram Media",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Button(onClick = { telegramStartupAttempt += 1 }) { Text("Retry Telegram startup") }
+                } else {
+                    CircularProgressIndicator()
+                    Text("Starting Telegram Media…")
+                }
+                OutlinedButton(onClick = {
+                    CastReceiverManager.clearPendingRequest()
+                    modeName = BousygramMode.SELECT.name
+                }) { Text("Back to modes") }
+            }
+        }
+        return
+    }
+
+    // Created only after Telegram runtime is ready; Activity-scoped VM survives
+    // navigation between Telegram and Extras without recreating an auth client.
+    val authViewModel: AuthViewModel = viewModel()
+    val authState by authViewModel.uiState.collectAsState()
+
+    // Reset navigation on auth loss. Do not discard Cast during the initial
+    // loading state: saved Telegram authorization may still be restoring.
     LaunchedEffect(authState.step) {
         if (authState.step != AuthStep.Authorized) {
             appScreen = AppScreen.Home
             searchFocus = SearchFocusState()
             resumeSignal = 0
-            CastReceiverManager.clearPendingRequest()
+            if (authState.step != AuthStep.Loading) {
+                CastReceiverManager.clearPendingRequest()
+            }
         }
     }
 
-    val pendingCast by CastReceiverManager.pendingCastRequest.collectAsState()
     LaunchedEffect(pendingCast, authState.step) {
         val payload = pendingCast ?: return@LaunchedEffect
+        if (authState.step == AuthStep.Loading) return@LaunchedEffect
         val owner = AccountSession.current()
         if (owner == null || authState.step != AuthStep.Authorized ||
-            !CastReceiverManager.isAuthorizedTelegramMedia(payload) || !AccountSession.isCurrent(owner)) {
+            !CastReceiverManager.isAuthorizedTelegramMedia(payload) || !AccountSession.isCurrent(owner)
+        ) {
             CastReceiverManager.clearPendingRequest()
-            android.widget.Toast.makeText(context, "This Cast link is not authorized for the current Telegram session", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(
+                context, "This Cast link is not authorized for the current Telegram session",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
             return@LaunchedEffect
         }
         val preparation = LocalStreamingServer.prepareStream(
@@ -153,21 +247,6 @@ private fun BousygramAppRoot(
         modeName = BousygramMode.TELEGRAM.name
         appScreen = AppScreen.Player(req, returnTo = AppScreen.Home)
         CastReceiverManager.clearPendingRequest()
-    }
-
-    // The Extras screen is a dead-end maintenance route: no Telegram feature UI is mounted.
-    // The application process still owns existing TDLib infrastructure; separating that
-    // initialization is a future, explicitly reviewed lifecycle change.
-    if (mode == BousygramMode.SELECT) {
-        BousygramModeSelection(
-            onTelegram = { modeName = BousygramMode.TELEGRAM.name },
-            onExtras = { modeName = BousygramMode.EXTRAS_MAINTENANCE.name }
-        )
-        return
-    }
-    if (mode == BousygramMode.EXTRAS_MAINTENANCE) {
-        ExtrasCatalogScreen(onExit = { modeName = BousygramMode.SELECT.name })
-        return
     }
 
     // Auth is a child of Telegram Media mode. Back from a login/connection
