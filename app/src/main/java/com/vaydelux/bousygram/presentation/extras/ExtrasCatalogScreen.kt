@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -146,6 +147,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var episodes by remember { mutableStateOf<List<ExtrasEpisode>>(emptyList()) }
     var episodeError by remember { mutableStateOf<String?>(null) }
     var seasonLoading by remember { mutableStateOf(false) }
+    var seasonRetry by remember { mutableIntStateOf(0) }
 
     fun openFromResults(item: ExtrasItem) {
         selectedPoster[type] = item.id
@@ -248,7 +250,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             if (detailItem == selected && detailRetry == retry) detailLoading = false
         }
     }
-    LaunchedEffect(detail?.item?.id, selectedSeason) {
+    LaunchedEffect(detail?.item?.id, selectedSeason, seasonRetry) {
         val current = detail ?: return@LaunchedEffect
         val season = selectedSeason ?: return@LaunchedEffect
         if (current.item.type != ExtrasType.TV) return@LaunchedEffect
@@ -286,10 +288,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 }
                 if (detailItem == null) {
                     Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ExtrasType.entries.forEachIndexed { index, tab ->
-                            FilterChip(selected = selectedTab == index, onClick = { selectedTab = index },
-                                label = { Text(tab.label) })
+                    // Keep every tab reachable on smaller phones and large font scales.
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(ExtrasType.entries.toList(), key = { it.name }) { tab ->
+                            FilterChip(
+                                selected = selectedTab == tab.ordinal,
+                                onClick = { selectedTab = tab.ordinal },
+                                label = { Text(tab.label) },
+                                modifier = Modifier.heightIn(min = 44.dp)
+                            )
                         }
                     }
                 }
@@ -310,6 +320,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             } else detail?.let { info ->
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
                     onSeason = { selectedSeason = it },
+                    onSeasonRetry = { seasonRetry += 1 },
                     onOpenItem = { related ->
                         detailItem?.let {
                             if (detailHistory.size >= 20) detailHistory.removeAt(0)
@@ -344,8 +355,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     ) {
                         LazyColumn {
                             items(state.results.take(5), key = { "${it.type}:${it.id}" }) { item ->
+                                var suggestionFocused by remember(item.type, item.id) {
+                                    mutableStateOf(false)
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth()
+                                        .onFocusChanged { suggestionFocused = it.isFocused }
+                                        .then(
+                                            if (suggestionFocused) Modifier.border(
+                                                2.dp, MaterialTheme.colorScheme.primary,
+                                                RoundedCornerShape(8.dp)
+                                            ) else Modifier
+                                        )
                                         .clickable { openFromResults(item) }
                                         .padding(6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -510,6 +531,7 @@ private fun ExtrasDetailContent(
     seasonLoading: Boolean,
     episodeError: String?,
     onSeason: (Int) -> Unit,
+    onSeasonRetry: () -> Unit,
     onOpenItem: (ExtrasItem) -> Unit,
     modifier: Modifier,
     compact: Boolean,
@@ -591,8 +613,24 @@ private fun ExtrasDetailContent(
                     }
                 }
             }
+            if (selectedSeason == null) {
+                item {
+                    Text("Select a season to load its episodes.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
             if (seasonLoading) item { CircularProgressIndicator() }
-            if (episodeError != null) item { Text(episodeError, color = MaterialTheme.colorScheme.error) }
+            if (episodeError != null) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(episodeError, color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f))
+                        OutlinedButton(onClick = onSeasonRetry) { Text("Retry episodes") }
+                    }
+                }
+            }
             items(episodes, key = { it.number }) { episode ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),

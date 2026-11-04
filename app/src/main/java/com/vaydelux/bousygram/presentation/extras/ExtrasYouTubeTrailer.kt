@@ -12,6 +12,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -147,6 +148,9 @@ internal fun ExtrasYouTubeTrailer(
     }
 
     var showEmbed by remember(videoId) { mutableStateOf(false) }
+    // Android Back should first close the embedded trailer, then leave details
+    // on the next press. Closing it disposes the Chromium WebView.
+    BackHandler(enabled = showEmbed) { showEmbed = false }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Official YouTube trailer", style = MaterialTheme.typography.titleMedium)
         if (!showEmbed) {
