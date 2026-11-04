@@ -284,7 +284,7 @@ object ExtrasCatalogApi {
         require(id > 0)
         val gql = """
             query (${'$'}id: Int!) {
-              Media(id: ${'
+              Media(id: ${'$'}id, type: ANIME, isAdult: false) {
                 id title { english romaji native }
                 description(asHtml: false)
                 coverImage { large } bannerImage
