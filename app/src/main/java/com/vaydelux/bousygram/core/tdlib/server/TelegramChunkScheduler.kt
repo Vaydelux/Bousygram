@@ -143,6 +143,11 @@ internal object TelegramChunkScheduler {
     private const val MIN_FILE_FOR_TAIL_BYTES = 4L * 1024L * 1024L
     private const val FAST_STALL_MS = 3_000L
     private const val STALL_MS = 6_000L
+    // Local HTTP preflight must outlive both the first 3s wait and the 6s
+    // targeted TDLib recovery attempt. The previous 2s cutoff canceled the
+    // scheduler before its own fast-stall recovery could begin.
+    internal const val STREAM_FIRST_CHUNK_WAIT_MS =
+        FAST_STALL_MS + STALL_MS + 2_000L
     private const val TAIL_MAX_WAIT_MS = 60_000L
     private const val MAX_PLAYBACK_WAIT_MS = 30L * 60L * 1000L
     private const val OPEN_ENDED = Long.MAX_VALUE / 4

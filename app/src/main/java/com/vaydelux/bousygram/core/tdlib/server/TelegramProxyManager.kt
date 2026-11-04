@@ -235,7 +235,7 @@ object TelegramProxyManager {
         val isPartial = range.isPartial
         // Preflight is bounded: unavailable data receives a retryable status before a
         // successful fixed-length response is committed. ExoPlayer uses the direct source.
-        val firstChunk = withTimeoutOrNull(2_000L) {
+        val firstChunk = withTimeoutOrNull(TelegramChunkScheduler.STREAM_FIRST_CHUNK_WAIT_MS) {
             fetchReadyChunkForStream(fileId, range.start,
                 min(CHUNK_SIZE_BYTES.toLong(), contentLength).toInt(), TelegramChunkPurpose.Streaming)
         }

@@ -476,7 +476,9 @@ object LocalStreamingServer {
         }
 
         val firstChunk = if (isHead) null else kotlinx.coroutines.runBlocking {
-            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+            kotlinx.coroutines.withTimeoutOrNull(
+                TelegramChunkScheduler.STREAM_FIRST_CHUNK_WAIT_MS
+            ) {
                 TelegramChunkScheduler.fetchChunk(TelegramChunkRequest(
                     fileId, rangeStart, min(STREAM_READ_BUFFER_BYTES.toLong(), contentLength).toInt(),
                     STREAM_FAST_PRIORITY, TelegramChunkPurpose.Streaming
