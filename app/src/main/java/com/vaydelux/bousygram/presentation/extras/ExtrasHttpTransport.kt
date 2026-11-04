@@ -7,7 +7,7 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -23,7 +23,10 @@ internal data class ExtrasHttpResult(
  * HttpURLConnection blocks on its own socket, so canceling the UI coroutine
  * alone is insufficient. The awaiting coroutine disconnects the connection
  * immediately in finally; the IO worker then exits without caching a stale
- * response. No request carries Telegram credentials or private media.
+ * response. A supervisor boundary prevents an expected IOException from a
+ * disconnected child socket from converting caller cancellation into failure.
+ * Genuine HTTP/IO errors still propagate from request.await().
+ * No request carries Telegram credentials or private media.
  */
 internal class ExtrasHttpTransport(
     private val openConnection: (URL) -> HttpURLConnection = {
@@ -31,7 +34,7 @@ internal class ExtrasHttpTransport(
     }
 ) {
     suspend fun execute(url: String, body: String?, maxBytes: Int): ExtrasHttpResult =
-        coroutineScope {
+        supervisorScope {
             require(maxBytes in 1..4_000_000)
             val connection = openConnection(URL(url))
             val request = async(Dispatchers.IO) {
