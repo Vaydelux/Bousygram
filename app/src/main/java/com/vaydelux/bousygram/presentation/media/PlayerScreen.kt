@@ -692,14 +692,27 @@ fun PlayerScreen(
     // error/retry paths refresh the URL only if the local stream actually fails.
     // PlayerEngine.updateNetworkState already tunes caches for the new network.
 
-    // Seek preview snapshot generation
-    LaunchedEffect(queueIndex, duration, activeLocalStreamUrl) {
-        val item = queue.getOrNull(queueIndex)
-        val url = activeLocalStreamUrl
-        if (item != null && duration > 0L && !url.isNullOrBlank()) {
-            val key = "${item.chatId}:${item.messageId}"
-            SeekThumbnailManager.generateSnapshots(key, url, duration)
-        }
+    // Generate seek frames only from a completed local TDLib file.
+    // Loopback HTTP/tdlib:// URLs would otherwise spawn parallel random reads
+    // and starve active video playback. The seek overlay still shows timestamps
+    // until real decoded thumbnails become available.
+    LaunchedEffect(queueIndex, duration, cacheState) {
+        val item = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
+        if (duration <= 0L) return@LaunchedEffect
+        val owner = com.vaydelux.bousygram.core.account.AccountSession.current()
+            ?: return@LaunchedEffect
+        val localFile = withContext(Dispatchers.IO) {
+            com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry.current
+                .getFile(item.fileId)
+        } ?: return@LaunchedEffect
+        if (!com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) ||
+            !localFile.isDownloadingCompleted || localFile.localPath.isBlank()
+        ) return@LaunchedEffect
+        val local = java.io.File(localFile.localPath)
+        if (!local.isFile || !local.canRead()) return@LaunchedEffect
+        SeekThumbnailManager.generateSnapshots(
+            "${item.chatId}:${item.messageId}", local.absolutePath, duration
+        )
     }
 
     fun stopCurrentCache(reason: PlaybackCacheStopReason) {
@@ -2686,6 +2699,12 @@ fun PlayerScreen(
                             contentDescription = "Actual cached seek preview frame",
                             modifier = Modifier.width(160.dp).height(90.dp)
                                 .clip(RoundedCornerShape(8.dp))
+                        )
+                    } else if (tvChrome && seekPreviewPositionMs >= 0L) {
+                        Text(
+                            "Preview unavailable while streaming",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Text(

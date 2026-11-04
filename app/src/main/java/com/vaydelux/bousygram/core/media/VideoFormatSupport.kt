@@ -57,6 +57,21 @@ object VideoFormatSupport {
         return hasVideoExtension(name)
     }
 
+    // A TDLib local file may be sparse, or represent a nonzero download offset.
+    // Never ask native decoders to inspect holes as valid TS stream data.
+    const val MIN_LOCAL_TS_FRAME_PREFIX_BYTES = 2L * 1024 * 1024
+
+    fun canProbeLocalTsFrame(
+        completed: Boolean,
+        downloadOffset: Long,
+        downloadedPrefixSize: Long,
+        localLength: Long
+    ): Boolean = localLength >= 188L * 20L && (
+        completed || (downloadOffset == 0L &&
+            downloadedPrefixSize >= MIN_LOCAL_TS_FRAME_PREFIX_BYTES &&
+            localLength >= MIN_LOCAL_TS_FRAME_PREFIX_BYTES)
+    )
+
     /** MPEG-TS documents frequently have no Telegram-generated thumbnail. */
     fun isTransportStream(fileName: String?, mimeType: String?): Boolean {
         val file = fileName?.trim()?.lowercase(java.util.Locale.ROOT).orEmpty()

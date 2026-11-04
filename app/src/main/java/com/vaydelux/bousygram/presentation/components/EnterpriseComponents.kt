@@ -1086,7 +1086,12 @@ fun MediaPosterCard(
         val completions = Channel<Unit>(Channel.CONFLATED)
         val handler: (TdApi.Object?) -> Unit = { update ->
             val file = (update as? TdApi.UpdateFile)?.file
-            if (file?.id == fileId && file.local?.isDownloadingCompleted == true) {
+            val local = file?.local
+            if (file?.id == fileId && local != null &&
+                (local.isDownloadingCompleted ||
+                    (local.downloadOffset == 0L &&
+                        local.downloadedPrefixSize >= VideoFormatSupport.MIN_LOCAL_TS_FRAME_PREFIX_BYTES))
+            ) {
                 completions.trySend(Unit)
             }
         }
@@ -1102,8 +1107,8 @@ fun MediaPosterCard(
         try {
             value = extract()
             if (value == null) {
-                // Event-driven instead of polling or downloading full Telegram videos
-                // for thumbnails. One initial probe and up to two completions.
+                // Event-driven instead of downloading full Telegram videos
+                // for thumbnails. One initial probe and at most two prefix/completion updates.
                 var attempts = 0
                 for (ignored in completions) {
                     if (!AccountSession.isCurrent(owner)) break

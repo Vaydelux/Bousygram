@@ -7,6 +7,7 @@ import android.util.Log
 import android.util.AtomicFile
 import androidx.core.graphics.scale
 import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -113,11 +114,18 @@ object ThumbnailExtractor {
             val file = withTimeoutOrNull(2_000L) {
                 TelegramFileGatewayRegistry.current.getFile(fileId)
             } ?: return@withPermit null
-            // Do not read sparse/incomplete files. If downloaded prefix is sufficient
-            // for decoding, a future dedicated partial-reader can be added safely.
-            if (!file.isDownloadingCompleted || file.localPath.isBlank()) return@withPermit null
+            if (file.localPath.isBlank()) return@withPermit null
             val local = File(file.localPath)
-            if (!local.isFile || local.length() < 188L * 20L) return@withPermit null
+            if (!local.isFile || !VideoFormatSupport.canProbeLocalTsFrame(
+                    completed = file.isDownloadingCompleted,
+                    downloadOffset = file.downloadOffset,
+                    downloadedPrefixSize = file.downloadedPrefixSize,
+                    localLength = local.length()
+                )
+            ) return@withPermit null
+            // This local-only probe never schedules or waits for a full download.
+            // MediaMetadataRetriever may still reject a partial TS; retain a poster
+            // placeholder until Telegram has more contiguous bytes.
             val retriever = MediaMetadataRetriever()
             val frame = try {
                 retriever.setDataSource(local.absolutePath)

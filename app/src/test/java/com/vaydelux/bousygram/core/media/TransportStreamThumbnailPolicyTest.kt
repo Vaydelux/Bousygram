@@ -11,6 +11,15 @@ class TransportStreamThumbnailPolicyTest {
         assertTrue(VideoFormatSupport.isTransportStream("movie.mts", null))
         assertTrue(VideoFormatSupport.isTransportStream(null, "video/mp2t; charset=binary"))
     }
+    @Test fun completedTsFileMayBeProbedAndSparseFileIsNeverRead() {
+        val can = VideoFormatSupport::canProbeLocalTsFrame
+        assertTrue(can(true, 0L, 0L, 188L * 100L))
+        assertFalse(can(false, 0L, 1_000L, 10_000_000L))
+        assertFalse(can(false, 1_000_000L, 4_000_000L, 10_000_000L))
+        assertFalse(can(false, 0L, 4_000_000L, 1_000_000L))
+        assertTrue(can(false, 0L, 4_000_000L, 4_000_000L))
+    }
+
     @Test fun mp4AndOtherFormatsDoNotTriggerTsThumbnailExtraction() {
         assertFalse(VideoFormatSupport.isTransportStream("video.mp4", "video/mp4"))
         assertFalse(VideoFormatSupport.isTransportStream(null, null))
