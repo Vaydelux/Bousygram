@@ -69,7 +69,8 @@ data class ExtrasDetail(
     val related: List<ExtrasItem> = emptyList(),
     val backdrop: String? = null,
     val youtubeId: String? = null,
-    val legalStreamingLinks: List<ExtrasStreamingLink> = emptyList()
+    val legalStreamingLinks: List<ExtrasStreamingLink> = emptyList(),
+    val watchCountries: List<ExtrasWatchAvailability> = emptyList()
 )
 
 /** Pure routing policy. Provider IDs must never be guessed or interchanged. */
@@ -277,7 +278,8 @@ object ExtrasCatalogApi {
         val tv = item.type == ExtrasType.TV
         val namespace = if (tv) "tv" else "movie"
         val obj = tmdbGet("/$namespace/${item.id}", mapOf(
-            "language" to "en-US", "append_to_response" to "credits,videos,reviews,recommendations"
+            "language" to "en-US",
+            "append_to_response" to "credits,videos,reviews,recommendations,watch/providers"
         ))
         val current = tmdbItem(item.type, obj) ?: item
         val cast = arrayObjects(obj.optJSONObject("credits")?.optJSONArray("cast")).take(16).map {
@@ -321,7 +323,11 @@ object ExtrasCatalogApi {
             related = arrayObjects(obj.optJSONObject("recommendations")?.optJSONArray("results"))
                 .mapNotNull { tmdbItem(item.type, it) }.take(12),
             backdrop = tmdbImage(obj.optString("backdrop_path"), "w780"),
-            youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("key"))
+            youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("key")),
+            watchCountries = ExtrasWatchProviders.parse(
+                obj.optJSONObject("watch/providers")?.optJSONObject("results"),
+                java.util.Locale.getDefault().country
+            )
         )
     }
 
