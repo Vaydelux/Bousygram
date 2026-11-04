@@ -134,6 +134,40 @@ AniList is the source of anime data/cover images. Streaming-episode links are
 provided by AniList as references to third-party legal services; their
 availability and licensing vary by country, and Bousygram is not an affiliate.
 
+## Cancellation, images and reproducible qualification
+
+- The dedicated Extras HTTP transport disconnects `HttpURLConnection` when
+  its calling coroutine is canceled. The worker checks cancellation between
+  network reads, uses finite timeouts and the existing 2 MB response limit,
+  and never writes a canceled response into the JSON cache. JVM tests use a
+  fake connection deliberately blocked on a response, then cancel its caller
+  and assert the connection is disconnected.
+- Grid and detail posters use bounded Coil decode requests, selected by
+  `ActivityManager.isLowRamDevice` or a 32-bit process. ARM32/low-RAM
+  grids request up to 240×360 pixels and details up to 360×540; standard
+  devices remain capped. This does **not** imply a measured reduction in
+  total app PSS: bitmap caches, density, GPU layers and long sessions still
+  require on-device profiling.
+- `ExtrasCatalogTabs` and `ExtrasPosterCard` expose stable UI tags for
+  Android Compose instrumentation. Offline tests send DPAD_CENTER to tabs
+  and posters and can compile with the app without any TMDB credentials.
+  Firebase Test Lab or a physical device must actually run them before
+  claiming D-pad behavior was tested.
+- Run `tools/qualification/Capture-BousygramExtrasPerf.ps1 -Stage SELECT`,
+  `-Stage EXTRAS`, and `-Stage TELEGRAM` **separately** after manually
+  navigating to each screen on the same device. Use repeat runs after
+  force-stop and compare averages on ARM32 and ARM64. The script captures
+  only aggregate PSS and frame counters and labels results `captured-only`,
+  not a production qualification. No physical-device run was performed
+  as part of this change.
+- A manual GitHub Actions workflow
+  `.github/workflows/extras-live-provider-smoke.yml` exercises **real**
+  TMDB movie/TV discovery, language filtering, detail watch providers,
+  a TV season, and AniList discovery/details. It needs the protected
+  repository secret `TMDB_API_KEY`; without it, the run fails explicitly.
+  This live check is opt-in and is *not* claimed as part of default PR CI.
+  No credentials or raw provider payloads are uploaded to artifacts.
+
 ## Unverified / separate work
 
 - No real-device ARM32 TV, ARM64 TV, phone or tablet qualification is claimed.
