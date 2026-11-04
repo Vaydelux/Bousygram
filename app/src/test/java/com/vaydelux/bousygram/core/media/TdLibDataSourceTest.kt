@@ -3,6 +3,8 @@ package com.vaydelux.bousygram.core.media
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.TransferListener
 import com.vaydelux.bousygram.core.observability.InMemoryPlaybackTelemetryStorage
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
@@ -124,6 +126,36 @@ class TdLibDataSourceTest {
             fail("Expected IOException when fileId is not tied to an active playback session")
         } catch (e: IOException) {
             assertTrue(e.message?.contains("Direct TDLib data source access denied") == true)
+        }
+    }
+
+    @Test
+    fun failedTransferStartReleasesLeaseForNextAttempt() {
+        PlaybackSessionController.bindActiveFile(testFileId)
+        val source = TdLibDataSource()
+        source.addTransferListener(object : TransferListener {
+            override fun onTransferInitializing(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
+            override fun onTransferStart(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) {
+                throw IllegalStateException("Injected listener failure")
+            }
+            override fun onBytesTransferred(
+                source: DataSource, dataSpec: DataSpec, isNetwork: Boolean, bytesTransferred: Int
+            ) = Unit
+            override fun onTransferEnd(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
+        })
+        try {
+            source.open(DataSpec(TdLibDataSource.buildUri(testFileId, testFileSize)))
+            fail("Expected injected transfer-start failure")
+        } catch (expected: IllegalStateException) {
+            assertEquals("Injected listener failure", expected.message)
+        }
+        assertEquals(0, TelegramChunkScheduler.activeLeaseCount(testFileId))
+        // A failed open cannot keep a stale lease through a later close().
+        source.close()
+        assertEquals(0, TelegramChunkScheduler.activeLeaseCount(testFileId))
+        TdLibDataSource().also { retry ->
+            retry.open(DataSpec(TdLibDataSource.buildUri(testFileId, testFileSize)))
+            retry.close()
         }
     }
 

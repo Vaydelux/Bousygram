@@ -122,15 +122,30 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
             priority = STREAM_PRIORITY
         )
 
-        // Notify scheduler of streaming start with the same priority as the HTTP path
-        TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
-        val fileName = dataSpec.uri.getQueryParameter("name").orEmpty()
-        val isMp4 = fileName.endsWith(".mp4", ignoreCase = true) || fileName.endsWith(".m4v", ignoreCase = true)
-        TelegramChunkScheduler.openPlayback(fileId, totalSize, isMp4 = isMp4)
+        try {
+            // A failed preflight or transfer-start callback must never strand an
+            // active lease. Media3 may retry this exact DataSource afterwards.
+            TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
+            val fileName = dataSpec.uri.getQueryParameter("name").orEmpty()
+            val isMp4 = fileName.endsWith(".mp4", ignoreCase = true) || fileName.endsWith(".m4v", ignoreCase = true)
+            TelegramChunkScheduler.openPlayback(fileId, totalSize, isMp4 = isMp4)
 
-        opened = true
-        transferStarted(dataSpec)
-        return bytesRemaining
+            opened = true
+            transferStarted(dataSpec)
+            return bytesRemaining
+        } catch (failure: Throwable) {
+            opened = false
+            isClosed = true
+            aheadBytes = ByteArray(0)
+            aheadCursor = 0
+            TelegramChunkScheduler.releaseLease(
+                rangeLease, TelegramLeaseReleaseReason.Failed, currentPosition
+            )
+            rangeLease = null
+            currentDataSpec = null
+            uri = null
+            throw failure
+        }
     }
 
     override fun read(target: ByteArray, offset: Int, length: Int): Int {
