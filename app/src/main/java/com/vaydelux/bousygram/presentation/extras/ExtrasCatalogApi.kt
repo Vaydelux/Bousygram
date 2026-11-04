@@ -145,15 +145,30 @@ object ExtrasCatalogApi {
             f.year?.let { params[if (type == ExtrasType.TV) "first_air_date_year" else "primary_release_year"] = it.toString() }
             if (f.minimumRating > 0) params["vote_average.gte"] = f.minimumRating.toString()
         }
-        val body = tmdbGet(ExtrasProviderPolicy.searchPath(type, searching), params)
-        val results = arrayObjects(body.optJSONArray("results"))
+        // TMDB trending is a different metric from discover popularity. Use the real weekly feed.
+        val trending = !searching && f.sort == ExtrasSort.TRENDING
+        val path = if (trending) {
+            "/trending/" + (if (type == ExtrasType.TV) "tv" else "movie") + "/week"
+        } else ExtrasProviderPolicy.searchPath(type, searching)
+        val body = tmdbGet(path, params)
+        val candidates = arrayObjects(body.optJSONArray("results"))
+            .filter { !it.optBoolean("adult", false) }
             .mapNotNull { tmdbItem(type, it) }
-            // TMDB /search does not accept discover-only filters; apply those locally.
-            .filter { !searching || (
-                (genreId.isBlank() || containsGenreId(it.id, body.optJSONArray("results"), genreId)) &&
-                (f.minimumRating == 0 || (it.rating.toDoubleOrNull() ?: 0.0) >= f.minimumRating)
-            ) }
-        return ExtrasPage(results, page < body.optInt("total_pages", 1).coerceAtMost(500), page)
+        // Search and trending do not implement all discover filters. Filter the returned
+        // page locally and let users continue pagination when a page has no matches.
+        val results = candidates.filter { item ->
+            (!searching && !trending || genreId.isBlank() ||
+                containsGenreId(item.id, body.optJSONArray("results"), genreId)) &&
+            (!searching && !trending || f.minimumRating == 0 ||
+                (item.rating.toDoubleOrNull() ?: 0.0) >= f.minimumRating) &&
+            (!trending || f.year == null || item.year.toIntOrNull() == f.year)
+        }
+        val sorted = if (searching) when (f.sort) {
+            ExtrasSort.TOP_RATED -> results.sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
+            ExtrasSort.NEWEST -> results.sortedByDescending { it.year.toIntOrNull() ?: 0 }
+            else -> results // Preserve TMDB text relevance for Popular/Trending searches.
+        } else results
+        return ExtrasPage(sorted, page < body.optInt("total_pages", 1).coerceAtMost(500), page)
     }
 
     private fun containsGenreId(id: Int, results: JSONArray?, genreId: String): Boolean {
