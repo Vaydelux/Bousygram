@@ -67,6 +67,22 @@ class ExtrasSearchUiInstrumentedTest {
         rule.onNodeWithTag("extras-search-suggestions").assertDoesNotExist()
     }
 
+    @Test fun pendingTmdbSetupRoutesToIndependentAnimeWithoutNetwork() {
+        rule.setContent {
+            BousygramTheme {
+                var animeChosen by remember { mutableStateOf(false) }
+                ExtrasTmdbPendingSetup(onBrowseAnime = { animeChosen = true })
+                if (animeChosen) androidx.compose.material3.Text("Anime selected")
+            }
+        }
+        rule.onNodeWithTag("extras-tmdb-pending").assertExists()
+        val button = rule.onNodeWithTag("extras-go-anime")
+        button.assertExists()
+        button.performSemanticsAction(SemanticsActions.RequestFocus)
+        button.performKeyInput { pressKey(Key.DirectionCenter) }
+        rule.onNodeWithText("Anime selected").assertExists()
+    }
+
     @Test fun catalogSkeletonRendersWithoutLoadingProviderData() {
         rule.setContent {
             BousygramTheme { ExtrasCatalogLoadingSkeleton(isTv = true, compact = false) }

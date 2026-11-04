@@ -229,6 +229,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // Debounce queries, cancel obsolete network coroutines, and isolate per-tab results.
     LaunchedEffect(type, state.query, state.filters, state.page, state.loading) {
         if (!state.loading) return@LaunchedEffect
+        if (type != ExtrasType.ANIME && !ExtrasCatalogApi.hasTmdbCredentials) {
+            // Do not even enter requestJson when the user has deferred TMDB setup.
+            // Keep Anime fully independent and usable without a credential.
+            update(state.copy(loading = false, error = null, hasMore = false))
+            return@LaunchedEffect
+        }
         if (state.query.isNotBlank()) delay(350L)
         val request = state
         try {
@@ -348,6 +354,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     compact = metrics.isCompact,
                     isAndroidTv = isAndroidTv)
             }
+        } else if (type != ExtrasType.ANIME && !ExtrasCatalogApi.hasTmdbCredentials) {
+            ExtrasTmdbPendingSetup(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                onBrowseAnime = { selectedTab = ExtrasType.ANIME.ordinal }
+            )
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
                 .padding(horizontal = if (metrics.isCompact) 12.dp else 26.dp)) {
@@ -628,6 +639,41 @@ internal fun ExtrasSearchSuggestions(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Displayed while TMDB credentials are intentionally deferred at build time.
+ * Does not expose secrets or imply a network failure. This remains D-pad
+ * navigable and makes the independent AniList catalog one action away.
+ */
+@Composable
+internal fun ExtrasTmdbPendingSetup(
+    modifier: Modifier = Modifier,
+    onBrowseAnime: () -> Unit
+) {
+    Box(modifier.testTag("extras-tmdb-pending"), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(
+                "Movies and TV Shows are not configured yet",
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Text(
+                "TMDB access will be enabled in a later build. Anime search is available separately through AniList.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Button(
+                modifier = Modifier.testTag("extras-go-anime"),
+                onClick = onBrowseAnime
+            ) { Text("Browse Anime") }
         }
     }
 }
