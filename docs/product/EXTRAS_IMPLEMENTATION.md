@@ -19,9 +19,20 @@ avoid four extra requests. Anime details include characters/Japanese voice
 actors, staff, reviews, relations, trailer reference, next-airing schedule,
 and AniList's optional streamingEpisodes (external HTTPS links only).
 
-**These APIs do not provide movie/TV streams.** External official trailer/episode
-links open through ACTION_VIEW, never via a permissive WebView or a bridge into
-Telegram's authenticated local streaming server.
+**These APIs do not provide movie/TV streams.** Trailer handling is device-specific:
+Android TV opens the official YouTube TV app via `vnd.youtube:<videoId>` and
+`com.google.android.youtube.tv`, falling back to the **same video's** HTTPS
+YouTube URL if the TV package is absent. Phones/tablets show an optional
+on-demand official YouTube HTML iframe in a short-lived WebView, with an external
+YouTube fallback. The WebView uses `loadDataWithBaseURL("https://<appId>/", ...)`
+to provide the required YouTube Referer, enforces HTTPS/no file access,
+blocks main-frame navigations, has no JavaScript bridge, and is destroyed when
+the trailer leaves the composition. TV mode never creates a WebView.
+
+Official AniList episode links remain external HTTPS intents. No media is
+played through Telegram's private streaming server or a third-party video host.
+YouTube embeds must retain the provider controls, avoid unauthorized overlays,
+and meet YouTube's minimum player-size / Referer / playback requirements.
 
 ## Developer configuration
 
