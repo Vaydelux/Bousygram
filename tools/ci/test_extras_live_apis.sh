@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# GraphQL variable names ($page and $id) are deliberately literal in JSON.
+# shellcheck disable=SC2016
 # Optional live-provider smoke test. Requires a protected TMDB_API_KEY secret.
 # Never echo the key, provider JSON, headers, or full request URLs.
 set -euo pipefail
