@@ -36,3 +36,14 @@ the requested tasks are debug-only.
   ARM64 phone with identical Telegram files and network conditions.
 - Monitor ABI packaging, APK size, PSS, native decoder crashes and LGPL
   redistribution obligations before making this a production feature.
+
+## C++ native runtime collision
+
+The first ARM64 lab attempt reached Kotlin compilation but failed
+`mergeDebugNativeLibs` because VideoLAN and libmpv both package
+`libc++_shared.so` for the same ABI. Only opt-in lab builds now select
+one copy at packaging time (`pickFirsts`). This resolves duplicate APK
+entries, **not** runtime ABI compatibility. Both native players must be
+launched, switched, paused, seeked, released and profiled on actual ARM32
+and ARM64 devices with native tombstones inspected. Do not promote the
+experimental APK to a public stable release from CI packaging alone.

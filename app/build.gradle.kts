@@ -260,6 +260,12 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = false
+            if (enableExperimentalLibVlc) {
+                // Lab only: VideoLAN/libmpv bundle conflicting C++ runtimes.
+                // Selecting one native copy does not prove runtime compatibility;
+                // ARM32/ARM64 playback stress tests are still mandatory.
+                pickFirsts += setOf("**/libc++_shared.so")
+            }
         }
         resources {
             excludes += setOf(

@@ -62,8 +62,10 @@ jobs:
           set -euo pipefail
           apk="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
           test -n "$apk"
-          unzip -Z1 "$apk" | grep -qE '^lib/${{ matrix.abi }}/libtdjni\.so$'
-          unzip -Z1 "$apk" | grep -qE '^lib/${{ matrix.abi }}/libvlc\.so$'
+          unzip -Z1 "$apk" > "$RUNNER_TEMP/libvlc-apk-files.txt"
+          grep -qx "lib/${{ matrix.abi }}/libtdjni.so" "$RUNNER_TEMP/libvlc-apk-files.txt"
+          grep -qx "lib/${{ matrix.abi }}/libvlc.so" "$RUNNER_TEMP/libvlc-apk-files.txt"
+          grep -qx "lib/${{ matrix.abi }}/libc++_shared.so" "$RUNNER_TEMP/libvlc-apk-files.txt"
           sha256sum "$apk"
           echo "Opt-in lab APK only: not a production or default debug release"
 
