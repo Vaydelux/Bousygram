@@ -8,13 +8,37 @@ import android.view.TextureView
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
+import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.common.Player
+import androidx.media3.common.text.CueGroup
+import com.vaydelux.bousygram.core.media.SubtitleAppearance
 import com.vaydelux.bousygram.core.media.ExoPlayerEngine
 import com.vaydelux.bousygram.core.media.PlayerEngine
+
+/** Apply the same safe caption colors and scale to PlayerView and TextureView. */
+@OptIn(UnstableApi::class)
+internal fun applyTextSubtitleStyle(view: SubtitleView?, appearance: SubtitleAppearance) {
+    if (view == null) return
+    val preset = appearance.preset
+    view.setApplyEmbeddedStyles(false)
+    view.setApplyEmbeddedFontSizes(false)
+    view.setFractionalTextSize(appearance.exoFractionOfHeight)
+    view.setStyle(CaptionStyleCompat(
+        preset.textColor,
+        preset.backgroundColor,
+        android.graphics.Color.TRANSPARENT,
+        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+        preset.edgeColor,
+        null
+    ))
+}
 
 data class SurfaceDiagnosticState(
     val surfaceType: String = "None",
@@ -34,12 +58,14 @@ fun VideoSurfaceView(
     engine: PlayerEngine,
     resizeMode: Int,
     useTextureView: Boolean = false,
+    subtitleAppearance: SubtitleAppearance = SubtitleAppearance(),
     modifier: Modifier = Modifier,
     onSurfaceDiagnostic: ((SurfaceDiagnosticState) -> Unit)? = null
 ) {
     if (useTextureView) {
+        Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
-            modifier = modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 TextureView(context).apply {
                     layoutParams = ViewGroup.LayoutParams(
@@ -97,6 +123,37 @@ fun VideoSurfaceView(
                 onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("None", false, 0, 0))
             }
         )
+        if (engine is ExoPlayerEngine) {
+            // The bare TextureView path has no PlayerView, so supply its
+            // subtitle output separately. Keep it passive and remove the
+            // cue listener on disposal to avoid leaking the old player.
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context ->
+                    SubtitleView(context).apply {
+                        isClickable = false
+                        isFocusable = false
+                        applyTextSubtitleStyle(this, subtitleAppearance)
+                        setCues(engine.player.currentCues.cues)
+                        val target = this
+                        val observer = object : Player.Listener {
+                            override fun onCues(cueGroup: CueGroup) {
+                                target.setCues(cueGroup.cues)
+                            }
+                        }
+                        tag = observer
+                        engine.player.addListener(observer)
+                    }
+                },
+                update = { view -> applyTextSubtitleStyle(view, subtitleAppearance) },
+                onRelease = { view ->
+                    (view.tag as? Player.Listener)?.let(engine.player::removeListener)
+                    view.setCues(emptyList())
+                    view.tag = null
+                }
+            )
+        }
+        }
     } else if (engine is ExoPlayerEngine) {
         AndroidView(
             modifier = modifier.fillMaxSize(),
@@ -112,6 +169,7 @@ fun VideoSurfaceView(
                     setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                     this.resizeMode = resizeMode
                     this.player = engine.player
+                    applyTextSubtitleStyle(subtitleView, subtitleAppearance)
                     post {
                         onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("PlayerView (SurfaceView)", true, width, height))
                     }
@@ -122,6 +180,7 @@ fun VideoSurfaceView(
                     view.player = engine.player
                 }
                 view.resizeMode = resizeMode
+                applyTextSubtitleStyle(view.subtitleView, subtitleAppearance)
                 onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("PlayerView (SurfaceView)", true, view.width, view.height))
             },
             onRelease = { view ->

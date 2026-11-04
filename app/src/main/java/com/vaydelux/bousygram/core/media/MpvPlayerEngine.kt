@@ -387,6 +387,25 @@ class MpvPlayerEngine(
         }
     }
 
+    /** Text subtitle styling only; embedded bitmap subtitles cannot change color. */
+    fun applySubtitleAppearance(appearance: SubtitleAppearance) {
+        if (isDestroyed.get()) return
+        val preset = appearance.preset
+        // Apply each independent property defensively: vendor libmpv builds may
+        // support different subtitle style properties. None affects playback.
+        runCatching { mpv.setPropertyString("sub-color", preset.mpvTextRgb) }
+            .onFailure { Log.w(TAG, "Subtitle foreground setting unavailable", it) }
+        runCatching { mpv.setPropertyString("sub-border-color", preset.mpvEdgeRgb) }
+            .onFailure { Log.w(TAG, "Subtitle outline setting unavailable", it) }
+        runCatching { mpv.setPropertyDouble("sub-scale", appearance.mpvScale) }
+            .onFailure { Log.w(TAG, "Subtitle scale setting unavailable", it) }
+        runCatching { mpv.setPropertyInt("sub-border-size", 2) }
+            .onFailure { Log.w(TAG, "Subtitle outline size unavailable", it) }
+        runCatching { mpv.setPropertyString("sub-back-color",
+            if (preset == SubtitleColorPreset.BLACK) "#FFFFFF" else "#000000") }
+            .onFailure { Log.w(TAG, "Subtitle background setting unavailable", it) }
+    }
+
     override fun setPlaybackSpeed(speed: Float) {
         if (isDestroyed.get()) return
         try {

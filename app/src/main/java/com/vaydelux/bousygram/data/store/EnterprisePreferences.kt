@@ -6,6 +6,8 @@ import com.vaydelux.bousygram.app.BousygramApp
 import org.json.JSONArray
 import org.json.JSONObject
 import android.content.SharedPreferences
+import com.vaydelux.bousygram.core.media.SubtitleAppearance
+import com.vaydelux.bousygram.core.media.SubtitleColorPreset
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 
@@ -40,6 +42,8 @@ object EnterprisePreferences {
     private const val KEY_AUTO_PLAY_NEXT = "auto_play_next"
     private const val KEY_SUBTITLES_DEFAULT = "subtitles_default"
     private const val KEY_SUBTITLE_LANGUAGE = "subtitle_language"
+    private const val KEY_SUBTITLE_FONT_PERCENT = "subtitle_font_percent"
+    private const val KEY_SUBTITLE_COLOR_PRESET = "subtitle_color_preset"
     private const val KEY_SPEED = "preferred_speed"
     private const val KEY_BUFFER_MODE = "buffer_mode"
     private const val KEY_CACHE_LIMIT = "cache_limit"
@@ -150,6 +154,16 @@ object EnterprisePreferences {
 
     fun subtitlesDefault(): Boolean = prefs.getBoolean(KEY_SUBTITLES_DEFAULT, true)
     fun setSubtitlesDefault(value: Boolean) = prefs.edit { putBoolean(KEY_SUBTITLES_DEFAULT, value) }
+
+    fun subtitleAppearance(): SubtitleAppearance = SubtitleAppearance(
+        percent = prefs.getInt(KEY_SUBTITLE_FONT_PERCENT, 100).coerceIn(75, 200),
+        preset = SubtitleColorPreset.fromStored(prefs.getString(KEY_SUBTITLE_COLOR_PRESET, null))
+    )
+
+    fun setSubtitleAppearance(appearance: SubtitleAppearance) = prefs.edit {
+        putInt(KEY_SUBTITLE_FONT_PERCENT, appearance.safePercent)
+        putString(KEY_SUBTITLE_COLOR_PRESET, appearance.preset.name)
+    }
 
     fun subtitleLanguage(): String = prefs.getString(KEY_SUBTITLE_LANGUAGE, "en") ?: "en"
     fun setSubtitleLanguage(value: String) = prefs.edit { putString(KEY_SUBTITLE_LANGUAGE, value) }

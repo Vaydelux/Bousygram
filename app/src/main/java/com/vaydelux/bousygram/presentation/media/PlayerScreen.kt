@@ -27,6 +27,8 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import com.vaydelux.bousygram.core.media.SeekThumbnailManager
+import com.vaydelux.bousygram.core.media.SubtitleAppearance
+import com.vaydelux.bousygram.core.media.SubtitleColorPreset
 import com.vaydelux.bousygram.core.media.TdLibDataSource
 import com.vaydelux.bousygram.core.media.PlaybackFileRecovery
 import com.vaydelux.bousygram.core.cast.CastLanStreamingServer
@@ -264,6 +266,7 @@ fun PlayerScreen(
     var optionsPanelVisible by remember { mutableStateOf(false) }
     var cinematicMenuSection by remember { mutableStateOf(CinematicMenuSection.ROOT) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
+    var subtitleAppearance by remember { mutableStateOf(EnterprisePreferences.subtitleAppearance()) }
     var episodesDrawerVisible by remember { mutableStateOf(false) }
     var trayFocusedIndex by remember { mutableIntStateOf(0) }
     val trayFirstFocus = remember { FocusRequester() }
@@ -434,6 +437,9 @@ fun PlayerScreen(
         )
     }
     var playerEngine by engineOwner
+    LaunchedEffect(playerEngine, subtitleAppearance) {
+        (playerEngine as? MpvPlayerEngine)?.applySubtitleAppearance(subtitleAppearance)
+    }
     val engineSwitcher = remember(engineOwner, context) {
         PlaybackEngineSwitchCoordinator(engineOwner) { selection, selectedSpeed ->
             PlayerEngineFactory.create(context, selection, selectedSpeed)
@@ -2113,11 +2119,12 @@ fun PlayerScreen(
                 }
             }
     ) {
-        key(queueIndex, useTextureView) {
+        key(queueIndex, useTextureView, playerEngine) {
             VideoSurfaceView(
                 engine = playerEngine,
                 resizeMode = effectiveResizeMode,
                 useTextureView = useTextureView,
+                subtitleAppearance = subtitleAppearance,
                 onSurfaceDiagnostic = { diag ->
                     surfaceDiagnostic = diag
                 },
@@ -2328,6 +2335,11 @@ fun PlayerScreen(
             TrackPickerOverlay(
                 playerEngine = playerEngine,
                 compact = compactHud,
+                subtitleAppearance = subtitleAppearance,
+                onSubtitleAppearanceChange = { updated ->
+                    subtitleAppearance = updated
+                    EnterprisePreferences.setSubtitleAppearance(updated)
+                },
                 onClose = { tracksPanelVisible = false },
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
@@ -2998,6 +3010,8 @@ private fun VideoDebugHud(
 private fun TrackPickerOverlay(
     playerEngine: PlayerEngine,
     compact: Boolean,
+    subtitleAppearance: SubtitleAppearance,
+    onSubtitleAppearanceChange: (SubtitleAppearance) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -3079,6 +3093,50 @@ private fun TrackPickerOverlay(
                         "No subtitle tracks are available for this video.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            if (selectedType == MediaTrackInfo.TrackType.SUBTITLE) {
+                Text(
+                    "Text subtitle appearance",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    "Embedded image subtitles and video-burned captions cannot be recolored.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                SubtitleColorPreset.entries.forEach { preset ->
+                    TrackChoice(
+                        label = "${preset.title} subtitles",
+                        selected = subtitleAppearance.preset == preset,
+                        onSelect = {
+                            onSubtitleAppearanceChange(subtitleAppearance.copy(preset = preset))
+                        }
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    BousygramButton("A−", {
+                        onSubtitleAppearanceChange(
+                            subtitleAppearance.changedPercent(subtitleAppearance.safePercent - 10)
+                        )
+                    })
+                    Text(
+                        "Size ${subtitleAppearance.safePercent}%",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    BousygramButton("A+", {
+                        onSubtitleAppearanceChange(
+                            subtitleAppearance.changedPercent(subtitleAppearance.safePercent + 10)
+                        )
+                    })
+                }
             }
 
             visibleTracks.forEachIndexed { index, track ->
