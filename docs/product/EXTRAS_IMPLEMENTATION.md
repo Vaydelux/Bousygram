@@ -96,6 +96,26 @@ Do not place Telegram credentials in the Extras provider graph.
 - Coil handles poster/image decoding; test image cache and bitmap memory under
   ARM32 pressure before increasing poster sizes or prefetching.
 
+## Autocomplete and loading UI
+
+- Each provider's search field can reopen autocomplete on focus. Results are capped
+  at five, drawn only from the current provider, and dismissible via an explicit
+  **Dismiss** button or Android TV remote Back. Selecting a suggestion closes
+  the popup before opening details. Back from the dismissed popup continues to
+  the existing mode-selection route; search text is retained per tab.
+- Search has a focusable **Clear** action. An empty filtered result offers
+  **Clear search and filters**, so users can recover without a hidden menu.
+- First-page catalog and title-details loading use static responsive poster and
+  text placeholders instead of a single blank view. Placeholders are deliberately
+  animation-free for low-memory TV hardware and require no provider credentials.
+- Search suggestions have a separate, smaller Coil decode target: **64×96**
+  pixels on low-memory/32-bit devices and **96×144** on standard devices. This
+  does not change grid or details poster quality.
+- The Android emulator smoke suite exercises suggestion dismissal, provider
+  isolation, a DPAD_CENTER suggestion selection, and static skeleton rendering
+  without TMDB API credentials or AniList network access. Device/TV hardware
+  qualification remains separately required.
+
 ## TV and responsive acceptance criteria
 
 - On Android TV, D-pad can enter search, switch tabs, operate sort/genre/year/rating,
