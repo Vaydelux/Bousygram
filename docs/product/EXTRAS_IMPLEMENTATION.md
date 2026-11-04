@@ -65,9 +65,15 @@ Do not place Telegram credentials in the Extras provider graph.
 
 - On Android TV, D-pad can enter search, switch tabs, operate sort/genre/year/rating,
   select suggestions and posters, open details, seasons and external links.
+- On phone/tablet, Android Back first closes a visible embedded YouTube trailer
+  (destroying the WebView), then navigates out of title details on the next Back.
 - Back closes Credits, returns to the previous related-title details page, then
   returns to catalog with the prior grid scroll and selected-poster focus, and
   finally returns to the mode chooser.
+- Search suggestions expose visible focus borders for D-pad users; the three
+  catalog tabs remain horizontally scrollable on narrow screens and large fonts.
+- If TV season fetching fails, a Retry button is accessible without changing
+  seasons; before selection, clear guidance explains how to load episodes.
 - Phone portrait/landscape and tablet UI must remain readable, touch accessible,
   and landscape-safe.
 - Test with no TMDB key, no network, provider 429, missing poster, long title,
