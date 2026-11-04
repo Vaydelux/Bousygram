@@ -1,0 +1,39 @@
+package com.vaydelux.bousygram.presentation.extras
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ExtrasProviderPolicyTest {
+    @Test fun eachTabHasAnIsolatedCatalogRoute() {
+        assertEquals("/search/movie", ExtrasProviderPolicy.searchPath(ExtrasType.MOVIES, true))
+        assertEquals("/discover/movie", ExtrasProviderPolicy.searchPath(ExtrasType.MOVIES, false))
+        assertEquals("/search/tv", ExtrasProviderPolicy.searchPath(ExtrasType.TV, true))
+        assertEquals("/discover/tv", ExtrasProviderPolicy.searchPath(ExtrasType.TV, false))
+        assertEquals("/graphql", ExtrasProviderPolicy.searchPath(ExtrasType.ANIME, true))
+        assertEquals("/graphql", ExtrasProviderPolicy.searchPath(ExtrasType.ANIME, false))
+        assertEquals("AniList", ExtrasType.ANIME.provider)
+        assertEquals("TMDB", ExtrasType.TV.provider)
+    }
+
+    @Test fun trailerKeyRejectsUrlPayloadAndInvalidCharacters() {
+        assertEquals("dQw4w9WgXcQ", ExtrasProviderPolicy.youtubeId("dQw4w9WgXcQ"))
+        assertNull(ExtrasProviderPolicy.youtubeId("https://youtube.com/watch?v=123"))
+        assertNull(ExtrasProviderPolicy.youtubeId("javascript:alert(1)"))
+        assertNull(ExtrasProviderPolicy.youtubeId(""))
+        assertNull(ExtrasProviderPolicy.youtubeId("a"))
+    }
+
+    @Test fun filtersAreProviderSpecificAndDefaultSafe() {
+        assertTrue(ExtrasProviderPolicy.genres(ExtrasType.MOVIES).any { it.first == "Horror" && it.second == "27" })
+        assertTrue(ExtrasProviderPolicy.genres(ExtrasType.TV).any { it.first == "Mystery" })
+        assertTrue(ExtrasProviderPolicy.genres(ExtrasType.ANIME).any { it.first == "Slice of Life" })
+        assertFalse(ExtrasProviderPolicy.genres(ExtrasType.ANIME).any { it.second == "27" })
+        assertEquals("All", ExtrasFilters().genre)
+        assertEquals(0, ExtrasFilters().minimumRating)
+        assertNotNull(ExtrasSort.entries.firstOrNull { it.label == "Top rated" })
+    }
+}
