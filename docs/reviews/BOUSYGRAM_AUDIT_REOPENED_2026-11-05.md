@@ -59,3 +59,25 @@ native ABI compatibility gate.
 **Release policy:** a debug APK is a device-test candidate, not enterprise
 production readiness. Do not promise defect-free playback or label unsupported
 native seek behavior as resolved.
+
+## Reopened audit follow-up: seek/cache and native recovery
+
+- **High-impact fix:** Several remote, touch and MediaSession seek handlers
+  called `CacheManager.onSeek` even when `PlayerEngine.canSeek` was false.
+  The cache could then move its byte window while MPEG-TS playback correctly
+  remained at its previous decoder position. Cache repositioning now occurs
+  in one central accepted-seek function only. A failed seek clears previous
+  preview feedback and does not claim success.
+- Native EOF events are now distinguished from stop/reload, and an unexpected
+  END_FILE while READY becomes a retryable engine error instead of leaving
+  a silent READY state.
+- Companion controls cannot claim +10 seconds or Start Over when the
+  decoder has rejected the request.
+
+### Why this remains a device test candidate
+
+The source changes prevent a known class of invalid seek/cache operations.
+They do not create a seek index for source MPEG-TS files. The Android
+emulator does not model the CPU/decoder, private MTProto download timings,
+and memory pressure of a 32-bit consumer TV; production sign-off remains
+dependent on the real playback matrix documented above.

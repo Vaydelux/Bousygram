@@ -1926,15 +1926,20 @@ fun PlayerScreen(
                 val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                 val base = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
                 val newPos = relativePlayerSeekTarget(base, seconds * 1000L, knownDuration)
-                if (castState.connected) CastSessionController.seekTo(newPos) else {
-                    performTrackedSeek(newPos)
-                }
+                if (castState.connected) CastSessionController.seekTo(newPos)
+                else if (!performTrackedSeek(newPos)) return
                 seekFeedbackText = if (seconds > 0) "+${seconds}s" else "${seconds}s"
                 seekFeedbackSide = if (seconds > 0) 1 else -1
             }
 
             override fun previewSeekRelative(seconds: Int) {
                 hudInteractionTick++
+                if (!castState.connected && !playerEngine.canSeek) {
+                    seekPreviewPositionMs = -1L
+                    seekFeedbackText = null
+                    toastFeedbackText = "This video has no available seek index."
+                    return
+                }
                 val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
                 val base = seekPreviewPositionMs.takeIf { it >= 0L }
                     ?: if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
@@ -2039,11 +2044,14 @@ fun PlayerScreen(
                             val delta = if (offset.x < size.width / 2f) -SEEK_INCREMENT_MS else SEEK_INCREMENT_MS
                             val base = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
                             val newPos = (base + delta).coerceIn(0L, max)
-                            if (castState.connected) CastSessionController.seekTo(newPos) else {
-                                performTrackedSeek(newPos)
+                            val accepted = if (castState.connected) {
+                                CastSessionController.seekTo(newPos)
+                                true
+                            } else performTrackedSeek(newPos)
+                            if (accepted) {
+                                seekFeedbackText = if (delta < 0) "-10s" else "+10s"
+                                seekFeedbackSide = if (delta < 0) -1 else 1
                             }
-                            seekFeedbackText = if (delta < 0) "-10s" else "+10s"
-                            seekFeedbackSide = if (delta < 0) -1 else 1
                         }
                         hudVisible = true
                         hudInteractionTick++
@@ -2825,9 +2833,10 @@ fun PlayerScreen(
                     .padding(top = 28.dp, end = 28.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .clickable {
-                        performTrackedSeek(0L)
-                        showResumeRestartOption = false
-                        toastFeedbackText = "Restarted from beginning"
+                        if (performTrackedSeek(0L)) {
+                            showResumeRestartOption = false
+                            toastFeedbackText = "Restarted from beginning"
+                        }
                     },
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
