@@ -69,7 +69,8 @@ data class ExtrasDetail(
     val related: List<ExtrasItem> = emptyList(),
     val backdrop: String? = null,
     val youtubeId: String? = null,
-    val legalStreamingLinks: List<ExtrasStreamingLink> = emptyList()
+    val legalStreamingLinks: List<ExtrasStreamingLink> = emptyList(),
+    val watchCountries: List<ExtrasWatchAvailability> = emptyList()
 )
 
 /** Pure routing policy. Provider IDs must never be guessed or interchanged. */
@@ -102,6 +103,12 @@ object ExtrasProviderPolicy {
     /** GraphQL may return errors with HTTP 200; never cache those bodies. */
     fun mayCacheResponse(isGraphQl: Boolean, containsGraphQlErrors: Boolean): Boolean =
         !isGraphQl || !containsGraphQlErrors
+
+    /** Preserve literal slash in TMDB append tokens such as watch/providers. */
+    fun encodeTmdbQueryValue(key: String, value: String): String {
+        val encoded = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+        return if (key == "append_to_response") encoded.replace("%2F", "/") else encoded
+    }
 
     fun youtubeId(id: String?): String? =
         id?.takeIf { it.length in 6..24 && it.matches(Regex("[A-Za-z0-9_-]+")) }
@@ -277,7 +284,8 @@ object ExtrasCatalogApi {
         val tv = item.type == ExtrasType.TV
         val namespace = if (tv) "tv" else "movie"
         val obj = tmdbGet("/$namespace/${item.id}", mapOf(
-            "language" to "en-US", "append_to_response" to "credits,videos,reviews,recommendations"
+            "language" to "en-US",
+            "append_to_response" to "credits,videos,reviews,recommendations,watch/providers"
         ))
         val current = tmdbItem(item.type, obj) ?: item
         val cast = arrayObjects(obj.optJSONObject("credits")?.optJSONArray("cast")).take(16).map {
@@ -321,7 +329,11 @@ object ExtrasCatalogApi {
             related = arrayObjects(obj.optJSONObject("recommendations")?.optJSONArray("results"))
                 .mapNotNull { tmdbItem(item.type, it) }.take(12),
             backdrop = tmdbImage(obj.optString("backdrop_path"), "w780"),
-            youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("key"))
+            youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("key")),
+            watchCountries = ExtrasWatchProviders.parse(
+                obj.optJSONObject("watch/providers")?.optJSONObject("results"),
+                java.util.Locale.getDefault().country
+            )
         )
     }
 
@@ -521,7 +533,7 @@ object ExtrasCatalogApi {
             throw IOException("TMDB API key is not configured. Add TMDB_API_KEY to local.properties.")
         }
         val query = (params + ("api_key" to key)).entries.joinToString("&") {
-            "${encode(it.key)}=${encode(it.value)}"
+            "${encode(it.key)}=${ExtrasProviderPolicy.encodeTmdbQueryValue(it.key, it.value)}"
         }
         // Credentials are not recorded in error messages or logs.
         return requestJson("$TMDB$path?$query", null, ttlMs = 5 * 60_000L)

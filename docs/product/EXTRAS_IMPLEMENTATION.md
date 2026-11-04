@@ -14,8 +14,15 @@ streaming gateway, playback queue) is not queried or modified by Extras.
 | TV Shows | TMDB v3 | /search/tv | /discover/tv, /trending/tv/week | /tv/{id}, on-demand /tv/{id}/season/{n} |
 | Anime | AniList public GraphQL | Media(type: ANIME, search:...) | Page(media(type: ANIME,...)) | Media(id, type: ANIME) |
 
-TMDB details use append_to_response=credits,videos,reviews,recommendations to
-avoid four extra requests. Anime details include characters/Japanese voice
+TMDB details use append_to_response=credits,videos,reviews,recommendations,watch/providers
+to load regional streaming/transaction provider metadata without another request.
+The watch/providers append segment keeps the literal slash for compatibility.
+Only a capped set of regions, beginning with the device's locale, and at most
+20 offers per region are materialized to protect ARM32 memory. The detail page
+shows subscription/free/rental/purchase options with country filtering and
+links only to TMDB's official availability page. No stream URLs are exposed.
+JustWatch attribution is mandatory when displaying this data.
+Provider listings are informational and may be outdated or incomplete. Anime details include characters/Japanese voice
 actors, staff, reviews, relations, trailer reference, next-airing schedule,
 and AniList's optional streamingEpisodes (external HTTPS links only).
 
