@@ -85,6 +85,7 @@ fun TelegramExplorerDashboard(
     onSelectTab: (ExplorerSection) -> Unit,
     onSelectSource: (VideoChatItem) -> Unit,
     onSelectTopic: (Int) -> Unit,
+    onBrowseAllMedia: () -> Unit,
     focusedTopicId: Int?,
     onTopicFocused: (Int) -> Unit,
     onGoUp: () -> Unit,
@@ -190,7 +191,8 @@ fun TelegramExplorerDashboard(
                     Text("Bousygram",
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelSmall)
-                    Text("Your library", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Your library", color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
                 if (hasResume) OutlinedButton(onClick = onResume, modifier = Modifier.heightIn(min = 48.dp)) { Text("Continue") }
                 OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
@@ -202,7 +204,8 @@ fun TelegramExplorerDashboard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Bousygram", color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelSmall)
-                    Text("Your library", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Your library", color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
                 OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
                 OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Settings") }
@@ -352,6 +355,28 @@ fun TelegramExplorerDashboard(
                     if (privacyMode) {
                         Text("· Privacy mode", style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                if (showTopics) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = onBrowseAllMedia,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                                .testTag("forum-browse-all-media"),
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) { Text("Browse group media", maxLines = 2) }
+                        if (isLoadingTopics || errorMessage != null) {
+                            OutlinedButton(
+                                onClick = onRefreshTopics,
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                                    .testTag("forum-retry-topics"),
+                                contentPadding = PaddingValues(horizontal = 6.dp)
+                            ) { Text("Retry topics", maxLines = 2) }
+                        }
                     }
                 }
             }

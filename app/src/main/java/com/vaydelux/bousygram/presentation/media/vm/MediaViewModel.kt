@@ -145,6 +145,15 @@ class MediaViewModel(
     private var mediaRequestGeneration = 0L
     private var sourceRequestGeneration = 0L
     private var topicRequestGeneration = 0L
+    private var topicLoadingTimeoutJob: Job? = null
+    private var cancelForumTopicRequest: (() -> Unit)? = null
+
+    private fun cancelForumTopicLoading() {
+        topicLoadingTimeoutJob?.cancel()
+        topicLoadingTimeoutJob = null
+        cancelForumTopicRequest?.invoke()
+        cancelForumTopicRequest = null
+    }
     private var quickSearchGeneration = 0L
     private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
     private val sourceFolderRestorations = java.util.concurrent.ConcurrentHashMap<ExplorerSection, BrowseRestoration>()
@@ -299,6 +308,7 @@ class MediaViewModel(
                     ++mediaRequestGeneration
                     ++sourceRequestGeneration
                     ++topicRequestGeneration
+                    cancelForumTopicLoading()
                     chatUpdateJob?.cancel()
                     deferredChatSourceLoadJob?.cancel()
                     quickSearchJob?.cancel()
@@ -333,6 +343,7 @@ class MediaViewModel(
             ++mediaRequestGeneration
             ++sourceRequestGeneration
             ++topicRequestGeneration
+            cancelForumTopicLoading()
             chatUpdateJob?.cancel()
             deferredChatSourceLoadJob?.cancel()
             quickSearchJob?.cancel()
@@ -360,6 +371,7 @@ class MediaViewModel(
     }
 
     fun selectExplorerSection(section: ExplorerSection) {
+        cancelForumTopicLoading()
         _explorerPosition.value = ExplorerPosition(
             section = section,
             level = if (section == ExplorerSection.SAVED) ExplorerLevel.MEDIA else ExplorerLevel.SOURCES
@@ -397,6 +409,7 @@ class MediaViewModel(
             selectExplorerSection(ExplorerSection.SAVED)
             return
         }
+        if (_uiState.value.selectedChatId != source.chatId) cancelForumTopicLoading()
         _explorerPosition.value = _explorerPosition.value.copy(
             level = if (source.isForum) ExplorerLevel.TOPICS else ExplorerLevel.MEDIA
         )
@@ -466,14 +479,34 @@ class MediaViewModel(
         val source = _uiState.value
         if (source.selectedChatId == null || source.availableTopics.none { it.id == topicId }) return
         rememberExplorerTopicFocus(source.selectedChatId, topicId)
+        cancelForumTopicLoading() // Do not compete with the selected topic's media request.
+        _uiState.update { it.copy(isLoadingTopics = false) }
         _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
         selectTopic(topicId)
+    }
+
+    /** Allow browsing real group media even if GetForumTopics is unavailable or slow. */
+    fun enterExplorerAllMedia() {
+        if (_explorerPosition.value.level != ExplorerLevel.TOPICS) return
+        val source = _uiState.value
+        val chatId = source.selectedChatId ?: return
+        if (source.isSavedMessages || source.videoChats.none { it.chatId == chatId && it.isForum }) return
+        cancelForumTopicLoading()
+        ++topicRequestGeneration // Invalidate any already-dispatched callbacks.
+        _uiState.update { it.copy(isLoadingTopics = false) }
+        _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
+        loadTopic(null, force = true)
     }
 
     fun explorerBack(): Boolean {
         val position = _explorerPosition.value
         if (position.section == ExplorerSection.SAVED || position.level == ExplorerLevel.SOURCES) return false
         val source = _uiState.value.videoChats.firstOrNull { it.chatId == _uiState.value.selectedChatId }
+        if (position.level == ExplorerLevel.TOPICS) {
+            cancelForumTopicLoading()
+            ++topicRequestGeneration
+            _uiState.update { it.copy(isLoadingTopics = false) }
+        }
         _explorerPosition.value = position.copy(
             level = if (position.level == ExplorerLevel.MEDIA && source?.isForum == true) {
                 ExplorerLevel.TOPICS
@@ -485,6 +518,7 @@ class MediaViewModel(
     }
 
     override fun onCleared() {
+        cancelForumTopicLoading()
         chatUpdateJob?.cancel()
         chatUpdateJob = null
         deferredChatSourceLoadJob?.cancel()
@@ -690,26 +724,60 @@ class MediaViewModel(
         if (_uiState.value.videoChats.none { it.chatId == chatId && it.isForum }) return
         val owner = AccountSession.current() ?: return
         val generation = mediaRequestGeneration
+        cancelForumTopicLoading()
         val topicGeneration = ++topicRequestGeneration
         val cached = if (force) null else freshTopics(chatId)
         if (cached != null) {
             _uiState.update { current ->
                 if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
-                    current.copy(availableTopics = cached, isLoadingTopics = false)
+                    current.copy(availableTopics = cached, isLoadingTopics = false, error = null)
                 } else current
             }
             return
         }
-        _uiState.update { it.copy(isLoadingTopics = true) }
-        repository.loadForumTopics(chatId) { topics, error ->
-            if (!AccountSession.isCurrent(owner) ||
-                generation != mediaRequestGeneration ||
-                topicGeneration != topicRequestGeneration
-            ) return@loadForumTopics
+        fun stillCurrent(): Boolean =
+            AccountSession.isCurrent(owner) &&
+                generation == mediaRequestGeneration &&
+                topicGeneration == topicRequestGeneration &&
+                _uiState.value.selectedChatId == chatId &&
+                !_uiState.value.isSavedMessagesSelected
+
+        fun armTimeout() {
+            topicLoadingTimeoutJob?.cancel()
+            topicLoadingTimeoutJob = viewModelScope.launch {
+                delay(FORUM_TOPIC_PAGE_TIMEOUT_MS)
+                if (!stillCurrent()) return@launch
+                // Do not display an endless skeleton when TDLib never calls back.
+                cancelForumTopicLoading()
+                ++topicRequestGeneration
+                _uiState.update { current ->
+                    if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
+                        current.copy(
+                            isLoadingTopics = false,
+                            error = "Telegram topics took too long to respond. Retry topics or browse all group media."
+                        )
+                    } else current
+                }
+            }
+        }
+
+        _uiState.update { current ->
+            if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
+                current.copy(isLoadingTopics = true, error = null)
+            } else current
+        }
+        armTimeout()
+        cancelForumTopicRequest = repository.loadForumTopics(chatId) { topics, error, isFinal ->
+            if (!stillCurrent()) return@loadForumTopics
+            if (isFinal) {
+                topicLoadingTimeoutJob?.cancel()
+                topicLoadingTimeoutJob = null
+                cancelForumTopicRequest = null
+            } else armTimeout()
             _uiState.update { current ->
                 if (current.selectedChatId != chatId || current.isSavedMessagesSelected) current
                 else {
-                    if (error == null) {
+                    if (isFinal && error == null) {
                         snapshotKey("chat:" + chatId + ":topics")?.let { key ->
                             synchronized(catalogSnapshotLock) {
                                 topicSnapshots[key] = TopicSnapshot(
@@ -724,8 +792,8 @@ class MediaViewModel(
                     }
                     current.copy(
                         availableTopics = if (error != null && current.availableTopics.isNotEmpty()) current.availableTopics else topics,
-                        isLoadingTopics = false,
-                        error = error ?: current.error
+                        isLoadingTopics = !isFinal,
+                        error = error
                     )
                 }
             }
@@ -1277,3 +1345,4 @@ private const val MAX_CACHED_CATALOG_ITEMS = 120
 private const val MAX_ENRICHED_MEDIA_KEYS = 768
 private const val MAX_THUMBNAIL_FAILURES = 256
 private const val MAX_INFLIGHT_THUMBNAILS = 24
+private const val FORUM_TOPIC_PAGE_TIMEOUT_MS = 9_000L

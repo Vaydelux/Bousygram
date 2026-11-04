@@ -77,8 +77,12 @@ class SavedMessagesRepository {
         onUpdate: (List<VideoChatItem>, String?, Boolean) -> Unit
     ) = loadVideoChatsInternal(limit, selectedChatId, onUpdate)
 
-    fun loadForumTopics(chatId: Long, query: String = "", onResult: (List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>, String?) -> Unit) =
-        loadForumTopicsInternal(chatId, query, onResult)
+    /** Returns a cancellation handle so stale topic pages cannot outlive navigation. */
+    fun loadForumTopics(
+        chatId: Long,
+        query: String = "",
+        onUpdate: (List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>, String?, Boolean) -> Unit
+    ): () -> Unit = loadForumTopicsInternal(chatId, query, onUpdate)
 
     fun fetchThumbnailPath(fileId: Int, onResult: (String?) -> Unit) =
         fetchThumbnailPathInternal(fileId, onResult)

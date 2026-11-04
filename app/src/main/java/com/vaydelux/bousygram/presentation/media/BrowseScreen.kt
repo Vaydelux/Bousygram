@@ -327,6 +327,7 @@ fun BrowseScreen(
                 onSelectTab = viewModel::selectExplorerSection,
                 onSelectSource = viewModel::enterExplorerSource,
                 onSelectTopic = viewModel::enterExplorerTopic,
+                onBrowseAllMedia = viewModel::enterExplorerAllMedia,
                 focusedTopicId = viewModel.focusedExplorerTopic(state.selectedChatId),
                 onTopicFocused = { topicId ->
                     viewModel.rememberExplorerTopicFocus(state.selectedChatId, topicId)

@@ -44,6 +44,7 @@ fun TvHybridPreviewHost() {
         onSelectTab = {},
         onSelectSource = {},
         onSelectTopic = {},
+        onBrowseAllMedia = {},
         focusedTopicId = null,
         onTopicFocused = {},
         onGoUp = {},
