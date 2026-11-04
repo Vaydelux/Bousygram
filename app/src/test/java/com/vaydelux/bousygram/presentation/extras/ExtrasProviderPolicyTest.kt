@@ -19,6 +19,23 @@ class ExtrasProviderPolicyTest {
         assertEquals("TMDB", ExtrasType.TV.provider)
     }
 
+    @Test fun tmdbTrendingUsesTrendingInsteadOfPopularityRoute() {
+        assertEquals("/trending/movie/week",
+            ExtrasProviderPolicy.tmdbBrowsePath(ExtrasType.MOVIES, false, ExtrasSort.TRENDING))
+        assertEquals("/trending/tv/week",
+            ExtrasProviderPolicy.tmdbBrowsePath(ExtrasType.TV, false, ExtrasSort.TRENDING))
+        assertEquals("/search/movie",
+            ExtrasProviderPolicy.tmdbBrowsePath(ExtrasType.MOVIES, true, ExtrasSort.TRENDING))
+        assertEquals("/discover/tv",
+            ExtrasProviderPolicy.tmdbBrowsePath(ExtrasType.TV, false, ExtrasSort.TOP_RATED))
+        try {
+            ExtrasProviderPolicy.tmdbBrowsePath(ExtrasType.ANIME, false, ExtrasSort.TRENDING)
+            org.junit.Assert.fail("AniList must not route to TMDB")
+        } catch (_: IllegalArgumentException) {
+            // Provider isolation is intentional.
+        }
+    }
+
     @Test fun trailerKeyRejectsUrlPayloadAndInvalidCharacters() {
         assertEquals("dQw4w9WgXcQ", ExtrasProviderPolicy.youtubeId("dQw4w9WgXcQ"))
         assertNull(ExtrasProviderPolicy.youtubeId("https://youtube.com/watch?v=123"))

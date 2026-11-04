@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -48,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -97,7 +99,17 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             ExtrasType.ANIME -> anime = new
         }
     }
+    // Keep independent scroll state across tab switches and details navigation.
+    val movieGrid = rememberLazyGridState()
+    val tvGrid = rememberLazyGridState()
+    val animeGrid = rememberLazyGridState()
+    val activeGrid = when (type) {
+        ExtrasType.MOVIES -> movieGrid
+        ExtrasType.TV -> tvGrid
+        ExtrasType.ANIME -> animeGrid
+    }
     var detailItem by remember { mutableStateOf<ExtrasItem?>(null) }
+    val detailHistory = remember { mutableStateListOf<ExtrasItem>() }
     var detailRetry by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<ExtrasDetail?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
@@ -107,13 +119,19 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var episodeError by remember { mutableStateOf<String?>(null) }
     var seasonLoading by remember { mutableStateOf(false) }
 
+    fun openFromResults(item: ExtrasItem) {
+        detailHistory.clear()
+        detailItem = item
+    }
+    fun goBackFromDetails() {
+        detailItem = if (detailHistory.isNotEmpty()) detailHistory.removeAt(detailHistory.lastIndex) else null
+        detail = null
+        selectedSeason = null
+        episodes = emptyList()
+    }
+
     BackHandler {
-        if (detailItem != null) {
-            detailItem = null
-            detail = null
-            selectedSeason = null
-            episodes = emptyList()
-        } else onExit()
+        if (detailItem != null) goBackFromDetails() else onExit()
     }
 
     // Debounce queries, cancel obsolete network coroutines, and isolate per-tab results.
@@ -182,7 +200,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             Column(Modifier.fillMaxWidth().padding(horizontal = if (metrics.isCompact) 12.dp else 26.dp, vertical = 10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = {
-                        if (detailItem != null) detailItem = null else onExit()
+                        if (detailItem != null) goBackFromDetails() else onExit()
                     }) { Text("← Back") }
                     Column {
                         Text(if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
@@ -217,7 +235,10 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             } else detail?.let { info ->
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
                     onSeason = { selectedSeason = it },
-                    onOpenItem = { detailItem = it },
+                    onOpenItem = { related ->
+                        detailItem?.let { detailHistory.add(it) }
+                        detailItem = related
+                    },
                     modifier = Modifier.padding(padding),
                     compact = metrics.isCompact)
             }
@@ -246,7 +267,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             items(state.results.take(5), key = { "${it.type}:${it.id}" }) { item ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth()
-                                        .clickable { detailItem = item }
+                                        .clickable { openFromResults(item) }
                                         .padding(6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -281,7 +302,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         }
                     }
                     item {
-                        val years = listOf("Any year") + (2026 downTo 1980).map(Int::toString)
+                        val years = listOf("Any year") + (java.time.Year.now().value downTo 1980).map(Int::toString)
                         ExtrasDropdown("Year: ${state.filters.year ?: "Any"}", years) { index ->
                             update(state.copy(filters = state.filters.copy(year = years[index].toIntOrNull()),
                                 page = 1, results = emptyList(), loading = true, hasMore = true))
@@ -315,8 +336,17 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 if (state.results.isEmpty() && state.loading) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 } else if (state.results.isEmpty() && !state.loading && state.error == null) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No ${type.label.lowercase()} found. Change your search or filters.")
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("No matches on this page. Change your search or filters.")
+                        if (state.hasMore && state.page > 0) {
+                            TextButton(onClick = {
+                                update(state.copy(page = state.page + 1, loading = true, error = null))
+                            }) { Text("Check next page") }
+                        }
                     }
                 } else {
                     val minWidth = when {
@@ -324,11 +354,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         metrics.isCompact -> 132.dp
                         else -> 155.dp
                     }
-                    LazyVerticalGrid(columns = GridCells.Adaptive(minWidth), modifier = Modifier.fillMaxSize(),
+                    LazyVerticalGrid(columns = GridCells.Adaptive(minWidth), state = activeGrid, modifier = Modifier.fillMaxSize(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(state.results, key = { "${it.type}:${it.id}" }) { item ->
-                            ExtrasPosterCard(item) { detailItem = item }
+                            ExtrasPosterCard(item) { openFromResults(item) }
                         }
                         if (state.hasMore && state.results.isNotEmpty()) {
                             item {
