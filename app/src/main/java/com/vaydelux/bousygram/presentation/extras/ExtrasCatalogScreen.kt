@@ -125,6 +125,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     var restorePosterFocus by remember { mutableIntStateOf(0) }
     var restoredPosterFocus by remember { mutableIntStateOf(0) }
+    var showCredits by remember { mutableStateOf(false) }
     var detailRetry by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<ExtrasDetail?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
@@ -160,7 +161,31 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
 
     BackHandler {
-        if (detailItem != null) goBackFromDetails() else onExit()
+        when {
+            showCredits -> showCredits = false
+            detailItem != null -> goBackFromDetails()
+            else -> onExit()
+        }
+    }
+
+    if (showCredits) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showCredits = false },
+            title = { Text("Extras · Sources & Credits") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Movies and TV Shows: The Movie Database (TMDB).")
+                    Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
+                    Text("Anime: AniList. Titles, artwork, community ratings and linked episodes come from AniList.")
+                    Text("Trailers and official episode links open in external apps. Bousygram does not host or stream those videos.")
+                    Text("TMDB: themoviedb.org · AniList: anilist.co",
+                        style = MaterialTheme.typography.labelSmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCredits = false }) { Text("Close") }
+            }
+        )
     }
 
     // Debounce queries, cancel obsolete network coroutines, and isolate per-tab results.
@@ -234,12 +259,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     OutlinedButton(onClick = {
                         if (detailItem != null) goBackFromDetails() else onExit()
                     }) { Text("← Back") }
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
                             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text("Catalog metadata · TMDB / AniList",
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    TextButton(onClick = { showCredits = true }) { Text("Credits") }
                 }
                 if (detailItem == null) {
                     Spacer(Modifier.height(8.dp))
