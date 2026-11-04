@@ -80,6 +80,30 @@ class PlaybackInteractionPolicyTest {
         assertEquals(0L, recoveryPositionMs(-1L, -99L, -45L))
     }
 
+    @Test fun transientAudioFocusLossResumesOnlyOnGainAndWithoutUserPause() {
+        val gate = AudioFocusRecoveryPolicy()
+        gate.onFocusLost(transient = true, wasPlayRequested = true)
+        assertTrue(gate.isSuppressed)
+        gate.noteExplicitPause()
+        assertFalse(gate.onFocusGained(mayResume = true))
+        gate.onFocusLost(transient = true, wasPlayRequested = true)
+        assertFalse(gate.onFocusGained(mayResume = false))
+        gate.onFocusLost(transient = true, wasPlayRequested = true)
+        assertTrue(gate.onFocusGained(mayResume = true))
+        assertFalse(gate.onFocusGained(mayResume = true))
+    }
+
+    @Test fun permanentAudioFocusLossNeverAutoResumes() {
+        val gate = AudioFocusRecoveryPolicy()
+        gate.onFocusLost(transient = false, wasPlayRequested = true)
+        assertTrue(gate.isSuppressed)
+        assertFalse(gate.onFocusGained(mayResume = true))
+        assertFalse(shouldRestorePlayIntent(
+            isReady = true, explicitlyPaused = false, inForeground = true,
+            castConnected = false, isPlaying = false, audioFocusSuppressed = true
+        ))
+    }
+
     @Test fun relativeSeekWorksWithoutDurationAndStopsAtKnownEnd() {
         assertEquals(10_000L, relativePlayerSeekTarget(0L, 10_000L, 0L))
         assertEquals(20_000L, relativePlayerSeekTarget(10_000L, 10_000L, 0L))

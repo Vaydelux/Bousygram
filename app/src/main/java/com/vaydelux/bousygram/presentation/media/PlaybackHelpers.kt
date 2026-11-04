@@ -141,8 +141,10 @@ internal fun shouldRestorePlayIntent(
     explicitlyPaused: Boolean,
     inForeground: Boolean,
     castConnected: Boolean,
-    isPlaying: Boolean
-): Boolean = isReady && !explicitlyPaused && inForeground && !castConnected && !isPlaying
+    isPlaying: Boolean,
+    audioFocusSuppressed: Boolean = false
+): Boolean = isReady && !explicitlyPaused && inForeground &&
+    !castConnected && !audioFocusSuppressed && !isPlaying
 
 /** TS has no mandatory time index; only seek after the actual demuxer declares support. */
 internal fun canSeekTransportStream(
@@ -159,6 +161,35 @@ internal fun recoveryPositionMs(
     lastConfirmedMs: Long
 ): Long = if (pendingSeekTargetMs >= 0L) pendingSeekTargetMs
 else maxOf(enginePositionMs, lastConfirmedMs).coerceAtLeast(0L)
+
+/**
+ * An interrupted audio focus is not an explicit user pause.
+ * Never re-arm playback without a fresh focus-gain event.
+ */
+internal class AudioFocusRecoveryPolicy {
+    @Volatile var isSuppressed: Boolean = false
+        private set
+    private var resumePending = false
+
+    fun onFocusLost(transient: Boolean, wasPlayRequested: Boolean) {
+        isSuppressed = true
+        resumePending = transient && (wasPlayRequested || resumePending)
+    }
+
+    fun onFocusGained(mayResume: Boolean): Boolean {
+        isSuppressed = false
+        val resume = resumePending && mayResume
+        resumePending = false
+        return resume
+    }
+
+    fun noteExplicitPause() { resumePending = false }
+
+    fun reset() {
+        isSuppressed = false
+        resumePending = false
+    }
+}
 
 /** During buffering isPlaying may be false even when autoplay is armed.
  * The play/pause button must cancel that pending autoplay, not reissue play.

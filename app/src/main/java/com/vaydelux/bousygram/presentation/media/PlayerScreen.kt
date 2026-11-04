@@ -449,6 +449,7 @@ fun PlayerScreen(
         val resume = recoveryPositionMs(pendingSeekTargetMs, position, lastGoodPosition)
         engineSwitcher.switchTo(target, speed).fold(
             onSuccess = {
+                audioFocusController.abandon()
                 lastGoodPosition = resume
                 pendingResumeMs = resume
                 toastFeedbackText = feedback
@@ -469,6 +470,13 @@ fun PlayerScreen(
     }
 
     val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
+    // Updated on every composition, so native focus regain checks the current
+    // user Pause, Activity lifecycle and active Cast state.
+    audioFocusController.canAutomaticallyResume = {
+        !explicitlyPaused &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+            !castState.connected
+    }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
     var castWasConnected by remember { mutableStateOf(false) }
     var castWasPlaying by remember { mutableStateOf(false) }
@@ -533,7 +541,10 @@ fun PlayerScreen(
     }
 
     fun pauseLocalPlayback(userInitiated: Boolean = true) {
-        if (userInitiated) explicitlyPaused = true
+        if (userInitiated) {
+            explicitlyPaused = true
+            audioFocusController.noteUserPause()
+        }
         // Pausing ends the current stall; do not count time spent paused as network buffering.
         if (rebufferStartMs > 0L) {
             totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
@@ -572,7 +583,8 @@ fun PlayerScreen(
         // Transport/decoder stalls are not user-initiated pauses.
         if (!explicitlyPaused &&
             lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
-            !castState.connected && !playerEngine.playWhenReady
+            !castState.connected && !audioFocusController.isSuppressed &&
+            !playerEngine.playWhenReady
         ) {
             playerEngine.play()
         }
@@ -686,7 +698,9 @@ fun PlayerScreen(
                 activeLocalStreamUrl = hotSwappedUrl
                 playerEngine.prepare(hotSwappedUrl)
                 if (pos > 0L) playerEngine.seekTo(pos)
-                if (resumeAfterRebind) playerEngine.play()
+                if (resumeAfterRebind && !explicitlyPaused && !audioFocusController.isSuppressed) {
+                    playerEngine.play()
+                }
             }
         }
     }
@@ -974,7 +988,8 @@ fun PlayerScreen(
                             explicitlyPaused = explicitlyPaused,
                             inForeground = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED),
                             castConnected = castState.connected,
-                            isPlaying = playerEngine.isPlaying
+                            isPlaying = playerEngine.isPlaying,
+                            audioFocusSuppressed = audioFocusController.isSuppressed
                         )) playerEngine.play()
                     isPlaying = playerEngine.isPlaying
                     if (isPlaying) audioFocusController.request(playerEngine)
@@ -1066,6 +1081,7 @@ fun PlayerScreen(
                             PlayerEngineFactory.createFallback(context, playerEngine, speed)
                         }.fold(
                             onSuccess = { (_, pos) ->
+                                audioFocusController.abandon()
                                 pendingResumeMs = if (pos > 0L) pos else retryPosition
                                 lastGoodPosition = pendingResumeMs
                                 retryCount = 1
@@ -1411,8 +1427,9 @@ fun PlayerScreen(
         pendingResumeMs = resumePosition
         playerEngine.prepare(streamUrl)
         playerEngine.setPlaybackSpeed(speed)
-        if (explicitlyPaused) {
-            // Network retry and cache-ahead state changes cannot re-arm Play.
+        if (explicitlyPaused || audioFocusController.isSuppressed) {
+            // Neither buffering nor native reprepare may override a user Pause
+            // or an audio-focus interruption.
             playerEngine.pause()
             isPlaying = false
         } else {
@@ -1868,7 +1885,11 @@ fun PlayerScreen(
                     pauseLocalPlayback()
                 } else {
                     explicitlyPaused = false
-                    playerEngine.play()
+                    if (audioFocusController.request(playerEngine, userRequested = true)) {
+                        playerEngine.play()
+                    } else {
+                        toastFeedbackText = "Audio is in use by another app. Try Play again."
+                    }
                 }
                 hudVisible = true
             }
@@ -1878,7 +1899,11 @@ fun PlayerScreen(
                 if (castState.connected) CastSessionController.play()
                 else if (!playerEngine.isPlaying) {
                     explicitlyPaused = false
-                    playerEngine.play()
+                    if (audioFocusController.request(playerEngine, userRequested = true)) {
+                        playerEngine.play()
+                    } else {
+                        toastFeedbackText = "Audio is in use by another app. Try Play again."
+                    }
                 }
                 hudVisible = true
             }
@@ -2272,7 +2297,11 @@ fun PlayerScreen(
                         pauseLocalPlayback()
                     } else {
                         explicitlyPaused = false
-                        playerEngine.play()
+                        if (audioFocusController.request(playerEngine, userRequested = true)) {
+                            playerEngine.play()
+                        } else {
+                            toastFeedbackText = "Audio is in use by another app. Try Play again."
+                        }
                     }
                 },
                 onSeekBy = { delta ->
@@ -3402,23 +3431,43 @@ private fun formatMs(ms: Long): String {
 
 private class PlayerAudioFocusController(context: Context) {
     private val audioManager: AudioManager? = context.getSystemService(AudioManager::class.java)
+    private val policy = AudioFocusRecoveryPolicy()
     private var focusRequest: AudioFocusRequest? = null
     private var currentEngine: PlayerEngine? = null
+    private var hasFocus = false
+
+    var canAutomaticallyResume: () -> Boolean = { false }
+    val isSuppressed: Boolean get() = policy.isSuppressed
+
     private val listener = AudioManager.OnAudioFocusChangeListener { change ->
         val engine = currentEngine ?: return@OnAudioFocusChangeListener
         when (change) {
-            AudioManager.AUDIOFOCUS_LOSS -> engine.pause()
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> engine.pause()
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                policy.onFocusLost(
+                    transient = change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                    wasPlayRequested = engine.playWhenReady
+                )
+                engine.pause()
+                if (change == AudioManager.AUDIOFOCUS_LOSS) hasFocus = false
+            }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> Unit
-            AudioManager.AUDIOFOCUS_GAIN -> Unit
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                hasFocus = true
+                if (policy.onFocusGained(canAutomaticallyResume())) engine.play()
+            }
         }
     }
 
-    fun request(engine: PlayerEngine) {
-        val audioManager = audioManager ?: return
+    /** One focus request per engine, not one per Ready/rebuffer callback. */
+    fun request(engine: PlayerEngine, userRequested: Boolean = false): Boolean {
+        val manager = audioManager ?: return true
+        if (currentEngine === engine && hasFocus && !policy.isSuppressed) return true
+        if (currentEngine === engine && policy.isSuppressed && !userRequested) return false
+        abandon()
         currentEngine = engine
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val requested = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -3427,23 +3476,39 @@ private class PlayerAudioFocusController(context: Context) {
                 )
                 .setOnAudioFocusChangeListener(listener)
                 .build()
-            focusRequest = request
-            audioManager.requestAudioFocus(request)
+            focusRequest = requested
+            manager.requestAudioFocus(requested)
         } else {
             @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            manager.requestAudioFocus(
+                listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN
+            )
         }
+        hasFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (hasFocus) {
+            policy.reset()
+        } else {
+            policy.onFocusLost(transient = false, wasPlayRequested = false)
+            engine.pause()
+        }
+        return hasFocus
     }
 
+    fun noteUserPause() = policy.noteExplicitPause()
+
     fun abandon() {
-        val audioManager = audioManager ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(listener)
+        val manager = audioManager
+        if (manager != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                focusRequest?.let(manager::abandonAudioFocusRequest)
+            } else if (currentEngine != null) {
+                @Suppress("DEPRECATION")
+                manager.abandonAudioFocus(listener)
+            }
         }
+        hasFocus = false
         focusRequest = null
         currentEngine = null
+        policy.reset()
     }
 }
