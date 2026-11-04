@@ -64,10 +64,13 @@ native seek behavior as resolved.
 
 - **High-impact fix:** Several remote, touch and MediaSession seek handlers
   called `CacheManager.onSeek` even when `PlayerEngine.canSeek` was false.
-  The cache could then move its byte window while MPEG-TS playback correctly
-  remained at its previous decoder position. Cache repositioning now occurs
-  in one central accepted-seek function only. A failed seek clears previous
-  preview feedback and does not claim success.
+  This callback **cancels speculative low-priority prefetch**, not the active
+  download byte window. Calling it on rejected seeks could discard useful
+  prefetch work. It now runs only once after the player reports seekability.
+  Media3 DataSpec or mpv HTTP Range requests drive actual byte-window
+  repositioning in `TelegramChunkScheduler`. A reported seekable flag
+  does not guarantee that the native seek will complete successfully; its
+  final position still requires decoder confirmation.
 - Native EOF events are now distinguished from stop/reload, and an unexpected
   END_FILE while READY becomes a retryable engine error instead of leaving
   a silent READY state.
