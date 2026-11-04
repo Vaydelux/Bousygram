@@ -463,4 +463,3 @@ object ExtrasCatalogApi {
         return (0 until arr.length()).mapNotNull(arr::optJSONObject)
     }
 }
-}
