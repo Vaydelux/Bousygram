@@ -84,7 +84,12 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                 }
                 MediaPlayer.Event.Stopped -> {
                     playing = false
-                    if (!stoppedByOwner && filePrepared) {
+                    if (!stoppedByOwner && filePrepared &&
+                        state.value !is EnginePlaybackState.Ended
+                    ) {
+                        // VLC can report Stopped after EndReached. Preserve a
+                        // genuine EOF instead of converting it into a false
+                        // stream error and triggering unnecessary retry.
                         state.value = EnginePlaybackState.Error(
                             "Experimental LibVLC stopped before playback completed"
                         )
