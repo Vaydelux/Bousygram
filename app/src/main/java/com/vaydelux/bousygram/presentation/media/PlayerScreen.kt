@@ -2279,10 +2279,14 @@ fun PlayerScreen(
                 onExit = ::exitPlayback,
                 onStartOver = {
                     hudInteractionTick++
-                    if (castState.connected) CastSessionController.seekTo(0L)
-                    else if (!performTrackedSeek(0L)) return@onStartOver
-                    showResumeRestartOption = false
-                    toastFeedbackText = "Restarted from beginning"
+                    val accepted = if (castState.connected) {
+                        CastSessionController.seekTo(0L)
+                        true
+                    } else performTrackedSeek(0L)
+                    if (accepted) {
+                        showResumeRestartOption = false
+                        toastFeedbackText = "Restarted from beginning"
+                    }
                 },
                 onRetry = {
                     hudInteractionTick++
