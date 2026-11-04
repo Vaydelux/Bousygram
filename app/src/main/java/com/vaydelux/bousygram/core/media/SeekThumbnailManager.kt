@@ -136,7 +136,17 @@ object SeekThumbnailManager {
                 } else null
                 val rawFrame = scaledFrame ?: runCatching {
                     retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                        ?.let { Bitmap.createScaledBitmap(it, TARGET_WIDTH, TARGET_HEIGHT, true) }
+                        ?.let { original ->
+                            var resized: Bitmap? = null
+                            try {
+                                resized = Bitmap.createScaledBitmap(
+                                    original, TARGET_WIDTH, TARGET_HEIGHT, true
+                                )
+                                resized
+                            } finally {
+                                if (resized !== original && !original.isRecycled) original.recycle()
+                            }
+                        }
                 }.getOrNull()
 
                 if (rawFrame != null) {

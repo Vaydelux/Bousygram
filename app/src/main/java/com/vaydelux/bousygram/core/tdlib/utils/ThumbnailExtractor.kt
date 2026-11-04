@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.core.tdlib.utils
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import android.os.Build
 import android.util.Log
 import android.util.AtomicFile
 import androidx.core.graphics.scale
@@ -32,6 +33,36 @@ internal fun thumbnailMemoryBudgetKiB(heapBytes: Long, lowRam: Boolean, preview:
 
 object ThumbnailExtractor {
     private const val TAG = "ThumbnailExtractor"
+    private const val POSTER_WIDTH = 320
+    private const val POSTER_HEIGHT = 180
+
+    /**
+     * Native scaled-frame API avoids materializing a 4K/8K bitmap on 32-bit TVs.
+     * Only old devices or noncompliant codecs use the full-frame fallback.
+     */
+    private fun boundedFrameAtTime(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            val scaled = runCatching {
+                retriever.getScaledFrameAtTime(
+                    timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    POSTER_WIDTH, POSTER_HEIGHT
+                )
+            }.getOrNull()
+            if (scaled != null) return scaled
+        }
+        val original = retriever.getFrameAtTime(
+            timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+        ) ?: return null
+        var resized: Bitmap? = null
+        return try {
+            resized = original.scale(POSTER_WIDTH, POSTER_HEIGHT, true)
+            resized
+        } finally {
+            // The fallback can temporarily allocate a large native bitmap.
+            // Release it immediately rather than waiting for GC after every card.
+            if (resized !== original && !original.isRecycled) original.recycle()
+        }
+    }
 
     // Dynamically sized based on device RAM and 32-bit / 64-bit architecture
     private val isLowRam: Boolean by lazy {
@@ -132,7 +163,7 @@ object ThumbnailExtractor {
                 sequenceOf(0L, 1_000_000L, 3_000_000L)
                     .mapNotNull { time ->
                         runCatching {
-                            retriever.getFrameAtTime(time, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                            boundedFrameAtTime(retriever, time)
                         }.getOrNull()
                     }.firstOrNull()
             } catch (e: Exception) {
@@ -142,7 +173,7 @@ object ThumbnailExtractor {
                 runCatching { retriever.release() }
             } ?: return@withPermit null
             if (!AccountSession.isCurrent(owner)) return@withPermit null
-            val scaled = frame.scale(320, 180, true)
+            val scaled = frame
             synchronized(diskWriteLock) {
                 if (!AccountSession.isCurrent(owner)) return@withPermit null
                 if (!dir.exists() && !dir.mkdirs()) return@withPermit null
@@ -194,10 +225,10 @@ object ThumbnailExtractor {
             Log.d(TAG, "Extracting a frame from the authenticated local stream")
             retriever.setDataSource(streamUrl, HashMap<String, String>())
             // Retrieve frame at 5 seconds (5000000 microseconds)
-            val bitmap = retriever.getFrameAtTime(5000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            val bitmap = boundedFrameAtTime(retriever, 5_000_000L)
             if (bitmap != null && AccountSession.isCurrent(owner)) {
                 // Resize for efficiency on TV layout
-                val scaled = bitmap.scale(320, 180, true)
+                val scaled = bitmap
                 // Cache to disk
                 synchronized(diskWriteLock) {
                     if (!AccountSession.isCurrent(owner)) return@withContext null
@@ -253,9 +284,9 @@ object ThumbnailExtractor {
         try {
             Log.d(TAG, "Extracting seek preview for fileId=$fileId at ${timeBucketMs}ms duration=$durationMs")
             retriever.setDataSource(streamUrl, HashMap<String, String>())
-            val bitmap = retriever.getFrameAtTime(timeBucketMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            val bitmap = boundedFrameAtTime(retriever, timeBucketMs * 1000L)
             if (bitmap != null && AccountSession.isCurrent(owner)) {
-                val scaled = bitmap.scale(320, 180, true)
+                val scaled = bitmap
                 synchronized(diskWriteLock) {
                     if (!AccountSession.isCurrent(owner)) return@withContext null
                     val atomic = AtomicFile(diskFile)
