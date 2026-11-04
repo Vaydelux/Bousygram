@@ -490,7 +490,7 @@ class MediaViewModel(
         if (_explorerPosition.value.level != ExplorerLevel.TOPICS) return
         val source = _uiState.value
         val chatId = source.selectedChatId ?: return
-        if (source.isSavedMessages || source.videoChats.none { it.chatId == chatId && it.isForum }) return
+        if (source.isSavedMessagesSelected || source.videoChats.none { it.chatId == chatId && it.isForum }) return
         cancelForumTopicLoading()
         ++topicRequestGeneration // Invalidate any already-dispatched callbacks.
         _uiState.update { it.copy(isLoadingTopics = false) }
