@@ -569,7 +569,10 @@ internal fun ExtrasSearchSuggestions(
     onOpen: (ExtrasItem) -> Unit,
     onDismiss: () -> Unit
 ) {
-    if (suggestions.isEmpty()) return
+    // Defense in depth: never offer a TMDB item in AniList autocomplete
+    // (or vice versa), even if a stale upstream result is accidentally passed.
+    val visible = suggestions.filter { it.type == type }.take(5)
+    if (visible.isEmpty()) return
     Surface(
         tonalElevation = 4.dp,
         shape = RoundedCornerShape(12.dp),
@@ -593,7 +596,7 @@ internal fun ExtrasSearchSuggestions(
                 ) { Text("Dismiss") }
             }
             LazyColumn(modifier = Modifier.heightIn(max = 154.dp)) {
-                items(suggestions.take(5), key = { "${it.type}:${it.id}" }) { item ->
+                items(visible, key = { "${it.type}:${it.id}" }) { item ->
                     var focused by remember(item.type, item.id) { mutableStateOf(false) }
                     Row(
                         modifier = Modifier.fillMaxWidth()
