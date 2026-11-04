@@ -21,6 +21,7 @@ class ExtrasProviderPolicyTest {
         assertFalse(ExtrasProviderPolicy.tmdbKeyConfigured(""))
         assertFalse(ExtrasProviderPolicy.tmdbKeyConfigured("  "))
         assertFalse(ExtrasProviderPolicy.tmdbKeyConfigured("TMDB_API_KEY_DEFAULT_VALUE"))
+        assertFalse(ExtrasProviderPolicy.tmdbKeyConfigured("  TMDB_API_KEY_DEFAULT_VALUE  "))
         assertTrue(ExtrasProviderPolicy.tmdbKeyConfigured("configured-fixture-key"))
         assertTrue(ExtrasProviderPolicy.tmdbKeyConfigured("  configured-fixture-key  "))
     }
