@@ -8,6 +8,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExtrasProviderPolicyTest {
+    @Test fun anilistPaginationStopsAtProviderMaximum() {
+        assertTrue(ExtrasProviderPolicy.animeHasNextPage(1, true))
+        assertTrue(ExtrasProviderPolicy.animeHasNextPage(199, true))
+        assertFalse(ExtrasProviderPolicy.animeHasNextPage(200, true))
+        assertFalse(ExtrasProviderPolicy.animeHasNextPage(201, true))
+        assertFalse(ExtrasProviderPolicy.animeHasNextPage(12, false))
+        assertFalse(ExtrasProviderPolicy.animeHasNextPage(0, true))
+    }
+
+    @Test fun tmdbKeyReadinessDoesNotExposeOrRequireASecret() {
+        assertFalse(ExtrasProviderPolicy.tmdbKeyConfigured(""))
+        assertFalse(ExtrasProviderPolicy.tmdbKeyConfigured("  "))
+        assertFalse(ExtrasProviderPolicy.tmdbKeyConfigured("TMDB_API_KEY_DEFAULT_VALUE"))
+        assertTrue(ExtrasProviderPolicy.tmdbKeyConfigured("configured-fixture-key"))
+        assertTrue(ExtrasProviderPolicy.tmdbKeyConfigured("  configured-fixture-key  "))
+    }
+
     @Test fun tmdbOriginalLanguagesRemainSeparateFromAnime() {
         assertTrue(ExtrasProviderPolicy.tmdbLanguages().contains("English" to "en"))
         assertTrue(ExtrasProviderPolicy.tmdbLanguages().contains("Filipino (Tagalog)" to "tl"))

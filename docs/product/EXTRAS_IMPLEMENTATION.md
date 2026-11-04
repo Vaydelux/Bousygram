@@ -96,6 +96,23 @@ Do not place Telegram credentials in the Extras provider graph.
 - Coil handles poster/image decoding; test image cache and bitmap memory under
   ARM32 pressure before increasing poster sizes or prefetching.
 
+## TMDB credentials intentionally deferred
+
+- TMDB Movies and TV Shows show a dedicated setup-pending state instead of
+  repeatedly attempting an unconfigured provider request or displaying a
+  developer-facing `local.properties` instruction. The state includes a
+  focusable **Browse Anime** action available by remote DPAD_CENTER.
+- AniList remains independent and needs no TMDB credential. No key, placeholder
+  value, or credential validation detail is shown in the catalog interface.
+- The same bounded provider readiness policy is exercised by JVM tests, and
+  the setup-pending screen by offline Android emulator instrumentation.
+- AniList pagination stops at its supported page 200 even when a malformed
+  provider response still advertises a next page, avoiding repeated terminal
+  requests and unnecessary rate-limit consumption.
+- TMDB credential injection is explicitly deferred until the maintainer
+  configures the key and builds a new APK. This is not a live-key management
+  feature and is not evidence that the TMDB endpoints were tested live.
+
 ## Autocomplete and loading UI
 
 - Each provider's search field can reopen autocomplete on focus. Results are capped

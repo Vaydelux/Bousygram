@@ -139,6 +139,16 @@ object ExtrasProviderPolicy {
         "On hiatus" to "HIATUS", "Cancelled" to "CANCELLED"
     )
 
+    /** No provider secret is ever returned to the UI or written to a log. */
+    fun tmdbKeyConfigured(raw: String): Boolean {
+        val key = raw.trim()
+        return key.isNotEmpty() && key != "TMDB_API_KEY_DEFAULT_VALUE"
+    }
+
+    /** Prevent repeated fetches of the terminal AniList page (max 200). */
+    fun animeHasNextPage(page: Int, providerHasNext: Boolean): Boolean =
+        page in 1 until 200 && providerHasNext
+
     /** GraphQL may return errors with HTTP 200; never cache those bodies. */
     fun mayCacheResponse(isGraphQl: Boolean, containsGraphQlErrors: Boolean): Boolean =
         !isGraphQl || !containsGraphQlErrors
@@ -182,6 +192,9 @@ object ExtrasProviderPolicy {
 
 /** Small, bounded HTTP/JSON reader; short-lived cache limits memory on 32-bit TVs. */
 object ExtrasCatalogApi {
+    val hasTmdbCredentials: Boolean
+        get() = ExtrasProviderPolicy.tmdbKeyConfigured(BuildConfig.TMDB_API_KEY)
+
     private const val TMDB = "https://api.themoviedb.org/3"
     private const val ANILIST = "https://graphql.anilist.co"
     private const val MAX_BYTES = 2_000_000
@@ -411,7 +424,13 @@ object ExtrasCatalogApi {
         val result = animePost(gql, variables).optJSONObject("data")?.optJSONObject("Page")
             ?: throw IOException("AniList returned no catalog data")
         val items = arrayObjects(result.optJSONArray("media")).mapNotNull(::animeItem)
-        return ExtrasPage(items, result.optJSONObject("pageInfo")?.optBoolean("hasNextPage") == true, page)
+        val currentPage = page.coerceIn(1, 200)
+        val providerHasNext = result.optJSONObject("pageInfo")?.optBoolean("hasNextPage") == true
+        return ExtrasPage(
+            items,
+            ExtrasProviderPolicy.animeHasNextPage(currentPage, providerHasNext),
+            currentPage
+        )
     }
 
     private fun animeItem(obj: JSONObject): ExtrasItem? {
@@ -564,8 +583,8 @@ object ExtrasCatalogApi {
 
     private suspend fun tmdbGet(path: String, params: Map<String, String>): JSONObject {
         val key = BuildConfig.TMDB_API_KEY.trim()
-        if (key.isEmpty() || key == "TMDB_API_KEY_DEFAULT_VALUE") {
-            throw IOException("TMDB API key is not configured. Add TMDB_API_KEY to local.properties.")
+        if (!ExtrasProviderPolicy.tmdbKeyConfigured(key)) {
+            throw IOException("Movies and TV Shows are not configured yet. Anime remains available.")
         }
         val query = (params + ("api_key" to key)).entries.joinToString("&") {
             "${encode(it.key)}=${ExtrasProviderPolicy.encodeTmdbQueryValue(it.key, it.value)}"
