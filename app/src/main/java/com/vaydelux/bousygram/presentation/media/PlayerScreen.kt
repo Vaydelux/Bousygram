@@ -418,7 +418,15 @@ fun PlayerScreen(
             session = playbackSession,
             initialEngine = PlayerEngineFactory.create(
                 context = context,
-                preferredEngine = initialProbe?.recommendedEngine ?: EnterprisePreferences.selectedPlayerEngine(),
+                // Explicit decoder selection wins. AUTO prefers libmpv for
+                // MPEG-TS; otherwise use the hardware capability recommendation.
+                preferredEngine = when (val selected = EnterprisePreferences.selectedPlayerEngine()) {
+                    SelectedPlayerEngine.AUTO -> if (queue.getOrNull(initialIndex)?.let {
+                        VideoFormatSupport.isTransportStream(it.fileName, it.mimeType)
+                    } == true) SelectedPlayerEngine.MPV
+                    else initialProbe?.recommendedEngine ?: SelectedPlayerEngine.AUTO
+                    else -> selected
+                },
                 preferredSpeed = speed,
                 fileName = queue.getOrNull(initialIndex)?.fileName,
                 mimeType = queue.getOrNull(initialIndex)?.mimeType
