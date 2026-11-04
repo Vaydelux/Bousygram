@@ -6,11 +6,16 @@ internal data class ExtrasArtworkSize(val width: Int, val height: Int) {
 }
 
 internal object ExtrasImagePolicy {
-    fun poster(lowMemory: Boolean, detail: Boolean): ExtrasArtworkSize =
-        when {
-            lowMemory && detail -> ExtrasArtworkSize(360, 540)
-            lowMemory -> ExtrasArtworkSize(240, 360)
-            detail -> ExtrasArtworkSize(640, 960)
-            else -> ExtrasArtworkSize(360, 540)
-        }
+    fun poster(
+        lowMemory: Boolean,
+        detail: Boolean,
+        suggestion: Boolean = false
+    ): ExtrasArtworkSize = when {
+        suggestion && lowMemory -> ExtrasArtworkSize(64, 96)
+        suggestion -> ExtrasArtworkSize(96, 144)
+        lowMemory && detail -> ExtrasArtworkSize(360, 540)
+        lowMemory -> ExtrasArtworkSize(240, 360)
+        detail -> ExtrasArtworkSize(640, 960)
+        else -> ExtrasArtworkSize(360, 540)
+    }
 }
