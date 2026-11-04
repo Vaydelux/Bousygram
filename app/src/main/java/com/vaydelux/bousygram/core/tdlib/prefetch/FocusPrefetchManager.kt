@@ -12,6 +12,7 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramLeaseReleaseReason
 import com.vaydelux.bousygram.core.tdlib.server.TelegramStreamConsumer
 import com.vaydelux.bousygram.domain.model.MediaItem
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,8 +69,10 @@ object FocusPrefetchManager {
         }
 
         val previous = focusedItem
+        // Repeated focus events for the same card must not accumulate old
+        // debounce jobs, which can race to download the same file.
+        cancelCurrentDebounce()
         if (previous?.fileId != fileId) {
-            cancelCurrentDebounce()
             previous?.fileId?.let { cancelPrefetch(it) }
         }
 
@@ -130,7 +133,8 @@ object FocusPrefetchManager {
         val fileId = item.fileId ?: return
         if (activePrefetchJobs.containsKey(fileId)) return
 
-        val job = scope.launch {
+        // LAZY + putIfAbsent avoids the completed-before-registration race.
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             val lease = TelegramChunkScheduler.acquireLease(
                 fileId = fileId,
                 offset = 0L,
@@ -176,11 +180,17 @@ object FocusPrefetchManager {
                 releaseReason = TelegramLeaseReleaseReason.Failed
                 Log.d(TAG, "Focus prefetch interrupted for fileId=$fileId: ${e.message}")
             } finally {
-                activePrefetchJobs.remove(fileId)
+                kotlin.coroutines.coroutineContext[Job]?.let { completed ->
+                    activePrefetchJobs.remove(fileId, completed)
+                }
                 TelegramChunkScheduler.releaseLease(lease, releaseReason)
             }
         }
-        activePrefetchJobs[fileId] = job
+        if (activePrefetchJobs.putIfAbsent(fileId, job) != null) {
+            job.cancel()
+            return
+        }
+        job.start()
     }
 
     private suspend fun downloadSegment(
