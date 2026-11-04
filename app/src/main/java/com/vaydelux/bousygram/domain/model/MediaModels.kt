@@ -119,6 +119,8 @@ data class MediaUiState(
     val preparingFileId: Int? = null,
     val hasMore: Boolean = true,
     val nextFromMessageId: Long = 0L,
+    /** Earlier catalog rows released from the active memory window. */
+    val discardedMediaCount: Int = 0,
     val videoChats: List<VideoChatItem> = emptyList(),
     val isSidebarLoading: Boolean = false,
     val sidebarError: String? = null,

@@ -21,6 +21,12 @@ public interface VideoDao {
     @Query("SELECT * FROM videos WHERE chatId = :chatId AND topicId = :topicId ORDER BY messageId DESC")
     List<VideoEntity> getVideosByChatAndTopic(long chatId, long topicId);
 
+    @Query("SELECT * FROM videos WHERE chatId = :chatId ORDER BY messageId DESC LIMIT :limit")
+    List<VideoEntity> getVideosByChatLimited(long chatId, int limit);
+
+    @Query("SELECT * FROM videos WHERE chatId = :chatId AND topicId = :topicId ORDER BY messageId DESC LIMIT :limit")
+    List<VideoEntity> getVideosByChatAndTopicLimited(long chatId, long topicId, int limit);
+
     @Query("SELECT * FROM videos WHERE title LIKE '%' || :query || '%' ORDER BY lastSeen DESC LIMIT :limit")
     List<VideoEntity> searchVideos(String query, int limit);
 

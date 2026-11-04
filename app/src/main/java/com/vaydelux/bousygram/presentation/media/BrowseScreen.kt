@@ -164,7 +164,7 @@ fun BrowseScreen(
     // The library fetches media metadata a page at a time from TDLib. Near the end of the
     // currently loaded grid, prefetch the next metadata page automatically, without downloading
     // video bytes; playback remains the responsibility of the existing ExoPlayer stream path.
-    LaunchedEffect(libraryMode, videos.size, state.hasMore, state.isLoading, state.isLoadingMore) {
+    LaunchedEffect(libraryMode, videos.size, state.hasMore, state.isLoading, state.isLoadingMore, state.discardedMediaCount) {
         if (!libraryMode) return@LaunchedEffect
         snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .distinctUntilChanged()
@@ -175,7 +175,7 @@ fun BrowseScreen(
                     libraryGridState.firstVisibleItemScrollOffset
                 )
                 val threshold = (videos.size - LIBRARY_PREFETCH_ITEMS_REMAINING).coerceAtLeast(0)
-                if (!state.isLoading && !state.isLoadingMore && state.hasMore &&
+                if (!state.isLoading && !state.isLoadingMore && state.hasMore && state.discardedMediaCount == 0 &&
                     videos.isNotEmpty() && lastVisibleIndex >= threshold
                 ) {
                     viewModel.loadMoreIfNeeded()
@@ -308,6 +308,7 @@ fun BrowseScreen(
                 sourceErrorMessage = state.sidebarError,
                 isLoadingMore = state.isLoadingMore,
                 hasMore = state.hasMore,
+                discardedMediaCount = state.discardedMediaCount,
                 privacyMode = safeMode,
                 gridState = libraryGridState,
                 sourceFolderRestoration = viewModel.sourceFolderRestoration(explorerPosition.section),

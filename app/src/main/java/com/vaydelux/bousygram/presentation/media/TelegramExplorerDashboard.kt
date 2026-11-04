@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -74,6 +76,7 @@ fun TelegramExplorerDashboard(
     sourceErrorMessage: String?,
     isLoadingMore: Boolean,
     hasMore: Boolean,
+    discardedMediaCount: Int,
     privacyMode: Boolean,
     gridState: LazyGridState,
     sourceFolderRestoration: BrowseRestoration,
@@ -166,12 +169,12 @@ fun TelegramExplorerDashboard(
     BackHandler(enabled = position.section != ExplorerSection.SAVED && position.level != ExplorerLevel.SOURCES) {
         onGoUp()
     }
-    LaunchedEffect(showMedia, videos.size, hasMore, isLoading, isLoadingMore) {
+    LaunchedEffect(showMedia, videos.size, hasMore, isLoading, isLoadingMore, discardedMediaCount) {
         if (!showMedia || videos.isEmpty()) return@LaunchedEffect
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .distinctUntilChanged()
             .collect { index ->
-                if (index >= videos.size - 6 && hasMore && !isLoading && !isLoadingMore) onLoadMore()
+                if (index >= videos.size - 6 && hasMore && discardedMediaCount == 0 && !isLoading && !isLoadingMore) onLoadMore()
             }
     }
 
@@ -450,6 +453,35 @@ fun TelegramExplorerDashboard(
                             onClick = { onPlay(item) },
                             onFocusChanged = { focused -> if (focused) onFocusMedia(item) }
                         )
+                    }
+                    if (discardedMediaCount > 0) {
+                        item(key = "bounded-media-notice", span = { GridItemSpan(maxLineSpan) }) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().testTag("telegram-media-window-notice"),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    "Showing ${videos.size} results in this window. Earlier cards were released to save memory.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedButton(
+                                    onClick = onRefreshMedia,
+                                    modifier = Modifier.heightIn(min = 48.dp).testTag("telegram-media-from-start")
+                                ) { Text("From start") }
+                            }
+                        }
+                        if (hasMore && !isLoadingMore) {
+                            item(key = "manual-older-media", span = { GridItemSpan(maxLineSpan) }) {
+                                OutlinedButton(
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                        .testTag("telegram-media-load-older"),
+                                    onClick = onLoadMore
+                                ) { Text("More older media") }
+                            }
+                        }
                     }
                     if (isLoadingMore) item(key = "loading-more") { Text("Loading more…") }
                 }

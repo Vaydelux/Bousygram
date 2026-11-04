@@ -59,6 +59,7 @@ class MediaViewModel(
         val items: List<MediaItem>,
         val nextFromMessageId: Long,
         val hasMore: Boolean,
+        val discardedMediaCount: Int,
         val savedAtMs: Long = android.os.SystemClock.elapsedRealtime()
     )
     private val catalogSnapshots = LinkedHashMap<String, CatalogSnapshot>(12, 0.75f, true)
@@ -83,7 +84,7 @@ class MediaViewModel(
         freshCatalogTimestamp(it.savedAtMs, android.os.SystemClock.elapsedRealtime(), freshnessWindowMs)
     }
 
-    private fun rememberCatalog(folder: String, videos: List<MediaItem>, nextCursor: Long) {
+    private fun rememberCatalog(folder: String, videos: List<MediaItem>, nextCursor: Long, discardedMediaCount: Int = 0) {
         // Never store a cursor for a truncated page. It would skip uncached
         // media when the user returns to a deep folder after pagination.
         if (videos.isEmpty()) return
@@ -99,7 +100,8 @@ class MediaViewModel(
             catalogSnapshots[key] = CatalogSnapshot(
                 items = videos,
                 nextFromMessageId = nextCursor,
-                hasMore = nextCursor != 0L
+                hasMore = nextCursor != 0L,
+                discardedMediaCount = discardedMediaCount
             )
             while (catalogSnapshots.size > 8) {
                 catalogSnapshots.remove(catalogSnapshots.keys.first())
@@ -130,6 +132,14 @@ class MediaViewModel(
     val uiState: StateFlow<MediaUiState> = _uiState
     val recentSearches: StateFlow<List<RecentSearchQuery>> = RecentSearchRepository.recentSearches
     private val pageSize = 30
+    private val activeCatalogLimit: Int by lazy {
+        val lowMemory = runCatching {
+            val app = com.vaydelux.bousygram.app.BousygramApp.instance
+            com.vaydelux.bousygram.core.media.PlayerBufferConfig.isLowRamDevice(app) ||
+                !android.os.Process.is64Bit()
+        }.getOrDefault(true)
+        TelegramMediaWindow.itemLimit(lowMemory)
+    }
     private var isInitialized = false
     private var hasLoadedVideoChats = false
     private var mediaRequestGeneration = 0L
@@ -373,6 +383,7 @@ class MediaViewModel(
                         isLoadingMore = false,
                         error = null,
                         hasMore = snapshot.hasMore,
+                        discardedMediaCount = snapshot.discardedMediaCount,
                         nextFromMessageId = snapshot.nextFromMessageId,
                         videoChats = current.videoChats.map { it.copy(isSelected = it.isSavedMessages) }
                     )
@@ -410,6 +421,7 @@ class MediaViewModel(
                         isLoading = false,
                         isLoadingMore = false,
                         hasMore = false,
+                        discardedMediaCount = 0,
                         nextFromMessageId = 0L,
                         quickSearchQuery = "",
                         error = null,
@@ -437,6 +449,7 @@ class MediaViewModel(
                         isLoadingMore = false,
                         error = null,
                         hasMore = snapshot.hasMore,
+                        discardedMediaCount = snapshot.discardedMediaCount,
                         nextFromMessageId = snapshot.nextFromMessageId,
                         videoChats = current.videoChats.map { it.copy(isSelected = !it.isSavedMessages && it.chatId == source.chatId) }
                     )
@@ -506,6 +519,7 @@ class MediaViewModel(
                 selectedChatId = null,
                 isSavedMessagesSelected = true,
                 hasMore = true,
+                discardedMediaCount = 0,
                 isLoadingMore = false,
                 items = savedMessagesOnly(
                     if (it.isSavedMessagesSelected && it.items.isNotEmpty()) it.items else warmSaved,
@@ -619,6 +633,7 @@ class MediaViewModel(
                 selectedTopicId = null,
                 isLoadingTopics = false,
                 hasMore = true,
+                discardedMediaCount = 0,
                 isLoadingMore = false,
                 items = if (!it.isSavedMessagesSelected && it.selectedChatId == chatId && it.items.isNotEmpty()) it.items else warmChat?.items ?: emptyList(),
                 nextFromMessageId = 0L,
@@ -743,6 +758,7 @@ class MediaViewModel(
                 isLoading = true,
                 error = null,
                 hasMore = true,
+                discardedMediaCount = 0,
                 isLoadingMore = false,
                 items = warmTopic?.items ?: emptyList(),
                 nextFromMessageId = 0L
@@ -821,10 +837,10 @@ class MediaViewModel(
             val existing = if (current.isSavedMessagesSelected) {
                 savedMessagesOnly(current.items, repository.cachedSavedMessagesChatId)
             } else current.items.filter { it.chatId == current.selectedChatId }
-            val merged = (existing + scopedItems)
-                .distinctBy { "${it.chatId}:${it.messageId}" }
+            val bounded = TelegramMediaWindow.merge(existing, scopedItems, activeCatalogLimit)
             current.copy(
-                items = merged,
+                items = bounded.items,
+                discardedMediaCount = current.discardedMediaCount + bounded.removedFromFront,
                 isLoadingMore = if (error != null) false else !isFinal,
                 error = error,
                 // An error is not end-of-list. Preserve cursor so Retry/scroll
@@ -837,7 +853,7 @@ class MediaViewModel(
             val current = _uiState.value
             val folderKey = if (current.isSavedMessagesSelected) "saved:topic:0"
             else "chat:" + current.selectedChatId + ":topic:" + (current.selectedTopicId ?: 0)
-            rememberCatalog(folderKey, current.items, current.nextFromMessageId)
+            rememberCatalog(folderKey, current.items, current.nextFromMessageId, current.discardedMediaCount)
         }
         if (items.isNotEmpty()) {
             com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(items)

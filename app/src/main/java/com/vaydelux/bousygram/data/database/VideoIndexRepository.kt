@@ -43,10 +43,10 @@ object VideoIndexRepository {
         val dao = db.videoDao()
         val entities = when {
             chatId != null && topicId != null && topicId > 0L -> {
-                dao.getVideosByChatAndTopic(chatId, topicId)
+                dao.getVideosByChatAndTopicLimited(chatId, topicId, 120)
             }
             chatId != null -> {
-                dao.getVideosByChat(chatId)
+                dao.getVideosByChatLimited(chatId, 120)
             }
             else -> {
                 dao.getRecentVideos(100, 0)
