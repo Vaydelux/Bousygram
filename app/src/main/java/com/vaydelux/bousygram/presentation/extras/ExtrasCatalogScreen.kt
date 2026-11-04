@@ -336,8 +336,17 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 if (state.results.isEmpty() && state.loading) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 } else if (state.results.isEmpty() && !state.loading && state.error == null) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No ${type.label.lowercase()} found. Change your search or filters.")
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("No matches on this page. Change your search or filters.")
+                        if (state.hasMore && state.page > 0) {
+                            TextButton(onClick = {
+                                update(state.copy(page = state.page + 1, loading = true, error = null))
+                            }) { Text("Check next page") }
+                        }
                     }
                 } else {
                     val minWidth = when {
