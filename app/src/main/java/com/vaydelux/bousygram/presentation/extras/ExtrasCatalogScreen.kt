@@ -124,6 +124,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         ExtrasType.ANIME -> animePosterFocus
     }
     var restorePosterFocus by remember { mutableIntStateOf(0) }
+    var restoredPosterFocus by remember { mutableIntStateOf(0) }
     var detailRetry by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<ExtrasDetail?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
@@ -148,13 +149,14 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
 
     // Restore the poster *and* grid position after leaving the details route.
     LaunchedEffect(restorePosterFocus, detailItem, selectedTab, state.results.size) {
-        if (restorePosterFocus == 0 || detailItem != null) return@LaunchedEffect
+        if (restorePosterFocus <= restoredPosterFocus || detailItem != null) return@LaunchedEffect
         val id = selectedPoster[type] ?: return@LaunchedEffect
         val index = state.results.indexOfFirst { it.id == id }
         if (index < 0) return@LaunchedEffect
         activeGrid.scrollToItem(index)
         withFrameNanos { }
         runCatching { posterFocus.requestFocus() }
+        restoredPosterFocus = restorePosterFocus
     }
 
     BackHandler {
@@ -188,6 +190,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     LaunchedEffect(detailItem, detailRetry) {
         val selected = detailItem ?: return@LaunchedEffect
+        val retry = detailRetry
         detail = null
         detailError = null
         detailLoading = true
@@ -200,7 +203,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         } catch (e: Exception) {
             detailError = e.message ?: "Unable to load details"
         } finally {
-            detailLoading = false
+            if (detailItem == selected && detailRetry == retry) detailLoading = false
         }
     }
     LaunchedEffect(detail?.item?.id, selectedSeason) {
@@ -217,7 +220,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         } catch (e: Exception) {
             episodeError = e.message ?: "Unable to load episodes"
         } finally {
-            seasonLoading = false
+            if (selectedSeason == season && detail?.item?.id == current.item.id) {
+                seasonLoading = false
+            }
         }
     }
 
