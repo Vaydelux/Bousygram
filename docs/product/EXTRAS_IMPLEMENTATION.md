@@ -8,6 +8,15 @@ Extras is **native, metadata-only discovery** on Android TV, phone and tablet.
 Telegram Media (TDLib, Media3/ExoPlayer, private account state, chat IDs,
 streaming gateway, playback queue) is not queried or modified by Extras.
 
+On a cold Extras-only launch, the Telegram native runtime and background
+streaming infrastructure are now intentionally deferred until Telegram Media
+is entered (or a pending Cast request needs authenticated Telegram handling).
+The process-wide account invalidation/privacy barrier still registers at app
+startup. After Telegram has started, switching back to Extras does not stop
+the Telegram runtime or existing playback. See
+[ADR-002](../adr/ADR-002-telegram-lazy-startup.md) for lifecycle, Cast and
+release acceptance requirements.
+
 | Tab | Provider | Search | Browse | Detail |
 | --- | --- | --- | --- | --- |
 | Movies | TMDB v3 | /search/movie | /discover/movie, /trending/movie/week | /movie/{id} |
