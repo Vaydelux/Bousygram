@@ -35,6 +35,7 @@ fun TvHybridPreviewHost() {
         sourceErrorMessage = null,
         isLoadingMore = false,
         hasMore = false,
+        discardedMediaCount = 0,
         privacyMode = false,
         gridState = rememberLazyGridState(),
         sourceFolderRestoration = BrowseRestoration(),
