@@ -91,6 +91,8 @@ private data class TabState(
     val results: List<ExtrasItem> = emptyList(),
     val page: Int = 0,
     val hasMore: Boolean = true,
+    /** Number of earlier unique posters discarded to keep paging state bounded. */
+    val droppedResults: Int = 0,
     val loading: Boolean = false,
     val error: String? = null
 )
@@ -106,6 +108,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
     }
     val isAndroidTv = metrics.isTv || supportsLeanback
+    val lowMemoryDevice = remember(context) {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        manager?.isLowRamDevice == true || !android.os.Process.is64Bit()
+    }
+    val maxRetainedPosters = ExtrasPagingWindow.itemLimit(lowMemoryDevice)
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val type = ExtrasType.entries[selectedTab.coerceIn(0, ExtrasType.entries.lastIndex)]
     var movies by remember { mutableStateOf(TabState()) }
@@ -140,6 +147,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     LaunchedEffect(movies.query, movies.filters) { movieGrid.scrollToItem(0) }
     LaunchedEffect(tv.query, tv.filters) { tvGrid.scrollToItem(0) }
     LaunchedEffect(anime.query, anime.filters) { animeGrid.scrollToItem(0) }
+    // Rewinding the bounded window must take the actual grid back to its start.
+    // Ordinary page trimming relies on stable item keys to preserve the visible
+    // poster anchor; it must not jump back to the first loaded item.
+    LaunchedEffect(type, state.page, state.results.isEmpty(), state.droppedResults) {
+        if (state.page == 1 && state.results.isEmpty()) activeGrid.scrollToItem(0)
+    }
     var detailItem by remember { mutableStateOf<ExtrasItem?>(null) }
     val detailHistory = remember { mutableStateListOf<ExtrasItem>() }
     val selectedPoster = remember { mutableStateMapOf<ExtrasType, Int>() }
@@ -242,9 +255,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 request.page.coerceAtLeast(1))
             // HttpURLConnection may return despite a canceled coroutine; never publish stale results.
             currentCoroutineContext().ensureActive()
+            val freshStart = request.page <= 1
+            val bounded = ExtrasPagingWindow.merge(
+                existing = if (freshStart) emptyList() else request.results,
+                incoming = nextPage.items,
+                maximumItems = maxRetainedPosters
+            )
             update(request.copy(
-                results = if (request.page <= 1) nextPage.items else
-                    (request.results + nextPage.items).distinctBy { it.type to it.id },
+                results = bounded.items,
+                droppedResults = if (freshStart) 0 else
+                    request.droppedResults + bounded.removedFromFront,
                 page = nextPage.page,
                 hasMore = nextPage.hasNext,
                 loading = false,
@@ -491,6 +511,31 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         TextButton(onClick = {
                             update(state.copy(loading = true, error = null))
                         }) { Text("Retry") }
+                    }
+                }
+                if (state.droppedResults > 0 && state.results.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "Showing the latest ${state.results.size} titles. Earlier pages were released to conserve memory.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            modifier = Modifier.testTag("extras-start-over"),
+                            onClick = {
+                                showSuggestions = false
+                                update(state.copy(
+                                    results = emptyList(), droppedResults = 0,
+                                    page = 1, loading = true, hasMore = true,
+                                    error = null
+                                ))
+                            }
+                        ) { Text("From start") }
                     }
                 }
                 if (state.results.isEmpty() && state.loading) {
