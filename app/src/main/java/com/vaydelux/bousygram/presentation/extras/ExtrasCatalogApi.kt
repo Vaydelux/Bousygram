@@ -144,6 +144,14 @@ object ExtrasCatalogApi {
         override fun sizeOf(key: String, value: Cached): Int =
             ((value.content.length * 2L) / 1024L).coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
+    /** Drop catalog JSON under OS memory pressure to protect ARM32 devices. */
+    fun trimMemory(critical: Boolean) {
+        synchronized(responseCache) {
+            if (critical) responseCache.evictAll()
+            else responseCache.trimToSize(1024) // Keep at most 1 MiB of warm JSON.
+        }
+    }
+
     @Volatile private var anilistBackoffUntil = 0L
     // AniList currently advertises 30 requests/minute. A 2-token burst and one
     // refill every 2.1 seconds stay below that budget for a single app instance.
