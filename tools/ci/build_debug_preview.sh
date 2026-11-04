@@ -47,6 +47,8 @@ package_one() {
     [[ -n "$abi" ]] || continue
     grep -qx "lib/$abi/libtdjni.so" <<<"$libs" || { echo "TDLib native library missing for $abi" >&2; exit 1; }
     grep -qx "lib/$abi/libmpv.so" <<<"$libs" || { echo "MPV native library missing for $abi" >&2; exit 1; }
+    grep -qx "lib/$abi/libvlc.so" <<<"$libs" || { echo "VideoLAN LibVLC missing for $abi" >&2; exit 1; }
+    grep -qx "lib/$abi/libc++_shared.so" <<<"$libs" || { echo "Shared native C++ runtime missing for $abi" >&2; exit 1; }
   done <<<"$actual_abis"
   filename="Bousygram-debug-v$version-build.${CI_VERIFICATION_RUN_ID:?}-$kind.apk"
   cp -- "$apk" "$OUT_DIR/$filename"

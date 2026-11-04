@@ -1,4 +1,4 @@
-name: LibVLC Experimental Debug Gate
+name: LibVLC Integrated ABI Gate
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
     paths:
       - '.github/workflows/libvlc-experimental-debug.yml'
       - 'app/build.gradle.kts'
-      - 'app/src/libvlcExperimental/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/media/LibVlcPlayerEngine.kt'
       - 'app/src/main/java/com/vaydelux/bousygram/core/media/PlayerEngineFactory.kt'
       - 'app/src/main/java/com/vaydelux/bousygram/core/media/ExperimentalStreamUrlPolicy.kt'
       - 'app/src/main/java/com/vaydelux/bousygram/data/store/EnterprisePreferences.kt'
@@ -16,12 +16,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: libvlc-experiment-${{ github.ref }}
+  group: libvlc-integrated-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  experimental-abi:
-    name: Experimental LibVLC ${{ matrix.abi }}
+  libvlc-abi:
+    name: Official LibVLC ${{ matrix.abi }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -45,12 +45,12 @@ jobs:
       - name: Install Android SDK dependencies
         run: bash tools/ci/setup_android_sdk.sh
 
-      - name: Compile, run JVM tests and assemble opt-in native APK
+      - name: Verify standard debug APK with LibVLC
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew --no-daemon --console=plain \
-            -PenableExperimentalLibVlc=true -PdevAbi=${{ matrix.abi }} \
+            -PdevAbi=${{ matrix.abi }} \
             :app:verifyTdlibBindingCompatibility \
             :app:compileDebugKotlin \
             :app:testDebugUnitTest \
@@ -65,14 +65,15 @@ jobs:
           unzip -Z1 "$apk" > "$RUNNER_TEMP/libvlc-apk-files.txt"
           grep -qx "lib/${{ matrix.abi }}/libtdjni.so" "$RUNNER_TEMP/libvlc-apk-files.txt"
           grep -qx "lib/${{ matrix.abi }}/libvlc.so" "$RUNNER_TEMP/libvlc-apk-files.txt"
+          grep -qx "lib/${{ matrix.abi }}/libmpv.so" "$RUNNER_TEMP/libvlc-apk-files.txt"
           grep -qx "lib/${{ matrix.abi }}/libc++_shared.so" "$RUNNER_TEMP/libvlc-apk-files.txt"
           sha256sum "$apk"
-          echo "Opt-in lab APK only: not a production or default debug release"
+          echo "Standard APK with LibVLC; native device qualification still required"
 
-      - name: Archive experimental APK for device trials
+      - name: Archive standard ABI APK with LibVLC
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: libvlc-lab-${{ matrix.abi }}-${{ github.sha }}
+          name: libvlc-standard-${{ matrix.abi }}-${{ github.sha }}
           retention-days: 7
           if-no-files-found: error
           path: app/build/outputs/apk/debug/*.apk

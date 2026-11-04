@@ -68,6 +68,12 @@
 -dontwarn dev.jdtech.mpv.**
 -dontwarn is.xyz.mpv.**
 
+# VideoLAN LibVLC JNI callbacks — required in minified release builds.
+-keep class org.videolan.libvlc.** { *; }
+-keepclasseswithmembernames class org.videolan.libvlc.** {
+    native <methods>;
+}
+
 # 5. JNI Native Methods across all application packages
 -keepclasseswithmembernames class * {
     native <methods>;

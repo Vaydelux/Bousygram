@@ -20,6 +20,13 @@ for apk in "${APKS[@]}"; do
   if grep -Fqx 'lib/arm64-v8a/libtdjni.so' <<<"$entries" && grep -Fqx 'lib/armeabi-v7a/libtdjni.so' <<<"$entries"; then
     [[ -z "$UNIVERSAL_APK" ]] || { echo "Multiple debug APKs contain both supported TDLib ABIs" >&2; exit 1; }
     UNIVERSAL_APK="$apk"
+    for abi in arm64-v8a armeabi-v7a; do
+      for soname in libtdjni.so libmpv.so libvlc.so libc++_shared.so; do
+        grep -Fqx "lib/$abi/$soname" <<<"$entries" || {
+          echo "Debug APK missing $soname for $abi" >&2; exit 1;
+        }
+      done
+    done
   fi
 done
 [[ -n "$UNIVERSAL_APK" ]] || { echo 'No debug APK contains both ARM64 and ARM32 TDLib JNI' >&2; exit 1; }

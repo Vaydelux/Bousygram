@@ -21,7 +21,7 @@
 
 ## A media player built for the living room
 
-**Bousygram** lets you browse Telegram chats, channels, groups, topics, and Saved Messages and play media directly on your Android device. Videos are fetched via **TDLib** and served to **Media3 ExoPlayer** through a local, byte-range-capable stream. **libmpv** is available as a fallback when a container or decoder needs a different playback engine.
+**Bousygram** lets you browse Telegram chats, channels, groups, topics, and Saved Messages and play media directly on your Android device. Videos are fetched via **TDLib** and served to **Media3 ExoPlayer** through a local, byte-range-capable stream. **libmpv** is available as a fallback when a container or decoder needs a different playback engine. **VideoLAN LibVLC** is included in standard debug/release builds as a third manually selectable option for MKV, MPEG-TS, and alternate audio/subtitle tracks.
 
 The app is **local-first**: ordinary playback does not require a Bousygram cloud backend or a server that receives your videos. It is not an official Telegram client and is not affiliated with Telegram.
 
@@ -80,7 +80,8 @@ Telegram account / chats / Saved Messages
     Local range-capable stream gateway
                  │
                  ├──► Media3 ExoPlayer (primary)
-                 └──► libmpv (fallback)
+                 ├──► libmpv (fallback or manual)
+                 └──► LibVLC (user-selected compatibility engine)
                  │
                  ▼
       Android TV / phone / tablet
@@ -110,6 +111,8 @@ TELEGRAM_API_HASH=your_api_hash
 ```
 
 On macOS/Linux use `./gradlew` with the same task names.
+
+**Choose a player:** Settings → Playback engine → ExoPlayer, libmpv or **LibVLC**. The media player's engine control can cycle between all three. Auto remains ExoPlayer/libmpv and does not silently enable LibVLC on low-memory TVs. Native MPEG-TS seeking still requires a usable index and verified byte-range behavior. See [LibVLC integration](docs/experiments/LIBVLC_DEBUG_COMPATIBILITY.md) and [third-party notices](docs/THIRD_PARTY_NOTICES.md).
 
 **Production signing:** use the protected GitHub environments and the [Release Signing Setup](RELEASE_SIGNING_SETUP.md). `assembleHardenedRelease` fails closed without production signing and certificate verification. Do not use debug APKs as proof of production signing.
 
@@ -142,4 +145,4 @@ Never attach personal Telegram logs, session credentials, playback tokens, or pr
 
 ---
 
-<sub>Made by **Vaydelux** · Licensed under the [MIT License](LICENSE) · Android TV first, Android everywhere.</sub>
+<sub>Made by **Vaydelux** · Original Bousygram source is [MIT-licensed](LICENSE); bundled native dependencies have independent licenses — see [third-party notices](docs/THIRD_PARTY_NOTICES.md). · Android TV first, Android everywhere.</sub>
