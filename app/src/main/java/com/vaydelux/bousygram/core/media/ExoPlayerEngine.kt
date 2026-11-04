@@ -243,21 +243,17 @@ class ExoPlayerEngine(
             MediaTrackInfo.TrackType.SUBTITLE -> C.TRACK_TYPE_TEXT
             MediaTrackInfo.TrackType.VIDEO -> C.TRACK_TYPE_VIDEO
         }
-        val currentTracks = player.currentTracks
-        for (group in currentTracks.groups) {
-            if (group.type == targetType) {
-                for (i in 0 until group.length) {
-                    val format = group.getTrackFormat(i)
-                    if (format.id?.toIntOrNull() == track.id || i == track.id) {
-                        player.trackSelectionParameters = player.trackSelectionParameters
-                            .buildUpon()
-                            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(i)))
-                            .build()
-                        return
-                    }
-                }
-            }
-        }
+        val target = decodeExoTrackUiId(track.id) ?: return
+        val group = player.currentTracks.groups.getOrNull(target.first) ?: return
+        if (group.type != targetType || target.second !in 0 until group.length) return
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            // Selecting a subtitle after "Off" must re-enable text tracks.
+            .setTrackTypeDisabled(targetType, false)
+            .setOverrideForType(
+                TrackSelectionOverride(group.mediaTrackGroup, listOf(target.second))
+            )
+            .build()
     }
 
     override fun deselectTrack(type: MediaTrackInfo.TrackType) {
@@ -291,7 +287,7 @@ class ExoPlayerEngine(
 
     private fun updateTracks(tracks: Tracks) {
         val list = mutableListOf<MediaTrackInfo>()
-        for (group in tracks.groups) {
+        for ((groupIndex, group) in tracks.groups.withIndex()) {
             val type = when (group.type) {
                 C.TRACK_TYPE_AUDIO -> MediaTrackInfo.TrackType.AUDIO
                 C.TRACK_TYPE_TEXT -> MediaTrackInfo.TrackType.SUBTITLE
@@ -301,7 +297,9 @@ class ExoPlayerEngine(
             for (i in 0 until group.length) {
                 val format = group.getTrackFormat(i)
                 val isSelected = group.isTrackSelected(i)
-                val trackId = format.id?.toIntOrNull() ?: i
+                // Format IDs are not unique across Media3 groups. Use an
+                // encoded group+track index for unambiguous UI selection.
+                val trackId = exoTrackUiId(groupIndex, i)
                 val displayName = format.label ?: format.language ?: "Track $i"
                 list.add(
                     MediaTrackInfo(
