@@ -9,6 +9,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CatalogNavigationPolicyTest {
+    @Test fun evictedFocusRestoresOnlyToARealLoadedTelegramCard() {
+        val visible = listOf(media(11L, 10L), media(11L, 9L))
+        assertEquals("11:9", resolveRestorableMediaKey("11:9", visible, 120))
+        assertEquals("11:10", resolveRestorableMediaKey("11:100", visible, 120))
+        assertNull(resolveRestorableMediaKey("11:100", visible, 0))
+        assertNull(resolveRestorableMediaKey(null, visible, 120))
+        assertNull(resolveRestorableMediaKey("11:100", emptyList(), 120))
+    }
+
     @Test fun aBoundedSnapshotNeverStoresACursorForTruncatedItems() {
         assertFalse(canCacheCatalogPage(0, 120))
         assertTrue(canCacheCatalogPage(1, 120))

@@ -83,6 +83,21 @@ class ExtrasSearchUiInstrumentedTest {
         rule.onNodeWithText("Anime selected").assertExists()
     }
 
+    @Test fun previousCatalogPageCanBeRequestedWithDpadCenter() {
+        rule.setContent {
+            BousygramTheme {
+                var previousRequested by remember { mutableStateOf(false) }
+                ExtrasPreviousPageAction { previousRequested = true }
+                if (previousRequested) androidx.compose.material3.Text("Previous page requested")
+            }
+        }
+        val previous = rule.onNodeWithTag("extras-previous-page")
+        previous.assertExists()
+        previous.performSemanticsAction(SemanticsActions.RequestFocus)
+        previous.performKeyInput { pressKey(Key.DirectionCenter) }
+        rule.onNodeWithText("Previous page requested").assertExists()
+    }
+
     @Test fun boundedPagingNoticeHasDpadAccessibleRewindAction() {
         rule.setContent {
             BousygramTheme {

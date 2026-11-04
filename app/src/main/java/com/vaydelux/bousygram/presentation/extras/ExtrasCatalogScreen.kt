@@ -151,7 +151,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // Ordinary page trimming relies on stable item keys to preserve the visible
     // poster anchor; it must not jump back to the first loaded item.
     LaunchedEffect(type, state.page, state.results.isEmpty(), state.droppedResults) {
-        if (state.page == 1 && state.results.isEmpty()) activeGrid.scrollToItem(0)
+        if (state.page >= 1 && state.results.isEmpty()) activeGrid.scrollToItem(0)
     }
     var detailItem by remember { mutableStateOf<ExtrasItem?>(null) }
     val detailHistory = remember { mutableStateListOf<ExtrasItem>() }
@@ -513,6 +513,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         }) { Text("Retry") }
                     }
                 }
+                if (state.page > 1 && state.results.isNotEmpty()) {
+                    ExtrasPreviousPageAction {
+                        showSuggestions = false
+                        update(state.copy(
+                            page = state.page - 1, results = emptyList(),
+                            droppedResults = 0, loading = true, hasMore = true,
+                            error = null
+                        ))
+                    }
+                }
                 if (state.droppedResults > 0 && state.results.isNotEmpty()) {
                     ExtrasPagingWindowNotice(
                         retainedCount = state.results.size,
@@ -606,6 +616,15 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
  * A visible escape hatch when earlier pages leave the bounded results window.
  * This surface is independent of API credentials and is remote-accessible.
  */
+/** Remote-focusable single-page rewind without keeping every earlier page in memory. */
+@Composable
+internal fun ExtrasPreviousPageAction(onPrevious: () -> Unit) {
+    TextButton(
+        modifier = Modifier.testTag("extras-previous-page"),
+        onClick = onPrevious
+    ) { Text("Previous page") }
+}
+
 @Composable
 internal fun ExtrasPagingWindowNotice(retainedCount: Int, onRestart: () -> Unit) {
     Row(

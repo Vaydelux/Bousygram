@@ -46,3 +46,17 @@ internal fun savedMessagesOnly(items: List<MediaItem>, savedMessagesChatId: Long
 internal fun allowThumbnailRetry(lastFailureAtMs: Long?, nowMs: Long, cooldownMs: Long): Boolean =
     lastFailureAtMs == null || nowMs < lastFailureAtMs ||
         nowMs - lastFailureAtMs >= cooldownMs
+
+/** A previously focused card may have been evicted by the bounded history window.
+ * Restore D-pad focus to a real visible item rather than an unattached requester.
+ */
+internal fun resolveRestorableMediaKey(
+    previousKey: String?,
+    visible: List<MediaItem>,
+    discardedCount: Int
+): String? {
+    if (previousKey == null || visible.isEmpty()) return null
+    if (visible.any { "${it.chatId}:${it.messageId}" == previousKey }) return previousKey
+    return if (discardedCount > 0) visible.first().let { "${it.chatId}:${it.messageId}" }
+        else null
+}

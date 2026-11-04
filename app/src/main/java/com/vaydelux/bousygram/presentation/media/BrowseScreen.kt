@@ -68,6 +68,7 @@ import com.vaydelux.bousygram.presentation.components.NoSearchResultsEmptyState
 import com.vaydelux.bousygram.presentation.components.RecentSearchesSection
 import com.vaydelux.bousygram.presentation.components.SidebarListShimmerSkeleton
 import com.vaydelux.bousygram.presentation.layout.TvHybridHomeDashboard
+import com.vaydelux.bousygram.presentation.media.vm.resolveRestorableMediaKey
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 import com.vaydelux.bousygram.data.database.RecentSearchQuery
 
@@ -149,6 +150,13 @@ fun BrowseScreen(
         )
     }
     val restoreFocusRequester = remember(browseStateKey) { FocusRequester() }
+    val restorationTargetKey = remember(
+        videos, browseRestoration.focusedMediaKey, state.discardedMediaCount
+    ) {
+        resolveRestorableMediaKey(
+            browseRestoration.focusedMediaKey, videos, state.discardedMediaCount
+        )
+    }
     var restorationApplied by remember(browseStateKey) { mutableStateOf(false) }
 
     DisposableEffect(browseStateKey, libraryGridState) {
@@ -187,11 +195,11 @@ fun BrowseScreen(
         viewModel.initialize()
     }
 
-    LaunchedEffect(libraryMode, browseStateKey, videos.size, browseRestoration.focusedMediaKey) {
+    LaunchedEffect(libraryMode, browseStateKey, videos.size, restorationTargetKey) {
         if ((!libraryMode && explorerPosition.level != com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel.MEDIA) ||
             restorationApplied || videos.isEmpty()
         ) return@LaunchedEffect
-        val targetKey = browseRestoration.focusedMediaKey
+        val targetKey = restorationTargetKey
         if (targetKey == null) {
             restorationApplied = true
             return@LaunchedEffect
@@ -329,7 +337,7 @@ fun BrowseScreen(
                     viewModel.recordBrowseFocus(item)
                     viewModel.onItemFocused(item)
                 },
-                restoreFocusedMediaKey = browseRestoration.focusedMediaKey,
+                restoreFocusedMediaKey = restorationTargetKey,
                 restoreFocusRequester = restoreFocusRequester,
                 onLoadMore = viewModel::loadMoreIfNeeded,
                 onRefreshSources = viewModel::refreshVideoChats,

@@ -252,3 +252,14 @@ during a long browsing session even though the grid itself is lazily composed.
 - Deferred: provider test doubles, end-to-end instrumentation for Extras,
   official logo audit, controlled TMDB key distribution and measured cold-start
   memory profiling when opening Extras without Telegram.
+
+## Additional bounded-window navigation
+
+- **Previous page** offers an explicit single-page rewind without holding all historical
+  results in Compose state; the page request replaces the active window and scrolls to
+  its start. The existing **From start** action remains when earlier pages have been
+  discarded by the memory budget.
+- Telegram card focus now falls back to a real visible entry when its old
+  chat/message key has left the bounded active catalog. Neither action fabricates
+  catalog data or requires provider credentials.
+- Offline JVM and Compose D-pad regression cases cover fallback identity and page action.
