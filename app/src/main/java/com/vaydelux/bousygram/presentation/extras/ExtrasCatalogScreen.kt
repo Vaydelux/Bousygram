@@ -384,7 +384,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     ExtrasSearchSuggestions(
                         type = type,
                         suggestions = state.results.take(5),
-                        onOpen = ::openFromResults,
+                        onOpen = { chosen -> openFromResults(chosen) },
                         onDismiss = { showSuggestions = false }
                     )
                 }
@@ -558,20 +558,92 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
     }
 }
 
+/**
+ * Autocomplete is only visible while actively searching. D-pad focus and close
+ * actions are exposed for offline Compose instrumentation without API access.
+ */
+@Composable
+internal fun ExtrasSearchSuggestions(
+    type: ExtrasType,
+    suggestions: List<ExtrasItem>,
+    onOpen: (ExtrasItem) -> Unit,
+    onDismiss: () -> Unit
+) {
+    if (suggestions.isEmpty()) return
+    Surface(
+        tonalElevation = 4.dp,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(max = 210.dp)
+            .testTag("extras-search-suggestions")
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Suggestions · ${type.provider}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    modifier = Modifier.testTag("extras-suggestions-dismiss"),
+                    onClick = onDismiss
+                ) { Text("Dismiss") }
+            }
+            LazyColumn(modifier = Modifier.heightIn(max = 154.dp)) {
+                items(suggestions.take(5), key = { "${it.type}:${it.id}" }) { item ->
+                    var focused by remember(item.type, item.id) { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .testTag("extras-suggestion-${item.type.name.lowercase()}-${item.id}")
+                            .onFocusChanged { focused = it.isFocused }
+                            .then(
+                                if (focused) Modifier.border(
+                                    2.dp, MaterialTheme.colorScheme.primary,
+                                    RoundedCornerShape(8.dp)
+                                ) else Modifier
+                            )
+                            .clickable { onOpen(item) }
+                            .padding(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ExtrasPosterArtwork(
+                            url = item.poster,
+                            contentDescription = null,
+                            modifier = Modifier.size(width = 38.dp, height = 57.dp),
+                            detail = false,
+                            suggestion = true
+                        )
+                        Column {
+                            Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${item.year} · ${item.type.provider}",
+                                style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Explicitly capped Coil decoder requests instead of full-size source bitmaps. */
 @Composable
 private fun ExtrasPosterArtwork(
     url: String?,
     contentDescription: String?,
     modifier: Modifier,
-    detail: Boolean
+    detail: Boolean,
+    suggestion: Boolean = false
 ) {
     val context = LocalContext.current
     val lowMemory = remember(context) {
         val memory = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         memory?.isLowRamDevice == true || !android.os.Process.is64Bit()
     }
-    val target = ExtrasImagePolicy.poster(lowMemory, detail)
+    val target = ExtrasImagePolicy.poster(lowMemory, detail, suggestion)
     val imageRequest = remember(context, url, target) {
         ImageRequest.Builder(context)
             .data(url)
