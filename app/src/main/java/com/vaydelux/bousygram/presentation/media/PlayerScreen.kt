@@ -445,6 +445,14 @@ fun PlayerScreen(
             PlayerEngineFactory.create(context, selection, selectedSpeed)
         }
     }
+    val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
+    // Updated on every composition, so native focus regain checks the current
+    // user Pause, Activity lifecycle and active Cast state.
+    audioFocusController.canAutomaticallyResume = {
+        !explicitlyPaused &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+            !castState.connected
+    }
     fun requestEngineSwitch(target: SelectedPlayerEngine, feedback: String) {
         val resume = recoveryPositionMs(pendingSeekTargetMs, position, lastGoodPosition)
         engineSwitcher.switchTo(target, speed).fold(
@@ -469,14 +477,6 @@ fun PlayerScreen(
         requestEngineSwitch(target, "Switching to ${target.name}…")
     }
 
-    val audioFocusController = remember(context) { PlayerAudioFocusController(context) }
-    // Updated on every composition, so native focus regain checks the current
-    // user Pause, Activity lifecycle and active Cast state.
-    audioFocusController.canAutomaticallyResume = {
-        !explicitlyPaused &&
-            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
-            !castState.connected
-    }
     val streamingSessionManager = remember(context) { StreamingSessionManager(context) }
     var castWasConnected by remember { mutableStateOf(false) }
     var castWasPlaying by remember { mutableStateOf(false) }
