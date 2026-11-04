@@ -566,20 +566,28 @@ fun PlayerScreen(
         isPlaying = castState.playbackStatus == CastPlaybackStatus.Playing
     }
 
-    fun performTrackedSeek(targetMs: Long) {
+    /** Reject unsupported native seeks before any Telegram prefetch repositions. */
+    fun performTrackedSeek(targetMs: Long): Boolean {
         val current = queue.getOrNull(queueIndex)
         val isTs = current != null && VideoFormatSupport.isTransportStream(current.fileName ?: current.title, current.mimeType)
         if (!canSeekTransportStream(isTs, playerEngine.canSeek) || !playerEngine.canSeek) {
             toastFeedbackText = "Seeking isn't available until this file has a usable seek index."
+            seekFeedbackText = null
+            seekPreviewPositionMs = -1L
             pendingSeekTargetMs = -1L
             pendingSeekStartedAtMs = 0L
-            return
+            return false
         }
         progressCheckpoint.onExplicitSeek(targetMs)
         pendingSeekTargetMs = targetMs.coerceAtLeast(0L)
         pendingSeekStartedAtMs = android.os.SystemClock.elapsedRealtime()
         seekPreviewPositionMs = -1L
         playerEngine.seekTo(pendingSeekTargetMs)
+        // Single owner of cache seeks. MediaSession and TV/touch callbacks
+        // must never reposition the download window when a seek was refused.
+        if (duration > 0L) current?.let {
+            CacheManager.onSeek(it.fileId, pendingSeekTargetMs, fileSizeBytes, duration)
+        }
         // Transport/decoder stalls are not user-initiated pauses.
         if (!explicitlyPaused &&
             lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
@@ -588,6 +596,7 @@ fun PlayerScreen(
         ) {
             playerEngine.play()
         }
+        return true
     }
 
     fun commitPlaybackTelemetry(fatalError: String? = null) {
@@ -831,9 +840,6 @@ fun PlayerScreen(
             onSeekIncrement = { deltaMs ->
                 val target = relativePlayerSeekTarget(playerEngine.currentPositionMs, deltaMs, duration)
                 performTrackedSeek(target)
-                if (duration > 0L) queue.getOrNull(queueIndex)?.let {
-                    CacheManager.onSeek(it.fileId, target, fileSizeBytes, duration)
-                }
                 // The decoder's position callback confirms seeking. A speculative
                 // target here made unseekable TS appear to jump before snapping to 0:00.
             },
@@ -1922,9 +1928,6 @@ fun PlayerScreen(
                 val newPos = relativePlayerSeekTarget(base, seconds * 1000L, knownDuration)
                 if (castState.connected) CastSessionController.seekTo(newPos) else {
                     performTrackedSeek(newPos)
-                    if (knownDuration > 0L) queue.getOrNull(queueIndex)?.let {
-                        CacheManager.onSeek(it.fileId, newPos, fileSizeBytes, knownDuration)
-                    }
                 }
                 seekFeedbackText = if (seconds > 0) "+${seconds}s" else "${seconds}s"
                 seekFeedbackSide = if (seconds > 0) 1 else -1
@@ -1950,11 +1953,10 @@ fun PlayerScreen(
                 val safeTarget = relativePlayerSeekTarget(target, 0L, knownDuration)
                 if (castState.connected) CastSessionController.seekTo(safeTarget) else {
                     performTrackedSeek(safeTarget)
-                    if (knownDuration > 0L) queue.getOrNull(queueIndex)?.let {
-                        CacheManager.onSeek(it.fileId, safeTarget, fileSizeBytes, knownDuration)
-                    }
                 }
-                seekFeedbackText = "Seeking to ${formatMs(safeTarget)}"
+                if (castState.connected || pendingSeekTargetMs >= 0L) {
+                    seekFeedbackText = "Seeking to ${formatMs(safeTarget)}"
+                }
             }
 
             override fun cancelSeekPreview() {
@@ -2039,9 +2041,6 @@ fun PlayerScreen(
                             val newPos = (base + delta).coerceIn(0L, max)
                             if (castState.connected) CastSessionController.seekTo(newPos) else {
                                 performTrackedSeek(newPos)
-                                queue.getOrNull(queueIndex)?.let { current ->
-                                    CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, max)
-                                }
                             }
                             seekFeedbackText = if (delta < 0) "-10s" else "+10s"
                             seekFeedbackSide = if (delta < 0) -1 else 1
@@ -2273,7 +2272,7 @@ fun PlayerScreen(
                 onStartOver = {
                     hudInteractionTick++
                     if (castState.connected) CastSessionController.seekTo(0L)
-                    else performTrackedSeek(0L)
+                    else if (!performTrackedSeek(0L)) return@onStartOver
                     showResumeRestartOption = false
                     toastFeedbackText = "Restarted from beginning"
                 },
@@ -2311,9 +2310,6 @@ fun PlayerScreen(
                     val newPos = relativePlayerSeekTarget(basePosition, delta, knownDuration)
                     if (castState.connected) CastSessionController.seekTo(newPos) else {
                         performTrackedSeek(newPos)
-                        if (knownDuration > 0L) queue.getOrNull(queueIndex)?.let { current ->
-                            CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, knownDuration)
-                        }
                     }
                 },
                 onSeekTo = { target ->
@@ -2325,9 +2321,6 @@ fun PlayerScreen(
                         val newPos = target.coerceIn(0L, max)
                         if (castState.connected) CastSessionController.seekTo(newPos) else {
                             performTrackedSeek(newPos)
-                            queue.getOrNull(queueIndex)?.let { current ->
-                                CacheManager.onSeek(current.fileId, newPos, fileSizeBytes, max)
-                            }
                         }
                     }
                 },
