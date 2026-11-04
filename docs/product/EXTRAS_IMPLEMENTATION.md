@@ -1,0 +1,93 @@
+# Bousygram Extras — implementation and release gates
+
+Updated: 2026-11-04
+
+## Product boundary
+
+Extras is **native, metadata-only discovery** on Android TV, phone and tablet.
+Telegram Media (TDLib, Media3/ExoPlayer, private account state, chat IDs,
+streaming gateway, playback queue) is not queried or modified by Extras.
+
+| Tab | Provider | Search | Browse | Detail |
+| --- | --- | --- | --- | --- |
+| Movies | TMDB v3 | /search/movie | /discover/movie, /trending/movie/week | /movie/{id} |
+| TV Shows | TMDB v3 | /search/tv | /discover/tv, /trending/tv/week | /tv/{id}, on-demand /tv/{id}/season/{n} |
+| Anime | AniList public GraphQL | Media(type: ANIME, search:...) | Page(media(type: ANIME,...)) | Media(id, type: ANIME) |
+
+TMDB details use append_to_response=credits,videos,reviews,recommendations to
+avoid four extra requests. Anime details include characters/Japanese voice
+actors, staff, reviews, relations, trailer reference, next-airing schedule,
+and AniList's optional streamingEpisodes (external HTTPS links only).
+
+**These APIs do not provide movie/TV streams.** External official trailer/episode
+links open through ACTION_VIEW, never via a permissive WebView or a bridge into
+Telegram's authenticated local streaming server.
+
+## Developer configuration
+
+The existing BuildConfig.TMDB_API_KEY comes from the project's secrets Gradle
+configuration. For local builds, place TMDB_API_KEY in an ignored local.properties
+(or in the supported protected build environment). The published source must
+not contain a live key. AniList public metadata requires no token.
+
+Do not treat an embedded BuildConfig API key as secret from APK recipients:
+a distributed client key is extractable. Before public deployment, verify
+TMDB's current permitted client/auth models, account permissions and quotas;
+a controlled backend/proxy or a bring-your-own-key model may be appropriate.
+Do not place Telegram credentials in the Extras provider graph.
+
+## Caching / network behavior
+
+- 350 ms search debounce; obsolete coroutine results are canceled.
+- Provider-specific state, filters and grid position are preserved across tabs.
+- Small in-memory JSON LRU cache (4 MB approximate) with a 5-minute freshness
+  period and a 2 MB response ceiling.
+- AniList request pacing and explicit handling of HTTP 429/Retry-After.
+- TMDB Trending is a provider endpoint, not a synonym for Discover popularity.
+- Discover-only filters are never sent to TMDB Trending; unsupported filters on
+  search/trending apply to received pages locally, which may yield a sparse page.
+- Network requests use I/O dispatchers and finite connection/read timeouts.
+- Coil handles poster/image decoding; test image cache and bitmap memory under
+  ARM32 pressure before increasing poster sizes or prefetching.
+
+## TV and responsive acceptance criteria
+
+- On Android TV, D-pad can enter search, switch tabs, operate sort/genre/year/rating,
+  select suggestions and posters, open details, seasons and external links.
+- Back closes Credits, returns to the previous related-title details page, then
+  returns to catalog with the prior grid scroll and selected-poster focus, and
+  finally returns to the mode chooser.
+- Phone portrait/landscape and tablet UI must remain readable, touch accessible,
+  and landscape-safe.
+- Test with no TMDB key, no network, provider 429, missing poster, long title,
+  no seasons/episodes, a title with many related items and 30-minute TV browsing.
+- ARM32 and ARM64 APK compile/packaging CI is **not** a substitute for hardware
+  focus tests, memory traces, actual provider search/detail trials or usability QA.
+
+## Provider attribution and licensing
+
+TMDB requires the approved logo and the notice:
+"This product uses the TMDB API but is not endorsed or certified by TMDB."
+
+Bousygram's About and Extras Credits display the notice and logo.
+Logo geometry/gradient are transcribed from the TMDB artwork reproduced at
+`logo/themoviedb.svg` in the source project
+`Samuel-Benso/TMDb`, which identifies the TMDB artwork.
+Official logo policy: https://www.themoviedb.org/about/logos-attribution
+Before release, confirm this specific legacy logo variant remains approved
+and that the conversion preserves artwork, proportions, colors, and licensing
+obligations. If not, replace with a current official asset.
+
+AniList is the source of anime data/cover images. Streaming-episode links are
+provided by AniList as references to third-party legal services; their
+availability and licensing vary by country, and Bousygram is not an affiliate.
+
+## Unverified / separate work
+
+- No real-device ARM32 TV, ARM64 TV, phone or tablet qualification is claimed.
+- No persistent disk metadata cache or offline completeness guarantee is made.
+- No arbitrary WebView/iframe integration, DRM circumvention, third-party
+  player injection, direct TMDB/AniList playback, or fuzzy cross-provider ID mapping.
+- Deferred: provider test doubles, end-to-end instrumentation for Extras,
+  official logo audit, controlled TMDB key distribution and measured cold-start
+  memory profiling when opening Extras without Telegram.
