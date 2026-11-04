@@ -3,7 +3,6 @@ package com.vaydelux.bousygram.data.store
 import android.content.Context
 import androidx.core.content.edit
 import com.vaydelux.bousygram.app.BousygramApp
-import com.vaydelux.bousygram.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import android.content.SharedPreferences
@@ -16,13 +15,23 @@ enum class SelectedPlayerEngine(val label: String) {
     AUTO("Auto (ExoPlayer + mpv fallback)"),
     ExoPlayer("Media3 ExoPlayer"),
     MPV("Universal libmpv (MKV, AVI, FLV, SSA/ASS)"),
-    LIBVLC_EXPERIMENTAL("LibVLC (experimental, debug only)")
+    LIBVLC("VideoLAN LibVLC — MKV / TS compatibility")
 }
 
-/** The experimental option must never show up in ordinary release/debug APKs. */
-internal fun availablePlaybackEngines(experimentEnabled: Boolean): List<SelectedPlayerEngine> =
-    SelectedPlayerEngine.entries.filter {
-        it != SelectedPlayerEngine.LIBVLC_EXPERIMENTAL || experimentEnabled
+/** LibVLC is user-selectable, but AUTO does not silently choose it. */
+internal fun availablePlaybackEngines(): List<SelectedPlayerEngine> = SelectedPlayerEngine.entries.toList()
+
+internal fun parseSavedPlayerEngine(raw: String?): SelectedPlayerEngine =
+    if (raw == "LIBVLC_EXPERIMENTAL") SelectedPlayerEngine.LIBVLC
+    else runCatching { SelectedPlayerEngine.valueOf(raw ?: "AUTO") }
+        .getOrDefault(SelectedPlayerEngine.AUTO)
+
+internal fun nextManualPlayerEngine(current: SelectedPlayerEngine): SelectedPlayerEngine =
+    when (current) {
+        SelectedPlayerEngine.AUTO -> SelectedPlayerEngine.ExoPlayer
+        SelectedPlayerEngine.ExoPlayer -> SelectedPlayerEngine.MPV
+        SelectedPlayerEngine.MPV -> SelectedPlayerEngine.LIBVLC
+        SelectedPlayerEngine.LIBVLC -> SelectedPlayerEngine.ExoPlayer
     }
 
 enum class BufferMode(val label: String) {
@@ -179,26 +188,13 @@ object EnterprisePreferences {
     fun preferredSpeed(): Float = prefs.getFloat(KEY_SPEED, 1.0f).takeIf { it.isFinite() && it in 0.25f..3f } ?: 1f
     fun setPreferredSpeed(value: Float) { require(value.isFinite() && value in 0.25f..3f); prefs.edit { putFloat(KEY_SPEED, value) } }
 
-    fun isLibVlcExperimentAvailable(): Boolean =
-        BuildConfig.DEBUG && BuildConfig.LIBVLC_EXPERIMENTAL_ENABLED
+    fun supportedPlayerEngines(): List<SelectedPlayerEngine> = availablePlaybackEngines()
 
-    fun supportedPlayerEngines(): List<SelectedPlayerEngine> =
-        availablePlaybackEngines(isLibVlcExperimentAvailable())
+    fun selectedPlayerEngine(): SelectedPlayerEngine =
+        parseSavedPlayerEngine(prefs.getString(KEY_PLAYER_ENGINE, SelectedPlayerEngine.AUTO.name))
 
-    fun selectedPlayerEngine(): SelectedPlayerEngine = runCatching {
-        SelectedPlayerEngine.valueOf(
-            prefs.getString(KEY_PLAYER_ENGINE, SelectedPlayerEngine.AUTO.name)
-                ?: SelectedPlayerEngine.AUTO.name
-        )
-    }.getOrDefault(SelectedPlayerEngine.AUTO).takeIf { it in supportedPlayerEngines() }
-        ?: SelectedPlayerEngine.AUTO
-
-    fun setSelectedPlayerEngine(engine: SelectedPlayerEngine) {
-        require(engine in supportedPlayerEngines()) {
-            "Experimental LibVLC is not present in this APK"
-        }
+    fun setSelectedPlayerEngine(engine: SelectedPlayerEngine) =
         prefs.edit { putString(KEY_PLAYER_ENGINE, engine.name) }
-    }
 
     fun bufferMode(): BufferMode = runCatching {
         BufferMode.valueOf(prefs.getString(KEY_BUFFER_MODE, BufferMode.FastStart.name) ?: BufferMode.FastStart.name)

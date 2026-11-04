@@ -2,7 +2,6 @@ package com.vaydelux.bousygram.core.media
 
 import android.content.Context
 import android.util.Log
-import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.network.NetworkConnectivityObserver
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
@@ -27,21 +26,14 @@ object PlayerEngineFactory {
         VideoFormatSupport.isTransportStream(fileName, mimeType)
     ) SelectedPlayerEngine.MPV else preferred
 
-    /** Keep the experimental native engine out of normal APKs and fallback chains. */
-    private fun createOptionalLibVlc(context: Context, preferredSpeed: Float): PlayerEngine? {
-        if (!BuildConfig.DEBUG || !BuildConfig.LIBVLC_EXPERIMENTAL_ENABLED) return null
-        return runCatching {
-            val clazz = Class.forName(
-                "com.vaydelux.bousygram.core.media.experimental.LibVlcPlayerEngine"
-            )
-            val engine = clazz.getConstructor(Context::class.java)
-                .newInstance(context.applicationContext) as PlayerEngine
-            engine.setPlaybackSpeed(preferredSpeed)
-            engine
-        }.onFailure {
-            Log.e(TAG, "Experimental LibVLC initialization failed; retaining mpv fallback", it)
-        }.getOrNull()
-    }
+    /** Explicit LibVLC selection; AUTO and default fallbacks stay ExoPlayer/libmpv. */
+    private fun createLibVlc(context: Context, preferredSpeed: Float): PlayerEngine? =
+        runCatching {
+            LibVlcPlayerEngine(context.applicationContext).also {
+                it.setPlaybackSpeed(preferredSpeed)
+            }
+        }.onFailure { Log.e(TAG, "LibVLC initialization failed; using libmpv", it) }
+            .getOrNull()
 
     fun create(
         context: Context,
@@ -51,12 +43,11 @@ object PlayerEngineFactory {
         mimeType: String? = null
     ): PlayerEngine {
         val isCellular = NetworkConnectivityObserver.isCellular
-        if (preferredEngine == SelectedPlayerEngine.LIBVLC_EXPERIMENTAL) {
-            createOptionalLibVlc(context, preferredSpeed)?.let { return it }
-            // Unavailable experimental native engine must not crash the app.
-            Log.w(TAG, "Experimental engine unavailable; falling back to libmpv")
+        if (preferredEngine == SelectedPlayerEngine.LIBVLC) {
+            createLibVlc(context, preferredSpeed)?.let { return it }
+            Log.w(TAG, "LibVLC unavailable; falling back to libmpv")
         }
-        val shouldUseMpv = preferredEngine == SelectedPlayerEngine.LIBVLC_EXPERIMENTAL ||
+        val shouldUseMpv = preferredEngine == SelectedPlayerEngine.LIBVLC ||
             effectiveEngine(preferredEngine, fileName, mimeType) == SelectedPlayerEngine.MPV
         return if (shouldUseMpv) {
             try {

@@ -1,4 +1,4 @@
-package com.vaydelux.bousygram.core.media.experimental
+package com.vaydelux.bousygram.core.media
 
 import android.content.Context
 import android.net.Uri
@@ -16,8 +16,8 @@ import org.videolan.libvlc.MediaPlayer
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Debug-only VideoLAN 3.6.5 compatibility adapter. It is never packaged in
- * normal APKs or selected by Auto/fallback. One engine owns one native player.
+ * VideoLAN 3.6.5 compatibility adapter, included as an explicit player choice.
+ * Auto mode continues to use ExoPlayer/libmpv; one player owns native resources.
  *
  * No attempt is made to turn non-indexed MPEG-TS into a seekable file.
  */
@@ -56,7 +56,9 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                         state.value = EnginePlaybackState.Ready
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
                             if (!released.get() && !wantedPlayback && filePrepared) {
-                                runCatching { nativePlayer.pause() }
+                                runCatching {
+                                    if (nativePlayer.isPlaying) nativePlayer.pause()
+                                }
                             }
                         }
                     } else {
@@ -105,7 +107,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         }
     }
 
-    override val engineName = "LibVLC (experimental)"
+    override val engineName = "LibVLC"
     override val playbackState: StateFlow<EnginePlaybackState> get() = state
     override val tracks: StateFlow<List<MediaTrackInfo>> get() = activeTracks
     override val videoDimensions: StateFlow<Pair<Int, Int>> get() = dimensions
@@ -118,8 +120,8 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         get() = !released.get() && filePrepared &&
             runCatching { nativePlayer.isSeekable }.getOrDefault(false)
     override val seekableContainerDuration: Boolean get() = canSeek && durationMs > 0L
-    override val activeDecoder: String get() = "VideoLAN native (experimental)"
-    override val bufferConfigDescription = "LibVLC default; experimental"
+    override val activeDecoder: String get() = "VideoLAN native"
+    override val bufferConfigDescription = "VideoLAN native; 450ms network cache"
     override val diagnosticDetails: Map<String, String>
         get() = mapOf(
             "engine" to engineName,
@@ -188,12 +190,17 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         if (released.get() || !filePrepared) return
         wantedPlayback = true
         stoppedByOwner = false
-        nativePlayer.play()
+        if (!nativePlayer.isPlaying) nativePlayer.play()
     }
 
     override fun pause() {
         wantedPlayback = false
-        if (!released.get() && filePrepared) nativePlayer.pause()
+        if (!released.get() && filePrepared) {
+            // LibVLC pause() toggles, so never invoke it repeatedly when paused.
+            runCatching {
+                if (nativePlayer.isPlaying) nativePlayer.pause()
+            }.onFailure { Log.w(TAG, "LibVLC pause failed", it) }
+        }
     }
 
     override fun seekTo(positionMs: Long) {
@@ -299,6 +306,6 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     }
 
     companion object {
-        private const val TAG = "LibVlcLab"
+        private const val TAG = "LibVlcEngine"
     }
 }

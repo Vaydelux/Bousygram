@@ -154,6 +154,7 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkResult
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkPurpose
 import com.vaydelux.bousygram.core.media.MediaTrackInfo
 import com.vaydelux.bousygram.core.media.MpvPlayerEngine
+import com.vaydelux.bousygram.core.media.LibVlcPlayerEngine
 import com.vaydelux.bousygram.core.media.PlaybackCacheStopReason
 import com.vaydelux.bousygram.core.media.PlaybackSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
@@ -166,6 +167,7 @@ import com.vaydelux.bousygram.core.media.StreamingSessionManager
 import com.vaydelux.bousygram.core.cache.CacheManager
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
+import com.vaydelux.bousygram.data.store.nextManualPlayerEngine
 import com.vaydelux.bousygram.core.network.AppNetworkState
 import com.vaydelux.bousygram.core.network.NetworkConnectivityObserver
 import com.vaydelux.bousygram.core.media.UniversalMediaSessionBridge
@@ -472,8 +474,12 @@ fun PlayerScreen(
         )
     }
     fun togglePlayerEngine() {
-        val target = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.MPV
-                     else SelectedPlayerEngine.ExoPlayer
+        val selected = when (playerEngine) {
+            is ExoPlayerEngine -> SelectedPlayerEngine.ExoPlayer
+            is MpvPlayerEngine -> SelectedPlayerEngine.MPV
+            else -> SelectedPlayerEngine.LIBVLC
+        }
+        val target = nextManualPlayerEngine(selected)
         requestEngineSwitch(target, "Switching to ${target.name}…")
     }
 
@@ -1214,7 +1220,7 @@ fun PlayerScreen(
                         rebufferRatio = rebufferRatio,
                         networkType = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) "Cellular" else "WiFi",
                         decoderName = decoderName,
-                        engine = if (activeLifecycleEngine is ExoPlayerEngine) "ExoPlayer" else "libmpv",
+                        engine = activeLifecycleEngine.engineName,
                         bufferConfig = activeLifecycleEngine.bufferConfigDescription.takeIf { it.isNotBlank() }
                     )
                 )
@@ -1789,7 +1795,7 @@ fun PlayerScreen(
                 currentEngine = when {
                             playerEngine is ExoPlayerEngine -> SelectedPlayerEngine.ExoPlayer
                             playerEngine is MpvPlayerEngine -> SelectedPlayerEngine.MPV
-                            else -> SelectedPlayerEngine.LIBVLC_EXPERIMENTAL
+                            else -> SelectedPlayerEngine.LIBVLC
                         },
                 isPlaying = isPlaying,
                 isBuffering = isBuffering,
@@ -3168,7 +3174,7 @@ private fun TrackPickerOverlay(
                 playerEngine !is ExoPlayerEngine && playerEngine !is MpvPlayerEngine
             ) {
                 Text(
-                    "Experimental LibVLC subtitle appearance controls are not supported yet. Select libmpv or ExoPlayer to adjust text captions.",
+                    "LibVLC supports subtitle tracks. Custom caption colors and sizing currently use ExoPlayer/libmpv.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )

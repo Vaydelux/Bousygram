@@ -260,7 +260,7 @@ fun SettingsScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        "Auto uses ExoPlayer with transparent fallback to libmpv for MKV, AVI, and complex subtitles.",
+                                        "Auto uses ExoPlayer/libmpv. Select LibVLC for a third MKV/TS decoder option; it may use more memory on older TVs.",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodyMedium
                                     )
@@ -276,7 +276,7 @@ fun SettingsScreen(
                                         com.vaydelux.bousygram.data.store.SelectedPlayerEngine.AUTO -> "Auto (Default)"
                                         com.vaydelux.bousygram.data.store.SelectedPlayerEngine.ExoPlayer -> "ExoPlayer"
                                         com.vaydelux.bousygram.data.store.SelectedPlayerEngine.MPV -> "libmpv"
-                                        com.vaydelux.bousygram.data.store.SelectedPlayerEngine.LIBVLC_EXPERIMENTAL -> "LibVLC (Lab)"
+                                        com.vaydelux.bousygram.data.store.SelectedPlayerEngine.LIBVLC -> "LibVLC"
                                     }
                                     BousygramChip(
                                         text = chipLabel,
@@ -534,7 +534,7 @@ fun SettingsScreen(
                                         ) {
                                             EnterprisePreferences.supportedPlayerEngines().forEach { engine ->
                                                 BousygramChip(
-                                                    text = engine.name,
+                                                    text = engine.label,
                                                     selected = playerEngine == engine,
                                                     onClick = {
                                                         playerEngine = engine

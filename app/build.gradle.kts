@@ -13,25 +13,7 @@ plugins {
 
 val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a")
 
-// Experimental VideoLAN adapter is entirely absent from normal APKs.
-// Opt-in: ./gradlew :app:assembleDebug -PenableExperimentalLibVlc=true
-val enableExperimentalLibVlc =
-    providers.gradleProperty("enableExperimentalLibVlc").orNull == "true"
-if (enableExperimentalLibVlc) {
-    require(gradle.startParameter.taskNames.isNotEmpty() &&
-        gradle.startParameter.taskNames.none { requested ->
-            // Ordinary verification tasks may accompany a debug build.
-            // Never permit opt-in experimental native dependencies in
-            // release, hardenedRelease or production bundle packaging.
-            val task = requested.substringAfterLast(':')
-            task.startsWith("assembleRelease", ignoreCase = true) ||
-                task.startsWith("bundleRelease", ignoreCase = true) ||
-                task.contains("hardenedRelease", ignoreCase = true) ||
-                task.startsWith("packageRelease", ignoreCase = true)
-        }) {
-        "Experimental LibVLC is debug-only; production variants are not supported"
-    }
-}
+// VideoLAN LibVLC is included in all standard Bousygram APKs.
 val tdLibJniDir = project.layout.projectDirectory.dir("src/main/jniLibs").asFile
 val tdLibAvailableAbis = supportedTdLibAbis.filter { abi ->
     val nativeLibrary = File(tdLibJniDir, "$abi/libtdjni.so")
@@ -155,7 +137,6 @@ android {
         // Keep it available for development only; production variants stay fail-closed.
         buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
         buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "false")
-        buildConfigField("boolean", "LIBVLC_EXPERIMENTAL_ENABLED", "false")
     }
 
     androidResources {
@@ -185,10 +166,6 @@ android {
             // Use the Android Gradle Plugin's generated debug keystore. A clean
             // checkout must not depend on a repository-root debug.keystore.
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "true")
-            buildConfigField(
-                "boolean", "LIBVLC_EXPERIMENTAL_ENABLED",
-                enableExperimentalLibVlc.toString()
-            )
             manifestPlaceholders["engineLabEnabled"] = "true"
         }
         release {
@@ -218,9 +195,6 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
-    }
-    if (enableExperimentalLibVlc) {
-        sourceSets.getByName("main").java.srcDir("src/libvlcExperimental/java")
     }
 
     compileOptions {
@@ -260,12 +234,9 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = false
-            if (enableExperimentalLibVlc) {
-                // Lab only: VideoLAN/libmpv bundle conflicting C++ runtimes.
-                // Selecting one native copy does not prove runtime compatibility;
-                // ARM32/ARM64 playback stress tests are still mandatory.
-                pickFirsts += setOf("**/libc++_shared.so")
-            }
+            // VideoLAN/libmpv both ship libc++_shared.so per ABI.
+            // Packaging a single copy does not prove native runtime compatibility.
+            pickFirsts += setOf("**/libc++_shared.so")
         }
         resources {
             excludes += setOf(
@@ -772,11 +743,8 @@ dependencies {
     // libmpv core engine
     implementation(libs.mpv)
 
-    // Official LGPL-2.1 VideoLAN AAR. Never bundled in the normal APKs.
-    // Native decoder size and ARM32 compatibility require independent qualification.
-    if (enableExperimentalLibVlc) {
-        implementation("org.videolan.android:libvlc-all:3.6.5")
-    }
+    // VideoLAN LGPL-2.1 native engine, included in normal debug/release APKs.
+    implementation("org.videolan.android:libvlc-all:3.6.5")
 
     // Room database indexing
     implementation(libs.androidx.room.runtime)
