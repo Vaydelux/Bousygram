@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -119,7 +120,13 @@ internal fun launchYouTubeTrailer(context: Context, videoId: String): Boolean {
     }
 }
 
-/** Each render occupies the detail page only. WebView never exists on Android TV. */
+/**
+ * JavaScript is required by the official YouTube iframe. The generated page has
+ * only fixed HTML and a strictly validated video ID. There is no JavaScript
+ * bridge, file/content access, or arbitrary top-level navigation.
+ * Suppress lint narrowly on this trailer component only.
+ */
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun ExtrasYouTubeTrailer(
     videoId: String,
@@ -158,10 +165,12 @@ internal fun ExtrasYouTubeTrailer(
                         WebView(ctx).apply {
                             setBackgroundColor(android.graphics.Color.BLACK)
                             settings.apply {
-                                javaScriptEnabled = true // Required by YouTube's embedded player.
+                                javaScriptEnabled = true // Official YouTube iframe only; see scoped lint rationale.
                                 domStorageEnabled = true
                                 allowFileAccess = false
                                 allowContentAccess = false
+                                allowFileAccessFromFileURLs = false
+                                allowUniversalAccessFromFileURLs = false
                                 javaScriptCanOpenWindowsAutomatically = false
                                 setSupportMultipleWindows(false)
                                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
