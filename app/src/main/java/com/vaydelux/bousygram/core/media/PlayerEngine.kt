@@ -33,6 +33,8 @@ interface PlayerEngine {
     val bufferedPositionMs: Long
     val isPlaying: Boolean
     val playWhenReady: Boolean
+    /** True only when the demuxer currently reports reliable seeking. */
+    val canSeek: Boolean get() = false
     val activeDecoder: String
     val videoDecoderName: String get() = activeDecoder
     val audioDecoderName: String get() = "Unknown"

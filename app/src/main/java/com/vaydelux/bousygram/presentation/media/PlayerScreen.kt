@@ -419,7 +419,9 @@ fun PlayerScreen(
             initialEngine = PlayerEngineFactory.create(
                 context = context,
                 preferredEngine = initialProbe?.recommendedEngine ?: EnterprisePreferences.selectedPlayerEngine(),
-                preferredSpeed = speed
+                preferredSpeed = speed,
+                fileName = queue.getOrNull(initialIndex)?.fileName,
+                mimeType = queue.getOrNull(initialIndex)?.mimeType
             )
         )
     }
@@ -540,11 +542,26 @@ fun PlayerScreen(
     }
 
     fun performTrackedSeek(targetMs: Long) {
+        val current = queue.getOrNull(queueIndex)
+        val isTs = current != null && VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
+        if (!canSeekTransportStream(isTs, playerEngine.canSeek)) {
+            toastFeedbackText = "This TS file is still building its seek index. Try again when playback is ready."
+            pendingSeekTargetMs = -1L
+            pendingSeekStartedAtMs = 0L
+            return
+        }
         progressCheckpoint.onExplicitSeek(targetMs)
         pendingSeekTargetMs = targetMs.coerceAtLeast(0L)
         pendingSeekStartedAtMs = android.os.SystemClock.elapsedRealtime()
         seekPreviewPositionMs = -1L
         playerEngine.seekTo(pendingSeekTargetMs)
+        // Transport/decoder stalls are not user-initiated pauses.
+        if (!explicitlyPaused &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+            !castState.connected && !playerEngine.playWhenReady
+        ) {
+            playerEngine.play()
+        }
     }
 
     fun commitPlaybackTelemetry(fatalError: String? = null) {
@@ -922,9 +939,11 @@ fun PlayerScreen(
                     }
                     // Preserve autoplay intent across asynchronous MKV demux/decoder readiness.
                     // An explicit user pause clears playWhenReady and is never overridden.
-                    if (shouldAutoResumeAfterReady(
+                    if (shouldRestorePlayIntent(
                             isReady = true,
-                            playWhenReady = playerEngine.playWhenReady,
+                            explicitlyPaused = explicitlyPaused,
+                            inForeground = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED),
+                            castConnected = castState.connected,
                             isPlaying = playerEngine.isPlaying
                         )) playerEngine.play()
                     isPlaying = playerEngine.isPlaying

@@ -132,6 +132,24 @@ internal fun shouldAutoResumeAfterReady(
     isPlaying: Boolean
 ): Boolean = isReady && playWhenReady && !isPlaying
 
+/**
+ * Explicit user intent, not engine buffering state, controls replay after demux/retry.
+ * The foreground and active Cast guards prevent accidental audio in the background.
+ */
+internal fun shouldRestorePlayIntent(
+    isReady: Boolean,
+    explicitlyPaused: Boolean,
+    inForeground: Boolean,
+    castConnected: Boolean,
+    isPlaying: Boolean
+): Boolean = isReady && !explicitlyPaused && inForeground && !castConnected && !isPlaying
+
+/** TS has no mandatory time index; only seek after the actual demuxer declares support. */
+internal fun canSeekTransportStream(
+    isTransportStream: Boolean,
+    engineSeekable: Boolean
+): Boolean = !isTransportStream || engineSeekable
+
 /** During buffering isPlaying may be false even when autoplay is armed.
  * The play/pause button must cancel that pending autoplay, not reissue play.
  */

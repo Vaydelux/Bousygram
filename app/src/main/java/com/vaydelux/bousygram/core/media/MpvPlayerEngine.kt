@@ -49,8 +49,9 @@ class MpvPlayerEngine(
     // libmpv's demuxer-derived file duration can be trusted even for MKV/TS
     // bigger than 150 MB, but only while it confirms byte-seek support.
     override val seekableContainerDuration: Boolean
-        get() = _durationMs.value > 0L &&
-            runCatching { mpv.getPropertyBoolean("seekable") == true }.getOrDefault(false)
+        get() = _durationMs.value > 0L && canSeek
+    override val canSeek: Boolean
+        get() = runCatching { mpv.getPropertyBoolean("seekable") == true }.getOrDefault(false)
 
     private fun acceptNativeDuration(seconds: Double) {
         if (!seconds.isFinite() || seconds < 1.0 || seconds > 7.0 * 24 * 60 * 60) return
@@ -372,10 +373,15 @@ class MpvPlayerEngine(
 
     override fun seekTo(positionMs: Long) {
         if (isDestroyed.get()) return
+        // Never publish a fabricated timestamp for an unseekable TS or MKV.
+        // The time-pos observer is the sole authority for a completed seek.
+        if (!canSeek) {
+            Log.w(TAG, "Seek ignored until the native demuxer publishes a seek map")
+            return
+        }
         try {
-            val seconds = (positionMs.coerceAtLeast(0L)) / 1000.0
+            val seconds = positionMs.coerceAtLeast(0L) / 1000.0
             mpv.command(arrayOf("seek", seconds.toString(), "absolute"))
-            _currentPositionMs.value = positionMs
         } catch (e: Throwable) {
             Log.e(TAG, "Error seeking mpv to $positionMs ms", e)
         }

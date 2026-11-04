@@ -13,6 +13,19 @@ import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 object PlayerEngineFactory {
     private const val TAG = "PlayerEngineFactory"
 
+    /**
+     * TS has no mandatory time index; prefer libmpv's demuxer for AUTO files.
+     * Explicit engine choices always win. Other containers retain Exo-first.
+     */
+    internal fun effectiveEngine(
+        preferred: SelectedPlayerEngine,
+        fileName: String?,
+        mimeType: String?
+    ): SelectedPlayerEngine = if (
+        preferred == SelectedPlayerEngine.AUTO &&
+        VideoFormatSupport.isTransportStream(fileName, mimeType)
+    ) SelectedPlayerEngine.MPV else preferred
+
     fun create(
         context: Context,
         preferredEngine: SelectedPlayerEngine = EnterprisePreferences.selectedPlayerEngine(),
@@ -21,7 +34,7 @@ object PlayerEngineFactory {
         mimeType: String? = null
     ): PlayerEngine {
         val isCellular = NetworkConnectivityObserver.isCellular
-        val shouldUseMpv = preferredEngine == SelectedPlayerEngine.MPV
+        val shouldUseMpv = effectiveEngine(preferredEngine, fileName, mimeType) == SelectedPlayerEngine.MPV
         return if (shouldUseMpv) {
             try {
                 Log.i(TAG, "Creating MpvPlayerEngine (cellular=$isCellular)")

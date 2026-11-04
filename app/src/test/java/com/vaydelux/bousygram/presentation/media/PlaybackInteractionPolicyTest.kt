@@ -59,6 +59,21 @@ class PlaybackInteractionPolicyTest {
         assertFalse(shouldPauseOnTransportToggle(isPlaying = false, playWhenReady = false))
     }
 
+    @Test fun streamRecoveryPreservesUserPlayIntentButNeverOverridesPauseOrBackground() {
+        assertTrue(shouldRestorePlayIntent(true, false, true, false, false))
+        assertFalse(shouldRestorePlayIntent(true, true, true, false, false))
+        assertFalse(shouldRestorePlayIntent(true, false, false, false, false))
+        assertFalse(shouldRestorePlayIntent(true, false, true, true, false))
+        assertFalse(shouldRestorePlayIntent(false, false, true, false, false))
+        assertFalse(shouldRestorePlayIntent(true, false, true, false, true))
+    }
+
+    @Test fun transportStreamSeekRequiresRealDemuxerIndex() {
+        assertFalse(canSeekTransportStream(true, false))
+        assertTrue(canSeekTransportStream(true, true))
+        assertTrue(canSeekTransportStream(false, false))
+    }
+
     @Test fun relativeSeekWorksWithoutDurationAndStopsAtKnownEnd() {
         assertEquals(10_000L, relativePlayerSeekTarget(0L, 10_000L, 0L))
         assertEquals(20_000L, relativePlayerSeekTarget(10_000L, 10_000L, 0L))

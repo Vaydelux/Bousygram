@@ -60,6 +60,7 @@ class ExoPlayerEngine(
     override val bufferedPositionMs: Long get() = player.bufferedPosition.coerceAtLeast(0L)
     override val isPlaying: Boolean get() = player.isPlaying
     override val playWhenReady: Boolean get() = player.playWhenReady
+    override val canSeek: Boolean get() = player.isCurrentMediaItemSeekable
 
     private val _activeDecoder = MutableStateFlow("MediaCodec (Hardware)")
     override val activeDecoder: String get() = _activeDecoder.value
