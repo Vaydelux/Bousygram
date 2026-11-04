@@ -139,7 +139,7 @@ class TdLibDataSourceTest {
         } catch (expected: IOException) {
             assertTrue(expected.message.orEmpty().contains("access denied"))
         }
-        assertEquals(null, source.uri)
+        assertEquals(null, source.getUri())
         assertEquals(0, TelegramChunkScheduler.activeLeaseCount(testFileId))
         source.close()
         PlaybackSessionController.bindActiveFile(testFileId)
