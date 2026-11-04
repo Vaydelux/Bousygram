@@ -1786,7 +1786,11 @@ fun PlayerScreen(
                 BlackScreenRecoveryAction.NONE
             } else blackScreenDetector.evaluate(
                 context = context,
-                currentEngine = if (playerEngine is ExoPlayerEngine) SelectedPlayerEngine.ExoPlayer else SelectedPlayerEngine.MPV,
+                currentEngine = when {
+                            playerEngine is ExoPlayerEngine -> SelectedPlayerEngine.ExoPlayer
+                            playerEngine is MpvPlayerEngine -> SelectedPlayerEngine.MPV
+                            else -> SelectedPlayerEngine.LIBVLC_EXPERIMENTAL
+                        },
                 isPlaying = isPlaying,
                 isBuffering = isBuffering,
                 hasFirstFrame = firstFrameMs > 0L,

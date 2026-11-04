@@ -268,12 +268,13 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                com.vaydelux.bousygram.data.store.SelectedPlayerEngine.values().forEach { engine ->
+                                EnterprisePreferences.supportedPlayerEngines().forEach { engine ->
                                     val isSelected = playerEngine == engine
                                     val chipLabel = when (engine) {
                                         com.vaydelux.bousygram.data.store.SelectedPlayerEngine.AUTO -> "Auto (Default)"
                                         com.vaydelux.bousygram.data.store.SelectedPlayerEngine.ExoPlayer -> "ExoPlayer"
                                         com.vaydelux.bousygram.data.store.SelectedPlayerEngine.MPV -> "libmpv"
+                                        com.vaydelux.bousygram.data.store.SelectedPlayerEngine.LIBVLC_EXPERIMENTAL -> "LibVLC (Lab)"
                                     }
                                     BousygramChip(
                                         text = chipLabel,
@@ -525,7 +526,7 @@ fun SettingsScreen(
                                         )
                                         Spacer(Modifier.height(6.dp))
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            SelectedPlayerEngine.entries.forEach { engine ->
+                                            EnterprisePreferences.supportedPlayerEngines().forEach { engine ->
                                                 BousygramChip(
                                                     text = engine.name,
                                                     selected = playerEngine == engine,

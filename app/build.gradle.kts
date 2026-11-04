@@ -12,6 +12,19 @@ plugins {
 }
 
 val supportedTdLibAbis = listOf("arm64-v8a", "armeabi-v7a")
+
+// Experimental VideoLAN adapter is entirely absent from normal APKs.
+// Opt-in: ./gradlew :app:assembleDebug -PenableExperimentalLibVlc=true
+val enableExperimentalLibVlc =
+    providers.gradleProperty("enableExperimentalLibVlc").orNull == "true"
+if (enableExperimentalLibVlc) {
+    require(gradle.startParameter.taskNames.isNotEmpty() &&
+        gradle.startParameter.taskNames.all {
+            it.substringAfterLast(':').contains("debug", ignoreCase = true)
+        }) {
+        "Experimental LibVLC is debug-only: use assembleDebug/testDebugUnitTest, never release"
+    }
+}
 val tdLibJniDir = project.layout.projectDirectory.dir("src/main/jniLibs").asFile
 val tdLibAvailableAbis = supportedTdLibAbis.filter { abi ->
     val nativeLibrary = File(tdLibJniDir, "$abi/libtdjni.so")
@@ -135,6 +148,7 @@ android {
         // Keep it available for development only; production variants stay fail-closed.
         buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
         buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "false")
+        buildConfigField("boolean", "LIBVLC_EXPERIMENTAL_ENABLED", "false")
     }
 
     androidResources {
@@ -164,6 +178,10 @@ android {
             // Use the Android Gradle Plugin's generated debug keystore. A clean
             // checkout must not depend on a repository-root debug.keystore.
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "true")
+            buildConfigField(
+                "boolean", "LIBVLC_EXPERIMENTAL_ENABLED",
+                enableExperimentalLibVlc.toString()
+            )
             manifestPlaceholders["engineLabEnabled"] = "true"
         }
         release {
@@ -194,6 +212,10 @@ android {
             }
         }
     }
+    if (enableExperimentalLibVlc) {
+        sourceSets.getByName("main").java.srcDir("src/libvlcExperimental/java")
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -736,6 +758,12 @@ dependencies {
 
     // libmpv core engine
     implementation(libs.mpv)
+
+    // Official LGPL-2.1 VideoLAN AAR. Never bundled in the normal APKs.
+    // Native decoder size and ARM32 compatibility require independent qualification.
+    if (enableExperimentalLibVlc) {
+        implementation("org.videolan.android:libvlc-all:3.6.5")
+    }
 
     // Room database indexing
     implementation(libs.androidx.room.runtime)
