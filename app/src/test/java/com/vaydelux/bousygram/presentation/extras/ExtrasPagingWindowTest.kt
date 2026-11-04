@@ -16,7 +16,7 @@ class ExtrasPagingWindowTest {
         var dropped = 0
         // 100 pages of 20 synthetic items = 2,000 catalog rows, 0 network calls.
         for (page in 0 until 100) {
-            val next = (page * 20 + 1..page * 20 + 20).map(::item)
+            val next = (page * 20 + 1..page * 20 + 20).map { item(it) }
             val result = ExtrasPagingWindow.merge(retained, next, limit)
             retained = result.items
             dropped += result.removedFromFront
@@ -34,7 +34,7 @@ class ExtrasPagingWindowTest {
         assertEquals(240, limit)
         var retained = emptyList<ExtrasItem>()
         for (page in 0 until 300) {
-            val next = (page * 20 + 1..page * 20 + 20).map(::item)
+            val next = (page * 20 + 1..page * 20 + 20).map { item(it) }
             retained = ExtrasPagingWindow.merge(retained, next, limit).items
             assertTrue(retained.size <= limit)
         }
@@ -44,8 +44,8 @@ class ExtrasPagingWindowTest {
     }
 
     @Test fun duplicatesDoNotInflateTheWindowOrDropActiveKeys() {
-        val existing = (1..120).map(::item)
-        val next = (115..134).map(::item)
+        val existing = (1..120).map { item(it) }
+        val next = (115..134).map { item(it) }
         val result = ExtrasPagingWindow.merge(existing, next, 120)
         assertEquals(120, result.items.size)
         assertEquals(14, result.removedFromFront)
@@ -66,11 +66,11 @@ class ExtrasPagingWindowTest {
     }
 
     @Test fun emptyPageKeepsExistingAndIsSafeToRewind() {
-        val current = (1..60).map(::item)
+        val current = (1..60).map { item(it) }
         val result = ExtrasPagingWindow.merge(current, emptyList(), 120)
         assertEquals(current, result.items)
         assertEquals(0, result.removedFromFront)
-        val fresh = ExtrasPagingWindow.merge(emptyList(), (1..20).map(::item), 120)
+        val fresh = ExtrasPagingWindow.merge(emptyList(), (1..20).map { item(it) }, 120)
         assertEquals(20, fresh.items.size)
         assertEquals(1, fresh.items.first().id)
     }
