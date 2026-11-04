@@ -34,7 +34,9 @@ data class ExtrasFilters(
     val sort: ExtrasSort = ExtrasSort.POPULAR,
     val genre: String = "All",
     val year: Int? = null,
-    val minimumRating: Int = 0
+    val minimumRating: Int = 0,
+    val animeFormat: String? = null,
+    val animeStatus: String? = null
 )
 
 data class ExtrasItem(
@@ -85,6 +87,22 @@ object ExtrasProviderPolicy {
         } else searchPath(type, searching)
     }
 
+    fun animeFormats(): List<Pair<String, String?>> = listOf(
+        "Any format" to null, "TV" to "TV", "TV Short" to "TV_SHORT",
+        "Movie" to "MOVIE", "OVA" to "OVA", "ONA" to "ONA",
+        "Special" to "SPECIAL", "Music" to "MUSIC"
+    )
+
+    fun animeStatuses(): List<Pair<String, String?>> = listOf(
+        "Any status" to null, "Airing" to "RELEASING",
+        "Finished" to "FINISHED", "Upcoming" to "NOT_YET_RELEASED",
+        "On hiatus" to "HIATUS", "Cancelled" to "CANCELLED"
+    )
+
+    /** GraphQL may return errors with HTTP 200; never cache those bodies. */
+    fun mayCacheResponse(isGraphQl: Boolean, containsGraphQlErrors: Boolean): Boolean =
+        !isGraphQl || !containsGraphQlErrors
+
     fun youtubeId(id: String?): String? =
         id?.takeIf { it.length in 6..24 && it.matches(Regex("[A-Za-z0-9_-]+")) }
 
@@ -126,6 +144,14 @@ object ExtrasCatalogApi {
         override fun sizeOf(key: String, value: Cached): Int =
             ((value.content.length * 2L) / 1024L).coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
+    /** Drop catalog JSON under OS memory pressure to protect ARM32 devices. */
+    fun trimMemory(critical: Boolean) {
+        synchronized(responseCache) {
+            if (critical) responseCache.evictAll()
+            else responseCache.trimToSize(1024) // Keep at most 1 MiB of warm JSON.
+        }
+    }
+
     @Volatile private var anilistBackoffUntil = 0L
     // AniList currently advertises 30 requests/minute. A 2-token burst and one
     // refill every 2.1 seconds stay below that budget for a single app instance.
@@ -307,16 +333,30 @@ object ExtrasCatalogApi {
         if (f.genre != "All") variables.put("genre", f.genre)
         f.year?.let { variables.put("year", "$it%") }
         if (f.minimumRating > 0) variables.put("score", f.minimumRating * 10 - 1)
+        f.animeFormat?.let { format ->
+            require(ExtrasProviderPolicy.animeFormats().any { it.second == format }) {
+                "Invalid AniList format filter"
+            }
+            variables.put("format", format)
+        }
+        f.animeStatus?.let { status ->
+            require(ExtrasProviderPolicy.animeStatuses().any { it.second == status }) {
+                "Invalid AniList status filter"
+            }
+            variables.put("status", status)
+        }
         val gql = """
             query (${'$'}page: Int!, ${'$'}search: String, ${'$'}genre: String, ${'$'}year: String,
-                   ${'$'}score: Int, ${'$'}sort: [MediaSort]) {
+                   ${'$'}score: Int, ${'$'}sort: [MediaSort],
+                   ${'$'}format: MediaFormat, ${'$'}status: MediaStatus) {
               Page(page: ${'$'}page, perPage: 20) {
                 pageInfo { hasNextPage }
                 media(type: ANIME, isAdult: false, search: ${'$'}search, genre: ${'$'}genre,
-                      startDate_like: ${'$'}year, averageScore_greater: ${'$'}score, sort: ${'$'}sort) {
+                      startDate_like: ${'$'}year, averageScore_greater: ${'$'}score,
+                      format: ${'$'}format, status: ${'$'}status, sort: ${'$'}sort) {
                   id title { english romaji native }
                   coverImage { large } seasonYear startDate { year }
-                  averageScore format episodes description(asHtml: false)
+                  averageScore format episodes
                 }
               }
             }
@@ -559,8 +599,11 @@ object ExtrasCatalogApi {
                 output.toString(StandardCharsets.UTF_8.name())
             }
             val json = JSONObject(data)
-            synchronized(responseCache) {
-                responseCache.put(cacheKey, Cached(data, now + ttlMs))
+            val hasGraphQlErrors = (json.optJSONArray("errors")?.length() ?: 0) > 0
+            if (ExtrasProviderPolicy.mayCacheResponse(body != null, hasGraphQlErrors)) {
+                synchronized(responseCache) {
+                    responseCache.put(cacheKey, Cached(data, now + ttlMs))
+                }
             }
             return json
         } finally {
