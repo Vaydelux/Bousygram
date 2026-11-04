@@ -73,6 +73,13 @@ object ExtrasProviderPolicy {
         ExtrasType.ANIME -> "/graphql"
     }
 
+    fun tmdbBrowsePath(type: ExtrasType, searching: Boolean, sort: ExtrasSort): String {
+        require(type != ExtrasType.ANIME) { "AniList cannot be routed through TMDB" }
+        return if (!searching && sort == ExtrasSort.TRENDING) {
+            "/trending/" + (if (type == ExtrasType.TV) "tv" else "movie") + "/week"
+        } else searchPath(type, searching)
+    }
+
     fun youtubeId(id: String?): String? =
         id?.takeIf { it.length in 6..24 && it.matches(Regex("[A-Za-z0-9_-]+")) }
 
@@ -147,9 +154,7 @@ object ExtrasCatalogApi {
         }
         // TMDB trending is a different metric from discover popularity. Use the real weekly feed.
         val trending = !searching && f.sort == ExtrasSort.TRENDING
-        val path = if (trending) {
-            "/trending/" + (if (type == ExtrasType.TV) "tv" else "movie") + "/week"
-        } else ExtrasProviderPolicy.searchPath(type, searching)
+        val path = ExtrasProviderPolicy.tmdbBrowsePath(type, searching, f.sort)
         val body = tmdbGet(path, params)
         val candidates = arrayObjects(body.optJSONArray("results"))
             .filter { !it.optBoolean("adult", false) }
