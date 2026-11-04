@@ -8,6 +8,65 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExtrasProviderPolicyTest {
+    @Test fun tmdbOriginalLanguagesRemainSeparateFromAnime() {
+        assertTrue(ExtrasProviderPolicy.tmdbLanguages().contains("English" to "en"))
+        assertTrue(ExtrasProviderPolicy.tmdbLanguages().contains("Filipino (Tagalog)" to "tl"))
+        assertTrue(ExtrasProviderPolicy.tmdbLanguages().contains("Japanese" to "ja"))
+        assertTrue(ExtrasProviderPolicy.tmdbLanguages().contains("Any language" to null))
+        assertNull(ExtrasFilters().tmdbOriginalLanguage)
+    }
+
+    @Test fun tmdbSearchFiltersUseExactRawScoreGenreLanguageAndReleaseYear() {
+        val movie = org.json.JSONObject(
+            """{"id":1,"adult":false,"vote_average":6.96,"release_date":"2026-08-19",
+                "genre_ids":[28,18],"original_language":"ja"}"""
+        )
+        // Formatting 6.96 to one decimal can show "7.0", but a 7+ filter must
+        // reject the underlying 6.96 rating.
+        assertFalse(ExtrasProviderPolicy.tmdbMatchesResult(
+            movie, ExtrasType.MOVIES, "28", 2026, 7, "ja"
+        ))
+        assertTrue(ExtrasProviderPolicy.tmdbMatchesResult(
+            movie, ExtrasType.MOVIES, "28", 2026, 6, "ja"
+        ))
+        assertFalse(ExtrasProviderPolicy.tmdbMatchesResult(
+            movie, ExtrasType.MOVIES, "35", 2026, 6, "ja"
+        ))
+        assertFalse(ExtrasProviderPolicy.tmdbMatchesResult(
+            movie, ExtrasType.MOVIES, "", 2025, 6, "ja"
+        ))
+        assertFalse(ExtrasProviderPolicy.tmdbMatchesResult(
+            movie, ExtrasType.MOVIES, "", 2026, 6, "en"
+        ))
+        assertTrue(ExtrasProviderPolicy.tmdbMatchesResult(
+            movie, ExtrasType.MOVIES, "", null, 0, null
+        ))
+    }
+
+    @Test fun tmdbTvYearUsesFirstAirDateAndAdultTitlesAreNeverListed() {
+        val series = org.json.JSONObject(
+            """{"id":2,"adult":false,"vote_average":8.1,"release_date":"2021-05-05",
+                "first_air_date":"2026-04-12","genre_ids":[10765],"original_language":"ko"}"""
+        )
+        assertTrue(ExtrasProviderPolicy.tmdbMatchesResult(
+            series, ExtrasType.TV, "10765", 2026, 8, "ko"
+        ))
+        assertFalse(ExtrasProviderPolicy.tmdbMatchesResult(
+            series, ExtrasType.TV, "10765", 2021, 8, "ko"
+        ))
+        series.put("adult", true)
+        assertFalse(ExtrasProviderPolicy.tmdbMatchesResult(
+            series, ExtrasType.TV, "", null, 0, null
+        ))
+        try {
+            ExtrasProviderPolicy.tmdbMatchesResult(series, ExtrasType.ANIME, "", null, 0, null)
+            org.junit.Assert.fail("AniList must not pass through TMDB filters")
+        } catch (_: IllegalArgumentException) {
+            // Provider isolation is enforced.
+        }
+    }
+
+
     @Test fun eachTabHasAnIsolatedCatalogRoute() {
         assertEquals("/search/movie", ExtrasProviderPolicy.searchPath(ExtrasType.MOVIES, true))
         assertEquals("/discover/movie", ExtrasProviderPolicy.searchPath(ExtrasType.MOVIES, false))
