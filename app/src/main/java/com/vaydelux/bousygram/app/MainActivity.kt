@@ -47,7 +47,7 @@ import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import com.vaydelux.bousygram.presentation.shell.BousygramMode
 import com.vaydelux.bousygram.presentation.shell.BousygramModeSelection
-import com.vaydelux.bousygram.presentation.shell.ExtrasMaintenanceScreen
+import com.vaydelux.bousygram.presentation.extras.ExtrasCatalogScreen
 import com.vaydelux.bousygram.presentation.shell.TelegramStartupLoadingScreen
 
 class MainActivity : ComponentActivity() {
@@ -166,7 +166,7 @@ private fun BousygramAppRoot(
         return
     }
     if (mode == BousygramMode.EXTRAS_MAINTENANCE) {
-        ExtrasMaintenanceScreen(onBack = { modeName = BousygramMode.SELECT.name })
+        ExtrasCatalogScreen(onExit = { modeName = BousygramMode.SELECT.name })
         return
     }
 
