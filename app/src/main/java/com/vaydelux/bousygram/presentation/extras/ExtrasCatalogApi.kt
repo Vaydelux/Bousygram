@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import android.text.Html
+import android.os.SystemClock
 import android.util.LruCache
 import com.vaydelux.bousygram.BuildConfig
 import java.io.IOException
@@ -9,6 +10,8 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -109,6 +112,32 @@ object ExtrasCatalogApi {
             ((value.content.length * 2L) / 1024L).coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
     @Volatile private var anilistBackoffUntil = 0L
+    // AniList currently advertises 30 requests/minute. A 2-token burst and one
+    // refill every 2.1 seconds stay below that budget for a single app instance.
+    private val anilistLimiter = Mutex()
+    private var anilistTokens = 2.0
+    private var anilistLastRefillMs = SystemClock.elapsedRealtime()
+
+    private suspend fun reserveAniListToken() {
+        anilistLimiter.lock()
+        try {
+            var now = SystemClock.elapsedRealtime()
+            anilistTokens = minOf(2.0, anilistTokens +
+                (now - anilistLastRefillMs).coerceAtLeast(0).toDouble() / 2100.0)
+            anilistLastRefillMs = now
+            if (anilistTokens < 1.0) {
+                delay(kotlin.math.ceil((1.0 - anilistTokens) * 2100.0)
+                    .toLong().coerceAtLeast(1L))
+                now = SystemClock.elapsedRealtime()
+                anilistTokens = minOf(2.0, anilistTokens +
+                    (now - anilistLastRefillMs).coerceAtLeast(0).toDouble() / 2100.0)
+                anilistLastRefillMs = now
+            }
+            anilistTokens = (anilistTokens - 1.0).coerceAtLeast(0.0)
+        } finally {
+            anilistLimiter.unlock()
+        }
+    }
 
     suspend fun browse(
         type: ExtrasType, query: String, filters: ExtrasFilters, page: Int
@@ -254,7 +283,7 @@ object ExtrasCatalogApi {
         )
     }
 
-    private fun browseAnime(query: String, f: ExtrasFilters, page: Int): ExtrasPage {
+    private suspend fun browseAnime(query: String, f: ExtrasFilters, page: Int): ExtrasPage {
         val variables = JSONObject()
             .put("page", page.coerceIn(1, 200))
             .put("sort", JSONArray().put(f.sort.anilistValue))
@@ -300,7 +329,7 @@ object ExtrasCatalogApi {
                 .filterNotNull().filter(String::isNotBlank).joinToString(" · "))
     }
 
-    private fun animeDetails(id: Int): ExtrasDetail {
+    private suspend fun animeDetails(id: Int): ExtrasDetail {
         require(id > 0)
         val gql = """
             query (${'$'}id: Int!) {
@@ -406,9 +435,13 @@ object ExtrasCatalogApi {
         return requestJson("$TMDB$path?$query", null, ttlMs = 5 * 60_000L)
     }
 
-    private fun animePost(query: String, variables: JSONObject): JSONObject {
+    private suspend fun animePost(query: String, variables: JSONObject): JSONObject {
         val now = System.currentTimeMillis()
         if (now < anilistBackoffUntil) {
+            throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
+        }
+        reserveAniListToken()
+        if (System.currentTimeMillis() < anilistBackoffUntil) {
             throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
         }
         return requestJson(ANILIST, JSONObject().put("query", query).put("variables", variables).toString(),
