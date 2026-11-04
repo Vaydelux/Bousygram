@@ -19,10 +19,17 @@ val enableExperimentalLibVlc =
     providers.gradleProperty("enableExperimentalLibVlc").orNull == "true"
 if (enableExperimentalLibVlc) {
     require(gradle.startParameter.taskNames.isNotEmpty() &&
-        gradle.startParameter.taskNames.all {
-            it.substringAfterLast(':').contains("debug", ignoreCase = true)
+        gradle.startParameter.taskNames.none { requested ->
+            // Ordinary verification tasks may accompany a debug build.
+            // Never permit opt-in experimental native dependencies in
+            // release, hardenedRelease or production bundle packaging.
+            val task = requested.substringAfterLast(':')
+            task.startsWith("assembleRelease", ignoreCase = true) ||
+                task.startsWith("bundleRelease", ignoreCase = true) ||
+                task.contains("hardenedRelease", ignoreCase = true) ||
+                task.startsWith("packageRelease", ignoreCase = true)
         }) {
-        "Experimental LibVLC is debug-only: use assembleDebug/testDebugUnitTest, never release"
+        "Experimental LibVLC is debug-only; production variants are not supported"
     }
 }
 val tdLibJniDir = project.layout.projectDirectory.dir("src/main/jniLibs").asFile
