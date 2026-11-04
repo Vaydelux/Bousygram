@@ -57,6 +57,18 @@ class TelegramMediaWindowTest {
         assertEquals(0, restart.removedFromFront)
     }
 
+    @Test fun enrichmentMarkerTrackingEvictsOldEntriesAndSuppressesRecentDuplicates() {
+        val tracked = LinkedHashSet<String>()
+        for (id in 1..3000) {
+            assertTrue(rememberBoundedIdentity(tracked, "chat:message:" + id, 768))
+            assertTrue(tracked.size <= 768)
+        }
+        assertEquals(768, tracked.size)
+        assertTrue(!rememberBoundedIdentity(tracked, "chat:message:3000", 768))
+        assertTrue(rememberBoundedIdentity(tracked, "chat:message:1", 768))
+        assertEquals(768, tracked.size)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun invalidLimitRejected() {
         TelegramMediaWindow.merge(emptyList(), emptyList(), 0)

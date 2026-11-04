@@ -45,3 +45,12 @@ Before describing storage as bounded, run long playback and repeated far-seek sc
 - Audited sources: `CacheManager.kt`, `TelegramCachePruner.kt`, `TelegramNativeFileGc.kt`, `OfflineCacheManager.kt`, `TelegramChunkScheduler.kt`, `TelegramPreCacheEngine.kt`, `TelegramFileGateway.kt`, `TelegramAuthManager.kt`, and the checked-in generated `TdApi.java`.
 - No physical storage trace or target-device run is available in this audit. No cumulative range-retention claim is made.
 - The legacy cache tests include arithmetic examples and mocked LRU behavior; they do not invoke Android `StatFs`, TDLib cleanup, or device storage measurement.
+
+## Telegram Media long-session UI memory window (2026-11-05)
+
+- A **120-item ARM32/low-RAM / 240-item standard** per-source metadata window now limits active Compose media results. This is not a media-byte cache limit.
+- Stable Telegram chat/message deduplication retains real page cursors. As older results are loaded, earlier cards leave the active window; users may explicitly **From start** or **More older media** using the TV remote.
+- Automatic near-end pagination stops after the first eviction to prevent an idle viewport from draining the entire chat history. Manual older-page loading continues.
+- Warm Room-backed previews request **at most 120 entries** per source/topic. Cached catalog snapshots remain capped independently at 120 to avoid misleading truncated cursors.
+- Enrichment history markers, failed-thumbnail cooldowns, and background thumbnail concurrency now have bounded memory/request budgets.
+- Synthetic 100–300-page JVM tests exercise deduplication and retained-item bounds. Neither a lower Android PSS nor a production-ready TV is claimed without physical ARM32/ARM64 profiling and playback qualification.

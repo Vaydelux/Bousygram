@@ -24,3 +24,17 @@ internal object TelegramMediaWindow {
         return Merge(unique.values.drop(discarded), discarded)
     }
 }
+
+/** FIFO identity marker budget; caller owns synchronization if accessed across threads. */
+internal fun rememberBoundedIdentity(keys: LinkedHashSet<String>, key: String, capacity: Int): Boolean {
+    require(capacity > 0)
+    val fresh = keys.add(key)
+    while (keys.size > capacity) {
+        val iterator = keys.iterator()
+        if (iterator.hasNext()) {
+            iterator.next()
+            iterator.remove()
+        }
+    }
+    return fresh
+}

@@ -268,8 +268,8 @@ class MediaViewModel(
     private val requestedThumbnailFileIds =
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
     private val thumbnailFailureTimesMs = java.util.concurrent.ConcurrentHashMap<Int, Long>()
-    private val enrichedMediaKeys =
-        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    // Account-scoped enrichment markers must not grow with every browsed page.
+    private val enrichedMediaKeys = LinkedHashSet<String>()
 
 
     private val chatUpdateHandler: (TdApi.Object?) -> Unit = { update ->
@@ -313,7 +313,7 @@ class MediaViewModel(
                     }
                     hasLoadedVideoChats = false
                     requestedThumbnailFileIds.clear()
-                    enrichedMediaKeys.clear()
+                    synchronized(enrichedMediaKeys) { enrichedMediaKeys.clear() }
                     initializedAccount = null
                     repository.shutdown() // Never reuse the previous Telegram account's self-chat ID.
                     isInitialized = false
@@ -344,7 +344,7 @@ class MediaViewModel(
             topicFolderFocus.clear()
             requestedThumbnailFileIds.clear()
             thumbnailFailureTimesMs.clear()
-            enrichedMediaKeys.clear()
+            synchronized(enrichedMediaKeys) { enrichedMediaKeys.clear() }
             synchronized(catalogSnapshotLock) {
                 catalogSnapshots.clear()
                 topicSnapshots.clear()
@@ -870,7 +870,10 @@ class MediaViewModel(
     private fun enrichMediaItemsAsync(items: List<MediaItem>) {
         val owner = AccountSession.current() ?: return
         val pending = items.filter { item ->
-            enrichedMediaKeys.add("${owner.accountId}:${owner.generation}:${item.chatId}:${item.messageId}")
+            val key = "${owner.accountId}:${owner.generation}:${item.chatId}:${item.messageId}"
+            synchronized(enrichedMediaKeys) {
+                rememberBoundedIdentity(enrichedMediaKeys, key, MAX_ENRICHED_MEDIA_KEYS)
+            }
         }
         if (pending.isEmpty()) return
 
@@ -915,6 +918,12 @@ class MediaViewModel(
             requestedThumbnailFileIds.remove(fileId)
             if (path.isNullOrBlank()) {
                 thumbnailFailureTimesMs[fileId] = android.os.SystemClock.elapsedRealtime()
+                // Failed-thumbnail cooldowns are transient. Old file IDs must not
+                // accumulate indefinitely during sessions with thousands of cards.
+                if (thumbnailFailureTimesMs.size > MAX_THUMBNAIL_FAILURES) {
+                    val oldest = thumbnailFailureTimesMs.entries.minByOrNull { it.value }
+                    if (oldest != null) thumbnailFailureTimesMs.remove(oldest.key, oldest.value)
+                }
             } else {
                 thumbnailFailureTimesMs.remove(fileId)
                 updateThumbnailPathForFile(fileId, path)
@@ -942,7 +951,19 @@ class MediaViewModel(
                 if (!AccountSession.isCurrent(owner) ||
                     com.vaydelux.bousygram.core.media.PlaybackSessionController.isVideoPlaying()
                 ) return@launch
-                remaining.forEach { fileId -> fetchThumbnailIfNeeded(fileId, owner) }
+                // Keep TDLib thumbnail requests bounded even if callbacks stall.
+                // Focused cards can still request their thumbnail independently.
+                for (fileId in remaining) {
+                    if (!AccountSession.isCurrent(owner) ||
+                        com.vaydelux.bousygram.core.media.PlaybackSessionController.isVideoPlaying()
+                    ) return@launch
+                    var checks = 0
+                    while (requestedThumbnailFileIds.size >= MAX_INFLIGHT_THUMBNAILS && checks++ < 20) {
+                        delay(150L)
+                    }
+                    if (requestedThumbnailFileIds.size >= MAX_INFLIGHT_THUMBNAILS) return@launch
+                    fetchThumbnailIfNeeded(fileId, owner)
+                }
             }
         }
     }
@@ -1109,7 +1130,7 @@ class MediaViewModel(
             if (cached.isNotEmpty()) {
                 _uiState.update { ui ->
                     if (!current()) ui else ui.copy(
-                        items = (ui.items + cached).distinctBy { "${it.chatId}:${it.messageId}" }
+                        items = TelegramMediaWindow.merge(ui.items, cached, activeCatalogLimit).items
                     )
                 }
             }
@@ -1128,7 +1149,7 @@ class MediaViewModel(
                     VideoIndexRepository.indexMediaItemsAsync(matches)
                     _uiState.update { ui ->
                         if (!current()) ui else ui.copy(
-                            items = (ui.items + matches).distinctBy { "${it.chatId}:${it.messageId}" }
+                            items = TelegramMediaWindow.merge(ui.items, matches, activeCatalogLimit).items
                         )
                     }
                 }
@@ -1245,3 +1266,6 @@ private const val MEDIA_FIRST_PAGE_PRIORITY_POLL_MS = 150L
 private const val MEDIA_FIRST_PAGE_PRIORITY_MAX_WAIT_MS = 3_000L
 
 private const val MAX_CACHED_CATALOG_ITEMS = 120
+private const val MAX_ENRICHED_MEDIA_KEYS = 768
+private const val MAX_THUMBNAIL_FAILURES = 256
+private const val MAX_INFLIGHT_THUMBNAILS = 24
