@@ -3164,7 +3164,18 @@ private fun TrackPickerOverlay(
                 )
             }
 
-            if (selectedType == MediaTrackInfo.TrackType.SUBTITLE) {
+            if (selectedType == MediaTrackInfo.TrackType.SUBTITLE &&
+                playerEngine !is ExoPlayerEngine && playerEngine !is MpvPlayerEngine
+            ) {
+                Text(
+                    "Experimental LibVLC subtitle appearance controls are not supported yet. Select libmpv or ExoPlayer to adjust text captions.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (selectedType == MediaTrackInfo.TrackType.SUBTITLE &&
+                (playerEngine is ExoPlayerEngine || playerEngine is MpvPlayerEngine)
+            ) {
                 Text(
                     "Text subtitle appearance",
                     color = MaterialTheme.colorScheme.onSurface,

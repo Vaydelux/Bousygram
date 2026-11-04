@@ -49,11 +49,23 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     state.value = EnginePlaybackState.Buffering
                 }
                 MediaPlayer.Event.Playing -> {
-                    playing = true
-                    state.value = EnginePlaybackState.Ready
-                    knownDurationMs = runCatching { nativePlayer.length }.getOrDefault(-1L)
-                        .coerceAtLeast(0L)
-                    refreshTracks()
+                    // Native VLC may deliver a stale Playing event after Pause
+                    // during seek/rebuffer. Only explicit intent may rearm audio.
+                    if (!wantedPlayback) {
+                        playing = false
+                        state.value = EnginePlaybackState.Ready
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            if (!released.get() && !wantedPlayback && filePrepared) {
+                                runCatching { nativePlayer.pause() }
+                            }
+                        }
+                    } else {
+                        playing = true
+                        state.value = EnginePlaybackState.Ready
+                        knownDurationMs = runCatching { nativePlayer.length }.getOrDefault(-1L)
+                            .coerceAtLeast(0L)
+                        refreshTracks()
+                    }
                 }
                 MediaPlayer.Event.Paused -> {
                     playing = false
