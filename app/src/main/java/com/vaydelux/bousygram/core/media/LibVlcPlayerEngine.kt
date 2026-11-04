@@ -186,6 +186,13 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         }
     }
 
+    /** Update native VLC vout geometry without releasing an active decoder. */
+    fun onVideoSurfaceSizeChanged(width: Int, height: Int) {
+        if (released.get() || !viewsAttached || width <= 0 || height <= 0) return
+        runCatching { nativePlayer.vlcVout.setWindowSize(width, height) }
+            .onFailure { Log.w(TAG, "LibVLC surface size update failed", it) }
+    }
+
     override fun detachSurface() {
         if (!viewsAttached) return
         runCatching { nativePlayer.vlcVout.detachViews() }

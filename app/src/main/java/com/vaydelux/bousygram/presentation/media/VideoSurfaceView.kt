@@ -20,6 +20,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.text.CueGroup
 import com.vaydelux.bousygram.core.media.SubtitleAppearance
 import com.vaydelux.bousygram.core.media.ExoPlayerEngine
+import com.vaydelux.bousygram.core.media.LibVlcPlayerEngine
 import com.vaydelux.bousygram.core.media.PlayerEngine
 
 /** Apply the same safe caption colors and scale to PlayerView and TextureView. */
@@ -87,6 +88,7 @@ fun VideoSurfaceView(
                                 engine.attachSurface(surface)
                             }
                             engine.setResizeMode(resizeMode)
+                            (engine as? LibVlcPlayerEngine)?.onVideoSurfaceSizeChanged(width, height)
                             onSurfaceDiagnostic?.invoke(
                                 SurfaceDiagnosticState("TextureView", isAvailable, width, height)
                             )
@@ -94,6 +96,7 @@ fun VideoSurfaceView(
 
                         override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
                             engine.setResizeMode(resizeMode)
+                            (engine as? LibVlcPlayerEngine)?.onVideoSurfaceSizeChanged(width, height)
                             val valid = activeSurface?.isValid == true
                             onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("TextureView", valid, width, height))
                         }
@@ -207,12 +210,16 @@ fun VideoSurfaceView(
                         override fun surfaceCreated(holder: SurfaceHolder) {
                             engine.attachSurface(holder.surface)
                             engine.setResizeMode(resizeMode)
+                            (engine as? LibVlcPlayerEngine)?.onVideoSurfaceSizeChanged(width, height)
                             onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("SurfaceView", holder.surface.isValid, width, height))
                         }
 
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            engine.attachSurface(holder.surface)
+                            // Re-attaching LibVLC on every resize can tear down
+                            // its native vout while TS/MKV playback is active.
+                            if (engine !is LibVlcPlayerEngine) engine.attachSurface(holder.surface)
                             engine.setResizeMode(resizeMode)
+                            (engine as? LibVlcPlayerEngine)?.onVideoSurfaceSizeChanged(width, height)
                             onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("SurfaceView", holder.surface.isValid, width, height))
                         }
 
