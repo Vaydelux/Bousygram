@@ -54,6 +54,7 @@ data class ExtrasPerson(val name: String, val role: String, val portrait: String
 data class ExtrasReview(val author: String, val content: String, val score: String = "")
 data class ExtrasSeason(val number: Int, val name: String, val episodeCount: Int)
 data class ExtrasEpisode(val number: Int, val title: String, val overview: String, val still: String?)
+data class ExtrasStreamingLink(val title: String, val site: String, val url: String)
 data class ExtrasDetail(
     val item: ExtrasItem,
     val description: String,
@@ -65,7 +66,8 @@ data class ExtrasDetail(
     val episodes: List<ExtrasEpisode> = emptyList(),
     val related: List<ExtrasItem> = emptyList(),
     val backdrop: String? = null,
-    val youtubeId: String? = null
+    val youtubeId: String? = null,
+    val legalStreamingLinks: List<ExtrasStreamingLink> = emptyList()
 )
 
 /** Pure routing policy. Provider IDs must never be guessed or interchanged. */
@@ -85,6 +87,19 @@ object ExtrasProviderPolicy {
 
     fun youtubeId(id: String?): String? =
         id?.takeIf { it.length in 6..24 && it.matches(Regex("[A-Za-z0-9_-]+")) }
+
+    /** Never open untrusted schemes from provider-returned external links. */
+    fun safeExternalHttps(raw: String?): String? {
+        if (raw.isNullOrBlank() || raw.length > 2048) return null
+        val uri = runCatching { java.net.URI(raw) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return null
+        if (!uri.scheme.equals("https", ignoreCase = true) ||
+            uri.userInfo != null || uri.port !in listOf(-1, 443) ||
+            host == "localhost" || host.endsWith(".local") ||
+            host.matches(Regex("[0-9.]+")) || host.contains(":") ||
+            !host.contains(".")) return null
+        return uri.toString()
+    }
 
     fun genres(type: ExtrasType): List<Pair<String, String>> = when (type) {
         ExtrasType.MOVIES -> listOf("All" to "", "Action" to "28", "Animation" to "16",
@@ -343,10 +358,17 @@ object ExtrasCatalogApi {
                 trailer { id site }
                 nextAiringEpisode { episode airingAt }
                 characters(page: 1, perPage: 16, sort: [ROLE, RELEVANCE]) {
-                  edges { node { id name { full } image { medium } } role }
+                  edges {
+                    node { id name { full } image { medium } }
+                    role
+                    voiceActors(language: JAPANESE, sort: [RELEVANCE]) {
+                      name { full } image { medium }
+                    }
+                  }
                 }
                 staff(page: 1, perPage: 12) { edges { node { name { full } } role } }
                 studios(isMain: true) { nodes { name } }
+                streamingEpisodes { title url site }
                 reviews(page: 1, perPage: 6) {
                   nodes { id summary score user { name } }
                 }
@@ -365,6 +387,16 @@ object ExtrasCatalogApi {
             ExtrasPerson(char.optJSONObject("name")?.optString("full").orEmpty(),
                 it.optString("role"), secureImage(char.optJSONObject("image")?.optString("medium")))
         }
+        val voiceActors = arrayObjects(obj.optJSONObject("characters")?.optJSONArray("edges"))
+            .take(12).flatMap { edge ->
+                val character = edge.optJSONObject("node")?.optJSONObject("name")?.optString("full")
+                    .orEmpty().ifBlank { "Character" }
+                arrayObjects(edge.optJSONArray("voiceActors")).take(1).map { actor ->
+                    ExtrasPerson(actor.optJSONObject("name")?.optString("full").orEmpty(),
+                        "Japanese voice actor · $character",
+                        secureImage(actor.optJSONObject("image")?.optString("medium")))
+                }
+            }.filter { it.name.isNotBlank() }
         val staff = arrayObjects(obj.optJSONObject("staff")?.optJSONArray("edges")).take(8).mapNotNull {
             val person = it.optJSONObject("node") ?: return@mapNotNull null
             ExtrasPerson(person.optJSONObject("name")?.optString("full").orEmpty(),
@@ -382,8 +414,18 @@ object ExtrasCatalogApi {
             obj.optInt("episodes").takeIf { it > 0 }?.let { add("$it episodes") }
             obj.optInt("duration").takeIf { it > 0 }?.let { add("$it min/episode") }
             obj.optInt("popularity").takeIf { it > 0 }?.let { add("$it members") }
-            obj.optJSONObject("nextAiringEpisode")?.optInt("episode")?.takeIf { it > 0 }
-                ?.let { add("Next airing: episode $it") }
+            obj.optJSONObject("nextAiringEpisode")?.let { airing ->
+                val episode = airing.optInt("episode")
+                val epoch = airing.optLong("airingAt")
+                if (episode > 0 && epoch > 0) {
+                    val date = runCatching {
+                        java.time.Instant.ofEpochSecond(epoch)
+                            .atZone(java.time.ZoneId.systemDefault())
+                            .format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a"))
+                    }.getOrNull()
+                    add("Next airing: E$episode" + (date?.let { " · $it" } ?: ""))
+                }
+            }
             arrayObjects(obj.optJSONObject("studios")?.optJSONArray("nodes")).firstOrNull()
                 ?.optString("name")?.takeIf(String::isNotBlank)?.let { add("Studio: $it") }
         }
@@ -398,12 +440,20 @@ object ExtrasCatalogApi {
                 if (arr != null) for (i in 0 until arr.length()) arr.optString(i).takeIf(String::isNotBlank)?.let(::add)
             },
             facts = facts,
-            cast = cast + staff,
+            cast = cast + voiceActors + staff,
             reviews = reviewList,
             seasons = emptyList(), // AniList has episode counts / relations, not TMDB-style season episode lists.
             related = relations,
             backdrop = secureImage(obj.optString("bannerImage")),
-            youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("id"))
+            youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("id")),
+            legalStreamingLinks = arrayObjects(obj.optJSONArray("streamingEpisodes"))
+                .mapNotNull { ep ->
+                    val safe = ExtrasProviderPolicy.safeExternalHttps(ep.optString("url"))
+                        ?: return@mapNotNull null
+                    ExtrasStreamingLink(
+                        ep.optString("title").take(140).ifBlank { "Official episode link" },
+                        ep.optString("site").take(60).ifBlank { "Official source" }, safe)
+                }.distinctBy { it.url }.take(12)
         )
     }
 
