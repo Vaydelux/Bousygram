@@ -127,6 +127,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         ExtrasType.TV -> tvGrid
         ExtrasType.ANIME -> animeGrid
     }
+    // A new query/filter starts at the first poster, without destroying the
+    // independent scroll position of the other two tabs.
+    LaunchedEffect(movies.query, movies.filters) { movieGrid.scrollToItem(0) }
+    LaunchedEffect(tv.query, tv.filters) { tvGrid.scrollToItem(0) }
+    LaunchedEffect(anime.query, anime.filters) { animeGrid.scrollToItem(0) }
     var detailItem by remember { mutableStateOf<ExtrasItem?>(null) }
     val detailHistory = remember { mutableStateListOf<ExtrasItem>() }
     val selectedPoster = remember { mutableStateMapOf<ExtrasType, Int>() }
@@ -426,6 +431,24 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             options.map { if (it == 0) "Any rating" else "$it+" }) { index ->
                             update(state.copy(filters = state.filters.copy(minimumRating = options[index]),
                                 page = 1, results = emptyList(), loading = true, hasMore = true))
+                        }
+                    }
+                    if (type != ExtrasType.ANIME) {
+                        item {
+                            val languages = ExtrasProviderPolicy.tmdbLanguages()
+                            val selected = languages.firstOrNull {
+                                it.second == state.filters.tmdbOriginalLanguage
+                            }?.first ?: "Any language"
+                            ExtrasDropdown("Original language: $selected",
+                                languages.map { it.first }) { index ->
+                                update(state.copy(
+                                    filters = state.filters.copy(
+                                        tmdbOriginalLanguage = languages[index].second
+                                    ),
+                                    page = 1, results = emptyList(), loading = true,
+                                    hasMore = true, error = null
+                                ))
+                            }
                         }
                     }
                     if (type == ExtrasType.ANIME) {
