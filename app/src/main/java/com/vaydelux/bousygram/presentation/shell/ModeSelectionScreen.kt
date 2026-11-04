@@ -78,12 +78,12 @@ fun BousygramModeSelection(
                 )
                 ModeOption(
                     title = "Movies, TV Shows & Anime",
-                    subtitle = "Extras — coming soon",
+                    subtitle = "Discover movies, TV shows and anime",
                     onClick = onExtras,
                     primary = false
                 )
                 Text(
-                    "Extras is not available yet. Telegram Media remains separate and fully supported.",
+                    "TMDB powers Movies and TV Shows; AniList powers Anime. Extras is metadata-only and independent of Telegram Media.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
