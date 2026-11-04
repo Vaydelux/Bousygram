@@ -18,6 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Implements adaptive demuxer buffer management tuned for TDLib progressive loopback streaming.
  */
+/** Native end-file notifications also occur on explicit stop or file replacement. */
+internal fun shouldReportNativeMpvEnded(nativeEofReached: Boolean): Boolean =
+    nativeEofReached
+
 class MpvPlayerEngine(
     context: Context,
     initialIsCellular: Boolean = false
@@ -32,6 +36,8 @@ class MpvPlayerEngine(
         ?: throw IllegalStateException("Failed to create libmpv instance from native context")
     private val isDestroyed = AtomicBoolean(false)
     @Volatile private var pausedForCache = false
+    // END_FILE also occurs for explicit stop and replacement; it is not EOF proof.
+    @Volatile private var naturalEofObserved = false
     private var isCellular = initialIsCellular
     private var bufferConfig = PlayerBufferConfig.resolveMpvConfig(context, initialIsCellular)
 
@@ -191,6 +197,7 @@ class MpvPlayerEngine(
                 }
                 "eof-reached" -> {
                     if (value) {
+                        naturalEofObserved = true
                         _playbackState.value = EnginePlaybackState.Ended
                         _isPlaying.value = false
                         _playWhenReady.value = false
@@ -222,6 +229,7 @@ class MpvPlayerEngine(
             if (isDestroyed.get()) return
             when (eventId) {
                 MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                    naturalEofObserved = false
                     _playbackState.value = EnginePlaybackState.Buffering
                 }
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
@@ -238,8 +246,12 @@ class MpvPlayerEngine(
                     setResizeMode(currentResizeMode)
                 }
                 MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
-                    _playbackState.value = EnginePlaybackState.Ended
                     _isPlaying.value = false
+                    // STOP and loadfile also emit END_FILE. Only an observed
+                    // native EOF can trigger auto-next or terminal end handling.
+                    if (shouldReportNativeMpvEnded(naturalEofObserved)) {
+                        _playbackState.value = EnginePlaybackState.Ended
+                    }
                 }
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
                     _playbackState.value = EnginePlaybackState.Ready
@@ -341,6 +353,7 @@ class MpvPlayerEngine(
     override fun prepare(streamUrl: String) {
         if (isDestroyed.get()) return
         try {
+            naturalEofObserved = false
             _currentPositionMs.value = 0L
             _durationMs.value = 0L
             _bufferedPositionMs.value = 0L
@@ -495,6 +508,7 @@ class MpvPlayerEngine(
 
     override fun stop() {
         if (isDestroyed.get()) return
+        naturalEofObserved = false
         try {
             mpv.command(arrayOf("stop"))
             _playbackState.value = EnginePlaybackState.Idle

@@ -538,7 +538,11 @@ class MediaViewModel(
     fun refresh() {
         val selected = _uiState.value
         if (!selected.isSavedMessagesSelected && selected.selectedChatId != null) {
-            loadChat(selected.selectedChatId, selected.selectedChatTitle)
+            val viewingForumDirectory =
+                _explorerPosition.value.level == ExplorerLevel.TOPICS &&
+                selected.videoChats.any { it.chatId == selected.selectedChatId && it.isForum }
+            if (viewingForumDirectory) refreshForumTopics(selected.selectedChatId)
+            else loadChat(selected.selectedChatId, selected.selectedChatTitle)
             return
         }
         val owner = AccountSession.current() ?: return
@@ -808,6 +812,9 @@ class MediaViewModel(
             current.isSavedMessagesSelected -> refresh()
             current.selectedChatId == null -> refresh()
             current.selectedTopicId != null -> loadTopic(current.selectedTopicId, force = true)
+            // Refreshing the all-media view must not restart an unrelated forum scan.
+            current.videoChats.any { it.chatId == current.selectedChatId && it.isForum } ->
+                loadTopic(null, force = true)
             else -> loadChat(current.selectedChatId, current.selectedChatTitle)
         }
     }
