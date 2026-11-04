@@ -104,6 +104,12 @@ object ExtrasProviderPolicy {
     fun mayCacheResponse(isGraphQl: Boolean, containsGraphQlErrors: Boolean): Boolean =
         !isGraphQl || !containsGraphQlErrors
 
+    /** Preserve literal slash in TMDB append tokens such as watch/providers. */
+    fun encodeTmdbQueryValue(key: String, value: String): String {
+        val encoded = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+        return if (key == "append_to_response") encoded.replace("%2F", "/") else encoded
+    }
+
     fun youtubeId(id: String?): String? =
         id?.takeIf { it.length in 6..24 && it.matches(Regex("[A-Za-z0-9_-]+")) }
 
@@ -527,7 +533,7 @@ object ExtrasCatalogApi {
             throw IOException("TMDB API key is not configured. Add TMDB_API_KEY to local.properties.")
         }
         val query = (params + ("api_key" to key)).entries.joinToString("&") {
-            "${encode(it.key)}=${encode(it.value)}"
+            "${encode(it.key)}=${ExtrasProviderPolicy.encodeTmdbQueryValue(it.key, it.value)}"
         }
         // Credentials are not recorded in error messages or logs.
         return requestJson("$TMDB$path?$query", null, ttlMs = 5 * 60_000L)
