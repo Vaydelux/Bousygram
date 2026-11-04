@@ -607,6 +607,67 @@ private fun ExtrasDetailContent(
                 )
             }
         }
+        if (info.item.type != ExtrasType.ANIME) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Where to watch", style = MaterialTheme.typography.titleMedium)
+                    if (info.watchCountries.isEmpty()) {
+                        Text("No regional streaming availability is listed for this title.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        val regions = info.watchCountries
+                        var selectedRegion by remember(info.item.id, info.item.type) {
+                            mutableStateOf(regions.first().region)
+                        }
+                        val region = regions.firstOrNull { it.region == selectedRegion }
+                            ?: regions.first()
+                        ExtrasDropdown("Region: ${region.region}",
+                            regions.map { it.region }) { index ->
+                            selectedRegion = regions[index].region
+                        }
+                        region.offers.groupBy { it.method }.forEach { (method, offers) ->
+                            Text(method, fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.labelLarge)
+                            offers.forEach { offer ->
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    AsyncImage(
+                                        model = offer.logo, contentDescription = null,
+                                        modifier = Modifier.size(32.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                    Text(offer.providerName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                        region.tmdbLink?.let { url ->
+                            OutlinedButton(onClick = {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                            .addCategory(Intent.CATEGORY_BROWSABLE)
+                                    )
+                                }.onFailure {
+                                    android.widget.Toast.makeText(
+                                        context, "No compatible browser installed",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }) { Text("See official availability on TMDB") }
+                        }
+                    }
+                    Text(
+                        "Availability data from JustWatch via TMDB. Providers and access vary by region; listings are not direct playback links.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
         if (info.legalStreamingLinks.isNotEmpty()) {
             item { Text("Officially listed episode links", style = MaterialTheme.typography.titleMedium) }
             items(info.legalStreamingLinks, key = { it.url }) { link ->
