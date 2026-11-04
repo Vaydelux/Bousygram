@@ -18,6 +18,25 @@ class AccountPrivateDataPathsTest {
         assertTrue(first.roomDatabaseName != second.roomDatabaseName)
     }
 
+    @Test fun cachedMediaIsScopedToAnAccountAndNotAnotherUsersDirectory() {
+        val root = File("sandbox/cache")
+        val first = privateAccountCacheDirectory(root, 111L)
+        val second = privateAccountCacheDirectory(root, 222L)
+        assertEquals(File(root, "accounts/111"), first)
+        assertEquals(File(root, "accounts/222"), second)
+        assertTrue(first != second)
+        assertTrue(first.parentFile == second.parentFile)
+    }
+
+    @Test fun accountCachePathRejectsUnverifiedAccountId() {
+        assertThrows(IllegalArgumentException::class.java) {
+            privateAccountCacheDirectory(File("sandbox/cache"), 0L)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            privateAccountCacheDirectory(File("sandbox/cache"), -1L)
+        }
+    }
+
     @Test fun unknownAccountIdsCannotBePurged() {
         assertThrows(IllegalArgumentException::class.java) { privateDataPaths(File("sandbox"), 0L) }
         assertThrows(IllegalArgumentException::class.java) { privateDataPaths(File("sandbox"), -1L) }

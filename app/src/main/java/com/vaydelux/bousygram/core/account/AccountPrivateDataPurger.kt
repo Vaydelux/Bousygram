@@ -19,6 +19,12 @@ internal fun privateDataPaths(filesDir: File, accountId: Long): AccountPrivateDa
     )
 }
 
+/** Private generated poster and seek-preview images live under cacheDir, not filesDir. */
+internal fun privateAccountCacheDirectory(cacheRoot: File, accountId: Long): File {
+    require(accountId > 0L) { "Only verified Telegram account IDs may be purged" }
+    return File(File(cacheRoot, "accounts"), accountId.toString())
+}
+
 /**
  * Called only after TDLib explicitly confirms authorization loss and AccountSession.invalidate
  * has synchronously closed players, cache tasks, and Room handles.
@@ -38,6 +44,13 @@ internal object AccountPrivateDataPurger {
         val dir = names.accountDirectory
         check(!dir.exists() || dir.deleteRecursively()) {
             "Unable to erase account watch history"
+        }
+        // MediaMetadataRetriever-generated private posters and scrub frames
+        // are deliberately kept in per-account Android cache, which is NOT
+        // covered by the filesDir account folder deletion above.
+        val privateCache = privateAccountCacheDirectory(context.cacheDir, accountId)
+        check(!privateCache.exists() || privateCache.deleteRecursively()) {
+            "Unable to erase cached Telegram thumbnails and seek frames"
         }
     }
 }
