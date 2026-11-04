@@ -1081,16 +1081,24 @@ fun PlayerScreen(
                     // Automatic fallback to libmpv on decoder, container, or unsupported-format errors.
                     // Resumes at the same position, falls back strictly once per session, and records reason in telemetry.
                     val isFallbackCandidate = VideoFormatSupport.isExoPlayerFallbackCandidate(state.cause, state.message)
-                    if (playerEngine is ExoPlayerEngine && !hasFallenBackToMpv && isFallbackCandidate) {
+                    val failedLibVlc = playerEngine is LibVlcPlayerEngine
+                    if (!hasFallenBackToMpv &&
+                        ((playerEngine is ExoPlayerEngine && isFallbackCandidate) || failedLibVlc)
+                    ) {
                         hasFallenBackToMpv = true
-                        val fallbackReason = VideoFormatSupport.classifyFallbackReason(state.cause, state.message)
-                        Log.w("PlayerScreen", "ExoPlayer error ($message). Executing automatic fallback to libmpv at $retryPosition ms. Reason: $fallbackReason")
+                        val fallbackReason = if (failedLibVlc) "LibVLC decoder or stream failure"
+                            else VideoFormatSupport.classifyFallbackReason(state.cause, state.message)
+                        Log.w("PlayerScreen", "Decoder failure ($message). Switching to libmpv at $retryPosition ms: $fallbackReason")
 
                         PlaybackTelemetryRecorder.recordFallback(playbackSessionId, fallbackReason)
                         PlaybackDiagnostics.recordStreamError("FallbackToMpv: $fallbackReason")
 
                         engineSwitcher.fallback {
-                            PlayerEngineFactory.createFallback(context, playerEngine, speed)
+                            if (failedLibVlc) {
+                                PlayerEngineFactory.create(
+                                    context, SelectedPlayerEngine.MPV, speed
+                                ) to retryPosition
+                            } else PlayerEngineFactory.createFallback(context, playerEngine, speed)
                         }.fold(
                             onSuccess = { (_, pos) ->
                                 audioFocusController.abandon()
