@@ -170,6 +170,11 @@ private fun BousygramAppRoot(
         return
     }
     if (!telegramReady) {
+        // Physical remote Back must return to mode selection, not finish the Activity.
+        BackHandler {
+            CastReceiverManager.clearPendingRequest()
+            modeName = BousygramMode.SELECT.name
+        }
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.padding(24.dp),
