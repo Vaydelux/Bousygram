@@ -50,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,9 +58,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
@@ -110,6 +114,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     var detailItem by remember { mutableStateOf<ExtrasItem?>(null) }
     val detailHistory = remember { mutableStateListOf<ExtrasItem>() }
+    val selectedPoster = remember { mutableStateMapOf<ExtrasType, Int>() }
+    val moviePosterFocus = remember { FocusRequester() }
+    val tvPosterFocus = remember { FocusRequester() }
+    val animePosterFocus = remember { FocusRequester() }
+    val posterFocus = when (type) {
+        ExtrasType.MOVIES -> moviePosterFocus
+        ExtrasType.TV -> tvPosterFocus
+        ExtrasType.ANIME -> animePosterFocus
+    }
+    var restorePosterFocus by remember { mutableIntStateOf(0) }
     var detailRetry by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<ExtrasDetail?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
@@ -120,6 +134,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var seasonLoading by remember { mutableStateOf(false) }
 
     fun openFromResults(item: ExtrasItem) {
+        selectedPoster[type] = item.id
         detailHistory.clear()
         detailItem = item
     }
@@ -128,6 +143,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         detail = null
         selectedSeason = null
         episodes = emptyList()
+        if (detailItem == null) restorePosterFocus += 1
+    }
+
+    // Restore the poster *and* grid position after leaving the details route.
+    LaunchedEffect(restorePosterFocus, detailItem, selectedTab, state.results.size) {
+        if (restorePosterFocus == 0 || detailItem != null) return@LaunchedEffect
+        val id = selectedPoster[type] ?: return@LaunchedEffect
+        val index = state.results.indexOfFirst { it.id == id }
+        if (index < 0) return@LaunchedEffect
+        activeGrid.scrollToItem(index)
+        withFrameNanos { }
+        runCatching { posterFocus.requestFocus() }
     }
 
     BackHandler {
@@ -236,7 +263,10 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
                     onSeason = { selectedSeason = it },
                     onOpenItem = { related ->
-                        detailItem?.let { detailHistory.add(it) }
+                        detailItem?.let {
+                            if (detailHistory.size >= 20) detailHistory.removeAt(0)
+                            detailHistory.add(it)
+                        }
                         detailItem = related
                     },
                     modifier = Modifier.padding(padding),
@@ -358,7 +388,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(state.results, key = { "${it.type}:${it.id}" }) { item ->
-                            ExtrasPosterCard(item) { openFromResults(item) }
+                            ExtrasPosterCard(item,
+                                modifier = if (selectedPoster[type] == item.id) {
+                                    Modifier.focusRequester(posterFocus)
+                                } else Modifier,
+                                onClick = { openFromResults(item) })
                         }
                         if (state.hasMore && state.results.isNotEmpty()) {
                             item {
@@ -377,10 +411,14 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
 }
 
 @Composable
-private fun ExtrasPosterCard(item: ExtrasItem, onClick: () -> Unit) {
+private fun ExtrasPosterCard(
+    item: ExtrasItem,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
     Card(onClick = onClick,
-        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(if (focused) 3.dp else 1.dp,
             if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
@@ -457,8 +495,23 @@ private fun ExtrasDetailContent(
                 }) { Text("▶ Watch trailer on YouTube") }
             }
         }
+        if (info.legalStreamingLinks.isNotEmpty()) {
+            item { Text("Officially listed episode links", style = MaterialTheme.typography.titleMedium) }
+            items(info.legalStreamingLinks, key = { it.url }) { link ->
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link.url))
+                        runCatching { context.startActivity(intent) }
+                            .onFailure { android.widget.Toast.makeText(
+                                context, "No compatible browser installed", android.widget.Toast.LENGTH_SHORT
+                            ).show() }
+                    }
+                ) { Text("${link.site}: ${link.title}", maxLines = 2) }
+            }
+        }
         if (info.cast.isNotEmpty()) {
-            item { Text(if (info.item.type == ExtrasType.ANIME) "Characters & staff" else "Cast",
+            item { Text(if (info.item.type == ExtrasType.ANIME) "Characters, voice actors & staff" else "Cast",
                 style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
