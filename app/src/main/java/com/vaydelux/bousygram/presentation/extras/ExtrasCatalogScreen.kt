@@ -93,10 +93,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val context = LocalContext.current
     // Some Android TV boxes advertise Leanback even when UiModeManager does not.
     // Keep all such devices on the native YouTube TV route, never the WebView.
-    val isAndroidTv = metrics.isTv || remember(context) {
+    val supportsLeanback = remember(context) {
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
             context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
     }
+    val isAndroidTv = metrics.isTv || supportsLeanback
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val type = ExtrasType.entries[selectedTab.coerceIn(0, ExtrasType.entries.lastIndex)]
     var movies by remember { mutableStateOf(TabState()) }
