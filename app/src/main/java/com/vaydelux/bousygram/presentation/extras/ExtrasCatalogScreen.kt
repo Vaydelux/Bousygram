@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -63,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -74,6 +77,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Precision
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -306,19 +311,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 if (detailItem == null) {
                     Spacer(Modifier.height(8.dp))
                     // Keep every tab reachable on smaller phones and large font scales.
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(ExtrasType.entries.toList(), key = { it.name }) { tab ->
-                            FilterChip(
-                                selected = selectedTab == tab.ordinal,
-                                onClick = { selectedTab = tab.ordinal },
-                                label = { Text(tab.label) },
-                                modifier = Modifier.heightIn(min = 44.dp)
-                            )
-                        }
-                    }
+                    ExtrasCatalogTabs(selectedTab, onSelect = { selectedTab = it })
                 }
             }
         }
@@ -543,22 +536,79 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
 }
 
+/**
+ * Separately testable focusable TV tabs, no API/key required to compose.
+ * Test tags are intentionally stable for DPAD/instrumentation smoke checks.
+ */
 @Composable
-private fun ExtrasPosterCard(
+internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(ExtrasType.entries.toList(), key = { it.name }) { tab ->
+            FilterChip(
+                selected = selectedTab == tab.ordinal,
+                onClick = { onSelect(tab.ordinal) },
+                label = { Text(tab.label) },
+                modifier = Modifier.heightIn(min = 44.dp)
+                    .testTag("extras-tab-${tab.name.lowercase()}")
+            )
+        }
+    }
+}
+
+/** Explicitly capped Coil decoder requests instead of full-size source bitmaps. */
+@Composable
+private fun ExtrasPosterArtwork(
+    url: String?,
+    contentDescription: String?,
+    modifier: Modifier,
+    detail: Boolean
+) {
+    val context = LocalContext.current
+    val lowMemory = remember(context) {
+        val memory = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        memory?.isLowRamDevice == true || !android.os.Process.is64Bit()
+    }
+    val target = ExtrasImagePolicy.poster(lowMemory, detail)
+    val imageRequest = remember(context, url, target) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .size(target.width, target.height)
+            .precision(Precision.INEXACT)
+            .crossfade(false)
+            .build()
+    }
+    AsyncImage(
+        model = imageRequest,
+        contentDescription = contentDescription,
+        modifier = modifier,
+        contentScale = ContentScale.Crop
+    )
+}
+
+@Composable
+internal fun ExtrasPosterCard(
     item: ExtrasItem,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     Card(onClick = onClick,
-        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        modifier = modifier.fillMaxWidth()
+            .testTag("extras-poster-${item.type.name.lowercase()}-${item.id}")
+            .onFocusChanged { focused = it.isFocused },
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(if (focused) 3.dp else 1.dp,
             if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        AsyncImage(model = item.poster, contentDescription = item.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().height(205.dp))
+        ExtrasPosterArtwork(
+            url = item.poster,
+            contentDescription = item.title,
+            modifier = Modifier.fillMaxWidth().height(205.dp),
+            detail = false
+        )
         Column(Modifier.padding(9.dp)) {
             Text(item.title, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
@@ -608,16 +658,18 @@ private fun ExtrasDetailContent(
         item {
             if (compact) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    AsyncImage(model = info.item.poster, contentDescription = info.item.title,
-                        modifier = Modifier.width(155.dp).height(225.dp),
-                        contentScale = ContentScale.Crop)
+                    ExtrasPosterArtwork(
+                        url = info.item.poster, contentDescription = info.item.title,
+                        modifier = Modifier.width(155.dp).height(225.dp), detail = true
+                    )
                     DetailText(info)
                 }
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                    AsyncImage(model = info.item.poster, contentDescription = info.item.title,
-                        modifier = Modifier.width(185.dp).height(270.dp),
-                        contentScale = ContentScale.Crop)
+                    ExtrasPosterArtwork(
+                        url = info.item.poster, contentDescription = info.item.title,
+                        modifier = Modifier.width(185.dp).height(270.dp), detail = true
+                    )
                     Column(Modifier.weight(1f)) { DetailText(info) }
                 }
             }
