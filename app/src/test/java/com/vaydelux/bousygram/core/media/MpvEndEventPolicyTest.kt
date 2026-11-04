@@ -9,6 +9,13 @@ class MpvEndEventPolicyTest {
         assertFalse(shouldReportNativeMpvEnded(false))
     }
 
+    @Test fun prematureNativeEndRequestsRecoveryInsteadOfSilentPausedReadyState() {
+        assertTrue(shouldRetryUnexpectedMpvEnd(false, EnginePlaybackState.Ready))
+        assertFalse(shouldRetryUnexpectedMpvEnd(true, EnginePlaybackState.Ready))
+        assertFalse(shouldRetryUnexpectedMpvEnd(false, EnginePlaybackState.Buffering))
+        assertFalse(shouldRetryUnexpectedMpvEnd(false, EnginePlaybackState.Idle))
+    }
+
     @Test fun nativeEndRequiresObservedEof() {
         assertTrue(shouldReportNativeMpvEnded(true))
     }

@@ -22,6 +22,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal fun shouldReportNativeMpvEnded(nativeEofReached: Boolean): Boolean =
     nativeEofReached
 
+/** An unexpected end while READY is a stream failure, not an episode completion. */
+internal fun shouldRetryUnexpectedMpvEnd(
+    nativeEofReached: Boolean, playbackState: EnginePlaybackState
+): Boolean = !nativeEofReached && playbackState is EnginePlaybackState.Ready
+
 class MpvPlayerEngine(
     context: Context,
     initialIsCellular: Boolean = false
@@ -251,6 +256,12 @@ class MpvPlayerEngine(
                     // native EOF can trigger auto-next or terminal end handling.
                     if (shouldReportNativeMpvEnded(naturalEofObserved)) {
                         _playbackState.value = EnginePlaybackState.Ended
+                    } else if (shouldRetryUnexpectedMpvEnd(naturalEofObserved, _playbackState.value)) {
+                        // Unexpected native termination must not leave a
+                        // permanently READY but silent/paused playback.
+                        _playbackState.value = EnginePlaybackState.Error(
+                            "The native decoder ended before the stream finished"
+                        )
                     }
                 }
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
