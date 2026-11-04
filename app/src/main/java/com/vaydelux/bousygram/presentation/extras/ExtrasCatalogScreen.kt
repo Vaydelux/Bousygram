@@ -416,6 +416,34 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                 page = 1, results = emptyList(), loading = true, hasMore = true))
                         }
                     }
+                    if (type == ExtrasType.ANIME) {
+                        item {
+                            val formats = ExtrasProviderPolicy.animeFormats()
+                            val selected = formats.firstOrNull {
+                                it.second == state.filters.animeFormat
+                            }?.first ?: "Any format"
+                            ExtrasDropdown("Format: $selected", formats.map { it.first }) { index ->
+                                update(state.copy(
+                                    filters = state.filters.copy(animeFormat = formats[index].second),
+                                    page = 1, results = emptyList(), loading = true,
+                                    hasMore = true, error = null
+                                ))
+                            }
+                        }
+                        item {
+                            val statuses = ExtrasProviderPolicy.animeStatuses()
+                            val selected = statuses.firstOrNull {
+                                it.second == state.filters.animeStatus
+                            }?.first ?: "Any status"
+                            ExtrasDropdown("Status: $selected", statuses.map { it.first }) { index ->
+                                update(state.copy(
+                                    filters = state.filters.copy(animeStatus = statuses[index].second),
+                                    page = 1, results = emptyList(), loading = true,
+                                    hasMore = true, error = null
+                                ))
+                            }
+                        }
+                    }
                     item {
                         TextButton(onClick = {
                             update(state.copy(filters = ExtrasFilters(), page = 1, results = emptyList(),

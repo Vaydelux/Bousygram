@@ -54,6 +54,12 @@ Do not place Telegram credentials in the Extras provider graph.
 - Small in-memory JSON LRU cache (4 MB approximate) with a 5-minute freshness
   period and a 2 MB response ceiling.
 - AniList request pacing and explicit handling of HTTP 429/Retry-After.
+- AniList-specific **Format** (TV, Movie, OVA, ONA, etc.) and **Airing Status**
+  (Airing, Finished, Upcoming, On hiatus, Cancelled) dropdowns use native
+  GraphQL MediaFormat and MediaStatus filters and never affect TMDB searches.
+- Successful provider JSON can be reused from the five-minute LRU. AniList
+  GraphQL error bodies are never cached even if the server responds HTTP 200,
+  so Retry is not trapped into replaying an error.
 - TMDB Trending is a provider endpoint, not a synonym for Discover popularity.
 - Discover-only filters are never sent to TMDB Trending; unsupported filters on
   search/trending apply to received pages locally, which may yield a sparse page.

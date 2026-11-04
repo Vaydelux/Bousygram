@@ -56,6 +56,23 @@ class ExtrasProviderPolicyTest {
         assertNull(ExtrasProviderPolicy.safeExternalHttps("https://internal.local/video"))
     }
 
+    @Test fun anilistNativeFiltersRemainProviderSpecific() {
+        assertTrue(ExtrasProviderPolicy.animeFormats().contains("TV" to "TV"))
+        assertTrue(ExtrasProviderPolicy.animeFormats().contains("Movie" to "MOVIE"))
+        assertTrue(ExtrasProviderPolicy.animeFormats().contains("Any format" to null))
+        assertTrue(ExtrasProviderPolicy.animeStatuses().contains("Airing" to "RELEASING"))
+        assertTrue(ExtrasProviderPolicy.animeStatuses().contains("Upcoming" to "NOT_YET_RELEASED"))
+        assertTrue(ExtrasProviderPolicy.animeStatuses().contains("Any status" to null))
+        assertNull(ExtrasFilters().animeFormat)
+        assertNull(ExtrasFilters().animeStatus)
+    }
+
+    @Test fun graphQlErrorResponseMustNotBeCached() {
+        assertFalse(ExtrasProviderPolicy.mayCacheResponse(true, true))
+        assertTrue(ExtrasProviderPolicy.mayCacheResponse(true, false))
+        assertTrue(ExtrasProviderPolicy.mayCacheResponse(false, false))
+    }
+
     @Test fun filtersAreProviderSpecificAndDefaultSafe() {
         assertTrue(ExtrasProviderPolicy.genres(ExtrasType.MOVIES).any { it.first == "Horror" && it.second == "27" })
         assertTrue(ExtrasProviderPolicy.genres(ExtrasType.TV).any { it.first == "Mystery" })
