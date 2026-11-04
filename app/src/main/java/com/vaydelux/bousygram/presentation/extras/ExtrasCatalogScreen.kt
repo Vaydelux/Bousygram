@@ -116,6 +116,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         ExtrasType.TV -> tv
         ExtrasType.ANIME -> anime
     }
+    // Only show autocomplete while the user is deliberately editing a query.
+    // Tab switches keep independent queries but dismiss the former tab's popup.
+    var showSuggestions by remember(type) { mutableStateOf(false) }
     fun update(new: TabState) {
         when (type) {
             ExtrasType.MOVIES -> movies = new
@@ -162,6 +165,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var seasonRetry by remember { mutableIntStateOf(0) }
 
     fun openFromResults(item: ExtrasItem) {
+        showSuggestions = false
         selectedPoster[type] = item.id
         detailHistory.clear()
         detailItem = item
@@ -190,6 +194,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         when {
             showCredits -> showCredits = false
             detailItem != null -> goBackFromDetails()
+            showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty() ->
+                showSuggestions = false
             else -> onExit()
         }
     }
@@ -318,8 +324,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     ) { padding ->
         if (detailItem != null) {
             if (detailLoading) {
-                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    ExtrasDetailLoadingSkeleton(metrics.isCompact)
                 }
             } else if (detailError != null) {
                 Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally,
@@ -348,52 +354,39 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = { text ->
-                        update(state.copy(query = text.take(120), page = 1, results = emptyList(),
+                        val nextQuery = text.take(120)
+                        showSuggestions = nextQuery.isNotBlank()
+                        update(state.copy(query = nextQuery, page = 1, results = emptyList(),
                             loading = true, hasMore = true, error = null))
                     },
                     label = { Text("Search ${type.label} · ${type.provider}") },
                     placeholder = { Text("Title or keyword") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                // Autocomplete-style suggestions are explicitly sourced from the selected provider.
-                if (state.query.isNotBlank() && state.results.isNotEmpty()) {
-                    Surface(
-                        tonalElevation = 4.dp,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp)
-                    ) {
-                        LazyColumn {
-                            items(state.results.take(5), key = { "${it.type}:${it.id}" }) { item ->
-                                var suggestionFocused by remember(item.type, item.id) {
-                                    mutableStateOf(false)
+                    trailingIcon = {
+                        if (state.query.isNotEmpty()) {
+                            TextButton(
+                                modifier = Modifier.testTag("extras-search-clear"),
+                                onClick = {
+                                    showSuggestions = false
+                                    update(state.copy(
+                                        query = "", page = 1, results = emptyList(),
+                                        loading = true, hasMore = true, error = null
+                                    ))
                                 }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth()
-                                        .onFocusChanged { suggestionFocused = it.isFocused }
-                                        .then(
-                                            if (suggestionFocused) Modifier.border(
-                                                2.dp, MaterialTheme.colorScheme.primary,
-                                                RoundedCornerShape(8.dp)
-                                            ) else Modifier
-                                        )
-                                        .clickable { openFromResults(item) }
-                                        .padding(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    AsyncImage(model = item.poster, contentDescription = null,
-                                        modifier = Modifier.size(width = 38.dp, height = 57.dp),
-                                        contentScale = ContentScale.Crop)
-                                    Column {
-                                        Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("${item.year} · ${item.type.provider}",
-                                            style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-                            }
+                            ) { Text("Clear") }
                         }
+                    },
+                    modifier = Modifier.fillMaxWidth().onFocusChanged {
+                        if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
                     }
+                )
+                if (showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty()) {
+                    ExtrasSearchSuggestions(
+                        type = type,
+                        suggestions = state.results.take(5),
+                        onOpen = { chosen -> openFromResults(chosen) },
+                        onDismiss = { showSuggestions = false }
+                    )
                 }
                 Spacer(Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -490,7 +483,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                 }
                 if (state.results.isEmpty() && state.loading) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    ExtrasCatalogLoadingSkeleton(isAndroidTv, metrics.isCompact)
                 } else if (state.results.isEmpty() && !state.loading && state.error == null) {
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -498,6 +491,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text("No matches on this page. Change your search or filters.")
+                        TextButton(onClick = {
+                            showSuggestions = false
+                            update(state.copy(
+                                query = "", filters = ExtrasFilters(), page = 1,
+                                results = emptyList(), loading = true, hasMore = true, error = null
+                            ))
+                        }) { Text("Clear search and filters") }
                         if (state.hasMore && state.page > 0) {
                             TextButton(onClick = {
                                 update(state.copy(page = state.page + 1, loading = true, error = null))
@@ -558,20 +558,95 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
     }
 }
 
+/**
+ * Autocomplete is only visible while actively searching. D-pad focus and close
+ * actions are exposed for offline Compose instrumentation without API access.
+ */
+@Composable
+internal fun ExtrasSearchSuggestions(
+    type: ExtrasType,
+    suggestions: List<ExtrasItem>,
+    onOpen: (ExtrasItem) -> Unit,
+    onDismiss: () -> Unit
+) {
+    // Defense in depth: never offer a TMDB item in AniList autocomplete
+    // (or vice versa), even if a stale upstream result is accidentally passed.
+    val visible = suggestions.filter { it.type == type }.take(5)
+    if (visible.isEmpty()) return
+    Surface(
+        tonalElevation = 4.dp,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(max = 210.dp)
+            .testTag("extras-search-suggestions")
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Suggestions · ${type.provider}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    modifier = Modifier.testTag("extras-suggestions-dismiss"),
+                    onClick = onDismiss
+                ) { Text("Dismiss") }
+            }
+            LazyColumn(modifier = Modifier.heightIn(max = 154.dp)) {
+                items(visible, key = { "${it.type}:${it.id}" }) { item ->
+                    var focused by remember(item.type, item.id) { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .testTag("extras-suggestion-${item.type.name.lowercase()}-${item.id}")
+                            .onFocusChanged { focused = it.isFocused }
+                            .then(
+                                if (focused) Modifier.border(
+                                    2.dp, MaterialTheme.colorScheme.primary,
+                                    RoundedCornerShape(8.dp)
+                                ) else Modifier
+                            )
+                            .clickable { onOpen(item) }
+                            .padding(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ExtrasPosterArtwork(
+                            url = item.poster,
+                            contentDescription = null,
+                            modifier = Modifier.size(width = 38.dp, height = 57.dp),
+                            detail = false,
+                            suggestion = true
+                        )
+                        Column {
+                            Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${item.year} · ${item.type.provider}",
+                                style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Explicitly capped Coil decoder requests instead of full-size source bitmaps. */
 @Composable
 private fun ExtrasPosterArtwork(
     url: String?,
     contentDescription: String?,
     modifier: Modifier,
-    detail: Boolean
+    detail: Boolean,
+    suggestion: Boolean = false
 ) {
     val context = LocalContext.current
     val lowMemory = remember(context) {
         val memory = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         memory?.isLowRamDevice == true || !android.os.Process.is64Bit()
     }
-    val target = ExtrasImagePolicy.poster(lowMemory, detail)
+    val target = ExtrasImagePolicy.poster(lowMemory, detail, suggestion)
     val imageRequest = remember(context, url, target) {
         ImageRequest.Builder(context)
             .data(url)
