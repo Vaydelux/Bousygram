@@ -372,7 +372,7 @@ object ExtrasCatalogApi {
                 reviews(page: 1, perPage: 6) {
                   nodes { id summary score user { name } }
                 }
-                relations { nodes { id type title { english romaji } coverImage { large }
+                relations { nodes { id type isAdult title { english romaji } coverImage { large }
                     averageScore seasonYear format } }
               }
             }
@@ -430,7 +430,8 @@ object ExtrasCatalogApi {
                 ?.optString("name")?.takeIf(String::isNotBlank)?.let { add("Studio: $it") }
         }
         val relations = arrayObjects(obj.optJSONObject("relations")?.optJSONArray("nodes"))
-            .filter { it.optString("type") == "ANIME" }.mapNotNull(::animeItem).take(12)
+            .filter { it.optString("type") == "ANIME" && !it.optBoolean("isAdult", false) }
+            .mapNotNull(::animeItem).take(12)
         val trailer = obj.optJSONObject("trailer")?.takeIf { it.optString("site").equals("youtube", true) }
         return ExtrasDetail(
             item = item,
@@ -490,12 +491,14 @@ object ExtrasCatalogApi {
         if (now < anilistBackoffUntil) {
             throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
         }
+        val payload = JSONObject().put("query", query).put("variables", variables).toString()
+        // A warm response is local and must not spend scarce provider quota.
+        cachedResponse(ANILIST, payload)?.let { return it }
         reserveAniListToken()
         if (System.currentTimeMillis() < anilistBackoffUntil) {
             throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
         }
-        return requestJson(ANILIST, JSONObject().put("query", query).put("variables", variables).toString(),
-            ttlMs = 5 * 60_000L).also {
+        return requestJson(ANILIST, payload, ttlMs = 5 * 60_000L).also {
             val errors = it.optJSONArray("errors")
             if (errors != null && errors.length() > 0) {
                 throw IOException("AniList rejected the request. Try another filter or retry later.")
@@ -503,14 +506,19 @@ object ExtrasCatalogApi {
         }
     }
 
+    private fun cachedResponse(url: String, body: String?): JSONObject? {
+        val key = if (body == null) url else "$url::$body"
+        val now = System.currentTimeMillis()
+        val cached = synchronized(responseCache) {
+            responseCache.get(key)?.takeIf { it.until > now }?.content
+        }
+        return cached?.let(::JSONObject)
+    }
+
     private fun requestJson(url: String, body: String?, ttlMs: Long): JSONObject {
         val cacheKey = if (body == null) url else "$url::$body"
         val now = System.currentTimeMillis()
-        synchronized(responseCache) {
-            responseCache.get(cacheKey)?.takeIf { it.until > now }?.let {
-                return JSONObject(it.content)
-            }
-        }
+        cachedResponse(url, body)?.let { return it }
         val conn = (URL(url).openConnection() as HttpURLConnection)
         try {
             conn.connectTimeout = 6_000
