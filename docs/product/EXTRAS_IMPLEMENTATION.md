@@ -78,6 +78,17 @@ Do not place Telegram credentials in the Extras provider graph.
 - Successful provider JSON can be reused from the five-minute LRU. AniList
   GraphQL error bodies are never cached even if the server responds HTTP 200,
   so Retry is not trapped into replaying an error.
+- TMDB Movies and TV Shows have a provider-specific **Original language** filter
+  (including Filipino, Japanese, Korean and other common languages); Anime's
+  AniList-only Format/Status filters remain independent. TMDB Discover receives
+  the native `with_original_language` argument. TMDB Search and Trending apply
+  this filter to the returned page using the provider's `original_language`.
+- Local TMDB genre, year and minimum-rating filters use raw response values,
+  not rounded display ratings. Search sorting by rating or year is confined to
+  each fetched page, not a guarantee of global ranking. Related titles explicitly
+  exclude provider-marked adult results and duplicate IDs.
+- When changing a query or filter, only that provider's poster grid resets to
+  the first item; switching between tabs keeps each provider's own scroll state.
 - TMDB Trending is a provider endpoint, not a synonym for Discover popularity.
 - Discover-only filters are never sent to TMDB Trending; unsupported filters on
   search/trending apply to received pages locally, which may yield a sparse page.
