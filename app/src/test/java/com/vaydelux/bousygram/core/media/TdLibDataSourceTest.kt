@@ -130,6 +130,25 @@ class TdLibDataSourceTest {
     }
 
     @Test
+    fun deniedOpenDoesNotLeavePartialStateAndMayRetrySameSource() {
+        val source = TdLibDataSource()
+        val uri = TdLibDataSource.buildUri(testFileId, testFileSize)
+        try {
+            source.open(DataSpec(uri))
+            fail("Expected access denial")
+        } catch (expected: IOException) {
+            assertTrue(expected.message.orEmpty().contains("access denied"))
+        }
+        assertEquals(null, source.uri)
+        assertEquals(0, TelegramChunkScheduler.activeLeaseCount(testFileId))
+        source.close()
+        PlaybackSessionController.bindActiveFile(testFileId)
+        assertEquals(testFileSize, source.open(DataSpec(uri)))
+        source.close()
+        assertEquals(0, TelegramChunkScheduler.activeLeaseCount(testFileId))
+    }
+
+    @Test
     fun failedTransferStartReleasesLeaseForNextAttempt() {
         PlaybackSessionController.bindActiveFile(testFileId)
         val source = TdLibDataSource()

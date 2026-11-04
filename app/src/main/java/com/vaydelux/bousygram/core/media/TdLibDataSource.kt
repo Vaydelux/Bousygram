@@ -73,7 +73,10 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
 
     override fun open(dataSpec: DataSpec): Long {
         currentDataSpec = dataSpec
-        transferInitializing(dataSpec)
+        // Even unauthorized, malformed, or unresolved requests must reset the
+        // state for Media3 to safely retry this same DataSource instance.
+        try {
+            transferInitializing(dataSpec)
         uri = dataSpec.uri
         isClosed = false
 
@@ -122,9 +125,8 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
             priority = STREAM_PRIORITY
         )
 
-        try {
-            // A failed preflight or transfer-start callback must never strand an
-            // active lease. Media3 may retry this exact DataSource afterwards.
+        // A failed preflight or transfer-start callback must never strand an
+        // active lease. Media3 may retry this exact DataSource afterwards.
             TelegramChunkScheduler.markState(fileId, PlaybackCacheState.Streaming)
             val fileName = dataSpec.uri.getQueryParameter("name").orEmpty()
             val isMp4 = fileName.endsWith(".mp4", ignoreCase = true) || fileName.endsWith(".m4v", ignoreCase = true)
