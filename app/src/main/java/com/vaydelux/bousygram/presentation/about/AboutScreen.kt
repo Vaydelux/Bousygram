@@ -202,29 +202,16 @@ private fun TmdbAttributionCard() {
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // TMDB Logo Badge
+            // TMDB logo is rendered from the sourced original geometry and gradient.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary)
-                            )
-                        )
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "TMDB",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 1.2.sp
-                    )
-                }
+                Image(
+                    painter = painterResource(R.drawable.ic_tmdb_official),
+                    contentDescription = "The Movie Database logo",
+                    modifier = Modifier.size(width = 72.dp, height = 52.dp)
+                )
 
                 Text(
                     text = "The Movie Database",
