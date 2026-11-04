@@ -243,6 +243,13 @@ class MpvPlayerEngine(
                 }
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
                     _playbackState.value = EnginePlaybackState.Ready
+                    // A native seek/cache restart may leave mpv paused despite
+                    // a still-active user Play intent. Never override Pause.
+                    if (_playWhenReady.value && !pausedForCache) {
+                        runCatching { mpv.setPropertyBoolean("pause", false) }
+                            .onFailure { Log.w(TAG, "Resume after native seek unavailable", it) }
+                    }
+                    _isPlaying.value = _playWhenReady.value && !pausedForCache
                     readNativeDurationAfterLoad()
                 }
             }

@@ -76,16 +76,20 @@ fun VideoSurfaceView(
                     var activeSurface: Surface? = null
                     surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                         override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-                            val surface = Surface(surfaceTexture)
-                            activeSurface?.release()
-                            activeSurface = surface
                             if (engine is ExoPlayerEngine) {
+                                // Media3 owns its TextureView surface. Creating a
+                                // second Surface here leaked a native reference.
                                 engine.player.setVideoTextureView(this@apply)
                             } else {
+                                val surface = Surface(surfaceTexture)
+                                activeSurface?.release()
+                                activeSurface = surface
                                 engine.attachSurface(surface)
                             }
                             engine.setResizeMode(resizeMode)
-                            onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("TextureView", surface.isValid, width, height))
+                            onSurfaceDiagnostic?.invoke(
+                                SurfaceDiagnosticState("TextureView", isAvailable, width, height)
+                            )
                         }
 
                         override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
@@ -99,9 +103,9 @@ fun VideoSurfaceView(
                                 engine.player.clearVideoTextureView(this@apply)
                             } else {
                                 engine.detachSurface()
-                                activeSurface?.release()
-                                activeSurface = null
                             }
+                            activeSurface?.release()
+                            activeSurface = null
                             onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("TextureView", false, 0, 0))
                             return true
                         }
@@ -114,9 +118,9 @@ fun VideoSurfaceView(
                 engine.setResizeMode(resizeMode)
                 onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("TextureView", view.isAvailable, view.width, view.height))
             },
-            onRelease = {
+            onRelease = { view ->
                 if (engine is ExoPlayerEngine) {
-                    engine.player.clearVideoTextureView(null)
+                    engine.player.clearVideoTextureView(view)
                 } else {
                     engine.detachSurface()
                 }

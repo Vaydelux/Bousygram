@@ -1,6 +1,15 @@
 name: Android Emulator Cast Smoke
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/android-emulator-smoke.yml'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/media/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/components/**'
+      - 'app/src/androidTest/**'
   pull_request:
     paths:
       - '.github/workflows/android-emulator-smoke.yml'

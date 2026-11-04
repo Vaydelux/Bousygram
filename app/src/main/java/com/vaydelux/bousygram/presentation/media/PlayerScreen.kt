@@ -446,7 +446,7 @@ fun PlayerScreen(
         }
     }
     fun requestEngineSwitch(target: SelectedPlayerEngine, feedback: String) {
-        val resume = maxOf(position, lastGoodPosition).coerceAtLeast(0L)
+        val resume = recoveryPositionMs(pendingSeekTargetMs, position, lastGoodPosition)
         engineSwitcher.switchTo(target, speed).fold(
             onSuccess = {
                 lastGoodPosition = resume
@@ -557,9 +557,9 @@ fun PlayerScreen(
 
     fun performTrackedSeek(targetMs: Long) {
         val current = queue.getOrNull(queueIndex)
-        val isTs = current != null && VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
-        if (!canSeekTransportStream(isTs, playerEngine.canSeek)) {
-            toastFeedbackText = "This TS file is still building its seek index. Try again when playback is ready."
+        val isTs = current != null && VideoFormatSupport.isTransportStream(current.fileName ?: current.title, current.mimeType)
+        if (!canSeekTransportStream(isTs, playerEngine.canSeek) || !playerEngine.canSeek) {
+            toastFeedbackText = "Seeking isn't available until this file has a usable seek index."
             pendingSeekTargetMs = -1L
             pendingSeekStartedAtMs = 0L
             return
@@ -789,6 +789,8 @@ fun PlayerScreen(
             reloadNonce = 0
             retryCount = 0
             pendingResumeMs = 0L
+            lastGoodPosition = 0L
+            lastAheadPrefetchPosition = 0L
             seekPreviewPositionMs = -1L
             pendingSeekTargetMs = -1L
             pendingSeekStartedAtMs = 0L
@@ -818,7 +820,8 @@ fun PlayerScreen(
                 if (duration > 0L) queue.getOrNull(queueIndex)?.let {
                     CacheManager.onSeek(it.fileId, target, fileSizeBytes, duration)
                 }
-                position = target
+                // The decoder's position callback confirms seeking. A speculative
+                // target here made unseekable TS appear to jump before snapping to 0:00.
             },
             onSkipNext = {
                 skipNext()
@@ -980,9 +983,9 @@ fun PlayerScreen(
                     confirmAudioOutput()
 
                     val resume = pendingResumeMs
-                    if (resume > 0L) {
+                    if (resume > 0L && playerEngine.canSeek) {
                         pendingResumeMs = 0L
-                        playerEngine.seekTo(resume)
+                        performTrackedSeek(resume)
                         if (resume > 15_000L) {
                             showResumeRestartOption = true
                         }
@@ -1037,7 +1040,9 @@ fun PlayerScreen(
                     EnterprisePreferences.setLastError(message)
                     PlaybackDiagnostics.recordStreamError(message)
                     val item = queue.getOrNull(queueIndex)
-                    val retryPosition = maxOf(playerEngine.currentPositionMs, lastGoodPosition).coerceAtLeast(0L)
+                    val retryPosition = recoveryPositionMs(
+                        pendingSeekTargetMs, playerEngine.currentPositionMs, lastGoodPosition
+                    )
                     lastGoodPosition = retryPosition
                     hudVisible = true
                     val playbackEx = (state.cause as? PlaybackException)
@@ -1659,10 +1664,33 @@ fun PlayerScreen(
                 playbackError = null
             }
             position = observedPosition
+            // MPV/Media3 can report Ready before their final seek map is
+            // available. Do not throw away persisted resume on that first event.
+            if (pendingResumeMs > 0L &&
+                playerEngine.canSeek &&
+                playerEngine.playbackState.value is EnginePlaybackState.Ready
+            ) {
+                val resume = pendingResumeMs
+                pendingResumeMs = 0L
+                performTrackedSeek(resume)
+            } else if (pendingResumeMs > 0L && playerStartedAtMs > 0L &&
+                System.currentTimeMillis() - playerStartedAtMs > 25_000L &&
+                playerEngine.playbackState.value is EnginePlaybackState.Ready
+            ) {
+                pendingResumeMs = 0L
+                toastFeedbackText = "Resume position unavailable: this video has no usable seek index."
+            }
             if (pendingSeekTargetMs >= 0L && pendingSeekStartedAtMs > 0L) {
                 val elapsed = (android.os.SystemClock.elapsedRealtime() - pendingSeekStartedAtMs).coerceAtLeast(0L)
                 val reachedTarget = kotlin.math.abs(observedPosition - pendingSeekTargetMs) <= 5_000L
                 if ((!isBuffering && reachedTarget) || elapsed >= 30_000L) {
+                    if (reachedTarget) {
+                        // A confirmed rewind resets the progress high-water mark
+                        // so auto retries never jump back to the pre-seek position.
+                        lastGoodPosition = observedPosition
+                    } else {
+                        toastFeedbackText = "Seek could not be confirmed. Playback continues from the last decoded position."
+                    }
                     val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
                     PlaybackTelemetryRecorder.recordSeekLatency(fid, elapsed)
                     pendingSeekTargetMs = -1L
@@ -2228,7 +2256,9 @@ fun PlayerScreen(
                     hudInteractionTick++
                     retryCount = 0
                     isReconnecting = true
-                    lastGoodPosition = maxOf(lastGoodPosition, playerEngine.currentPositionMs).coerceAtLeast(0L)
+                    lastGoodPosition = recoveryPositionMs(
+                        pendingSeekTargetMs, playerEngine.currentPositionMs, lastGoodPosition
+                    )
                     playbackError = null
                     explicitlyPaused = false
                     reloadNonce++

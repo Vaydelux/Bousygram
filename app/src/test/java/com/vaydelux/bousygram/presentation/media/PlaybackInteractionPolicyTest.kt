@@ -74,6 +74,12 @@ class PlaybackInteractionPolicyTest {
         assertTrue(canSeekTransportStream(false, false))
     }
 
+    @Test fun backwardSeekTargetWinsOverOlderHighWaterRecoveryPosition() {
+        assertEquals(30_000L, recoveryPositionMs(30_000L, 240_000L, 260_000L))
+        assertEquals(260_000L, recoveryPositionMs(-1L, 240_000L, 260_000L))
+        assertEquals(0L, recoveryPositionMs(-1L, -99L, -45L))
+    }
+
     @Test fun relativeSeekWorksWithoutDurationAndStopsAtKnownEnd() {
         assertEquals(10_000L, relativePlayerSeekTarget(0L, 10_000L, 0L))
         assertEquals(20_000L, relativePlayerSeekTarget(10_000L, 10_000L, 0L))

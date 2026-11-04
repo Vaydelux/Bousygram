@@ -1084,15 +1084,23 @@ fun MediaPosterCard(
         // Subscribe BEFORE the initial probe: the file might complete while we
         // are querying TDLib. Only matching completion events wake this card.
         val completions = Channel<Unit>(Channel.CONFLATED)
+        val lastNotifiedPrefixBucket = java.util.concurrent.atomic.AtomicLong(0L)
         val handler: (TdApi.Object?) -> Unit = { update ->
             val file = (update as? TdApi.UpdateFile)?.file
             val local = file?.local
-            if (file?.id == fileId && local != null &&
-                (local.isDownloadingCompleted ||
-                    (local.downloadOffset == 0L &&
-                        local.downloadedPrefixSize >= VideoFormatSupport.MIN_LOCAL_TS_FRAME_PREFIX_BYTES))
-            ) {
-                completions.trySend(Unit)
+            if (file?.id == fileId && local != null) {
+                val bucket = if (local.downloadOffset == 0L) {
+                    local.downloadedPrefixSize /
+                        VideoFormatSupport.MIN_LOCAL_TS_FRAME_PREFIX_BYTES
+                } else 0L
+                // Probe again only after another 2 MiB of contiguous bytes;
+                // the native metadata retriever must not run on every TDLib tick.
+                val previous = lastNotifiedPrefixBucket.getAndUpdate { old ->
+                    maxOf(old, bucket)
+                }
+                if (local.isDownloadingCompleted || (bucket > previous && bucket > 0L)) {
+                    completions.trySend(Unit)
+                }
             }
         }
         suspend fun extract(): android.graphics.Bitmap? = try {

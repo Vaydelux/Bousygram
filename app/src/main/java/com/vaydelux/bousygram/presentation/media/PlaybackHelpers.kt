@@ -150,6 +150,16 @@ internal fun canSeekTransportStream(
     engineSeekable: Boolean
 ): Boolean = !isTransportStream || engineSeekable
 
+/** A pending *backward* seek wins over an old high-water progress marker.
+ * Otherwise reconnect would jump forward to an earlier timestamp after rewind.
+ */
+internal fun recoveryPositionMs(
+    pendingSeekTargetMs: Long,
+    enginePositionMs: Long,
+    lastConfirmedMs: Long
+): Long = if (pendingSeekTargetMs >= 0L) pendingSeekTargetMs
+else maxOf(enginePositionMs, lastConfirmedMs).coerceAtLeast(0L)
+
 /** During buffering isPlaying may be false even when autoplay is armed.
  * The play/pause button must cancel that pending autoplay, not reissue play.
  */
