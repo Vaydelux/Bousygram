@@ -53,10 +53,10 @@ internal object ExtrasWatchProviders {
             val source = results.optJSONObject(region) ?: return@mapNotNull null
             val offers = buckets.flatMap { (field, method) ->
                 val entries = source.optJSONArray(field) ?: return@flatMap emptyList()
-                (0 until minOf(entries.length(), 24)).mapNotNull { index ->
-                    val entry = entries.optJSONObject(index) ?: return@mapNotNull null
+                (0 until minOf(entries.length(), 24)).mapNotNull offer@{ index ->
+                    val entry = entries.optJSONObject(index) ?: return@offer null
                     val name = entry.optString("provider_name").take(80)
-                    if (name.isBlank()) return@mapNotNull null
+                    if (name.isBlank()) return@offer null
                     val path = entry.optString("logo_path")
                     val logo = path.takeIf {
                         it.startsWith("/") && !it.startsWith("//") &&
