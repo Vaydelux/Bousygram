@@ -52,7 +52,9 @@ Do not place Telegram credentials in the Extras provider graph.
 - 350 ms search debounce; obsolete coroutine results are canceled.
 - Provider-specific state, filters and grid position are preserved across tabs.
 - Small in-memory JSON LRU cache (4 MB approximate) with a 5-minute freshness
-  period and a 2 MB response ceiling.
+  period and a 2 MB response ceiling. Android memory-trim callbacks shrink the
+  cache to 1 MiB on moderate pressure or evict it entirely on critical pressure
+  to reduce retained memory on ARM32 TVs.
 - AniList request pacing and explicit handling of HTTP 429/Retry-After.
 - AniList-specific **Format** (TV, Movie, OVA, ONA, etc.) and **Airing Status**
   (Airing, Finished, Upcoming, On hiatus, Cancelled) dropdowns use native
