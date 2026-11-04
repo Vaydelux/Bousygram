@@ -177,16 +177,18 @@ object ExtrasCatalogApi {
 
     private fun browseTmdb(type: ExtrasType, query: String, f: ExtrasFilters, page: Int): ExtrasPage {
         val searching = query.isNotBlank()
+        val trending = !searching && f.sort == ExtrasSort.TRENDING
         val genreId = ExtrasProviderPolicy.genres(type).firstOrNull { it.first == f.genre }?.second.orEmpty()
         val params = mutableMapOf(
             "page" to page.coerceIn(1, 500).toString(),
-            "language" to "en-US",
-            "include_adult" to "false"
+            "language" to "en-US"
         )
+        // Trending accepts page/language, not the Discover-only filter set.
+        if (!trending) params["include_adult"] = "false"
         if (searching) {
             params["query"] = query.trim().take(120)
             f.year?.let { params[if (type == ExtrasType.TV) "first_air_date_year" else "year"] = it.toString() }
-        } else {
+        } else if (!trending) {
             params["sort_by"] = when {
                 f.sort == ExtrasSort.NEWEST && type == ExtrasType.TV -> "first_air_date.desc"
                 else -> f.sort.tmdbValue
@@ -197,7 +199,6 @@ object ExtrasCatalogApi {
             if (f.minimumRating > 0) params["vote_average.gte"] = f.minimumRating.toString()
         }
         // TMDB trending is a different metric from discover popularity. Use the real weekly feed.
-        val trending = !searching && f.sort == ExtrasSort.TRENDING
         val path = ExtrasProviderPolicy.tmdbBrowsePath(type, searching, f.sort)
         val body = tmdbGet(path, params)
         val candidates = arrayObjects(body.optJSONArray("results"))
