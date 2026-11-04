@@ -8,7 +8,7 @@ scrolling, infer image-cache use, or collect account/device identifiers.
 Capture both runs manually with Capture-BousygramExtrasPerf.ps1 and the same
 device/build, ideally using identical wait times and sample counts.
 .EXAMPLE
-.\tools\qualification\Compare-BousygramExtrasPerf.ps1 -Baseline .\qualification-evidence\extras-extras-baseline-p1-arm64-v8a-*.json -LongSession .\qualification-evidence\extras-extras-longsession-p30-arm64-v8a-*.json
+.\tools\qualification\Compare-BousygramExtrasPerf.ps1 -Baseline '<exact-baseline-file>.json' -LongSession '<exact-long-session-file>.json'
 #>
 [CmdletBinding()]
 param(
@@ -35,6 +35,11 @@ if ($before.packageName -ne $after.packageName -or
     $before.device.abi -ne $after.device.abi -or
     $before.device.androidVersion -ne $after.device.androidVersion) {
     throw 'Memory snapshots do not use the same app package, Android version, and ABI.'
+}
+if ($before.measurementPoint -ne 'Baseline' -or
+    $after.measurementPoint -ne 'LongSession' -or
+    [int]$after.loadedPagesReportedByTester -le [int]$before.loadedPagesReportedByTester) {
+    throw 'Compare a Baseline capture to a later LongSession capture with a larger manually reported page count.'
 }
 $delta = [math]::Round([double]$after.averagePssKb - [double]$before.averagePssKb, 1)
 $percent = [math]::Round(100.0 * $delta / [double]$before.averagePssKb, 2)
