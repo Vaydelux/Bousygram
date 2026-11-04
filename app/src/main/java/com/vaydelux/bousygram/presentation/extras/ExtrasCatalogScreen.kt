@@ -98,6 +98,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         }
     }
     var detailItem by remember { mutableStateOf<ExtrasItem?>(null) }
+    var detailRetry by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<ExtrasDetail?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
     var detailLoading by remember { mutableStateOf(false) }
@@ -140,7 +141,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     LaunchedEffect(type) {
         if (state.page == 0 && !state.loading) update(state.copy(page = 1, loading = true))
     }
-    LaunchedEffect(detailItem) {
+    LaunchedEffect(detailItem, detailRetry) {
         val selected = detailItem ?: return@LaunchedEffect
         detail = null
         detailError = null
@@ -186,7 +187,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     Column {
                         Text(if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
                             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Catalog information only · TMDB / AniList",
+                        Text("Catalog metadata · TMDB / AniList",
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -211,7 +212,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center) {
                     Text(detailError.orEmpty())
-                    Button(onClick = { detailItem = detailItem?.copy() }) { Text("Retry") }
+                    Button(onClick = { detailRetry += 1 }) { Text("Retry") }
                 }
             } else detail?.let { info ->
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
@@ -501,7 +502,7 @@ private fun ExtrasDetailContent(
             }
         }
         item {
-            Text("Metadata from ${info.item.type.provider}. Titles, scores, and episode availability depend on the data provider. No video streaming is supplied by these APIs.",
+            Text((if (info.item.type == ExtrasType.ANIME) "Anime metadata from AniList." else "This product uses the TMDB API but is not endorsed or certified by TMDB.") + " Titles, scores and episode availability depend on the provider. No video streaming is supplied.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
