@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +63,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.vaydelux.bousygram.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -174,6 +177,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             title = { Text("Extras · Sources & Credits") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_tmdb_official),
+                        contentDescription = "TMDB logo",
+                        modifier = Modifier.width(72.dp).height(52.dp)
+                    )
                     Text("Movies and TV Shows: The Movie Database (TMDB).")
                     Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
                     Text("Anime: AniList. Titles, artwork, community ratings and linked episodes come from AniList.")
