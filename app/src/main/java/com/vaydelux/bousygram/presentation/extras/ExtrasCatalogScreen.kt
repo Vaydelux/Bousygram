@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -89,6 +90,13 @@ private data class TabState(
 @Composable
 fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val metrics = rememberAdaptiveMetrics()
+    val context = LocalContext.current
+    // Some Android TV boxes advertise Leanback even when UiModeManager does not.
+    // Keep all such devices on the native YouTube TV route, never the WebView.
+    val isAndroidTv = metrics.isTv || remember(context) {
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
+    }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val type = ExtrasType.entries[selectedTab.coerceIn(0, ExtrasType.entries.lastIndex)]
     var movies by remember { mutableStateOf(TabState()) }
@@ -310,7 +318,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     },
                     modifier = Modifier.padding(padding),
                     compact = metrics.isCompact,
-                    isAndroidTv = metrics.isTv)
+                    isAndroidTv = isAndroidTv)
             }
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
