@@ -76,6 +76,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 
 private data class TabState(
@@ -215,6 +217,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         try {
             val nextPage = ExtrasCatalogApi.browse(type, request.query, request.filters,
                 request.page.coerceAtLeast(1))
+            // HttpURLConnection may return despite a canceled coroutine; never publish stale results.
+            currentCoroutineContext().ensureActive()
             update(request.copy(
                 results = if (request.page <= 1) nextPage.items else
                     (request.results + nextPage.items).distinctBy { it.type to it.id },
@@ -226,6 +230,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
             update(request.copy(loading = false, error = e.message ?: "Catalog unavailable"))
         }
     }
@@ -241,10 +246,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         episodes = emptyList()
         selectedSeason = null
         try {
-            detail = ExtrasCatalogApi.details(selected)
+            val loaded = ExtrasCatalogApi.details(selected)
+            currentCoroutineContext().ensureActive()
+            detail = loaded
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
             detailError = e.message ?: "Unable to load details"
         } finally {
             if (detailItem == selected && detailRetry == retry) detailLoading = false
@@ -258,10 +266,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         episodeError = null
         seasonLoading = true
         try {
-            episodes = ExtrasCatalogApi.season(current.item.id, season)
+            val loaded = ExtrasCatalogApi.season(current.item.id, season)
+            currentCoroutineContext().ensureActive()
+            episodes = loaded
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
             episodeError = e.message ?: "Unable to load episodes"
         } finally {
             if (selectedSeason == season && detail?.item?.id == current.item.id) {
