@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.core.tdlib.prefetch
 
 import android.util.Log
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkPurpose
@@ -39,6 +40,8 @@ object FocusPrefetchManager {
     const val PREFETCH_CHUNK_BYTES = 2L * 1024L * 1024L // ~2 MB
     const val LOW_PRIORITY = 1 // TDLib lowest priority
     const val MAX_CONCURRENT_PREFETCH = 2
+    private const val TS_POSTER_STEP_BYTES = 256 * 1024
+    private const val TS_POSTER_HEAD_BUDGET_MS = 6_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val semaphore = Semaphore(MAX_CONCURRENT_PREFETCH)
@@ -156,8 +159,15 @@ object FocusPrefetchManager {
                     // after an early partial head response evicts useful startup bytes.
                     // The actual extractor will request moov/Cues ranges if necessary.
                     val headLimit = if (fileSize > 0L) min(PREFETCH_CHUNK_BYTES, fileSize) else PREFETCH_CHUNK_BYTES
-                    downloadSegment(fileId, offset = 0L, limit = headLimit.toInt())
-                    Log.i(TAG, "Completed head-only focus prefetch for fileId=$fileId")
+                    downloadSegment(
+                        fileId = fileId,
+                        offset = 0L,
+                        limit = headLimit.toInt(),
+                        collectContiguousTsHead = VideoFormatSupport.isTransportStream(
+                            item.fileName ?: item.title, item.mimeType
+                        )
+                    )
+                    Log.i(TAG, "Completed bounded head-only focus prefetch for fileId=$fileId")
                 }
             } catch (e: CancellationException) {
                 releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
@@ -173,22 +183,57 @@ object FocusPrefetchManager {
         activePrefetchJobs[fileId] = job
     }
 
-    private suspend fun downloadSegment(fileId: Int, offset: Long, limit: Int) {
+    private suspend fun downloadSegment(
+        fileId: Int,
+        offset: Long,
+        limit: Int,
+        collectContiguousTsHead: Boolean
+    ) {
         if (limit <= 0) return
-        when (
-            TelegramChunkScheduler.fetchChunk(
+        var cursor = offset
+        val endExclusive = offset + limit
+        val deadline = android.os.SystemClock.elapsedRealtime() + TS_POSTER_HEAD_BUDGET_MS
+        do {
+            if (!kotlin.coroutines.coroutineContext.isActive ||
+                PlaybackSessionController.isVideoPlaying()
+            ) return
+            val step = if (collectContiguousTsHead) {
+                min(TS_POSTER_STEP_BYTES.toLong(), endExclusive - cursor).toInt()
+            } else limit
+            val result = TelegramChunkScheduler.fetchChunk(
                 TelegramChunkRequest(
                     fileId = fileId,
-                    offset = offset,
-                    limit = limit,
+                    offset = cursor,
+                    limit = step,
                     priority = LOW_PRIORITY,
                     purpose = TelegramChunkPurpose.CacheAhead
                 )
             )
-        ) {
-            is TelegramChunkResult.FatalFailure -> Log.w(TAG, "Focus prefetch failed for fileId=$fileId")
-            else -> Unit
-        }
+            when (result) {
+                is TelegramChunkResult.Ready -> {
+                    val next = nextContiguousPrefetchOffset(cursor, result.bytes.size, endExclusive)
+                        ?: return
+                    cursor = next
+                }
+                is TelegramChunkResult.FatalFailure -> {
+                    Log.w(TAG, "Focus prefetch failed for fileId=$fileId")
+                    return
+                }
+                TelegramChunkResult.Pending, is TelegramChunkResult.RetryableFailure -> return
+            }
+            // MP4 and other formats retain the original one-request focus budget.
+            // Only TS attempts to collect a decodable 2 MiB head for artwork,
+            // without borrowing active playback bandwidth or downloading a full file.
+        } while (collectContiguousTsHead && cursor < endExclusive &&
+            android.os.SystemClock.elapsedRealtime() < deadline)
+    }
+
+    internal fun nextContiguousPrefetchOffset(
+        offset: Long, readBytes: Int, endExclusive: Long
+    ): Long? {
+        if (readBytes <= 0 || offset < 0L || offset >= endExclusive) return null
+        val next = offset + readBytes
+        return if (next in (offset + 1)..endExclusive) next else null
     }
 
     fun isMp4Container(item: MediaItem): Boolean {
