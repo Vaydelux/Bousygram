@@ -37,16 +37,37 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     @Volatile private var wantedPlayback = false
     @Volatile private var filePrepared = false
     @Volatile private var stoppedByOwner = false
+    // LibVLC pause() toggles; command once until acknowledged or re-armed by Play.
+    @Volatile private var pauseCommandPending = false
     @Volatile private var timestampMs = 0L
     @Volatile private var knownDurationMs = 0L
+
+    private fun requestNativePause() {
+        if (released.get() || !filePrepared || pauseCommandPending) return
+        try {
+            if (nativePlayer.isPlaying) {
+                pauseCommandPending = true
+                nativePlayer.pause()
+            }
+        } catch (failure: Throwable) {
+            pauseCommandPending = false
+            Log.w(TAG, "Unable to request native Pause", failure)
+        }
+    }
 
     init {
         nativePlayer.setEventListener { event ->
             if (released.get()) return@setEventListener
             when (event.type) {
-                MediaPlayer.Event.Opening, MediaPlayer.Event.Buffering -> {
+                MediaPlayer.Event.Opening -> {
                     playing = false
                     state.value = EnginePlaybackState.Buffering
+                }
+                MediaPlayer.Event.Buffering -> {
+                    val running = runCatching { nativePlayer.isPlaying }.getOrDefault(false)
+                    playing = running && wantedPlayback
+                    state.value = libVlcBufferState(wantedPlayback, running)
+                    if (running && !wantedPlayback) requestNativePause()
                 }
                 MediaPlayer.Event.Playing -> {
                     // Native VLC may deliver a stale Playing event after Pause
@@ -56,12 +77,11 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                         state.value = EnginePlaybackState.Ready
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
                             if (!released.get() && !wantedPlayback && filePrepared) {
-                                runCatching {
-                                    if (nativePlayer.isPlaying) nativePlayer.pause()
-                                }
+                                requestNativePause()
                             }
                         }
                     } else {
+                        pauseCommandPending = false
                         playing = true
                         state.value = EnginePlaybackState.Ready
                         knownDurationMs = runCatching { nativePlayer.length }.getOrDefault(-1L)
@@ -70,6 +90,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     }
                 }
                 MediaPlayer.Event.Paused -> {
+                    pauseCommandPending = false
                     playing = false
                     if (filePrepared) state.value = EnginePlaybackState.Ready
                 }
@@ -163,6 +184,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
             "Experimental LibVLC accepts account-authorized loopback streams only"
         }
         stoppedByOwner = false
+        pauseCommandPending = false
         filePrepared = false
         playing = false
         wantedPlayback = false
@@ -190,17 +212,17 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         if (released.get() || !filePrepared) return
         wantedPlayback = true
         stoppedByOwner = false
-        if (!nativePlayer.isPlaying) nativePlayer.play()
+        pauseCommandPending = false
+        runCatching {
+            if (!nativePlayer.isPlaying) nativePlayer.play()
+        }.onFailure {
+            state.value = EnginePlaybackState.Error("LibVLC could not start this video", it)
+        }
     }
 
     override fun pause() {
         wantedPlayback = false
-        if (!released.get() && filePrepared) {
-            // LibVLC pause() toggles, so never invoke it repeatedly when paused.
-            runCatching {
-                if (nativePlayer.isPlaying) nativePlayer.pause()
-            }.onFailure { Log.w(TAG, "LibVLC pause failed", it) }
-        }
+        requestNativePause()
     }
 
     override fun seekTo(positionMs: Long) {
