@@ -514,29 +514,17 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                 }
                 if (state.droppedResults > 0 && state.results.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            "Showing the latest ${state.results.size} titles. Earlier pages were released to conserve memory.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f)
-                        )
-                        TextButton(
-                            modifier = Modifier.testTag("extras-start-over"),
-                            onClick = {
-                                showSuggestions = false
-                                update(state.copy(
-                                    results = emptyList(), droppedResults = 0,
-                                    page = 1, loading = true, hasMore = true,
-                                    error = null
-                                ))
-                            }
-                        ) { Text("From start") }
-                    }
+                    ExtrasPagingWindowNotice(
+                        retainedCount = state.results.size,
+                        onRestart = {
+                            showSuggestions = false
+                            update(state.copy(
+                                results = emptyList(), droppedResults = 0,
+                                page = 1, loading = true, hasMore = true,
+                                error = null
+                            ))
+                        }
+                    )
                 }
                 if (state.results.isEmpty() && state.loading) {
                     ExtrasCatalogLoadingSkeleton(isAndroidTv, metrics.isCompact)
@@ -611,6 +599,30 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
                     .testTag("extras-tab-${tab.name.lowercase()}")
             )
         }
+    }
+}
+
+/**
+ * A visible escape hatch when earlier pages leave the bounded results window.
+ * This surface is independent of API credentials and is remote-accessible.
+ */
+@Composable
+internal fun ExtrasPagingWindowNotice(retainedCount: Int, onRestart: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("extras-paging-window-notice"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            "Showing the latest $retainedCount titles. Earlier pages were released to conserve memory.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(
+            modifier = Modifier.testTag("extras-start-over"),
+            onClick = onRestart
+        ) { Text("From start") }
     }
 }
 
