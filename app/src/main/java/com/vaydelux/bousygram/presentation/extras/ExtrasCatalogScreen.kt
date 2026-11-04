@@ -309,7 +309,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         detailItem = related
                     },
                     modifier = Modifier.padding(padding),
-                    compact = metrics.isCompact)
+                    compact = metrics.isCompact,
+                    isAndroidTv = metrics.isTv)
             }
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
@@ -502,7 +503,8 @@ private fun ExtrasDetailContent(
     onSeason: (Int) -> Unit,
     onOpenItem: (ExtrasItem) -> Unit,
     modifier: Modifier,
-    compact: Boolean
+    compact: Boolean,
+    isAndroidTv: Boolean
 ) {
     val context = LocalContext.current
     LazyColumn(modifier = modifier.fillMaxSize(),
@@ -528,10 +530,11 @@ private fun ExtrasDetailContent(
         }
         info.youtubeId?.let { youtube ->
             item {
-                Button(onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$youtube"))
-                    runCatching { context.startActivity(intent) }
-                }) { Text("▶ Watch trailer on YouTube") }
+                ExtrasYouTubeTrailer(
+                    videoId = youtube,
+                    isAndroidTv = isAndroidTv,
+                    compact = compact
+                )
             }
         }
         if (info.legalStreamingLinks.isNotEmpty()) {
