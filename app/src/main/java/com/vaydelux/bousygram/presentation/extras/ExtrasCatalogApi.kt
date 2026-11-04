@@ -243,12 +243,12 @@ object ExtrasCatalogApi {
         f.year?.let { variables.put("year", "$it%") }
         if (f.minimumRating > 0) variables.put("score", f.minimumRating * 10 - 1)
         val gql = """
-            query (\$page: Int!, \$search: String, \$genre: String, \$year: String,
-                   \$score: Int, \$sort: [MediaSort]) {
-              Page(page: \$page, perPage: 20) {
+            query (${'$'}page: Int!, ${'$'}search: String, ${'$'}genre: String, ${'$'}year: String,
+                   ${'$'}score: Int, ${'$'}sort: [MediaSort]) {
+              Page(page: ${'$'}page, perPage: 20) {
                 pageInfo { hasNextPage }
-                media(type: ANIME, isAdult: false, search: \$search, genre: \$genre,
-                      startDate_like: \$year, averageScore_greater: \$score, sort: \$sort) {
+                media(type: ANIME, isAdult: false, search: ${'$'}search, genre: ${'$'}genre,
+                      startDate_like: ${'$'}year, averageScore_greater: ${'$'}score, sort: ${'$'}sort) {
                   id title { english romaji native }
                   coverImage { large } seasonYear startDate { year }
                   averageScore format episodes description(asHtml: false)
@@ -283,12 +283,191 @@ object ExtrasCatalogApi {
     private fun animeDetails(id: Int): ExtrasDetail {
         require(id > 0)
         val gql = """
-            query (\$id: Int!) {
-              Media(id: \$id, type: ANIME) {
+            query (${'$'}id: Int!) {
+              Media(id: ${'
                 id title { english romaji native }
                 description(asHtml: false)
                 coverImage { large } bannerImage
-                averageScore popularity episodes duration format status season seasonYear
+                averageScore popularity episodes duration format status season seasonYear isAdult
+                startDate { year month day }
+                genres
+                trailer { id site }
+                nextAiringEpisode { episode airingAt }
+                characters(page: 1, perPage: 16, sort: [ROLE, RELEVANCE]) {
+                  edges { node { id name { full } image { medium } } role }
+                }
+                staff(page: 1, perPage: 12) { edges { node { name { full } } role } }
+                studios(isMain: true) { nodes { name } }
+                reviews(page: 1, perPage: 6) {
+                  nodes { id summary score user { name } }
+                }
+                relations { nodes { id type title { english romaji } coverImage { large }
+                    averageScore seasonYear format } }
+              }
+            }
+        """.trimIndent()
+        val obj = animePost(gql, JSONObject().put("id", id))
+            .optJSONObject("data")?.optJSONObject("Media")
+            ?: throw IOException("AniList could not load this anime")
+        val item = animeItem(obj) ?: throw IOException("Anime entry is incomplete")
+        if (obj.optBoolean("isAdult", false)) throw IOException("This catalog entry is unavailable")
+        val cast = arrayObjects(obj.optJSONObject("characters")?.optJSONArray("edges")).take(12).mapNotNull {
+            val char = it.optJSONObject("node") ?: return@mapNotNull null
+            ExtrasPerson(char.optJSONObject("name")?.optString("full").orEmpty(),
+                it.optString("role"), secureImage(char.optJSONObject("image")?.optString("medium")))
+        }
+        val staff = arrayObjects(obj.optJSONObject("staff")?.optJSONArray("edges")).take(8).mapNotNull {
+            val person = it.optJSONObject("node") ?: return@mapNotNull null
+            ExtrasPerson(person.optJSONObject("name")?.optString("full").orEmpty(),
+                it.optString("role"), null)
+        }
+        val reviewList = arrayObjects(obj.optJSONObject("reviews")?.optJSONArray("nodes")).take(6).map {
+            ExtrasReview(it.optJSONObject("user")?.optString("name").orEmpty().ifBlank { "AniList user" },
+                plain(it.optString("summary")).take(900),
+                it.optInt("score").takeIf { score -> score > 0 }?.let { score -> "$score/100" }.orEmpty())
+        }
+        val facts = buildList {
+            listOf("format", "status", "season").forEach { field ->
+                obj.optString(field).takeIf { it.isNotBlank() && it != "null" }?.let { add(it.replace('_', ' ')) }
+            }
+            obj.optInt("episodes").takeIf { it > 0 }?.let { add("$it episodes") }
+            obj.optInt("duration").takeIf { it > 0 }?.let { add("$it min/episode") }
+            obj.optInt("popularity").takeIf { it > 0 }?.let { add("$it members") }
+            obj.optJSONObject("nextAiringEpisode")?.optInt("episode")?.takeIf { it > 0 }
+                ?.let { add("Next airing: episode $it") }
+            arrayObjects(obj.optJSONObject("studios")?.optJSONArray("nodes")).firstOrNull()
+                ?.optString("name")?.takeIf(String::isNotBlank)?.let { add("Studio: $it") }
+        }
+        val relations = arrayObjects(obj.optJSONObject("relations")?.optJSONArray("nodes"))
+            .filter { it.optString("type") == "ANIME" }.mapNotNull(::animeItem).take(12)
+        val trailer = obj.optJSONObject("trailer")?.takeIf { it.optString("site").equals("youtube", true) }
+        return ExtrasDetail(
+            item = item,
+            description = plain(obj.optString("description")),
+            genres = buildList {
+                val arr = obj.optJSONArray("genres")
+                if (arr != null) for (i in 0 until arr.length()) arr.optString(i).takeIf(String::isNotBlank)?.let(::add)
+            },
+            facts = facts,
+            cast = cast + staff,
+            reviews = reviewList,
+            seasons = emptyList(), // AniList has episode counts / relations, not TMDB-style season episode lists.
+            related = relations,
+            backdrop = secureImage(obj.optString("bannerImage")),
+            youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("id"))
+        )
+    }
+
+    private fun plain(value: String): String =
+        Html.fromHtml(value.take(20_000), Html.FROM_HTML_MODE_COMPACT).toString().trim()
+
+    private fun secureImage(value: String?): String? {
+        if (value.isNullOrBlank() || !value.startsWith("https://")) return null
+        val host = runCatching { URL(value).host.lowercase(java.util.Locale.ROOT) }.getOrNull() ?: return null
+        return value.takeIf { host == "anilist.co" || host.endsWith(".anilist.co") ||
+            host == "anili.st" || host.endsWith(".anili.st") }
+    }
+
+    private fun tmdbImage(path: String?, size: String): String? {
+        if (path.isNullOrBlank() || !path.startsWith("/") || path.startsWith("//") ||
+            !path.matches(Regex("/[A-Za-z0-9_./-]+"))) return null
+        return "https://image.tmdb.org/t/p/$size$path"
+    }
+
+    private fun tmdbGet(path: String, params: Map<String, String>): JSONObject {
+        val key = BuildConfig.TMDB_API_KEY.trim()
+        if (key.isEmpty() || key == "TMDB_API_KEY_DEFAULT_VALUE") {
+            throw IOException("TMDB API key is not configured. Add TMDB_API_KEY to local.properties.")
+        }
+        val query = (params + ("api_key" to key)).entries.joinToString("&") {
+            "${encode(it.key)}=${encode(it.value)}"
+        }
+        // Credentials are not recorded in error messages or logs.
+        return requestJson("$TMDB$path?$query", null, ttlMs = 5 * 60_000L)
+    }
+
+    private fun animePost(query: String, variables: JSONObject): JSONObject {
+        val now = System.currentTimeMillis()
+        if (now < anilistBackoffUntil) {
+            throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
+        }
+        return requestJson(ANILIST, JSONObject().put("query", query).put("variables", variables).toString(),
+            ttlMs = 5 * 60_000L).also {
+            val errors = it.optJSONArray("errors")
+            if (errors != null && errors.length() > 0) {
+                throw IOException("AniList rejected the request. Try another filter or retry later.")
+            }
+        }
+    }
+
+    private fun requestJson(url: String, body: String?, ttlMs: Long): JSONObject {
+        val cacheKey = if (body == null) url else "$url::$body"
+        val now = System.currentTimeMillis()
+        synchronized(responseCache) {
+            responseCache.get(cacheKey)?.takeIf { it.until > now }?.let {
+                return JSONObject(it.content)
+            }
+        }
+        val conn = (URL(url).openConnection() as HttpURLConnection)
+        try {
+            conn.connectTimeout = 6_000
+            conn.readTimeout = 10_000
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("User-Agent", "Bousygram/Extras (catalog metadata)")
+            if (body != null) {
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                conn.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
+            }
+            val status = conn.responseCode
+            if (status == 429) {
+                if (body != null) {
+                    val retrySeconds = conn.getHeaderField("Retry-After")?.toLongOrNull()?.coerceIn(1, 120) ?: 60L
+                    anilistBackoffUntil = System.currentTimeMillis() + retrySeconds * 1000L
+                }
+                throw IOException("Catalog request limit reached. Please retry shortly.")
+            }
+            if (status !in 200..299) {
+                throw IOException(when (status) {
+                    401, 403 -> "Catalog provider access denied. Check API access and configuration."
+                    404 -> "This title is no longer available."
+                    else -> "Catalog request failed (HTTP $status)."
+                })
+            }
+            val data = conn.inputStream.use { stream ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val read = stream.read(buffer)
+                    if (read < 0) break
+                    if (output.size() + read > MAX_BYTES) throw IOException("Catalog response exceeded size limit")
+                    output.write(buffer, 0, read)
+                }
+                output.toString(StandardCharsets.UTF_8.name())
+            }
+            val json = JSONObject(data)
+            synchronized(responseCache) {
+                responseCache.put(cacheKey, Cached(data, now + ttlMs))
+            }
+            return json
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun encode(input: String) = URLEncoder.encode(input, StandardCharsets.UTF_8.name())
+
+    private fun arrayObjects(arr: JSONArray?): List<JSONObject> {
+        if (arr == null) return emptyList()
+        return (0 until arr.length()).mapNotNull(arr::optJSONObject)
+    }
+}
+}id, type: ANIME, isAdult: false) {
+                id title { english romaji native }
+                description(asHtml: false)
+                coverImage { large } bannerImage
+                averageScore popularity episodes duration format status season seasonYear isAdult
                 startDate { year month day }
                 genres
                 trailer { id site }
