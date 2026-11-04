@@ -1129,9 +1129,13 @@ class MediaViewModel(
             if (!current()) return@launch
             if (cached.isNotEmpty()) {
                 _uiState.update { ui ->
-                    if (!current()) ui else ui.copy(
-                        items = TelegramMediaWindow.merge(ui.items, cached, activeCatalogLimit).items
-                    )
+                    if (!current()) ui else {
+                        val bounded = TelegramMediaWindow.merge(ui.items, cached, activeCatalogLimit)
+                        ui.copy(
+                            items = bounded.items,
+                            discardedMediaCount = ui.discardedMediaCount + bounded.removedFromFront
+                        )
+                    }
                 }
             }
             if (!current()) return@launch
@@ -1148,9 +1152,13 @@ class MediaViewModel(
                 if (matches.isNotEmpty()) {
                     VideoIndexRepository.indexMediaItemsAsync(matches)
                     _uiState.update { ui ->
-                        if (!current()) ui else ui.copy(
-                            items = TelegramMediaWindow.merge(ui.items, matches, activeCatalogLimit).items
-                        )
+                        if (!current()) ui else {
+                            val bounded = TelegramMediaWindow.merge(ui.items, matches, activeCatalogLimit)
+                            ui.copy(
+                                items = bounded.items,
+                                discardedMediaCount = ui.discardedMediaCount + bounded.removedFromFront
+                            )
+                        }
                     }
                 }
                 if (current()) {

@@ -78,3 +78,19 @@ interface and anonymize before sharing. The script intentionally reports
 - The protected [physical-device qualification record](RELEASE_DEVICE_QUALIFICATION_RECORD.md)
   remains mandatory for a production-signed release. Debug APKs are for tests
   and never satisfy that gate.
+
+## Long-session device comparison (ARM32 and ARM64)
+
+Use identical signed candidate APKs, source clips, user actions, sample duration,
+network conditions and device model across repeated baseline and sustained-playback
+sessions. After recording two real, private JSON captures with
+`Capture-BousygramPlaybackPerf.ps1`, compare them using:
+
+```powershell
+.\tools\qualification\Compare-BousygramPlaybackPerf.ps1 -Baseline '.\baseline.json' -LongSession '.\long-session.json'
+```
+
+The comparator validates device/ABI/duration and reports observed PSS and app-UI
+jank deltas. It does **not** measure decoder frame drops, prove the same APK was
+installed or validate real playback. The synthetic CI fixtures are parser tests,
+not device qualifications. ADB captures must be performed on authorized hardware.

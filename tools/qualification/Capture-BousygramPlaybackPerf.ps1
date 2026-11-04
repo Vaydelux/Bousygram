@@ -45,7 +45,7 @@ function Get-Number {
     param([string] $Text, [string] $Pattern)
     $match = [regex]::Match($Text, $Pattern)
     if (-not $match.Success) { return $null }
-    return [long]::Parse($match.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
+    return [long]::Parse(($match.Groups[1].Value -replace ',', ''), [Globalization.CultureInfo]::InvariantCulture)
 }
 
 $installedPaths = Invoke-SelectedAdb -CommandArguments @("shell", "pm", "path", $packageName)
@@ -69,10 +69,19 @@ $endMeminfo = Invoke-SelectedAdb -CommandArguments @("shell", "dumpsys", "meminf
 $gfxinfo = Invoke-SelectedAdb -CommandArguments @("shell", "dumpsys", "gfxinfo", $packageName)
 $endedUtc = (Get-Date).ToUniversalTime().ToString("o")
 
-$beforePss = Get-Number -Text $startMeminfo -Pattern '(?im)^\s*TOTAL PSS:\s*(\d+)'
-$afterPss = Get-Number -Text $endMeminfo -Pattern '(?im)^\s*TOTAL PSS:\s*(\d+)'
-$totalFrames = Get-Number -Text $gfxinfo -Pattern '(?im)^\s*Total frames rendered:\s*(\d+)'
-$jankyFrames = Get-Number -Text $gfxinfo -Pattern '(?im)^\s*Janky frames:\s*(\d+)'
+$beforePss = Get-Number -Text $startMeminfo -Pattern '(?im)^\s*TOTAL PSS:\s*([\d,]+)'
+$afterPss = Get-Number -Text $endMeminfo -Pattern '(?im)^\s*TOTAL PSS:\s*([\d,]+)'
+if ($null -eq $beforePss) {
+    $beforePss = Get-Number -Text $startMeminfo -Pattern '(?m)^\s*TOTAL\s+([\d,]+)\s+'
+}
+if ($null -eq $afterPss) {
+    $afterPss = Get-Number -Text $endMeminfo -Pattern '(?m)^\s*TOTAL\s+([\d,]+)\s+'
+}
+if ($null -eq $beforePss -or $null -eq $afterPss -or $beforePss -le 0 -or $afterPss -le 0) {
+    throw "Could not capture valid TOTAL PSS on this Android version; no report was written."
+}
+$totalFrames = Get-Number -Text $gfxinfo -Pattern '(?im)^\s*Total frames rendered:\s*([\d,]+)'
+$jankyFrames = Get-Number -Text $gfxinfo -Pattern '(?im)^\s*Janky frames:\s*([\d,]+)'
 $jankRatio = $null
 if ($null -ne $totalFrames -and $totalFrames -gt 0 -and $null -ne $jankyFrames) {
     $jankRatio = [Math]::Round(100.0 * $jankyFrames / $totalFrames, 2)
