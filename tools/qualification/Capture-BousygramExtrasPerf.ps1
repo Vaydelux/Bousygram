@@ -20,6 +20,10 @@ param(
     [ValidateRange(1, 30)]
     [int] $IntervalSeconds = 2,
     [string] $DeviceSerial,
+    [ValidateRange(0, 1000)]
+    [int] $LoadedPages = 0,
+    [ValidateSet("Baseline", "MidSession", "LongSession")]
+    [string] $CapturePoint = "Baseline",
     [string] $OutputDirectory = ".\qualification-evidence"
 )
 $ErrorActionPreference = "Stop"
@@ -80,6 +84,8 @@ $report = [ordered]@{
     status = "captured-only"
     productionQualification = $false
     targetScreen = $Stage
+    measurementPoint = $CapturePoint
+    loadedPagesReportedByTester = $LoadedPages
     device = [ordered]@{ abi = $abi; androidVersion = $android }
     packageName = $package
     note = "Navigate to the selected screen yourself. Compare repeat runs; this is not a pass/fail result."
@@ -92,12 +98,12 @@ $report = [ordered]@{
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $destination = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss")
-$out = Join-Path $destination ("extras-" + $Stage.ToLowerInvariant() + "-" + $abi + "-" + $stamp + ".json")
+$out = Join-Path $destination ("extras-" + $Stage.ToLowerInvariant() + "-" + $CapturePoint.ToLowerInvariant() + "-p" + $LoadedPages + "-" + $abi + "-" + $stamp + ".json")
 [IO.File]::WriteAllText(
     $out,
     (($report | ConvertTo-Json -Depth 8) + [Environment]::NewLine),
     (New-Object System.Text.UTF8Encoding($false))
 )
-Write-Host "Captured $($records.Count) aggregate samples for $Stage on $abi."
+Write-Host "Captured $($records.Count) aggregate samples for $Stage on $abi ($CapturePoint, manually reported pages $LoadedPages)."
 Write-Host "Average TOTAL PSS (KB): $([math]::Round($stats.Average, 1))"
 Write-Host "Evidence (not release approval): $out"

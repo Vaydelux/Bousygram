@@ -83,6 +83,22 @@ class ExtrasSearchUiInstrumentedTest {
         rule.onNodeWithText("Anime selected").assertExists()
     }
 
+    @Test fun boundedPagingNoticeHasDpadAccessibleRewindAction() {
+        rule.setContent {
+            BousygramTheme {
+                var rewound by remember { mutableStateOf(false) }
+                ExtrasPagingWindowNotice(retainedCount = 120) { rewound = true }
+                if (rewound) androidx.compose.material3.Text("First page requested")
+            }
+        }
+        rule.onNodeWithTag("extras-paging-window-notice").assertExists()
+        val action = rule.onNodeWithTag("extras-start-over")
+        action.assertExists()
+        action.performSemanticsAction(SemanticsActions.RequestFocus)
+        action.performKeyInput { pressKey(Key.DirectionCenter) }
+        rule.onNodeWithText("First page requested").assertExists()
+    }
+
     @Test fun catalogSkeletonRendersWithoutLoadingProviderData() {
         rule.setContent {
             BousygramTheme { ExtrasCatalogLoadingSkeleton(isTv = true, compact = false) }

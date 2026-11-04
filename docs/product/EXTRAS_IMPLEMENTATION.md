@@ -205,6 +205,44 @@ availability and licensing vary by country, and Bousygram is not an affiliate.
   This live check is opt-in and is *not* claimed as part of default PR CI.
   No credentials or raw provider payloads are uploaded to artifacts.
 
+## Long-session catalog memory window (ARM32 and ARM64)
+
+The previous catalog appended every page indefinitely to Compose state.
+TMDB can return hundreds of pages and AniList can return many dozens; three
+independent tabs could therefore retain thousands of poster/title references
+during a long browsing session even though the grid itself is lazily composed.
+
+- Each provider tab now maintains a **sliding window of unique results**:
+  **120 titles on 32-bit / low-RAM devices**, or **240 titles on standard
+  devices**. Earlier title objects are released from Compose's retained
+  result lists as new pages are appended. Duplicate provider/type IDs are
+  removed without confusing identically numbered TMDB and AniList items.
+- The response page counter continues advancing; a dropped page is **not**
+  silently reloaded. A small notice explains why older titles disappeared,
+  with a focusable **From start** button to explicitly fetch page 1 again.
+  Resetting a query/filter also fetches page 1. Provider-specific tab states
+  stay independent and stable poster IDs support LazyGrid scroll anchoring.
+- JVM regression tests append **100–300 synthetic pages**, enforce the bounds
+  after each page, exercise deduplication/rewind and provider isolation. An
+  offline Compose emulator test uses DPAD_CENTER to invoke **From start**.
+- This limits **Kotlin references in UI state**, not the Coil/GL bitmap cache.
+  The existing bounded image decode sizes and Android-managed Coil LRU are
+  unchanged. Adjusting a shared Coil cache without physical profiling risks
+  extra decoding/jank or disturbing Telegram image performance.
+- To capture observed **total PSS** at a chosen page count, run for example:
+  `Capture-BousygramExtrasPerf.ps1 -Stage EXTRAS -CapturePoint Baseline -LoadedPages 1`
+  and after manually browsing more pages,
+  `Capture-BousygramExtrasPerf.ps1 -Stage EXTRAS -CapturePoint LongSession -LoadedPages 30`.
+  Then pass the two actual JSON evidence paths to
+  `Compare-BousygramExtrasPerf.ps1 -Baseline ... -LongSession ...`.
+  Repeat using the same APK/build, device, waiting periods, and sample count
+  on 32-bit and 64-bit devices.
+- Those commands require **an authorized physical/emulated ADB device**;
+  no device measurement was performed by this PR. The comparison is a
+  descriptive memory delta, **not proof of a causal performance improvement
+  or production release qualification**. Record profile artifacts as private
+  evidence; the scripts deliberately avoid saving ADB serials or Telegram data.
+
 ## Unverified / separate work
 
 - No real-device ARM32 TV, ARM64 TV, phone or tablet qualification is claimed.
