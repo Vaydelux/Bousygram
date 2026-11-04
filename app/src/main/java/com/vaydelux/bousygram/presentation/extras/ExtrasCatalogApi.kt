@@ -36,7 +36,8 @@ data class ExtrasFilters(
     val year: Int? = null,
     val minimumRating: Int = 0,
     val animeFormat: String? = null,
-    val animeStatus: String? = null
+    val animeStatus: String? = null,
+    val tmdbOriginalLanguage: String? = null
 )
 
 data class ExtrasItem(
@@ -86,6 +87,44 @@ object ExtrasProviderPolicy {
         return if (!searching && sort == ExtrasSort.TRENDING) {
             "/trending/" + (if (type == ExtrasType.TV) "tv" else "movie") + "/week"
         } else searchPath(type, searching)
+    }
+
+    /** TMDB original-language values, independent of subtitles and UI language. */
+    fun tmdbLanguages(): List<Pair<String, String?>> = listOf(
+        "Any language" to null,
+        "English" to "en", "Filipino (Tagalog)" to "tl", "Japanese" to "ja",
+        "Korean" to "ko", "Chinese" to "zh", "Hindi" to "hi",
+        "Spanish" to "es", "French" to "fr", "German" to "de",
+        "Thai" to "th", "Indonesian" to "id", "Portuguese" to "pt",
+        "Italian" to "it"
+    )
+
+    /**
+     * Apply consistent filters on provider result objects before turning scores into
+     * 1-decimal display text. TMDB Search/Trending don't accept Discover-only filters.
+     */
+    fun tmdbMatchesResult(
+        result: JSONObject,
+        type: ExtrasType,
+        genreId: String,
+        year: Int?,
+        minimumRating: Int,
+        originalLanguage: String?
+    ): Boolean {
+        require(type != ExtrasType.ANIME) { "AniList results never use TMDB filtering" }
+        if (result.optBoolean("adult", false)) return false
+        if (originalLanguage != null &&
+            !result.optString("original_language").equals(originalLanguage, true)) return false
+        if (minimumRating > 0 && result.optDouble("vote_average", 0.0) < minimumRating) return false
+        if (year != null) {
+            val date = result.optString(if (type == ExtrasType.TV) "first_air_date" else "release_date")
+            if (date.take(4).toIntOrNull() != year) return false
+        }
+        if (genreId.isNotBlank()) {
+            val ids = result.optJSONArray("genre_ids") ?: return false
+            if ((0 until ids.length()).none { ids.optString(it) == genreId }) return false
+        }
+        return true
     }
 
     fun animeFormats(): List<Pair<String, String?>> = listOf(
@@ -212,6 +251,11 @@ object ExtrasCatalogApi {
         val searching = query.isNotBlank()
         val trending = !searching && f.sort == ExtrasSort.TRENDING
         val genreId = ExtrasProviderPolicy.genres(type).firstOrNull { it.first == f.genre }?.second.orEmpty()
+        f.tmdbOriginalLanguage?.let { language ->
+            require(ExtrasProviderPolicy.tmdbLanguages().any { it.second == language }) {
+                "Unsupported TMDB language filter"
+            }
+        }
         val params = mutableMapOf(
             "page" to page.coerceIn(1, 500).toString(),
             "language" to "en-US"
@@ -228,41 +272,29 @@ object ExtrasCatalogApi {
             }
             if (f.sort == ExtrasSort.TOP_RATED) params["vote_count.gte"] = "100"
             if (genreId.isNotBlank()) params["with_genres"] = genreId
+            f.tmdbOriginalLanguage?.let { params["with_original_language"] = it }
             f.year?.let { params[if (type == ExtrasType.TV) "first_air_date_year" else "primary_release_year"] = it.toString() }
             if (f.minimumRating > 0) params["vote_average.gte"] = f.minimumRating.toString()
         }
         // TMDB trending is a different metric from discover popularity. Use the real weekly feed.
         val path = ExtrasProviderPolicy.tmdbBrowsePath(type, searching, f.sort)
         val body = tmdbGet(path, params)
-        val candidates = arrayObjects(body.optJSONArray("results"))
-            .filter { !it.optBoolean("adult", false) }
-            .mapNotNull { tmdbItem(type, it) }
-        // Search and trending do not implement all discover filters. Filter the returned
-        // page locally and let users continue pagination when a page has no matches.
-        val results = candidates.filter { item ->
-            (!searching && !trending || genreId.isBlank() ||
-                containsGenreId(item.id, body.optJSONArray("results"), genreId)) &&
-            (!searching && !trending || f.minimumRating == 0 ||
-                (item.rating.toDoubleOrNull() ?: 0.0) >= f.minimumRating) &&
-            (!trending || f.year == null || item.year.toIntOrNull() == f.year)
+        val filtered = arrayObjects(body.optJSONArray("results")).filter { result ->
+            ExtrasProviderPolicy.tmdbMatchesResult(
+                result, type, genreId, f.year, f.minimumRating, f.tmdbOriginalLanguage
+            )
         }
-        val sorted = if (searching) when (f.sort) {
-            ExtrasSort.TOP_RATED -> results.sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
-            ExtrasSort.NEWEST -> results.sortedByDescending { it.year.toIntOrNull() ?: 0 }
-            else -> results // Preserve TMDB text relevance for Popular/Trending searches.
-        } else results
-        return ExtrasPage(sorted, page < body.optInt("total_pages", 1).coerceAtMost(500), page)
-    }
-
-    private fun containsGenreId(id: Int, results: JSONArray?, genreId: String): Boolean {
-        if (results == null) return false
-        for (i in 0 until results.length()) {
-            val entry = results.optJSONObject(i) ?: continue
-            if (entry.optInt("id") != id) continue
-            val genres = entry.optJSONArray("genre_ids") ?: return false
-            for (j in 0 until genres.length()) if (genres.optString(j) == genreId) return true
-        }
-        return false
+        // Search relevance is provider-defined; other search sorts are per fetched page.
+        // Never sort by a rounded, user-facing rating string.
+        val ordered = if (searching) when (f.sort) {
+            ExtrasSort.TOP_RATED -> filtered.sortedByDescending { it.optDouble("vote_average", 0.0) }
+            ExtrasSort.NEWEST -> filtered.sortedByDescending {
+                it.optString(if (type == ExtrasType.TV) "first_air_date" else "release_date")
+            }
+            else -> filtered
+        } else filtered
+        val results = ordered.mapNotNull { tmdbItem(type, it) }
+        return ExtrasPage(results, page < body.optInt("total_pages", 1).coerceAtMost(500), page)
     }
 
     private fun tmdbItem(type: ExtrasType, obj: JSONObject): ExtrasItem? {
@@ -327,7 +359,10 @@ object ExtrasCatalogApi {
             reviews = reviews,
             seasons = seasons,
             related = arrayObjects(obj.optJSONObject("recommendations")?.optJSONArray("results"))
-                .mapNotNull { tmdbItem(item.type, it) }.take(12),
+                .filter { !it.optBoolean("adult", false) }
+                .mapNotNull { tmdbItem(item.type, it) }
+                .distinctBy { it.id }
+                .take(12),
             backdrop = tmdbImage(obj.optString("backdrop_path"), "w780"),
             youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("key")),
             watchCountries = ExtrasWatchProviders.parse(
