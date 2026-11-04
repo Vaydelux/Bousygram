@@ -196,6 +196,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         modifier = Modifier.width(72.dp).height(52.dp)
                     )
                     Text("Movies and TV Shows: The Movie Database (TMDB).")
+                    Text("Regional watch availability data supplied by JustWatch via TMDB.")
                     Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
                     Text("Anime: AniList. Titles, artwork, community ratings and linked episodes come from AniList.")
                     Text("Trailers and official episode links open in external apps. Bousygram does not host or stream those videos.")
