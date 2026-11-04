@@ -5,7 +5,7 @@ import android.os.SystemClock
 import android.util.LruCache
 import com.vaydelux.bousygram.BuildConfig
 import java.io.IOException
-import java.net.HttpURLConnection
+import kotlinx.coroutines.ensureActive
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -247,7 +247,7 @@ object ExtrasCatalogApi {
         }
     }
 
-    private fun browseTmdb(type: ExtrasType, query: String, f: ExtrasFilters, page: Int): ExtrasPage {
+    private suspend fun browseTmdb(type: ExtrasType, query: String, f: ExtrasFilters, page: Int): ExtrasPage {
         val searching = query.isNotBlank()
         val trending = !searching && f.sort == ExtrasSort.TRENDING
         val genreId = ExtrasProviderPolicy.genres(type).firstOrNull { it.first == f.genre }?.second.orEmpty()
@@ -312,7 +312,7 @@ object ExtrasCatalogApi {
             if (tv) "TV series" else "Movie")
     }
 
-    private fun tmdbDetails(item: ExtrasItem): ExtrasDetail {
+    private suspend fun tmdbDetails(item: ExtrasItem): ExtrasDetail {
         val tv = item.type == ExtrasType.TV
         val namespace = if (tv) "tv" else "movie"
         val obj = tmdbGet("/$namespace/${item.id}", mapOf(
@@ -562,7 +562,7 @@ object ExtrasCatalogApi {
         return "https://image.tmdb.org/t/p/$size$path"
     }
 
-    private fun tmdbGet(path: String, params: Map<String, String>): JSONObject {
+    private suspend fun tmdbGet(path: String, params: Map<String, String>): JSONObject {
         val key = BuildConfig.TMDB_API_KEY.trim()
         if (key.isEmpty() || key == "TMDB_API_KEY_DEFAULT_VALUE") {
             throw IOException("TMDB API key is not configured. Add TMDB_API_KEY to local.properties.")
@@ -603,59 +603,44 @@ object ExtrasCatalogApi {
         return cached?.let(::JSONObject)
     }
 
-    private fun requestJson(url: String, body: String?, ttlMs: Long): JSONObject {
+    private val httpTransport = ExtrasHttpTransport()
+
+    private suspend fun requestJson(url: String, body: String?, ttlMs: Long): JSONObject {
         val cacheKey = if (body == null) url else "$url::$body"
-        val now = System.currentTimeMillis()
         cachedResponse(url, body)?.let { return it }
-        val conn = (URL(url).openConnection() as HttpURLConnection)
-        try {
-            conn.connectTimeout = 6_000
-            conn.readTimeout = 10_000
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("User-Agent", "Bousygram/Extras (catalog metadata)")
+
+        // Cancellation disconnects the socket rather than merely ignoring
+        // a late result. A canceled request must never populate the LRU.
+        val response = httpTransport.execute(url, body, MAX_BYTES)
+        val status = response.status
+        if (status == 429) {
             if (body != null) {
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                conn.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
+                val retrySeconds = response.retryAfter?.toLongOrNull()
+                    ?.coerceIn(1, 120) ?: 60L
+                anilistBackoffUntil = System.currentTimeMillis() + retrySeconds * 1000L
             }
-            val status = conn.responseCode
-            if (status == 429) {
-                if (body != null) {
-                    val retrySeconds = conn.getHeaderField("Retry-After")?.toLongOrNull()?.coerceIn(1, 120) ?: 60L
-                    anilistBackoffUntil = System.currentTimeMillis() + retrySeconds * 1000L
-                }
-                throw IOException("Catalog request limit reached. Please retry shortly.")
-            }
-            if (status !in 200..299) {
-                throw IOException(when (status) {
-                    401, 403 -> "Catalog provider access denied. Check API access and configuration."
-                    404 -> "This title is no longer available."
-                    else -> "Catalog request failed (HTTP $status)."
-                })
-            }
-            val data = conn.inputStream.use { stream ->
-                val output = java.io.ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                while (true) {
-                    val read = stream.read(buffer)
-                    if (read < 0) break
-                    if (output.size() + read > MAX_BYTES) throw IOException("Catalog response exceeded size limit")
-                    output.write(buffer, 0, read)
-                }
-                output.toString(StandardCharsets.UTF_8.name())
-            }
-            val json = JSONObject(data)
-            val hasGraphQlErrors = (json.optJSONArray("errors")?.length() ?: 0) > 0
-            if (ExtrasProviderPolicy.mayCacheResponse(body != null, hasGraphQlErrors)) {
-                synchronized(responseCache) {
-                    responseCache.put(cacheKey, Cached(data, now + ttlMs))
-                }
-            }
-            return json
-        } finally {
-            conn.disconnect()
+            throw IOException("Catalog request limit reached. Please retry shortly.")
         }
+        if (status !in 200..299) {
+            throw IOException(when (status) {
+                401, 403 -> "Catalog provider access denied. Check API access and configuration."
+                404 -> "This title is no longer available."
+                else -> "Catalog request failed (HTTP $status)."
+            })
+        }
+        val data = response.json ?: throw IOException("Catalog response is empty")
+        val json = JSONObject(data)
+        val hasGraphQlErrors = (json.optJSONArray("errors")?.length() ?: 0) > 0
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        if (ExtrasProviderPolicy.mayCacheResponse(body != null, hasGraphQlErrors)) {
+            synchronized(responseCache) {
+                responseCache.put(
+                    cacheKey,
+                    Cached(data, System.currentTimeMillis() + ttlMs)
+                )
+            }
+        }
+        return json
     }
 
     private fun encode(input: String) = URLEncoder.encode(input, StandardCharsets.UTF_8.name())
