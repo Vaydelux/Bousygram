@@ -30,7 +30,7 @@ class NativeEnginePhysicalSoakTest {
 
         // Alternating initialization catches resource ownership and shared-runtime
         // faults that isolated unit mocks and one-time native load checks miss.
-        repeat(30) { cycle ->
+        repeat(30) {
             val mpv = MpvPlayerEngine(context)
             try {
                 assertEquals("mpv", mpv.engineName)
@@ -52,7 +52,6 @@ class NativeEnginePhysicalSoakTest {
                 vlc.release()
                 vlc.release()
             }
-            assertTrue("Native cycle $cycle finished", cycle >= 0)
         }
     }
 }
