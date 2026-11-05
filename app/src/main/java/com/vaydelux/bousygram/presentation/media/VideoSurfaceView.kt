@@ -10,6 +10,7 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
@@ -63,6 +64,10 @@ fun VideoSurfaceView(
     modifier: Modifier = Modifier,
     onSurfaceDiagnostic: ((SurfaceDiagnosticState) -> Unit)? = null
 ) {
+    // Native view callbacks capture the engine in AndroidView.factory.
+    // Recreate the view whenever ownership changes to avoid stale callbacks
+    // detaching the new engine or continuing to render through the old one.
+    key(engine) {
     if (useTextureView) {
         Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
@@ -97,7 +102,7 @@ fun VideoSurfaceView(
                         override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
                             engine.setResizeMode(resizeMode)
                             (engine as? LibVlcPlayerEngine)?.onVideoSurfaceSizeChanged(width, height)
-                            val valid = activeSurface?.isValid == true
+                            val valid = if (engine is ExoPlayerEngine) isAvailable else activeSurface?.isValid == true
                             onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("TextureView", valid, width, height))
                         }
 
@@ -239,5 +244,6 @@ fun VideoSurfaceView(
                 onSurfaceDiagnostic?.invoke(SurfaceDiagnosticState("None", false, 0, 0))
             }
         )
+    }
     }
 }

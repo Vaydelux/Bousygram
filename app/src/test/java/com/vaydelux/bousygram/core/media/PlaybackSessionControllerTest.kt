@@ -134,4 +134,40 @@ class PlaybackSessionControllerTest {
             )
         )
     }
+
+    @Test
+    fun byteOffsetDoesNotOverflowForMultiGigabyteVideos() {
+        assertEquals(
+            4_000_000_000L,
+            PlaybackSessionController.positionToOffset(
+                totalSize = 8_000_000_000L,
+                positionMs = 7_200_000L,
+                durationMs = 14_400_000L
+            )
+        )
+    }
+
+    @Test
+    fun byteOffsetWithUnknownDurationSaturatesHugePositions() {
+        assertEquals(
+            999_999L,
+            PlaybackSessionController.positionToOffset(
+                totalSize = 1_000_000L,
+                positionMs = Long.MAX_VALUE,
+                durationMs = 0L
+            )
+        )
+    }
+
+    @Test
+    fun byteOffsetClampsPositionsBeyondKnownDuration() {
+        assertEquals(
+            999L,
+            PlaybackSessionController.positionToOffset(
+                totalSize = 1_000L,
+                positionMs = Long.MAX_VALUE,
+                durationMs = 1_000L
+            )
+        )
+    }
 }

@@ -11,7 +11,6 @@ import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.min
 
 enum class PlaybackStallReason {
     None,
@@ -334,9 +333,16 @@ object PlaybackSessionController {
     fun positionToOffset(totalSize: Long, positionMs: Long, durationMs: Long): Long {
         if (totalSize <= 0L) return 0L
         return if (durationMs > 0L) {
-            ((positionMs.coerceAtLeast(0L) * totalSize) / durationMs).coerceIn(0L, totalSize - 1L)
+            // This is only a speculative cache window, not a demuxer seek. Avoid
+            // multiplying two Long values: large Telegram files can overflow.
+            val fraction = positionMs.coerceIn(0L, durationMs).toDouble() / durationMs.toDouble()
+            (totalSize.toDouble() * fraction).toLong().coerceIn(0L, totalSize - 1L)
         } else {
-            min((positionMs.coerceAtLeast(0L) / 1000L) * 512_000L, totalSize - 1L)
+            // Unknown duration is not evidence of constant bitrate. Keep the
+            // existing conservative estimate but saturate before multiplication.
+            val seconds = positionMs.coerceAtLeast(0L) / 1_000L
+            (seconds.coerceAtMost(Long.MAX_VALUE / 512_000L) * 512_000L)
+                .coerceAtMost(totalSize - 1L)
         }
     }
 
