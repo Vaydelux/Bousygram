@@ -121,7 +121,15 @@ internal fun isCredibleNaturalPlaybackEnd(
     hasProducedMedia: Boolean
 ): Boolean = when {
     !hasProducedMedia -> false
-    durationMs > 5_000L -> positionMs >= durationMs - 5_000L
+    // A fixed 5s margin wrongly rejects real EOF on 2-4 second videos and
+    // treats EOF after 1s of a 6s video as natural completion. On short
+    // known timelines require progress into the final quarter instead.
+    durationMs > 0L -> {
+        val nearEndToleranceMs = minOf(5_000L, durationMs / 4L)
+        positionMs >= durationMs - nearEndToleranceMs
+    }
+    // Without a demuxer duration, require measurable progress rather than
+    // allowing an immediate native EndReached to skip the episode.
     else -> positionMs >= 5_000L
 }
 
