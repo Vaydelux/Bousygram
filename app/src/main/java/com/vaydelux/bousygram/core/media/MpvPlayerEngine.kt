@@ -18,6 +18,18 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Implements adaptive demuxer buffer management tuned for TDLib progressive loopback streaming.
  */
+/** Native mpv timeline values are seconds; reject invalid/unbounded timestamps. */
+internal fun nativeMpvTimelineMs(seconds: Double): Long? {
+    if (!seconds.isFinite() || seconds < 0.0) return null
+    val millis = seconds * 1_000.0
+    return if (millis.isFinite() && millis <= Long.MAX_VALUE.toDouble()) millis.toLong() else null
+}
+
+/** Clamp cache-ahead indicators without wrapping signed Long values. */
+internal fun nativeMpvBufferedPositionMs(positionMs: Long, aheadMs: Long): Long =
+    if (aheadMs > Long.MAX_VALUE - positionMs.coerceAtLeast(0L)) Long.MAX_VALUE
+    else positionMs.coerceAtLeast(0L) + aheadMs.coerceAtLeast(0L)
+
 /** Native end-file notifications also occur on explicit stop or file replacement. */
 internal fun shouldReportNativeMpvEnded(nativeEofReached: Boolean): Boolean =
     nativeEofReached
@@ -165,14 +177,14 @@ class MpvPlayerEngine(
         override fun eventProperty(property: String, value: Double) {
             if (isDestroyed.get()) return
             when (property) {
-                "time-pos" -> {
-                    val posMs = (value * 1000.0).toLong().coerceAtLeast(0L)
+                "time-pos" -> nativeMpvTimelineMs(value)?.let { posMs ->
                     _currentPositionMs.value = posMs
                 }
                 "duration", "duration/full" -> acceptNativeDuration(value)
-                "demuxer-cache-time" -> {
-                    val cacheAheadMs = (value * 1000.0).toLong().coerceAtLeast(0L)
-                    _bufferedPositionMs.value = _currentPositionMs.value + cacheAheadMs
+                "demuxer-cache-time" -> nativeMpvTimelineMs(value)?.let { cacheAheadMs ->
+                    _bufferedPositionMs.value = nativeMpvBufferedPositionMs(
+                        _currentPositionMs.value, cacheAheadMs
+                    )
                 }
             }
         }
