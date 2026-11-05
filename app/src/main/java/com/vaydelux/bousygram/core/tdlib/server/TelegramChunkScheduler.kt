@@ -1031,7 +1031,11 @@ internal object TelegramChunkScheduler {
         rememberWindow(fileId, offset, OPEN_ENDED, TelegramChunkPurpose.Streaming)
         val started = startChunkDownload(fileId, offset, limit = 0, priority = PLAYBACK_PRIORITY, synchronous = false)
         val failure = started.failure
-        if (failure is TelegramChunkResult.FatalFailure) {
+        // A retryable TDLib network/disconnect error did not start a download.
+        // Treating it as success leaves a phantom playback window and reports
+        // playbackReady even though no bytes can arrive. Let the next open or
+        // foreground extractor read retry the real request after reconnection.
+        if (failure != null) {
             clearDownloadWindow(fileId, offset)
             return failure
         }
@@ -1251,6 +1255,9 @@ internal object TelegramChunkScheduler {
         }
     }
 
+    internal fun hasDownloadWindowForTests(fileId: Int): Boolean =
+        downloadWindows.containsKey(resolveEffectiveFileId(fileId))
+
     private fun isPlaybackPurpose(purpose: TelegramChunkPurpose): Boolean =
         purpose == TelegramChunkPurpose.Streaming || purpose == TelegramChunkPurpose.Preflight
 
@@ -1412,7 +1419,12 @@ internal object TelegramChunkScheduler {
             }
             is TelegramGatewayResult.Failure -> {
                 val context = fileContexts[fileId] ?: fileContexts[effectiveId]
-                if (context != null && !reResolveAttempted.contains(effectiveId)) {
+                // Only stale file references warrant a GetMessage re-resolution.
+                // A temporary offline/503 response must retain the opportunity
+                // to recover a genuinely expired file id on a later request.
+                val staleReference = response.code == 400 || response.code == 404 ||
+                    response.message.contains("FILE_REFERENCE", ignoreCase = true)
+                if (staleReference && context != null && !reResolveAttempted.contains(effectiveId)) {
                     reResolveAttempted.add(effectiveId)
                     Log.i(TAG, "Download failed for fileId=$effectiveId; re-resolving via getMessage(chatId=${context.chatId}, messageId=${context.messageId})")
                     val reResolved = TelegramFileGatewayRegistry.current.reResolveFile(context.chatId, context.messageId)
