@@ -187,6 +187,40 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun metadataDurationProbesReadCachedHeadWithoutDownloadingMissingTail() = runBlocking {
+        val size = 512 * 1024
+        val bytes = ByteArray(size) { i -> (i % 239).toByte() }
+        val gateway = FakeTelegramFileGateway(
+            bytes = bytes,
+            completed = false,
+            downloadedPrefixSize = 8192L,
+            enforcePartialRanges = true
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.noteFileSize(615, size.toLong())
+
+        val cachedHead = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(615, 0L, 4096, 16, TelegramChunkPurpose.Metadata)
+        )
+        assertTrue(cachedHead is TelegramChunkResult.Ready)
+        assertArrayEquals(bytes.copyOfRange(0, 4096), (cachedHead as TelegramChunkResult.Ready).bytes)
+
+        val missingTail = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(615, size - 4096L, 4096, 16, TelegramChunkPurpose.Metadata)
+        )
+        assertTrue(missingTail is TelegramChunkResult.Pending)
+        assertEquals(
+            "Container metadata probes must not displace the active or upcoming video download",
+            0, gateway.totalDownloadCalls()
+        )
+
+        // Foreground random-range playback is already covered separately by
+        // testTailFirstRequest and seekOutsideWindowCancelsStaleDownloadAndStartsNewRangeAtHighPriority.
+        // This test only asserts cache-only behavior; mixing modes in one fake
+        // gateway can depend on asynchronous TDLib UpdateFile delivery.
+    }
+
+    @Test
     fun playbackKeepsOneDownloadWindowAndIgnoresBackgroundSteals() = runBlocking {
         val bytes = ByteArray(256 * 1024) { index -> (index % 97).toByte() }
         val gateway = FakeTelegramFileGateway(bytes, simulateColdDownload = true)
