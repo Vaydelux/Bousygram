@@ -5,7 +5,7 @@
 ## Preconditions
 
 - Use a known Git commit and an APK built from that exact commit. Record the APK SHA-256 and build variant separately; debug builds are **not** production-signed qualification.
-- Install Android platform-tools (\`adb\`). On Windows, open PowerShell in the repository root. Use a **physical** ARM32 TV and separately an ARM64 device.
+- Install Android platform-tools (`adb`). On Windows, open PowerShell in the repository root. Use a **physical** ARM32 TV and separately an ARM64 device.
 - Use a dedicated, authorized Telegram test account and media you have permission to play. **Never** pass passwords, Telegram tokens, local stream URLs, chat IDs or media filenames in public reports.
 - For test-repeatability, record the device model/Android version, available RAM, APK checksum, network type, media codec/container, cache state and test date privately. Keep the clip and network comparable between rounds.
 
@@ -15,21 +15,21 @@ Sign into the real Telegram account in Bousygram. Test each condition while play
 
 Record sanitized PSS/process continuity while doing the actions:
 
-\`\`\`powershell
+```powershell
 .\tools\qualification\Capture-BousygramPhysicalSoak.ps1 -Scenario tdlib-reconnect -Cycles 10 -SampleSeconds 5
-\`\`\`
+```
 
 The script **does not** modify Wi-Fi settings, force-stop the app, sign into Telegram or verify authorization for you. Perform those actions on the device, then prompt the sampler. Record actual functional pass/fail separately; PSS alone never proves reconnect.
 
 ## Priority 2: ARM32 repeated playback memory
 
-On a physical \`armeabi-v7a\` TV, select an MKV, TS (with and without usable seek data) and MP4 from a fixed private test set. Repeat play -> 20 seeks -> next item -> return to library for at least 20 cycles, then run a 30–60 minute viewing session with the same test set. Include cold and warm cache runs. Monitor Android LMK, process restarts, UI responsiveness, and memory over time.
+On a physical `armeabi-v7a` TV, select an MKV, TS (with and without usable seek data) and MP4 from a fixed private test set. Repeat play -> 20 seeks -> next item -> return to library for at least 20 cycles, then run a 30–60 minute viewing session with the same test set. Include cold and warm cache runs. Monitor Android LMK, process restarts, UI responsiveness, and memory over time.
 
-\`\`\`powershell
+```powershell
 .\tools\qualification\Capture-BousygramPhysicalSoak.ps1 -Scenario arm32-playback -Cycles 60 -SampleSeconds 60
-\`\`\`
+```
 
-Capture **Total PSS**, **Native Heap PSS** when available, peak PSS, total change and distinct process IDs. Compare a stable baseline against the same scenario after code changes; PSS can fluctuate with GC and allocator caching, so one upward sample is **not** proof of a leak. The tool stores only parsed numbers, not raw \`dumpsys\` output.
+Capture **Total PSS**, **Native Heap PSS** when available, peak PSS, total change and distinct process IDs. Compare a stable baseline against the same scenario after code changes; PSS can fluctuate with GC and allocator caching, so one upward sample is **not** proof of a leak. The tool stores only parsed numbers, not raw `dumpsys` output.
 
 ## Priority 3: native libmpv/LibVLC stability
 
@@ -37,15 +37,15 @@ On each ARM ABI, use the existing debug Engine Lab, then test the normal playbac
 
 The opt-in Android instrumentation checks **native init/stop/release only** (30 alternating cycles), not authenticated streaming:
 
-\`\`\`powershell
+```powershell
 adb shell am instrument -w -e class com.vaydelux.bousygram.core.media.NativeEnginePhysicalSoakTest -e physicalNativeSoak true com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner
-\`\`\`
+```
 
-Install **both** the matching debug APK and AndroidTest APK for that command. This test is deliberately skipped unless \`physicalNativeSoak=true\`. A pass does **not** establish decode/seek/long-session stability. During hands-on media switching, capture memory separately:
+Install **both** the matching debug APK and AndroidTest APK for that command. This test is deliberately skipped unless `physicalNativeSoak=true`. A pass does **not** establish decode/seek/long-session stability. During hands-on media switching, capture memory separately:
 
-\`\`\`powershell
+```powershell
 .\tools\qualification\Capture-BousygramPhysicalSoak.ps1 -Scenario native-engines -Cycles 50 -SampleSeconds 2
-\`\`\`
+```
 
 ## Evidence and exit conditions
 
@@ -55,4 +55,4 @@ Install **both** the matching debug APK and AndroidTest APK for that command. Th
 - Show real frames/audio/seek/subtitle/surface stability for libmpv and LibVLC on **both** physical ABIs, and collect sanitized crash/ANR reports privately when failures occur.
 - Do not publish private logcat or streaming URLs in a public issue or CI artifact. Use the existing [release device qualification checklist](../release/PLAYBACK_DEVICE_QUALIFICATION.md) and protected signing/qualification gate for production approval.
 
-The JSON generated by the script explicitly says \`productionQualified=false\` and keeps all manual verification fields false. A test operator, not the sampler, must sign off real-world behavior.
+The JSON generated by the script explicitly says `productionQualified=false` and keeps all manual verification fields false. A test operator, not the sampler, must sign off real-world behavior.
