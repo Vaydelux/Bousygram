@@ -21,6 +21,8 @@ Record sanitized PSS/process continuity while doing the actions:
 
 The script **does not** modify Wi-Fi settings, force-stop the app, sign into Telegram or verify authorization for you. Perform those actions on the device, then prompt the sampler. Record actual functional pass/fail separately; PSS alone never proves reconnect.
 
+**Source hardening since PR #100:** `TelegramAuthManager` now bounds the native `GetMe` verification to 15 seconds. An identity-attempt gate rejects callbacks from timeouts, logout, stale generations and manual retries; a TDLib `ConnectionStateReady` can trigger a fresh attempt when an identity check failed during disconnection. JVM tests exercise timeout versus callback races. **These are source/test changes, not proof of a real authenticated reconnection on hardware.**
+
 ## Priority 2: ARM32 repeated playback memory
 
 On a physical `armeabi-v7a` TV, select an MKV, TS (with and without usable seek data) and MP4 from a fixed private test set. Repeat play -> 20 seeks -> next item -> return to library for at least 20 cycles, then run a 30–60 minute viewing session with the same test set. Include cold and warm cache runs. Monitor Android LMK, process restarts, UI responsiveness, and memory over time.
@@ -30,6 +32,20 @@ On a physical `armeabi-v7a` TV, select an MKV, TS (with and without usable seek 
 ```
 
 Capture **Total PSS**, **Native Heap PSS** when available, peak PSS, total change and distinct process IDs. Compare a stable baseline against the same scenario after code changes; PSS can fluctuate with GC and allocator caching, so one upward sample is **not** proof of a leak. The tool stores only parsed numbers, not raw `dumpsys` output.
+
+The sampler can optionally associate an operator-supplied APK checksum and source commit with the run. This is provenance metadata only: it **cannot** independently verify which APK is currently installed.
+
+```powershell
+.\tools\qualification\Capture-BousygramPhysicalSoak.ps1 -Scenario arm32-playback -Cycles 60 -SampleSeconds 60 -ApkPath ".\candidate.apk" -SourceCommit (git rev-parse HEAD)
+```
+
+To compare two **complete** captures with the same device, ABI, scenario, sample count and cadence, run:
+
+```powershell
+.\tools\qualification\Compare-BousygramPhysicalSoak.ps1 -Baseline ".\before.json" -Candidate ".\after.json" -MinCycles 20
+```
+
+The comparator rejects interrupted, mismatched, restarted-process and falsely certified reports. It prints early/late PSS medians, drift and peaks, but it **does not** certify that a native memory leak exists or is fixed. For a repeatability comparison of the same candidate APK, add `-RequireSameApk` and supply `-ApkPath` during both captures.
 
 ## Priority 3: native libmpv/LibVLC stability
 
