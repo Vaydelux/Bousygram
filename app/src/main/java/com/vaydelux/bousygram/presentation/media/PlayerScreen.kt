@@ -1722,11 +1722,16 @@ fun PlayerScreen(
             if (pendingSeekTargetMs >= 0L && pendingSeekStartedAtMs > 0L) {
                 val elapsed = (android.os.SystemClock.elapsedRealtime() - pendingSeekStartedAtMs).coerceAtLeast(0L)
                 val reachedTarget = isConfirmedPlayerSeekPosition(observedPosition, pendingSeekTargetMs)
-                if ((!isBuffering && reachedTarget) || elapsed >= 30_000L) {
-                    if (reachedTarget) {
+                val completion = seekCompletion(isBuffering, reachedTarget, elapsed)
+                if (completion != SeekCompletion.Waiting) {
+                    if (completion == SeekCompletion.Confirmed) {
                         // A confirmed rewind resets the progress high-water mark
                         // so auto retries never jump back to the pre-seek position.
                         lastGoodPosition = observedPosition
+                        if (pendingSeekTargetMs == 0L) {
+                            showResumeRestartOption = false
+                            toastFeedbackText = "Restarted from beginning"
+                        }
                     } else {
                         toastFeedbackText = "Seek could not be confirmed. Playback continues from the last decoded position."
                     }
@@ -2304,8 +2309,16 @@ fun PlayerScreen(
                         true
                     } else performTrackedSeek(0L)
                     if (accepted) {
-                        showResumeRestartOption = false
-                        toastFeedbackText = "Restarted from beginning"
+                        // Only the decoder's position callback can confirm the
+                        // rewind. An accepted command may still time out.
+                        toastFeedbackText = if (castState.connected) {
+                            // The remote receiver owns confirmation; do not
+                            // retain a local-only resume prompt while casting.
+                            showResumeRestartOption = false
+                            "Restart requested on Cast"
+                        } else {
+                            "Seeking to beginning…"
+                        }
                     }
                 },
                 onRetry = {
