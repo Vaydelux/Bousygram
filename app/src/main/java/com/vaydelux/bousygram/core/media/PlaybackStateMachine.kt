@@ -28,6 +28,20 @@ class PlaybackStateMachine {
 
     val currentState: PlaybackCoreState get() = _state.value
 
+    /** Ignore async decoder callbacks from a superseded or stopped playback session. */
+    private fun activeOwner(): PlaybackSession? = when (val current = _state.value) {
+        is PlaybackCoreState.Preparing -> current.session
+        is PlaybackCoreState.Buffering -> current.session
+        is PlaybackCoreState.Playing -> current.session
+        is PlaybackCoreState.Paused -> current.session
+        is PlaybackCoreState.Ending -> current.session
+        is PlaybackCoreState.Error -> current.session
+        else -> null
+    }
+
+    private fun ownsActiveState(session: PlaybackSession): Boolean =
+        !session.isStopped() && activeOwner() === session
+
     val isPlaying: Boolean
         get() = _state.value is PlaybackCoreState.Playing
 
@@ -45,12 +59,17 @@ class PlaybackStateMachine {
 
     @Synchronized
     fun onPreparing(session: PlaybackSession, item: PlaybackQueueItem?): Boolean {
+        if (session.isStopped() || _state.value == PlaybackCoreState.Released) return false
+        // New sessions are bound only after teardown resets to Idle. A delayed
+        // prepare event cannot steal the current decoder's state ownership.
+        if (_state.value != PlaybackCoreState.Idle && activeOwner() !== session) return false
         _state.value = PlaybackCoreState.Preparing(session, item)
         return true
     }
 
     @Synchronized
     fun onBuffering(session: PlaybackSession, positionMs: Long, durationMs: Long): Boolean {
+        if (!ownsActiveState(session)) return false
         when (_state.value) {
             is PlaybackCoreState.Preparing,
             is PlaybackCoreState.Buffering,
@@ -69,6 +88,7 @@ class PlaybackStateMachine {
 
     @Synchronized
     fun onPlaying(session: PlaybackSession, positionMs: Long, durationMs: Long): Boolean {
+        if (!ownsActiveState(session)) return false
         when (_state.value) {
             is PlaybackCoreState.Preparing,
             is PlaybackCoreState.Buffering,
@@ -87,6 +107,7 @@ class PlaybackStateMachine {
 
     @Synchronized
     fun onPaused(session: PlaybackSession, positionMs: Long, durationMs: Long): Boolean {
+        if (!ownsActiveState(session)) return false
         when (_state.value) {
             is PlaybackCoreState.Preparing,
             is PlaybackCoreState.Buffering,
@@ -105,12 +126,18 @@ class PlaybackStateMachine {
 
     @Synchronized
     fun onEnding(session: PlaybackSession, item: PlaybackQueueItem?): Boolean {
+        if (!ownsActiveState(session) || _state.value is PlaybackCoreState.Ending) return false
         _state.value = PlaybackCoreState.Ending(session, item)
         return true
     }
 
     @Synchronized
     fun onError(session: PlaybackSession?, message: String, cause: Throwable? = null): Boolean {
+        if (session != null) {
+            if (!ownsActiveState(session) || _state.value is PlaybackCoreState.Ending) return false
+        } else if (_state.value != PlaybackCoreState.Idle) {
+            return false
+        }
         _state.value = PlaybackCoreState.Error(session, message, cause)
         return true
     }
