@@ -36,7 +36,14 @@ class PlaybackEngineOwner(
     fun registerEngineResource(engine: PlayerEngine, close: () -> Unit): () -> Unit {
         val once = AtomicBoolean(false)
         val closeOnce = { if (once.compareAndSet(false, true)) close() }
-        if (closed.get() || state.value !== engine) closeOnce() else engineResource = closeOnce
+        if (closed.get() || state.value !== engine) {
+            closeOnce()
+        } else {
+            // A new MediaSession bridge supersedes the previous one. Closing
+            // it now avoids retaining callbacks and references on ARM32 TVs.
+            engineResource?.invoke()
+            engineResource = closeOnce
+        }
         return closeOnce
     }
 
