@@ -155,9 +155,9 @@ class MediaViewModel(
         cancelForumTopicRequest = null
     }
     private var quickSearchGeneration = 0L
-    private val browseRestorations = java.util.concurrent.ConcurrentHashMap<String, BrowseRestoration>()
+    private val browseRestorations = BoundedBrowsingHistory<String, BrowseRestoration>(MAX_BROWSE_RESTORATIONS)
     private val sourceFolderRestorations = java.util.concurrent.ConcurrentHashMap<ExplorerSection, BrowseRestoration>()
-    private val topicFolderFocus = java.util.concurrent.ConcurrentHashMap<Long, Int>()
+    private val topicFolderFocus = BoundedBrowsingHistory<Long, Int>(MAX_TOPIC_FOCUS)
 
     fun focusedExplorerTopic(chatId: Long?): Int? = chatId?.let(topicFolderFocus::get)
 
@@ -1350,6 +1350,8 @@ private const val MEDIA_FIRST_PAGE_PRIORITY_MAX_WAIT_MS = 3_000L
 
 private const val MAX_CACHED_CATALOG_ITEMS = 120
 private const val MAX_ENRICHED_MEDIA_KEYS = 768
+private const val MAX_BROWSE_RESTORATIONS = 48
+private const val MAX_TOPIC_FOCUS = 64
 private const val MAX_THUMBNAIL_FAILURES = 256
 private const val MAX_INFLIGHT_THUMBNAILS = 24
 private const val FORUM_TOPIC_PAGE_TIMEOUT_MS = 9_000L
