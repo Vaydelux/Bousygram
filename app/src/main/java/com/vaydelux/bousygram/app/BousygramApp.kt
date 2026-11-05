@@ -1,6 +1,12 @@
 package com.vaydelux.bousygram.app
 
 import android.app.Application
+import android.app.ActivityManager
+import android.os.Process
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.memory.MemoryCache
+import com.vaydelux.bousygram.core.memory.decodedPosterCacheHeapFraction
 import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
 import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
 import com.vaydelux.bousygram.core.memory.mediaMemoryTrim
@@ -24,7 +30,22 @@ import com.vaydelux.bousygram.data.database.RecentSearchRepository
 import com.vaydelux.bousygram.data.repository.ContinueWatchingRepository
 import java.io.File
 
-class BousygramApp : Application(), DefaultLifecycleObserver {
+class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory {
+    @Volatile private var posterImageLoader: ImageLoader? = null
+
+    /** Coil 2.x uses this factory lazily. No image decoder/network work at startup. */
+    override fun newImageLoader(): ImageLoader {
+        val lowMemory = (getSystemService(ACTIVITY_SERVICE) as? ActivityManager)?.isLowRamDevice == true ||
+            !Process.is64Bit()
+        return ImageLoader.Builder(this)
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(decodedPosterCacheHeapFraction(lowMemory))
+                    .build()
+            }
+            .build()
+            .also { posterImageLoader = it }
+    }
     private val runtimeGate = TelegramRuntimeGate { initializeTelegramServices() }
 
     val telegramRuntimeStarted: Boolean get() = runtimeGate.isReady
@@ -54,6 +75,9 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
                 runCatching(action).onFailure { failure = failure ?: it }
             }
             close { AccountMediaResources.invalidateAccountResources() }
+            // Remove account-specific thumbnails from Coil's decoded memory
+            // cache; do not instantiate a loader solely for logout.
+            close { posterImageLoader?.memoryCache?.clear() }
             close { RecentSearchRepository.invalidateAccountResources() }
             close { ContinueWatchingRepository.invalidateAccountResources() }
             close { AppDatabase.closeAccountDatabases() }
@@ -122,6 +146,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
         val critical = severity == MediaMemoryTrim.CRITICAL
         MediaMemoryPressure.report(severity)
         ExtrasCatalogApi.trimMemory(critical)
+        if (critical) posterImageLoader?.memoryCache?.clear()
         if (telegramRuntimeStarted) {
             // Never tear down active decoded media or a foreground video here.
             // Pause speculative work and release only reclaimable thumbnails.
