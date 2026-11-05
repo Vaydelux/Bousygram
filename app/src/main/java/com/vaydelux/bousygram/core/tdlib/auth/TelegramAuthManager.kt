@@ -67,7 +67,11 @@ class TelegramAuthManager(private val context: Context) {
         privacyMarker.getLong("last_verified_account_id", 0L).takeIf { it > 0L }
     @Volatile private var revokedCleanupFailed = false
     @Volatile private var waitingForNativePurgeClosed = false
-    @Volatile private var identityRequestInFlight = false
+    // GetMe callbacks may never arrive after an offline/native reconnect. Bound each
+    // attempt and prevent late responses from reviving a superseded login.
+    private val identityAttempts = IdentityVerificationAttemptGate()
+    @Volatile private var identityRetryOnConnection = false
+    private val identityRequestTimeoutMs = 15_000L
     private val credentialsStore = ApiCredentialsStore(context)
     private val databaseKeyStore = TdlibDatabaseKeyStore(context)
     private val authLock = Any()
@@ -372,6 +376,16 @@ class TelegramAuthManager(private val context: Context) {
             else -> null
         }
         _uiState.update { it.copy(connectionStatus = statusText) }
+        // Connection loss is NOT a logout. If GetMe timed out while offline,
+        // retry identity verification only after TDLib itself reconnects.
+        if (state is TdApi.ConnectionStateReady &&
+            identityRetryOnConnection && authorizationReady &&
+            AccountSession.current() == null &&
+            !waitingForNativePurgeClosed && !revokedCleanupFailed && !destroyInFlight
+        ) {
+            identityRetryOnConnection = false
+            resolveVerifiedAccount()
+        }
     }
 
     /** Invalidating a private session may fail (e.g. an Android media owner cannot close).
@@ -413,7 +427,8 @@ class TelegramAuthManager(private val context: Context) {
             // can mark the current account as potentially remotely revoked.
             pendingRevokedAccountId = AccountSession.current()?.accountId
             authorizationReady = false
-            identityRequestInFlight = false
+            identityAttempts.reset()
+            identityRetryOnConnection = false
             if (!invalidateOrLockSession()) return
         } else authorizationReady = ready
         if (ready) pendingRevokedAccountId = null
@@ -517,7 +532,8 @@ class TelegramAuthManager(private val context: Context) {
                 tdlibParametersSent = false
                 qrRequestInFlight = false
                 synchronized(authLock) { authSubmitInFlight = false }
-                identityRequestInFlight = false
+                identityAttempts.reset()
+                identityRetryOnConnection = false
                 _uiState.update { it.copy(step = AuthStep.Loading, message = "Reconnecting…", isLoading = true, qrCodeLink = null) }
                 if (!invalidateOrLockSession()) return
                 TdLibClient.restartClient()
@@ -533,62 +549,116 @@ class TelegramAuthManager(private val context: Context) {
     }
 
     private fun resolveVerifiedAccount() {
-        synchronized(authLock) {
-            if (identityRequestInFlight) return
-            identityRequestInFlight = true
-        }
+        if (!authorizationReady || AccountSession.current() != null) return
         val epoch = AccountSession.generation()
+        val attempt = identityAttempts.begin(epoch) ?: return
         _uiState.update { it.copy(step = AuthStep.Loading, isLoading = true, message = null) }
-        TdLibClient.sendCurrent(TdApi.GetMe()) { result ->
-            if (result !is TdApi.User || result.id <= 0L || !authorizationReady || AccountSession.generation() != epoch) {
-                if (AccountSession.generation() == epoch) identityRequestInFlight = false
-                if (authorizationReady && AccountSession.generation() == epoch) {
-                    _uiState.update { it.copy(step = AuthStep.Unavailable, isLoading = false,
-                        message = "Telegram account identity could not be verified. Retry the connection.") }
+
+        // A native GetMe response can disappear when Telegram transitions offline
+        // without a TDLib client restart. Do not strand the sign-in UI forever.
+        // Successful responses enter ACTIVATING and cannot be timed out midway
+        // through private account store initialization.
+        scope.launch {
+            delay(identityRequestTimeoutMs)
+            if (identityAttempts.expire(attempt) &&
+                authorizationReady && AccountSession.generation() == epoch &&
+                AccountSession.current() == null
+            ) {
+                identityRetryOnConnection = true
+                _uiState.update {
+                    it.copy(step = AuthStep.Unavailable, isLoading = false,
+                        message = "Telegram identity verification timed out. Reconnect to the network or retry.")
                 }
-                return@sendCurrent
             }
-            scope.launch {
-                try {
-                    val owner = AccountSession.activate(result.id, epoch) ?: return@launch
-                    // A future cold start must be able to erase this account if Telegram
-                    // has invalidated its session while this process was not running.
-                    check(privacyMarker.edit().putLong("last_verified_account_id", owner.accountId).commit()) {
-                        "Unable to persist verified-session privacy marker"
-                    }
-                    RecentSearchRepository.activateAccount(owner)
-                    ContinueWatchingRepository.activateAccount(owner)
-                    // Invalidation deliberately shuts down private servers and cache jobs.
-                    // A subsequent login must restore them before exposing the new account.
-                    AccountSession.runIfCurrent(owner) {
-                        LocalStreamingServer.start()
-                        TelegramProxyManager.startProxy()
-                        TelegramNativeFileGc.startPeriodicGc(intervalMinutes = 30)
-                    }
-                    AccountSession.runIfCurrent(owner) {
-                        if (authorizationReady) {
-                            pendingPhone = null
-                            synchronized(authLock) { authSubmitInFlight = false }
-                            _uiState.update { it.copy(step = AuthStep.Authorized, isLoading = false,
-                                code = "", password = "", phone = "", qrCodeLink = null, message = null) }
+        }
+        try {
+            TdLibClient.sendCurrent(TdApi.GetMe()) { result ->
+                // Ignore a native result from a timed-out attempt, an earlier
+                // native generation or a manual retry, even if its account ID
+                // appears valid.
+                if (!identityAttempts.acceptResponse(attempt)) return@sendCurrent
+                if (result !is TdApi.User || result.id <= 0L ||
+                    !authorizationReady || AccountSession.generation() != epoch
+                ) {
+                    identityAttempts.finish(attempt)
+                    if (authorizationReady && AccountSession.generation() == epoch) {
+                        identityRetryOnConnection = true
+                        _uiState.update {
+                            it.copy(step = AuthStep.Unavailable, isLoading = false,
+                                message = "Telegram account identity could not be verified. Retry the connection.")
                         }
                     }
-                    com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.refresh()
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    if (AccountSession.generation() == epoch && invalidateOrLockSession()) {
-                        _uiState.update { it.copy(step = AuthStep.Unavailable, isLoading = false,
-                            message = "Private account storage could not be opened. Existing local data was preserved. Retry after checking device storage.") }
+                    return@sendCurrent
+                }
+                scope.launch {
+                    try {
+                        val owner = AccountSession.activate(result.id, epoch) ?: return@launch
+                        // A future cold start must be able to erase this account if Telegram
+                        // has invalidated its session while this process was not running.
+                        check(privacyMarker.edit().putLong("last_verified_account_id", owner.accountId).commit()) {
+                            "Unable to persist verified-session privacy marker"
+                        }
+                        RecentSearchRepository.activateAccount(owner)
+                        ContinueWatchingRepository.activateAccount(owner)
+                        // Invalidation deliberately shuts down private servers and cache jobs.
+                        // A subsequent login must restore them before exposing the new account.
+                        AccountSession.runIfCurrent(owner) {
+                            LocalStreamingServer.start()
+                            TelegramProxyManager.startProxy()
+                            TelegramNativeFileGc.startPeriodicGc(intervalMinutes = 30)
+                        }
+                        AccountSession.runIfCurrent(owner) {
+                            if (authorizationReady) {
+                                identityRetryOnConnection = false
+                                pendingPhone = null
+                                synchronized(authLock) { authSubmitInFlight = false }
+                                _uiState.update {
+                                    it.copy(step = AuthStep.Authorized, isLoading = false,
+                                        code = "", password = "", phone = "",
+                                        qrCodeLink = null, message = null)
+                                }
+                            }
+                        }
+                        com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.refresh()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        if (AccountSession.generation() == epoch && invalidateOrLockSession()) {
+                            _uiState.update {
+                                it.copy(step = AuthStep.Unavailable, isLoading = false,
+                                    message = "Private account storage could not be opened. Existing local data was preserved. Retry after checking device storage.")
+                            }
+                        }
+                    } finally {
+                        identityAttempts.finish(attempt)
                     }
-                } finally { if (AccountSession.generation() == epoch) identityRequestInFlight = false }
+                }
+            }
+        } catch (error: Exception) {
+            if (identityAttempts.expire(attempt) && authorizationReady &&
+                AccountSession.generation() == epoch
+            ) {
+                identityRetryOnConnection = true
+                Log.w(TAG, "Could not request verified Telegram account identity", error)
+                _uiState.update {
+                    it.copy(step = AuthStep.Unavailable, isLoading = false,
+                        message = "Telegram identity verification could not start. Retry the connection.")
+                }
             }
         }
     }
 
     fun retryInitialization() {
         if (!Client.isNativeAvailable()) return
-        identityRequestInFlight = false
+        identityAttempts.reset()
+        identityRetryOnConnection = false
+        // If TDLib already reports Ready, repeating GetAuthorizationState adds
+        // a second callback that may itself stall after transient connectivity
+        // loss. Retry the bounded identity check directly instead.
+        if (authorizationReady && AccountSession.current() == null) {
+            resolveVerifiedAccount()
+            return
+        }
         TdLibClient.sendCurrent(TdApi.GetAuthorizationState()) { result ->
             if (result is TdApi.AuthorizationState) handleAuthState(result) else handleResult(result)
         }
@@ -701,7 +771,8 @@ class TelegramAuthManager(private val context: Context) {
         Log.i(TAG, "Requesting Telegram session logout")
         pendingRevokedAccountId = AccountSession.current()?.accountId
         authorizationReady = false
-        identityRequestInFlight = false
+        identityAttempts.reset()
+        identityRetryOnConnection = false
         _uiState.update { it.copy(step = AuthStep.Loading, isLoading = true, phone = "", code = "",
             password = "", qrCodeLink = null, message = "Logging out…") }
         if (!invalidateOrLockSession()) return
@@ -715,6 +786,8 @@ class TelegramAuthManager(private val context: Context) {
     }
 
     fun cleanup() {
+        identityAttempts.reset()
+        identityRetryOnConnection = false
         scope.cancel()
         updateHandlerRef?.let { TdLibClient.removeUpdateHandler(it) }
         errorHandlerRef?.let { TdLibClient.removeErrorHandler(it) }
