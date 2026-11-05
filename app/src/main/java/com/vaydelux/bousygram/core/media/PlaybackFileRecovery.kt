@@ -16,11 +16,13 @@ internal class PlaybackFileRecovery(
     private val fileTimeoutMs: Long = 1_000L
 ) {
     suspend fun refresh(chatId: Long, messageId: Long, originalFileId: Int): TelegramGatewayFile? {
-        if (originalFileId <= 0) return null
+        // A persisted file ID can be absent after process restart or TDLib
+        // database migration. Prefer the message identity when available.
         if (chatId != 0L && messageId != 0L) {
             val resolved = safeLookup(messageTimeoutMs) { gateway.reResolveFile(chatId, messageId) }
             if (resolved != null && resolved.fileId > 0) return resolved
         }
+        if (originalFileId <= 0) return null
         return safeLookup(fileTimeoutMs) { gateway.getFile(originalFileId) }
             ?.takeIf { it.fileId == originalFileId }
     }
