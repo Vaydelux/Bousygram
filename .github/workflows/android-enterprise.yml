@@ -58,6 +58,8 @@ jobs:
             "tools/qualification/Capture-BousygramDevice.ps1",
             "tools/qualification/Capture-BousygramPlaybackPerf.ps1",
             "tools/qualification/Capture-BousygramPhysicalSoak.ps1",
+            "tools/qualification/Compare-BousygramPhysicalSoak.ps1",
+            "tools/ci/Test-BousygramPhysicalSoakComparator.ps1",
             "tools/qualification/Compare-BousygramPlaybackPerf.ps1",
             "tools/qualification/Capture-BousygramExtrasPerf.ps1",
             "tools/qualification/Compare-BousygramExtrasPerf.ps1"
@@ -75,6 +77,7 @@ jobs:
             }
           }
           & pwsh -NoProfile -File tools/ci/Test-BousygramPlaybackPerfComparator.ps1
+          & pwsh -NoProfile -File tools/ci/Test-BousygramPhysicalSoakComparator.ps1
 
       - name: Exercise release identity and qualification failure fixtures
         shell: bash
