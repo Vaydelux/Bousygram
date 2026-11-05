@@ -17,6 +17,12 @@ class MpvTimelineBoundsTest {
         assertEquals(0L, nativeMpvTimelineMs(0.0))
     }
 
+    @Test fun seeksClampToKnownDurationWithoutAssumingUnknownDuration() {
+        assertEquals(60_000L, boundedMpvSeekMs(Long.MAX_VALUE, 60_000L))
+        assertEquals(0L, boundedMpvSeekMs(-500L, 60_000L))
+        assertEquals(75_000L, boundedMpvSeekMs(75_000L, 0L))
+    }
+
     @Test fun bufferedTimelineSaturatesInsteadOfWrappingNegative() {
         assertEquals(
             Long.MAX_VALUE,
