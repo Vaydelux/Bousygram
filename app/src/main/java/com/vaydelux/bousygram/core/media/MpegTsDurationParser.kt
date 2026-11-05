@@ -18,17 +18,24 @@ internal object MpegTsDurationParser {
     fun durationMs(head: ByteArray, tail: ByteArray): Long? {
         if (head.size < 376 || tail.size < 376) return null
         val headWindow = scanPcr(head)
-        val first = headWindow.pcrs.firstOrNull() ?: return null
         val tailWindow = scanPcr(tail)
-        val last = tailWindow.pcrs.lastOrNull { it.pid == first.pid } ?: return null
-        // The discontinuity flag can be carried on a separate adaptation-only
-        // packet; ignoring it can turn a decoder clock reset into a false duration.
-        if (first.pid in headWindow.discontinuityPids ||
-            first.pid in tailWindow.discontinuityPids
-        ) return null
-        val deltaTicks = (last.ticks90k - first.ticks90k + PCR_WRAP) % PCR_WRAP
-        val ms = deltaTicks * 1_000L / 90_000L
-        return ms.takeIf { it in 1_000L..MAX_DURATION_MS }
+        // An MPEG-TS container may carry multiple programs and PCR PIDs.
+        // The first PCR at the head is not necessarily present in the tail
+        // cache window. Use only a PID observed in both windows, choosing the
+        // first plausible, uninterrupted matching timeline.
+        val tailLastByPid = tailWindow.pcrs.associateBy { it.pid }
+        for (first in headWindow.pcrs) {
+            val last = tailLastByPid[first.pid] ?: continue
+            // A discontinuity may live on an adaptation-only packet.
+            // Never derive duration from an explicitly reset PCR clock.
+            if (first.pid in headWindow.discontinuityPids ||
+                first.pid in tailWindow.discontinuityPids
+            ) continue
+            val deltaTicks = (last.ticks90k - first.ticks90k + PCR_WRAP) % PCR_WRAP
+            val ms = deltaTicks * 1_000L / 90_000L
+            if (ms in 1_000L..MAX_DURATION_MS) return ms
+        }
+        return null
     }
 
     private fun scanPcr(bytes: ByteArray): Window {
