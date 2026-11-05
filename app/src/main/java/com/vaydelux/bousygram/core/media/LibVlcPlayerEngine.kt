@@ -14,6 +14,7 @@ import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * VideoLAN 3.6.5 compatibility adapter, included as an explicit player choice.
@@ -27,7 +28,11 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         context.applicationContext,
         arrayListOf("--no-video-title-show", "--no-stats")
     )
-    private val nativePlayer = MediaPlayer(vlc)
+    private val nativePlayer = createNativeChildOrReleaseParent(
+        vlc,
+        create = { MediaPlayer(it) },
+        releaseParent = { it.release() }
+    )
     // Keep native VLC calls off its event callback thread to prevent reentry
     // deadlocks. This Handler belongs only to this engine and is cleared on release.
     private val eventHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -39,6 +44,9 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     @Volatile private var playing = false
     @Volatile private var wantedPlayback = false
     @Volatile private var filePrepared = false
+    @Volatile private var playbackStarted = false
+    // Discard delayed main-thread native callback work after stop/reprepare.
+    private val mediaGeneration = AtomicLong(0L)
     @Volatile private var stoppedByOwner = false
     // LibVLC pause() toggles; command once until acknowledged or re-armed by Play.
     @Volatile private var pauseCommandPending = false
@@ -59,8 +67,11 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     }
 
     init {
+        try {
         nativePlayer.setEventListener { event ->
-            if (released.get()) return@setEventListener
+            if (!acceptsLibVlcMediaEvent(stoppedByOwner, filePrepared, released.get())) {
+                return@setEventListener
+            }
             when (event.type) {
                 MediaPlayer.Event.Opening -> {
                     playing = false
@@ -73,28 +84,39 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     val running = playing && wantedPlayback
                     state.value = libVlcBufferState(wantedPlayback, running)
                     if (!wantedPlayback) {
+                        val generation = mediaGeneration.get()
                         eventHandler.post {
-                            if (!released.get() && filePrepared && !wantedPlayback) requestNativePause()
+                            if (generation == mediaGeneration.get() &&
+                                acceptsLibVlcMediaEvent(stoppedByOwner, filePrepared, released.get()) &&
+                                !wantedPlayback
+                            ) requestNativePause()
                         }
                     }
                 }
                 MediaPlayer.Event.Playing -> {
+                    playbackStarted = true
                     // Native VLC may deliver a stale Playing event after Pause
                     // during seek/rebuffer. Only explicit intent may rearm audio.
                     if (!wantedPlayback) {
                         playing = false
                         state.value = EnginePlaybackState.Ready
+                        val generation = mediaGeneration.get()
                         eventHandler.post {
-                            if (!released.get() && !wantedPlayback && filePrepared) {
-                                requestNativePause()
-                            }
+                            if (generation == mediaGeneration.get() &&
+                                acceptsLibVlcMediaEvent(stoppedByOwner, filePrepared, released.get()) &&
+                                !wantedPlayback
+                            ) requestNativePause()
                         }
                     } else {
                         pauseCommandPending = false
                         playing = true
                         state.value = EnginePlaybackState.Ready
+                        val generation = mediaGeneration.get()
                         eventHandler.post {
-                            if (!released.get() && filePrepared && wantedPlayback) {
+                            if (generation == mediaGeneration.get() &&
+                                acceptsLibVlcMediaEvent(stoppedByOwner, filePrepared, released.get()) &&
+                                wantedPlayback
+                            ) {
                                 knownDurationMs = runCatching { nativePlayer.length }
                                     .getOrDefault(-1L).coerceAtLeast(0L)
                                 refreshTracks()
@@ -111,21 +133,29 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     timestampMs = event.timeChanged.coerceAtLeast(0L)
                 }
                 MediaPlayer.Event.LengthChanged -> {
+                    val generation = mediaGeneration.get()
                     eventHandler.post {
-                        if (!released.get() && filePrepared) {
+                        if (generation == mediaGeneration.get() &&
+                            acceptsLibVlcMediaEvent(stoppedByOwner, filePrepared, released.get())
+                        ) {
                             knownDurationMs = runCatching { nativePlayer.length }
                                 .getOrDefault(-1L).coerceAtLeast(0L)
                         }
                     }
                 }
                 MediaPlayer.Event.EndReached -> {
-                    playing = false
-                    if (!stoppedByOwner) state.value = EnginePlaybackState.Ended
+                    if (shouldReportLibVlcEnded(activeMedia = true, playbackStarted = playbackStarted)) {
+                        playing = false
+                        state.value = EnginePlaybackState.Ended
+                    }
                 }
                 MediaPlayer.Event.Stopped -> {
                     playing = false
-                    if (!stoppedByOwner && filePrepared &&
-                        state.value !is EnginePlaybackState.Ended
+                    if (shouldReportLibVlcUnexpectedStop(
+                            activeMedia = true,
+                            playbackStarted = playbackStarted,
+                            alreadyEnded = state.value is EnginePlaybackState.Ended
+                        )
                     ) {
                         // VLC can report Stopped after EndReached. Preserve a
                         // genuine EOF instead of converting it into a false
@@ -142,6 +172,16 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     )
                 }
             }
+        }
+        } catch (failure: Throwable) {
+            // Construction can fail while installing native event callbacks.
+            // The Kotlin object never reaches release(), so close both native
+            // resources here. Do not mask the original creation failure.
+            released.set(true)
+            eventHandler.removeCallbacksAndMessages(null)
+            runCatching { nativePlayer.release() }.onFailure { failure.addSuppressed(it) }
+            runCatching { vlc.release() }.onFailure { failure.addSuppressed(it) }
+            throw failure
         }
     }
 
@@ -207,16 +247,23 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         require(isTrustedExperimentalLocalStream(uri)) {
             "Experimental LibVLC accepts account-authorized loopback streams only"
         }
+        mediaGeneration.incrementAndGet()
         stoppedByOwner = false
         pauseCommandPending = false
         filePrepared = false
+        playbackStarted = false
         playing = false
         wantedPlayback = false
         timestampMs = 0L
         knownDurationMs = 0L
         activeTracks.value = emptyList()
         state.value = EnginePlaybackState.Buffering
-        val media = Media(vlc, uri)
+        val media = try {
+            Media(vlc, uri)
+        } catch (failure: Throwable) {
+            state.value = EnginePlaybackState.Error("Unable to create native LibVLC media", failure)
+            throw failure
+        }
         try {
             // The same private per-file token URL used by libmpv is supplied.
             // Keep caching bounded; the native engine must not download ahead
@@ -253,7 +300,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         if (!canSeek) return
         // Native TimeChanged is authoritative. Never publish requested time
         // until the decoder actually confirms playback at that timestamp.
-        runCatching { nativePlayer.setTime(positionMs.coerceAtLeast(0L)) }
+        runCatching { nativePlayer.setTime(boundedLibVlcSeekMs(positionMs, durationMs)) }
             .onFailure { Log.w(TAG, "LibVLC seek rejected", it) }
     }
 
@@ -327,7 +374,9 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
 
     override fun stop() {
         if (released.get()) return
+        mediaGeneration.incrementAndGet()
         stoppedByOwner = true
+        playbackStarted = false
         wantedPlayback = false
         playing = false
         filePrepared = false
@@ -337,7 +386,9 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
 
     override fun release() {
         if (!released.compareAndSet(false, true)) return
+        mediaGeneration.incrementAndGet()
         eventHandler.removeCallbacksAndMessages(null)
+        playbackStarted = false
         stoppedByOwner = true
         playing = false
         wantedPlayback = false

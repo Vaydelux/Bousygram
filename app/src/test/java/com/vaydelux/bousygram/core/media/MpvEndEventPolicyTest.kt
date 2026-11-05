@@ -19,4 +19,11 @@ class MpvEndEventPolicyTest {
     @Test fun nativeEndRequiresObservedEof() {
         assertTrue(shouldReportNativeMpvEnded(true))
     }
+
+    @Test fun onlyEventsFromAnActiveLoadedSourceCanMarkEofOrRecovery() {
+        assertFalse(shouldProcessNativeMpvTerminalEvent(false, false))
+        assertFalse(shouldProcessNativeMpvTerminalEvent(true, false))
+        assertFalse(shouldProcessNativeMpvTerminalEvent(false, true))
+        assertTrue(shouldProcessNativeMpvTerminalEvent(true, true))
+    }
 }

@@ -39,6 +39,12 @@ internal fun nativeMpvBufferedPositionMs(positionMs: Long, aheadMs: Long): Long 
 internal fun shouldReportNativeMpvEnded(nativeEofReached: Boolean): Boolean =
     nativeEofReached
 
+/** Terminal notifications during Stop or replacement are not the active file's EOF. */
+internal fun shouldProcessNativeMpvTerminalEvent(
+    sourceRequested: Boolean,
+    fileLoaded: Boolean
+): Boolean = sourceRequested && fileLoaded
+
 /** An unexpected end while READY is a stream failure, not an episode completion. */
 internal fun shouldRetryUnexpectedMpvEnd(
     nativeEofReached: Boolean, playbackState: EnginePlaybackState
@@ -57,6 +63,10 @@ class MpvPlayerEngine(
     private val mpv: MPVLib = MPVLib.create(context)
         ?: throw IllegalStateException("Failed to create libmpv instance from native context")
     private val isDestroyed = AtomicBoolean(false)
+    // Ignore queued property/end notifications after owner Stop or while a
+    // replacement loadfile is waiting for its own FILE_LOADED event.
+    @Volatile private var nativeSourceRequested = false
+    @Volatile private var nativeFileLoaded = false
     @Volatile private var pausedForCache = false
     // END_FILE also occurs for explicit stop and replacement; it is not EOF proof.
     @Volatile private var naturalEofObserved = false
@@ -157,14 +167,14 @@ class MpvPlayerEngine(
 
     private val eventObserver = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) {
-            if (isDestroyed.get()) return
+            if (isDestroyed.get() || !nativeSourceRequested) return
             when (property) {
                 "track-list" -> refreshTracks()
             }
         }
 
         override fun eventProperty(property: String, value: Long) {
-            if (isDestroyed.get()) return
+            if (isDestroyed.get() || !nativeSourceRequested) return
             when (property) {
                 "dwidth", "video-params/w" -> {
                     if (value > 0L) {
@@ -180,7 +190,7 @@ class MpvPlayerEngine(
         }
 
         override fun eventProperty(property: String, value: Double) {
-            if (isDestroyed.get()) return
+            if (isDestroyed.get() || !nativeSourceRequested) return
             when (property) {
                 "time-pos" -> nativeMpvTimelineMs(value)?.let { posMs ->
                     _currentPositionMs.value = posMs
@@ -195,7 +205,7 @@ class MpvPlayerEngine(
         }
 
         override fun eventProperty(property: String, value: Boolean) {
-            if (isDestroyed.get()) return
+            if (isDestroyed.get() || !nativeSourceRequested) return
             when (property) {
                 "pause" -> {
                     // Native output stops during cache stalls without changing user intent.
@@ -218,7 +228,9 @@ class MpvPlayerEngine(
                     }
                 }
                 "eof-reached" -> {
-                    if (value) {
+                    if (value && shouldProcessNativeMpvTerminalEvent(
+                        nativeSourceRequested, nativeFileLoaded
+                    )) {
                         naturalEofObserved = true
                         _playbackState.value = EnginePlaybackState.Ended
                         _isPlaying.value = false
@@ -229,7 +241,7 @@ class MpvPlayerEngine(
         }
 
         override fun eventProperty(property: String, value: String) {
-            if (isDestroyed.get()) return
+            if (isDestroyed.get() || !nativeSourceRequested) return
             when (property) {
                 "hwdec-current" -> {
                     if (value.isNotBlank() && value != "no") {
@@ -248,13 +260,15 @@ class MpvPlayerEngine(
         }
 
         override fun event(eventId: Int) {
-            if (isDestroyed.get()) return
+            if (isDestroyed.get() || !nativeSourceRequested) return
             when (eventId) {
                 MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                    nativeFileLoaded = false
                     naturalEofObserved = false
                     _playbackState.value = EnginePlaybackState.Buffering
                 }
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
+                    nativeFileLoaded = true
                     _playbackState.value = EnginePlaybackState.Ready
                     // A newly loaded MKV must not inherit a paused state from the old file.
                     // Respect an explicit user pause if one happened while buffering.
@@ -268,6 +282,9 @@ class MpvPlayerEngine(
                     setResizeMode(currentResizeMode)
                 }
                 MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
+                    if (!shouldProcessNativeMpvTerminalEvent(
+                        nativeSourceRequested, nativeFileLoaded
+                    )) return // prior stop/replacement, not this loaded source
                     _isPlaying.value = false
                     // STOP and loadfile also emit END_FILE. Only an observed
                     // native EOF can trigger auto-next or terminal end handling.
@@ -282,6 +299,7 @@ class MpvPlayerEngine(
                     }
                 }
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
+                    if (!nativeFileLoaded) return
                     _playbackState.value = EnginePlaybackState.Ready
                     // A native seek/cache restart may leave mpv paused despite
                     // a still-active user Play intent. Never override Pause.
@@ -380,6 +398,8 @@ class MpvPlayerEngine(
 
     override fun prepare(streamUrl: String) {
         if (isDestroyed.get()) return
+        nativeSourceRequested = true
+        nativeFileLoaded = false
         try {
             naturalEofObserved = false
             _currentPositionMs.value = 0L
@@ -392,6 +412,8 @@ class MpvPlayerEngine(
             // not silently override a user pause. New sessions explicitly call play().
             mpv.command(arrayOf("loadfile", streamUrl))
         } catch (e: Throwable) {
+            nativeSourceRequested = false
+            nativeFileLoaded = false
             Log.e(TAG, "MPV failed to load the active local stream (${e.javaClass.simpleName})")
             _playbackState.value = EnginePlaybackState.Error("The playback engine could not load this stream", e)
         }
@@ -536,7 +558,10 @@ class MpvPlayerEngine(
 
     override fun stop() {
         if (isDestroyed.get()) return
+        nativeSourceRequested = false
+        nativeFileLoaded = false
         naturalEofObserved = false
+        _playWhenReady.value = false
         try {
             mpv.command(arrayOf("stop"))
             _playbackState.value = EnginePlaybackState.Idle
@@ -548,6 +573,8 @@ class MpvPlayerEngine(
 
     override fun release() {
         if (isDestroyed.compareAndSet(false, true)) {
+            nativeSourceRequested = false
+            nativeFileLoaded = false
             // Each cleanup must run even if another native cleanup operation fails.
             runCatching { mpv.removeObserver(eventObserver) }
             runCatching { mpv.detachSurface() }

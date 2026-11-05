@@ -50,3 +50,23 @@ integration does **not** claim every format works on every device.
 VideoLAN's LibVLC Android component is under LGPL-2.1. See
 [third-party notices](../THIRD_PARTY_NOTICES.md). Bundled native components
 must not be described as exclusively MIT-licensed.
+
+
+## P0.3 lifecycle safeguards (November 6, 2026)
+
+- LibVLC constructor failures now close the parent native runtime and preserve
+  the original allocation exception with any cleanup errors suppressed.
+- Events delivered after explicit Stop or release are ignored; late EndReached
+  and Stopped signals during a new prepare cannot be treated as a confirmed
+  new-file EOF unless native Playing was observed for that media.
+- Deferred main-thread LibVLC callbacks are tagged with a media generation so
+  cleanup, track refresh and pause commands cannot operate on a newer session.
+- LibVLC seek targets are bounded by a known container duration, and libmpv
+  ignores terminal/property events while stopped or before FILE_LOADED.
+- JVM tests cover constructor cleanup, event policies and seek limits. These
+  source tests **do not** replace real ARM32/ARM64 decoding or surface-soak
+  evidence; video frame rendering and native heap growth remain unverified.
+
+Qualification must still test at least 50 real Exo/MPV/LibVLC switches and
+30-60 minute MKV/TS sessions on physical ARM32 and ARM64 hardware, including
+pause during buffering, surface recreation, subtitles, logouts and memory PSS.
