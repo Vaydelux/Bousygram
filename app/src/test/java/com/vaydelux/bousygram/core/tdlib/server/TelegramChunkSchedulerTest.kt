@@ -194,6 +194,7 @@ class TelegramChunkSchedulerTest {
         ).apply { failTransientFileIdOnce = fileId }
         TelegramFileGatewayRegistry.installForTests(gateway)
         TelegramChunkScheduler.noteFileSize(fileId, bytes.size.toLong())
+        TelegramChunkScheduler.noteFileContext(fileId, chatId = 811L, messageId = 932L)
 
         // TDLib simulates a temporary disconnect before accepting the window.
         TelegramChunkScheduler.openPlayback(fileId, bytes.size.toLong()).join()
@@ -203,6 +204,10 @@ class TelegramChunkSchedulerTest {
             TelegramChunkScheduler.hasDownloadWindowForTests(fileId)
         )
         assertEquals(1, gateway.downloadRecords.size)
+        assertEquals(
+            "Temporary network failure must not consume GetMessage re-resolution",
+            0, gateway.reResolveCalls.get()
+        )
 
         // After connectivity returns, a second open starts a real foreground
         // window, instead of reporting an unusable pre-existing one as Ready.
