@@ -121,6 +121,23 @@ class PlaybackCoreLifecycleTest {
     }
 
     @Test
+    fun oldQueueItemCannotFinishOrReprepareNewEpisodeInSameSession() {
+        val machine = PlaybackStateMachine()
+        val queue = sampleQueue(2)
+        val session = PlaybackSession(queue)
+        assertTrue(machine.onPreparing(session, queue[0]))
+        assertTrue(machine.onPlaying(session, 55_000L, 60_000L))
+        assertTrue(session.next())
+        assertFalse(machine.onEnding(session, queue[0]))
+        assertFalse(machine.onPreparing(session, queue[0]))
+        assertTrue(machine.onPreparing(session, queue[1]))
+        assertTrue(machine.onPlaying(session, 0L, 60_000L))
+        assertFalse(machine.onEnding(session, queue[0]))
+        assertTrue(machine.isPlaying)
+        assertTrue(machine.onEnding(session, queue[1]))
+    }
+
+    @Test
     fun naturalEndCannotBeReplacedByLateDecoderError() {
         val machine = PlaybackStateMachine()
         val queue = sampleQueue(1)
