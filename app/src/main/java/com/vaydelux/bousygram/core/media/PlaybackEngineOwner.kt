@@ -36,13 +36,18 @@ class PlaybackEngineOwner(
     fun registerEngineResource(engine: PlayerEngine, close: () -> Unit): () -> Unit {
         val once = AtomicBoolean(false)
         val closeOnce = { if (once.compareAndSet(false, true)) close() }
-        if (closed.get() || state.value !== engine) {
-            closeOnce()
-        } else {
-            // A new MediaSession bridge supersedes the previous one. Closing
-            // it now avoids retaining callbacks and references on ARM32 TVs.
-            engineResource?.invoke()
-            engineResource = closeOnce
+        // Registration can arrive from a MediaSession callback while an
+        // engine swap or account teardown is executing on Android's main thread.
+        // Serialize all three operations on the same owner thread; otherwise
+        // a bridge can be installed after the old engine has been released.
+        onOwnerThread {
+            if (closed.get() || state.value !== engine) {
+                closeOnce()
+            } else {
+                // Only one MediaSession bridge may retain this engine at a time.
+                engineResource?.invoke()
+                engineResource = closeOnce
+            }
         }
         return closeOnce
     }
