@@ -12,6 +12,57 @@ internal object TelegramMediaWindow {
     fun itemLimit(lowMemory: Boolean): Int =
         if (lowMemory) LOW_RAM_MAX_ITEMS else STANDARD_MAX_ITEMS
 
+
+    /**
+     * A live Telegram message arrives at the newest edge, not the older page
+     * currently being fetched. Do not let years of live updates grow Compose
+     * state beyond the same ARM32 catalog budget as ordinary pagination.
+     *
+     * When the user has paged past the retained recent window, do not inject a
+     * new item at the top and displace the visible older card/focus. A refresh
+     * returns to recent items. If dropping an old tail on the recent window,
+     * move the next-page cursor to the last item actually retained so later
+     * Load More will not skip the discarded tail.
+     */
+    data class LiveInsert(
+        val items: List<MediaItem>,
+        val nextFromMessageId: Long,
+        val hasMore: Boolean,
+        val visible: Boolean
+    )
+
+    fun prependLatest(
+        current: List<MediaItem>,
+        incoming: MediaItem,
+        maxItems: Int,
+        discardedFromFront: Int,
+        nextFromMessageId: Long,
+        hasMore: Boolean
+    ): LiveInsert {
+        require(maxItems > 0)
+        val index = current.indexOfFirst {
+            it.chatId == incoming.chatId && it.messageId == incoming.messageId
+        }
+        if (index >= 0) {
+            val updated = current.toMutableList().also { it[index] = incoming }
+            return LiveInsert(updated, nextFromMessageId, hasMore, visible = true)
+        }
+        // We are browsing old retained pages, so preserve screen/focus.
+        if (discardedFromFront > 0) {
+            return LiveInsert(current, nextFromMessageId, hasMore, visible = false)
+        }
+        val merged = ArrayList<MediaItem>(minOf(maxItems, current.size + 1))
+        merged.add(incoming)
+        merged.addAll(current.take((maxItems - 1).coerceAtLeast(0)))
+        val droppedTail = current.size + 1 > maxItems
+        return LiveInsert(
+            items = merged,
+            nextFromMessageId = if (droppedTail) merged.last().messageId else nextFromMessageId,
+            hasMore = hasMore || droppedTail,
+            visible = true
+        )
+    }
+
     /** Append older Telegram history, deduplicate by chat/message identity, evict the oldest
      * references from this in-memory traversal. TDLib's paging cursor remains untouched.
      */

@@ -73,4 +73,59 @@ class TelegramMediaWindowTest {
     fun invalidLimitRejected() {
         TelegramMediaWindow.merge(emptyList(), emptyList(), 0)
     }
+    @Test fun liveUpdatesStayWithinArm32LimitAcrossTenThousandNewMessages() {
+        var retained = (1..120).map { media(11L, it.toLong()) }.reversed()
+        var cursor = retained.last().messageId
+        var hasMore = false
+        for (newId in 121L..10120L) {
+            val next = TelegramMediaWindow.prependLatest(
+                retained, media(11L, newId), 120, 0, cursor, hasMore
+            )
+            retained = next.items
+            cursor = next.nextFromMessageId
+            hasMore = next.hasMore
+            assertTrue(retained.size <= 120)
+        }
+        assertEquals(10120L, retained.first().messageId)
+        assertEquals(10001L, retained.last().messageId)
+        assertEquals(10001L, cursor)
+        assertTrue(hasMore)
+    }
+
+    @Test fun deepPageNewArrivalDoesNotDisplaceCurrentlyVisibleOldItems() {
+        val older = (1..120).map { media(11L, it.toLong()) }
+        val actual = TelegramMediaWindow.prependLatest(
+            older, media(11L, 99999L), 120, 180, 1L, true
+        )
+        assertEquals(older, actual.items)
+        assertEquals(1L, actual.nextFromMessageId)
+        assertTrue(!actual.visible)
+    }
+
+    @Test fun latestInsertionMovesCursorToRetainedTailWithoutSkippingOlderRows() {
+        val current = (1..4).map { media(11L, it.toLong()) }.reversed()
+        val updated = TelegramMediaWindow.prependLatest(
+            current, media(11L, 5L), 4, 0, 1L, false
+        )
+        assertEquals(listOf(5L, 4L, 3L, 2L), updated.items.map { it.messageId })
+        assertEquals(2L, updated.nextFromMessageId)
+        assertTrue(updated.hasMore)
+    }
+
+    @Test fun existingLiveMessageIsRefreshedInPlaceWithoutChangingCursor() {
+        val current = listOf(media(11L, 6L), media(11L, 5L))
+        val updated = TelegramMediaWindow.prependLatest(
+            current, media(11L, 5L).copy(title = "updated"), 120, 20, 1L, true
+        )
+        assertEquals(listOf(6L, 5L), updated.items.map { it.messageId })
+        assertEquals("updated", updated.items[1].title)
+        assertEquals(1L, updated.nextFromMessageId)
+        assertTrue(updated.visible)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun invalidLiveUpdateWindowRejected() {
+        TelegramMediaWindow.prependLatest(emptyList(), media(11L, 1L), 0, 0, 0L, false)
+    }
+
 }

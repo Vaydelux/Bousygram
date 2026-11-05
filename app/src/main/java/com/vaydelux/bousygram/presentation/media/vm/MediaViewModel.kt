@@ -246,12 +246,48 @@ class MediaViewModel(
                                 val exists = current.items.any {
                                     it.chatId == newItem.chatId && it.messageId == newItem.messageId
                                 }
-                                if (exists) current
-                                else current.copy(items = listOf(newItem) + current.items)
+                                if (exists) {
+                                    // Updated thumbnail/title for an existing item must
+                                    // retain its stable row and remote-focus key.
+                                    current.copy(items = current.items.map {
+                                        if (it.chatId == newItem.chatId &&
+                                            it.messageId == newItem.messageId
+                                        ) newItem else it
+                                    })
+                                } else {
+                                    val selectedTopic = current.selectedTopicId
+                                    val belongsToTopic = selectedTopic == null ||
+                                        selectedTopic == 0 ||
+                                        newItem.messageThreadId == selectedTopic.toLong() ||
+                                        (selectedTopic == 1 && (newItem.messageThreadId == null ||
+                                            newItem.messageThreadId == 0L))
+                                    if (!belongsToTopic) current else {
+                                        val update = TelegramMediaWindow.prependLatest(
+                                            current = current.items,
+                                            incoming = newItem,
+                                            maxItems = activeCatalogLimit,
+                                            discardedFromFront = current.discardedMediaCount,
+                                            nextFromMessageId = current.nextFromMessageId,
+                                            hasMore = current.hasMore
+                                        )
+                                        if (!update.visible) current else current.copy(
+                                            items = update.items,
+                                            nextFromMessageId = update.nextFromMessageId,
+                                            hasMore = update.hasMore
+                                        )
+                                    }
+                                }
                             }
-                            fetchThumbnails(listOf(newItem))
+                            // Index every authorized new message, but do not
+                            // schedule thumbnails/enrichment for offscreen pages.
                             com.vaydelux.bousygram.data.database.VideoIndexRepository.indexMediaItemsAsync(listOf(newItem))
-                            enrichMediaItemsAsync(listOf(newItem))
+                            if (_uiState.value.items.any { it.chatId == newItem.chatId &&
+                                    it.messageId == newItem.messageId
+                                }
+                            ) {
+                                fetchThumbnails(listOf(newItem))
+                                enrichMediaItemsAsync(listOf(newItem))
+                            }
                         }
                     }
                 }
