@@ -173,10 +173,33 @@ class PlaybackHelpersTest {
         checkpoint.onExplicitSeek(0L)
         assertFalse(checkpoint.shouldPersist(30_000L, 1_100L, playbackReady = true))
         assertFalse(checkpoint.shouldPersist(0L, 1_200L, playbackReady = false))
+        // Only the engine's confirmed seek result may clear old resume data.
+        checkpoint.onConfirmedStartOver(0L)
         assertTrue(checkpoint.shouldPersist(0L, 1_300L, playbackReady = true))
         assertFalse(checkpoint.shouldPersist(0L, 1_400L, playbackReady = true))
         checkpoint.reset()
         assertFalse(checkpoint.shouldPersist(0L, 1_500L, playbackReady = true))
+    }
+
+    @Test
+    fun failedRewindDoesNotFreezeNormalProgressOrClearOldResume() {
+        val checkpoint = PlaybackProgressCheckpoint()
+        assertTrue(checkpoint.shouldPersist(30_000L, 1_000L, playbackReady = true))
+        checkpoint.onExplicitSeek(0L)
+        // Still playing from the previous position after an unsuccessful seek.
+        assertTrue(checkpoint.shouldPersist(31_000L, 6_100L, playbackReady = true))
+        assertFalse(checkpoint.shouldPersist(0L, 7_000L, playbackReady = true))
+    }
+
+    @Test
+    fun confirmedRewindAfterPlaybackAdvancesPersistsNewNearZeroPosition() {
+        val checkpoint = PlaybackProgressCheckpoint()
+        assertTrue(checkpoint.shouldPersist(80_000L, 1_000L, playbackReady = true))
+        checkpoint.onExplicitSeek(0L)
+        // Native seek confirmation can arrive once playback has reached 3s.
+        checkpoint.onConfirmedStartOver(3_000L)
+        assertTrue(checkpoint.shouldPersist(3_000L, 1_400L, playbackReady = true))
+        assertFalse(checkpoint.shouldPersist(3_000L, 1_500L, playbackReady = true))
     }
 
     @Test
