@@ -43,7 +43,18 @@ internal class PlaybackProgressCheckpoint {
     }
 
     fun onExplicitSeek(targetMs: Long) {
-        waitingForStartOver = targetMs <= 0L
+        // A requested rewind is not yet a decoded rewind. Keep saving the
+        // previous playable position until the seek is actually confirmed.
+        if (targetMs > 0L) waitingForStartOver = false
+    }
+
+    /** The decoder confirmed a rewind, rather than merely accepting a seek command. */
+    fun onConfirmedStartOver(observedPositionMs: Long) {
+        // Reset the old resume high-water mark even if playback has already
+        // advanced a few seconds past zero by the next UI polling tick.
+        waitingForStartOver = observedPositionMs == 0L
+        lastSavedPositionMs = -1L
+        lastSavedAtElapsedMs = -1L
     }
 
     fun shouldPersist(positionMs: Long, elapsedMs: Long, playbackReady: Boolean): Boolean {
