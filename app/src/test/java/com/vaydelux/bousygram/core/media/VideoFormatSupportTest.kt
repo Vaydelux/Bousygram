@@ -35,6 +35,23 @@ class VideoFormatSupportTest {
     }
 
     @Test
+    fun parameterizedTransportStreamMimeSelectsMpegTsExtractor() {
+        listOf(
+            "video/mp2t; charset=binary",
+            "video/mpegts",
+            "video/x-mpegts; codecs=avc1",
+            "VIDEO/VND.DLNA.MPEG-TTS; charset=binary"
+        ).forEach { mime ->
+            assertEquals(
+                "MPEG-TS MIME alias should select Media3 TS extractor: $mime",
+                "video/mp2t",
+                VideoFormatSupport.exoMimeType(mime, null, "Telegram video")
+            )
+            assertTrue(VideoFormatSupport.isTransportStream(null, mime))
+        }
+    }
+
+    @Test
     fun hlsPlaylistUsesM3u8MimeType() {
         assertTrue(VideoFormatSupport.isPlayableVideo("application/vnd.apple.mpegurl", "live.m3u8"))
         assertTrue(VideoFormatSupport.isPlayableVideo("application/octet-stream", "live.m3u8"))

@@ -77,7 +77,8 @@ object VideoFormatSupport {
         val file = fileName?.trim()?.lowercase(java.util.Locale.ROOT).orEmpty()
         val mime = mimeType?.substringBefore(';')?.trim()?.lowercase(java.util.Locale.ROOT)
         return file.endsWith(".ts") || file.endsWith(".m2ts") || file.endsWith(".mts") ||
-            mime == "video/mp2t"
+            mime in setOf("video/mp2t", "video/mpegts", "video/x-mpegts",
+                "video/vnd.dlna.mpeg-tts")
     }
 
     /** Prefer Telegram file name for stream URL / MIME sniffing. */
@@ -109,7 +110,9 @@ object VideoFormatSupport {
 
     /** ExoPlayer [MimeTypes] constant for progressive playback. */
     fun exoMimeType(mimeType: String?, fileName: String?, title: String): String? {
-        val mime = mimeType?.lowercase()?.trim().orEmpty()
+        // Telegram documents may include MIME parameters; Media3 extractor
+        // selection requires the base MIME type, not `video/mp2t; charset=...`.
+        val mime = mimeType?.substringBefore(';')?.lowercase(java.util.Locale.ROOT)?.trim().orEmpty()
         if (mime.isNotBlank()) {
             when {
                 mime == MimeTypes.APPLICATION_M3U8 ||

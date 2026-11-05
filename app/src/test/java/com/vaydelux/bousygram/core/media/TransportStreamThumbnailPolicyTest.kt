@@ -10,6 +10,9 @@ class TransportStreamThumbnailPolicyTest {
         assertTrue(VideoFormatSupport.isTransportStream("movie.M2TS", null))
         assertTrue(VideoFormatSupport.isTransportStream("movie.mts", null))
         assertTrue(VideoFormatSupport.isTransportStream(null, "video/mp2t; charset=binary"))
+        assertTrue(VideoFormatSupport.isTransportStream(null, "video/mpegts"))
+        assertTrue(VideoFormatSupport.isTransportStream(null, "video/x-mpegts; codecs=avc1"))
+        assertTrue(VideoFormatSupport.isTransportStream(null, "VIDEO/VND.DLNA.MPEG-TTS; charset=binary"))
     }
     @Test fun completedTsFileMayBeProbedAndSparseFileIsNeverRead() {
         val can = VideoFormatSupport::canProbeLocalTsFrame
