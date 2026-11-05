@@ -183,6 +183,41 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun offlineDownloadFailureDoesNotCreatePhantomWindowAndReconnectCanRetry() = runBlocking {
+        val fileId = 617
+        val bytes = ByteArray(128 * 1024) { index -> (index % 223).toByte() }
+        val gateway = FakeTelegramFileGateway(
+            bytes = bytes,
+            completed = false,
+            downloadedPrefixSize = 4096L,
+            enforcePartialRanges = true
+        ).apply { failTransientFileIdOnce = fileId }
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.noteFileSize(fileId, bytes.size.toLong())
+
+        // TDLib simulates a temporary disconnect before accepting the window.
+        TelegramChunkScheduler.openPlayback(fileId, bytes.size.toLong()).join()
+        assertEquals(PlaybackCacheState.Preparing, TelegramChunkScheduler.cacheState(fileId))
+        assertFalse(
+            "A failed native download must not leave a phantom active seek window",
+            TelegramChunkScheduler.hasDownloadWindowForTests(fileId)
+        )
+        assertEquals(1, gateway.downloadRecords.size)
+
+        // After connectivity returns, a second open starts a real foreground
+        // window, instead of reporting an unusable pre-existing one as Ready.
+        TelegramChunkScheduler.openPlayback(fileId, bytes.size.toLong()).join()
+        assertTrue(TelegramChunkScheduler.hasDownloadWindowForTests(fileId))
+        assertEquals(2, gateway.downloadRecords.size)
+        assertEquals(TelegramChunkScheduler.PLAYBACK_PRIORITY, gateway.downloadRecords.last().priority)
+        val chunk = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(fileId, 0L, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+        assertTrue(chunk is TelegramChunkResult.Ready)
+        assertArrayEquals(bytes.copyOfRange(0, 4096), (chunk as TelegramChunkResult.Ready).bytes)
+    }
+
+    @Test
     fun duplicateChunkRequestsAreCoalesced() = runBlocking {
         val bytes = ByteArray(TelegramChunkScheduler.CHUNK_SIZE_BYTES) { 7 }
         val gateway = FakeTelegramFileGateway(bytes, downloadDelayMs = 150L, simulateColdDownload = true)
@@ -701,6 +736,7 @@ class TelegramChunkSchedulerTest {
         val cancelCalls = AtomicInteger(0)
         val cancelledFiles = ConcurrentHashMap.newKeySet<Int>()
         var failFileIdOnce: Int? = null
+        var failTransientFileIdOnce: Int? = null
         var reResolveFileResult: TelegramGatewayFile? = null
         val reResolveCalls = AtomicInteger(0)
 
@@ -727,6 +763,9 @@ class TelegramChunkSchedulerTest {
                 if (failFileIdOnce == fileId) {
                     failFileIdOnce = null
                     TelegramGatewayResult.Failure(code = 400, message = "FILE_REFERENCE_EXPIRED", fatal = true)
+                } else if (failTransientFileIdOnce == fileId) {
+                    failTransientFileIdOnce = null
+                    TelegramGatewayResult.Failure(code = 503, message = "Temporary network unavailable", fatal = false)
                 } else {
                     counts.getOrPut("$fileId:$offset:$limit") { AtomicInteger(0) }.incrementAndGet()
                     TelegramGatewayResult.Success(file(fileId, offset = offset))
