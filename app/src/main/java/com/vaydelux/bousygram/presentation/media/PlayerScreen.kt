@@ -173,6 +173,7 @@ import com.vaydelux.bousygram.core.network.NetworkConnectivityObserver
 import com.vaydelux.bousygram.core.media.UniversalMediaSessionBridge
 import com.vaydelux.bousygram.core.tv.WatchNextManager
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecord
+import com.vaydelux.bousygram.core.observability.PlaybackRecoveryCounters
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.PlaybackLogContext
@@ -318,6 +319,7 @@ fun PlayerScreen(
     var totalRebufferMs by remember { mutableLongStateOf(0L) }
     var rebufferStartMs by remember { mutableLongStateOf(0L) }
     var playbackSessionId by remember { mutableStateOf("pb_${System.currentTimeMillis()}_$queueIndex") }
+    val recoveryCounters = remember(playbackSessionId) { PlaybackRecoveryCounters() }
     var playbackCommitted by remember { mutableStateOf(false) }
     var decoderName by remember { mutableStateOf("Unknown") }
     var droppedFrames by remember { mutableIntStateOf(0) }
@@ -553,7 +555,7 @@ fun PlayerScreen(
         }
         // Pausing ends the current stall; do not count time spent paused as network buffering.
         if (rebufferStartMs > 0L) {
-            totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
+            totalRebufferMs += (android.os.SystemClock.elapsedRealtime() - rebufferStartMs).coerceAtLeast(0L)
             rebufferStartMs = 0L
         }
         playerEngine.pause()
@@ -577,6 +579,7 @@ fun PlayerScreen(
         val current = queue.getOrNull(queueIndex)
         val isTs = current != null && VideoFormatSupport.isTransportStream(current.fileName ?: current.title, current.mimeType)
         if (!canSeekTransportStream(isTs, playerEngine.canSeek) || !playerEngine.canSeek) {
+            recoveryCounters.seekRejected()
             toastFeedbackText = "Seeking isn't available until this file has a usable seek index."
             seekFeedbackText = null
             seekPreviewPositionMs = -1L
@@ -586,6 +589,7 @@ fun PlayerScreen(
         }
         val confirmedDuration = playerEngine.durationMs.takeIf { it > 0L } ?: duration
         val acceptedTargetMs = boundedPlayerSeekTarget(targetMs, confirmedDuration)
+        recoveryCounters.seekRequested()
         progressCheckpoint.onExplicitSeek(acceptedTargetMs)
         pendingSeekTargetMs = acceptedTargetMs
         pendingSeekStartedAtMs = android.os.SystemClock.elapsedRealtime()
@@ -612,7 +616,7 @@ fun PlayerScreen(
         playbackCommitted = true
         val current = queue.getOrNull(queueIndex)
         if (rebufferStartMs > 0L) {
-            totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
+            totalRebufferMs += (android.os.SystemClock.elapsedRealtime() - rebufferStartMs).coerceAtLeast(0L)
             rebufferStartMs = 0L
         }
         val engineName = playerEngine.engineName
@@ -620,10 +624,15 @@ fun PlayerScreen(
         val aDec = playerEngine.audioDecoderName.ifBlank { "Unknown" }
         val container = VideoFormatSupport.resolveContainer(fileName, current?.mimeType, title)
         val size = if (fileSizeBytes > 0L) fileSizeBytes else (current?.fileSizeBytes ?: 0L)
-        val ttfb = when {
-            timeToFirstByteMs > 0L -> timeToFirstByteMs
-            firstFrameMs > 0L -> firstFrameMs
-            else -> 0L
+        // First frame and bytes served are different observations: never
+        // manufacture a first-byte timestamp when native byte tracking is absent.
+        val ttfb = timeToFirstByteMs
+        val recovery = recoveryCounters.snapshot()
+        val outputEvidence = when {
+            firstFrameMs > 0L -> "rendered_video"
+            firstAudioReadyMs > 0L -> "audio_playback_inferred"
+            firstProgressReadyMs > 0L -> "native_ready_unverified"
+            else -> "unobserved"
         }
         val fallbackReason = PlaybackTelemetryRecorder.getFallbackReason(playbackSessionId)
         val failure = fatalError ?: playbackError
@@ -671,6 +680,13 @@ fun PlayerScreen(
                 reusedCacheBytes = cacheTelemetry.reusedBytes,
                 seekCount = seekTelemetry.count,
                 averageSeekLatencyMs = seekTelemetry.averageLatencyMs,
+                firstOutputEvidence = outputEvidence,
+                seekRejectedCount = recovery.rejectedSeekCount,
+                seekTimedOutCount = recovery.timedOutSeekCount,
+                seekSupersededCount = recovery.supersededSeekCount,
+                seekUnresolvedCount = recovery.unresolvedSeekCount,
+                fallbackAttemptCount = recovery.fallbackAttemptCount,
+                fallbackSuccessCount = recovery.fallbackSuccessCount,
                 droppedFrameCount = maxOf(droppedFrames, playerEngine.droppedBufferCount),
                 memoryPressure = memoryPressure,
                 telegramBytesRequested = streamingTelemetry.telegramBytesRequested,
@@ -894,13 +910,21 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playerEngine, queueIndex) {
-        fun recordInitialOutput(audioOnly: Boolean) {
+        fun recordInitialOutput(audioOnly: Boolean, verifiedVideoFrame: Boolean = false) {
             if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) ||
                 playerStartedAtMs <= 0L
             ) return
             val effectiveStartMs = playerStartedAtMs
             val elapsedMs = (System.currentTimeMillis() - effectiveStartMs).coerceAtLeast(1L)
-            if (audioOnly) firstAudioReadyMs = elapsedMs else firstFrameMs = elapsedMs
+            if (audioOnly) {
+                firstAudioReadyMs = elapsedMs
+            } else if (verifiedVideoFrame) {
+                firstFrameMs = elapsedMs
+            } else {
+                // libmpv/LibVLC can report Ready without any proof of pixels
+                // rendered. Keep UI recovery behavior, never misreport TTFF.
+                firstProgressReadyMs = elapsedMs
+            }
             isOpening = false
             isReconnecting = false
             isBuffering = false
@@ -909,7 +933,7 @@ fun PlayerScreen(
             if (timeToFirstByteMs == 0L) {
                 val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
                 val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, effectiveStartMs)
-                timeToFirstByteMs = if (ttfb > 0L) ttfb else elapsedMs
+                if (ttfb > 0L) timeToFirstByteMs = ttfb
             }
             recordMetrics()
             val current = queue.getOrNull(queueIndex)
@@ -918,7 +942,7 @@ fun PlayerScreen(
             }
             // Audio-only playback has no rendered video frame: never pollute video-frame
             // telemetry with audio readiness, but still mark the session as playing.
-            if (!audioOnly) PlaybackSessionController.recordFirstFrame(playbackSession, firstFrameMs)
+            if (verifiedVideoFrame) PlaybackSessionController.recordFirstFrame(playbackSession, firstFrameMs)
             if (current != null) playbackSession.onPlaying(current)
         }
 
@@ -955,7 +979,7 @@ fun PlayerScreen(
             launch {
                 frames.collect { rendered ->
                     if (rendered && (isOpening || (playbackError != null && playerEngine.isPlaying))) {
-                        recordInitialOutput(audioOnly = false)
+                        recordInitialOutput(audioOnly = false, verifiedVideoFrame = true)
                     }
                 }
             }
@@ -969,7 +993,7 @@ fun PlayerScreen(
                     ) {
                         // Count a new stall only once, even if Buffering is re-emitted.
                         rebufferCount++
-                        rebufferStartMs = System.currentTimeMillis()
+                        rebufferStartMs = android.os.SystemClock.elapsedRealtime()
                         recordMetrics()
                     }
                 }
@@ -980,8 +1004,8 @@ fun PlayerScreen(
                     if (playerEngine.firstFrameRendered == null && !declaredAudioOnly() &&
                         !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)
                     ) {
-                        // Existing libmpv fallback has no rendered-frame callback.
-                        recordInitialOutput(audioOnly = false)
+                        // Native Ready is an unverified output signal, not TTFF.
+                        recordInitialOutput(audioOnly = false, verifiedVideoFrame = false)
                     }
                     if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)) {
                         isOpening = false
@@ -989,7 +1013,7 @@ fun PlayerScreen(
                     }
                     playbackError = null
                     if (rebufferStartMs > 0L) {
-                        totalRebufferMs += (System.currentTimeMillis() - rebufferStartMs).coerceAtLeast(0L)
+                        totalRebufferMs += (android.os.SystemClock.elapsedRealtime() - rebufferStartMs).coerceAtLeast(0L)
                         rebufferStartMs = 0L
                     }
                     if (playerEngine.durationMs > 0L) {
@@ -1092,6 +1116,7 @@ fun PlayerScreen(
                             else VideoFormatSupport.classifyFallbackReason(state.cause, state.message)
                         Log.w("PlayerScreen", "Decoder failure ($message). Switching to libmpv at $retryPosition ms: $fallbackReason")
 
+                        recoveryCounters.fallbackAttempted()
                         PlaybackTelemetryRecorder.recordFallback(playbackSessionId, fallbackReason)
                         PlaybackDiagnostics.recordStreamError("FallbackToMpv: $fallbackReason")
 
@@ -1103,6 +1128,7 @@ fun PlayerScreen(
                             } else PlayerEngineFactory.createFallback(context, playerEngine, speed)
                         }.fold(
                             onSuccess = { (_, pos) ->
+                                recoveryCounters.fallbackCompleted(true)
                                 audioFocusController.abandon()
                                 pendingResumeMs = if (pos > 0L) pos else retryPosition
                                 lastGoodPosition = pendingResumeMs
@@ -1114,6 +1140,7 @@ fun PlayerScreen(
                                 reloadNonce++
                             },
                             onFailure = { failure ->
+                                recoveryCounters.fallbackCompleted(false)
                                 // A missing/failed native decoder must not crash the Compose UI.
                                 // Keep the player open and offer its existing retry/exit actions.
                                 Log.e("PlayerScreen", "Automatic playback fallback failed", failure)
@@ -1214,7 +1241,7 @@ fun PlayerScreen(
                 android.os.SystemClock.elapsedRealtime()
             )
             val rebufferTime = measuredRebufferDurationMs(
-                totalRebufferMs, rebufferStartMs, System.currentTimeMillis()
+                totalRebufferMs, rebufferStartMs, android.os.SystemClock.elapsedRealtime()
             )
             val totalPlayTime = outputTimeMs + rebufferTime
             if (current != null && totalPlayTime > 1_000L) {
@@ -1301,6 +1328,9 @@ fun PlayerScreen(
     LaunchedEffect(request, queueIndex, reloadNonce) {
         // A retry or track change replaces the old URL; revoke its capability first.
         // Lifecycle backgrounding does not run this effect, so a paused player can resume.
+        recoveryCounters.abandonSeek()
+        pendingSeekTargetMs = -1L
+        pendingSeekStartedAtMs = 0L
         firstAudioReadyMs = 0L
         firstProgressReadyMs = 0L
         firstFrameMs = 0L
@@ -1740,7 +1770,12 @@ fun PlayerScreen(
                         toastFeedbackText = "Seek could not be confirmed. Playback continues from the last decoded position."
                     }
                     val fid = queue.getOrNull(queueIndex)?.fileId ?: 0
-                    PlaybackTelemetryRecorder.recordSeekLatency(fid, elapsed)
+                    // Only a decoder-confirmed target contributes to average
+                    // seek latency. Native timeouts and rejected seeks are
+                    // separate outcomes, never successful seek samples.
+                    if (recoveryCounters.seekCompleted(completion == SeekCompletion.Confirmed)) {
+                        PlaybackTelemetryRecorder.recordSeekLatency(fid, elapsed)
+                    }
                     pendingSeekTargetMs = -1L
                     pendingSeekStartedAtMs = 0L
                 }
@@ -1751,8 +1786,6 @@ fun PlayerScreen(
                 val ttfb = PlaybackTelemetryRecorder.consumeFirstByteElapsed(fid, playerStartedAtMs)
                 if (ttfb > 0L) {
                     timeToFirstByteMs = ttfb
-                } else if (playerEngine.bufferedPositionMs > 0L) {
-                    timeToFirstByteMs = (System.currentTimeMillis() - playerStartedAtMs).coerceAtLeast(1L)
                 }
             }
             val enginePlaying = playerEngine.isPlaying
