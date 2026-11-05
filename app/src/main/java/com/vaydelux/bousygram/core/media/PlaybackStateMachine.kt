@@ -60,6 +60,9 @@ class PlaybackStateMachine {
     @Synchronized
     fun onPreparing(session: PlaybackSession, item: PlaybackQueueItem?): Boolean {
         if (session.isStopped() || _state.value == PlaybackCoreState.Released) return false
+        // Track changes retain the same session; old item's delayed callback
+        // must not replace the newly selected queue item's Preparing state.
+        if (item !== session.currentItem) return false
         // New sessions are bound only after teardown resets to Idle. A delayed
         // prepare event cannot steal the current decoder's state ownership.
         if (_state.value != PlaybackCoreState.Idle && activeOwner() !== session) return false
@@ -126,7 +129,9 @@ class PlaybackStateMachine {
 
     @Synchronized
     fun onEnding(session: PlaybackSession, item: PlaybackQueueItem?): Boolean {
-        if (!ownsActiveState(session) || _state.value is PlaybackCoreState.Ending) return false
+        if (!ownsActiveState(session) || _state.value is PlaybackCoreState.Ending ||
+            item !== session.currentItem
+        ) return false
         _state.value = PlaybackCoreState.Ending(session, item)
         return true
     }
