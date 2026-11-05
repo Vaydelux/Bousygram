@@ -286,6 +286,26 @@ internal object TelegramChunkScheduler {
         latestFiles.containsKey(fileId)
 
     private val updateListeners = ConcurrentHashMap<Int, MutableSet<(TelegramGatewayFile) -> Unit>>()
+
+    // Subscribe/unsubscribe through the same per-key compute lock. Adding a
+    // listener outside compute can race with the last subscriber's removal,
+    // orphaning a live waiter in a set that is no longer in the map.
+    private fun subscribeFileUpdates(fileId: Int, listener: (TelegramGatewayFile) -> Unit) {
+        updateListeners.compute(fileId) { _, existing ->
+            (existing ?: ConcurrentHashMap.newKeySet<(TelegramGatewayFile) -> Unit>())
+                .also { it.add(listener) }
+        }
+    }
+
+    private fun unsubscribeFileUpdates(fileId: Int, listener: (TelegramGatewayFile) -> Unit) {
+        updateListeners.computeIfPresent(fileId) { _, listeners ->
+            listeners.remove(listener)
+            listeners.takeIf { it.isNotEmpty() }
+        }
+    }
+
+    internal fun activeFileUpdateListenerFilesForTests(): Int = updateListeners.size
+
     private val prefetchJobs = ConcurrentHashMap<Int, MutableSet<Job>>()
     private val prefetchLock = Any()
     private val activePrefetchRanges = ConcurrentHashMap<Int, MutableList<Pair<LongRange, Job>>>()
@@ -1159,8 +1179,7 @@ internal object TelegramChunkScheduler {
             }
         }
 
-        val listeners = updateListeners.computeIfAbsent(fileId) { ConcurrentHashMap.newKeySet() }
-        listeners.add(listener)
+        subscribeFileUpdates(fileId, listener)
         try {
             val freshFile = latestFiles[fileId] ?: getFileStatus(fileId)
             if (freshFile != null && isRangeReady(freshFile, offset, minNeededBytes)) {
@@ -1170,7 +1189,7 @@ internal object TelegramChunkScheduler {
                 deferred.await()
             } ?: false
         } finally {
-            listeners.remove(listener)
+            unsubscribeFileUpdates(fileId, listener)
         }
     }
 
@@ -1360,14 +1379,13 @@ internal object TelegramChunkScheduler {
         val listener: (TelegramGatewayFile) -> Unit = { updated ->
             if (predicate(updated)) deferred.complete(updated)
         }
-        val listeners = updateListeners.computeIfAbsent(effectiveId) { ConcurrentHashMap.newKeySet() }
-        listeners.add(listener)
+        subscribeFileUpdates(effectiveId, listener)
         return try {
             val fresh = latestFiles[effectiveId] ?: getFileStatus(effectiveId)
             if (fresh != null && predicate(fresh)) fresh
             else withTimeoutOrNull(timeoutMs) { deferred.await() }
         } finally {
-            listeners.remove(listener)
+            unsubscribeFileUpdates(effectiveId, listener)
         }
     }
 
