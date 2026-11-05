@@ -10,12 +10,16 @@ on:
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/components/**'
       - 'app/src/androidTest/**'
+      - 'tools/ci/generate_playback_fixtures.sh'
+      - 'tools/ci/run_emulator_smoke.sh'
   pull_request:
     paths:
       - '.github/workflows/android-emulator-smoke.yml'
       - 'app/src/main/java/com/vaydelux/bousygram/core/cast/**'
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
       - 'app/src/androidTest/**'
+      - 'tools/ci/generate_playback_fixtures.sh'
+      - 'tools/ci/run_emulator_smoke.sh'
       - 'app/src/main/res/values/themes.xml'
   workflow_dispatch:
 
@@ -65,6 +69,17 @@ jobs:
           ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
           bash tools/ci/verify_debug_artifacts.sh
 
+      - name: Generate real decoder fixtures and validate their checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          bash tools/ci/generate_playback_fixtures.sh ci-artifacts/decoder-fixtures
+          ( cd ci-artifacts/decoder-fixtures && sha256sum --check SHA256SUMS.txt )
+
       - name: Run media Cast, real-launch, D-pad, and adaptive player chrome instrumentation
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -89,6 +104,7 @@ jobs:
           if-no-files-found: warn
           path: |
             emulator-smoke-results.txt
+            ci-artifacts/decoder-fixtures/SHA256SUMS.txt
             emulator-smoke-crash-summary.txt
             emulator-smoke-window-state.txt
             emulator-smoke-screen.png
