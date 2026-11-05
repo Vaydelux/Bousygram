@@ -43,6 +43,28 @@ class PlaybackFileRecoveryTest {
         }
     }
 
+    @Test fun missingCachedFileIdRecoversFromOriginalTelegramMessage() = runTest {
+        val gateway = Gateway(messageResult = file(456))
+        val found = PlaybackFileRecovery(gateway).refresh(12L, 34L, 0)
+        assertEquals(456, found?.fileId)
+        assertEquals(1, gateway.messageCalls)
+        assertEquals(0, gateway.fileCalls)
+    }
+
+    @Test fun missingCachedFileIdWithoutMessageIdentityDoesNotQueryTdlib() = runTest {
+        val gateway = Gateway(fileResult = file(456))
+        assertNull(PlaybackFileRecovery(gateway).refresh(0L, 0L, 0))
+        assertEquals(0, gateway.messageCalls)
+        assertEquals(0, gateway.fileCalls)
+    }
+
+    @Test fun missingCachedFileIdWithFailedMessageDoesNotFallbackToInvalidId() = runTest {
+        val gateway = Gateway(failMessage = true, fileResult = file(456))
+        assertNull(PlaybackFileRecovery(gateway).refresh(12L, 34L, -1))
+        assertEquals(1, gateway.messageCalls)
+        assertEquals(0, gateway.fileCalls)
+    }
+
     @Test fun changedFileIdComesFromTheMessageNotTheOldIndexedFile() = runTest {
         val gateway = Gateway(messageResult = file(999), fileResult = file(123))
         val found = PlaybackFileRecovery(gateway).refresh(1L, 2L, 123)
