@@ -159,6 +159,58 @@ class PlaybackLaunchCoordinatorTest {
     }
 
     @Test
+    fun missingFileIdIsRecoveredBeforePreflightAndPlayerQueue() = runTest {
+        var preflightFileId: Int? = null
+        val coordinator = PlaybackLaunchCoordinator(
+            preflight = StreamPreflight { item, _ ->
+                preflightFileId = item.fileId
+                null
+            },
+            recoverMissingFileId = { 908 }
+        )
+        val missing = sampleItem(fileId = null)
+        var outcome: LaunchOutcome? = null
+        coordinator.launch(this, missing, listOf(missing)) { outcome = it }
+        advanceTimeBy(50)
+        val open = outcome as LaunchOutcome.Open
+        assertEquals(908, preflightFileId)
+        assertEquals(908, open.request.fileId)
+        assertEquals(908, open.request.queue.first().fileId)
+        assertFalse(open.prepared)
+    }
+
+    @Test
+    fun failedMissingFileRecoveryRejectsWithoutRunningPreflight() = runTest {
+        var preflightCalls = 0
+        val coordinator = PlaybackLaunchCoordinator(
+            preflight = StreamPreflight { _, _ -> preflightCalls++; null },
+            recoverMissingFileId = { null }
+        )
+        var outcome: LaunchOutcome? = null
+        val item = sampleItem(fileId = 0)
+        coordinator.launch(this, item, listOf(item)) { outcome = it }
+        advanceTimeBy(50)
+        assertTrue(outcome is LaunchOutcome.Rejected)
+        assertFalse(coordinator.state.value.isPending)
+        assertEquals(0, preflightCalls)
+    }
+
+    @Test
+    fun missingFileRecoveryTimeoutRejectsInsteadOfHangingOnPreparing() = runTest {
+        val coordinator = PlaybackLaunchCoordinator(
+            preflight = StreamPreflight { _, _ -> null },
+            recoverMissingFileId = { delay(5_000L); 456 },
+            recoveryBudgetMs = 100L
+        )
+        var outcome: LaunchOutcome? = null
+        val item = sampleItem(fileId = null)
+        coordinator.launch(this, item, listOf(item)) { outcome = it }
+        advanceTimeBy(150)
+        assertTrue(outcome is LaunchOutcome.Rejected)
+        assertFalse(coordinator.state.value.isPending)
+    }
+
+    @Test
     fun duplicateLaunch_whilePending_emitsDuplicate() = runTest {
         val coordinator = PlaybackLaunchCoordinator(
             preflight = StreamPreflight { _, _ ->
