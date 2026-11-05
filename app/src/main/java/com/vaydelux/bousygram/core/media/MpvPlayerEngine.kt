@@ -25,6 +25,11 @@ internal fun nativeMpvTimelineMs(seconds: Double): Long? {
     return if (millis.isFinite() && millis <= Long.MAX_VALUE.toDouble()) millis.toLong() else null
 }
 
+/** Seek only to a real nonnegative timestamp, bounded by a known container duration. */
+internal fun boundedMpvSeekMs(requestedMs: Long, durationMs: Long): Long =
+    if (durationMs > 0L) requestedMs.coerceIn(0L, durationMs)
+    else requestedMs.coerceAtLeast(0L)
+
 /** Clamp cache-ahead indicators without wrapping signed Long values. */
 internal fun nativeMpvBufferedPositionMs(positionMs: Long, aheadMs: Long): Long =
     if (aheadMs > Long.MAX_VALUE - positionMs.coerceAtLeast(0L)) Long.MAX_VALUE
@@ -423,7 +428,7 @@ class MpvPlayerEngine(
             return
         }
         try {
-            val seconds = positionMs.coerceAtLeast(0L) / 1000.0
+            val seconds = boundedMpvSeekMs(positionMs, durationMs) / 1000.0
             mpv.command(arrayOf("seek", seconds.toString(), "absolute"))
         } catch (e: Throwable) {
             Log.e(TAG, "Error seeking mpv to $positionMs ms", e)
