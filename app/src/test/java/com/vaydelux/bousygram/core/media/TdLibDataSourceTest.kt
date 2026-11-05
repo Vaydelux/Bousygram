@@ -113,6 +113,32 @@ class TdLibDataSourceTest {
     }
 
     @Test
+    fun authorizationRevokedWhileWaitingForChunkNeverDeliversOldBytes() {
+        PlaybackSessionController.bindActiveFile(testFileId)
+        val checks = AtomicInteger(0)
+        // First check authorizes open(), second check authorizes read()
+        // entry, and the third simulates logout while fetchChunk awaits TDLib.
+        val source = TdLibDataSource { id ->
+            id == testFileId && checks.incrementAndGet() < 3
+        }
+        val target = ByteArray(128) { 0x5a.toByte() }
+        try {
+            source.open(DataSpec(TdLibDataSource.buildUri(testFileId, testFileSize)))
+            try {
+                source.read(target, 0, target.size)
+                fail("A chunk fetched before logout must not be delivered after revocation")
+            } catch (expected: IOException) {
+                assertTrue(expected.message.orEmpty().contains("revoked"))
+            }
+            assertEquals(3, checks.get())
+            assertArrayEquals(ByteArray(128) { 0x5a.toByte() }, target)
+        } finally {
+            source.close()
+        }
+        assertEquals(0, TelegramChunkScheduler.activeLeaseCount(testFileId))
+    }
+
+    @Test
     fun rejectsUnauthorizedAccessWhenNoActiveSession() {
         val dataSource = TdLibDataSource()
         val uri = TdLibDataSource.buildUri(testFileId, testFileSize)
