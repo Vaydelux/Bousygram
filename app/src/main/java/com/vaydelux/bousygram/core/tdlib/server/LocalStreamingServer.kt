@@ -43,6 +43,13 @@ internal fun boundedHttpRangeWriteBytes(chunkBytes: Int, requestedBytes: Int, re
     minOf(chunkBytes.coerceAtLeast(0), requestedBytes.coerceAtLeast(0),
         remainingBytes.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
 
+/** IDs of the oldest cache rows, selected without mutating a live concurrent map. */
+internal fun staleStatusCacheIds(timestamps: Map<Int, Long>, retainCount: Int): List<Int> {
+    val removeCount = (timestamps.size - retainCount.coerceAtLeast(0)).coerceAtLeast(0)
+    return timestamps.entries.sortedWith(compareBy<Map.Entry<Int, Long>> { it.value }.thenBy { it.key })
+        .take(removeCount).map { it.key }
+}
+
 /** Avoid unlimited subtitle allocations and oversized responses on low-RAM TVs. */
 internal fun allowedSubtitleBytes(length: Long): Boolean = length in 0L..(16L * 1024L * 1024L)
 
@@ -63,6 +70,10 @@ object LocalStreamingServer {
     val actualPort: Int get() = serverPort
     @Volatile
     private var clientPool: BoundedSocketExecutor? = null
+    // GetFile / UpdateFile notifications may cover thousands of old catalog rows.
+    // This metadata is hot for 1.5 seconds only; retain a bounded LRU-ish snapshot.
+    private const val MAX_FILE_STATUS_ROWS = 768
+    private const val RETAIN_FILE_STATUS_ROWS = 512
     private val fileStatusCache = ConcurrentHashMap<Int, CachedFileStatus>()
     private val recentWarmups = ConcurrentHashMap<Int, Long>()
     @Volatile
@@ -79,10 +90,25 @@ object LocalStreamingServer {
         val availableBytes: Long
     )
 
+    private fun rememberFileStatus(file: TdApi.File) {
+        fileStatusCache[file.id] = CachedFileStatus(file, System.currentTimeMillis())
+        if (fileStatusCache.size <= MAX_FILE_STATUS_ROWS) return
+        synchronized(fileStatusCache) {
+            if (fileStatusCache.size <= MAX_FILE_STATUS_ROWS) return@synchronized
+            val snapshot = fileStatusCache.toMap()
+            val timestamps = snapshot.mapValues { it.value.updatedAtMs }
+            staleStatusCacheIds(timestamps, RETAIN_FILE_STATUS_ROWS).forEach { id ->
+                // Compare the complete captured entry: two updates can share a
+                // millisecond timestamp, but a newer one must not be evicted.
+                snapshot[id]?.let { original -> fileStatusCache.remove(id, original) }
+            }
+        }
+    }
+
     init {
         TdLibClient.addUpdateHandler { update ->
             val file = (update as? TdApi.UpdateFile)?.file ?: return@addUpdateHandler
-            fileStatusCache[file.id] = CachedFileStatus(file, System.currentTimeMillis())
+            rememberFileStatus(file)
         }
     }
 
@@ -859,9 +885,7 @@ object LocalStreamingServer {
             TdApi.GetFile(fileId)
         ) { res ->
             result = res as? TdApi.File
-            result?.let {
-                fileStatusCache[fileId] = CachedFileStatus(it, System.currentTimeMillis())
-            }
+            result?.let(::rememberFileStatus)
             latch.countDown()
         }
         latch.await(waitMs, TimeUnit.MILLISECONDS)

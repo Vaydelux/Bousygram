@@ -16,6 +16,14 @@ class LocalStreamingServerDeadlineTest {
     }
 
     @Test
+    fun evictionKeepsNewestFileStatusesAndUsesStableTieBreak() {
+        val statuses = mapOf(7 to 100L, 3 to 200L, 5 to 200L, 9 to 300L)
+        assertEquals(listOf(7, 3), staleStatusCacheIds(statuses, retainCount = 2))
+        assertEquals(emptyList<Int>(), staleStatusCacheIds(statuses, retainCount = 4))
+        assertEquals(listOf(7, 3, 5, 9), staleStatusCacheIds(statuses, retainCount = 0))
+    }
+
+    @Test
     fun remainingWaitMs_clampsToRemainingTimeWhenBelowCap() {
         val now = 1_000L
         val deadline = 1_200L // 200ms remaining
