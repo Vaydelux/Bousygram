@@ -241,7 +241,7 @@ object PlaybackSessionController {
             BufferMode.Balanced -> if (startup) 15_000L else STABLE_CACHE_LEAD_MS
             BufferMode.StableNetwork -> if (startup) 30_000L else 45_000L
         }
-        val targetPosition = positionMs.coerceAtLeast(0L) + leadMs
+        val targetPosition = saturatedCacheLeadPositionMs(positionMs, leadMs)
         val maxBytes = when (mode) {
             BufferMode.FastStart -> if (session.consecutiveRangeStalls >= 2) MIN_CACHE_AHEAD_BYTES else FAST_START_CACHE_AHEAD_BYTES
             BufferMode.Balanced -> adaptiveCacheAheadBytes(session)
@@ -328,6 +328,14 @@ object PlaybackSessionController {
         if (activeSessions.isEmpty()) isVideoPlayingFlag.set(false)
         record(session)
         ownerFailure?.let { throw it }
+    }
+
+    /** Saturate speculative prefetch lead rather than wrapping on a corrupt timestamp. */
+    internal fun saturatedCacheLeadPositionMs(positionMs: Long, leadMs: Long): Long {
+        val safePosition = positionMs.coerceAtLeast(0L)
+        val safeLead = leadMs.coerceAtLeast(0L)
+        return if (safePosition > Long.MAX_VALUE - safeLead) Long.MAX_VALUE
+        else safePosition + safeLead
     }
 
     fun positionToOffset(totalSize: Long, positionMs: Long, durationMs: Long): Long {
