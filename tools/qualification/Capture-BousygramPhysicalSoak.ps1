@@ -95,7 +95,7 @@ $samples = @()
 $aborted = $false
 for ($i = 1; $i -le $Cycles; $i++) {
     if ($Scenario -ne 'arm32-playback') {
-        $answer = Read-Host "Cycle $i/$Cycles: complete the on-device action, then press Enter to sample (type q to stop)"
+        $answer = Read-Host "Cycle $i/${Cycles}: complete the on-device action, then press Enter to sample (type q to stop)"
         if ($answer -eq 'q') { $aborted = $true; break }
     }
     Start-Sleep -Seconds $SampleSeconds
