@@ -1729,6 +1729,10 @@ fun PlayerScreen(
                         // so auto retries never jump back to the pre-seek position.
                         lastGoodPosition = observedPosition
                         if (pendingSeekTargetMs == 0L) {
+                            // Reset persisted resume only after decoder confirmation.
+                            // A timed-out or rejected rewind must not freeze normal
+                            // resume checkpoints or erase the previous position.
+                            progressCheckpoint.onConfirmedStartOver(observedPosition)
                             showResumeRestartOption = false
                             toastFeedbackText = "Restarted from beginning"
                         }
