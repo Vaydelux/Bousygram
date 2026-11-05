@@ -138,6 +138,17 @@ class PlaybackCoreLifecycleTest {
     }
 
     @Test
+    fun preparingUsesTheClampedCurrentQueueItem() {
+        val machine = PlaybackStateMachine()
+        val queue = sampleQueue(2)
+        val session = PlaybackSession(queue, initialIndex = 999)
+        assertEquals(queue[1], session.currentItem)
+        assertFalse(machine.onPreparing(session, queue[0]))
+        assertTrue(machine.onPreparing(session, session.currentItem))
+        assertEquals(PlaybackCoreState.Preparing(session, queue[1]), machine.currentState)
+    }
+
+    @Test
     fun naturalEndCannotBeReplacedByLateDecoderError() {
         val machine = PlaybackStateMachine()
         val queue = sampleQueue(1)
