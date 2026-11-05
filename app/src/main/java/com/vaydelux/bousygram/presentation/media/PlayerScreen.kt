@@ -584,8 +584,10 @@ fun PlayerScreen(
             pendingSeekStartedAtMs = 0L
             return false
         }
-        progressCheckpoint.onExplicitSeek(targetMs)
-        pendingSeekTargetMs = targetMs.coerceAtLeast(0L)
+        val confirmedDuration = playerEngine.durationMs.takeIf { it > 0L } ?: duration
+        val acceptedTargetMs = boundedPlayerSeekTarget(targetMs, confirmedDuration)
+        progressCheckpoint.onExplicitSeek(acceptedTargetMs)
+        pendingSeekTargetMs = acceptedTargetMs
         pendingSeekStartedAtMs = android.os.SystemClock.elapsedRealtime()
         seekPreviewPositionMs = -1L
         playerEngine.seekTo(pendingSeekTargetMs)
@@ -1719,7 +1721,7 @@ fun PlayerScreen(
             }
             if (pendingSeekTargetMs >= 0L && pendingSeekStartedAtMs > 0L) {
                 val elapsed = (android.os.SystemClock.elapsedRealtime() - pendingSeekStartedAtMs).coerceAtLeast(0L)
-                val reachedTarget = kotlin.math.abs(observedPosition - pendingSeekTargetMs) <= 5_000L
+                val reachedTarget = isConfirmedPlayerSeekPosition(observedPosition, pendingSeekTargetMs)
                 if ((!isBuffering && reachedTarget) || elapsed >= 30_000L) {
                     if (reachedTarget) {
                         // A confirmed rewind resets the progress high-water mark
