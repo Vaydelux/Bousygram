@@ -1,7 +1,12 @@
 package com.vaydelux.bousygram.core.media
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class PlaybackEngineOwnerTest {
     @Test
@@ -23,6 +28,60 @@ class PlaybackEngineOwnerTest {
         }
         assertEquals(1, newer)
         assertEquals(1, older)
+    }
+
+    @Test
+    fun concurrentBridgeRegistrationAndEngineReplacementNeverLeaksResources() {
+        val session = PlaybackSessionController.start(fileId = 779)
+        val ownerLock = Any()
+        val releaseCounts = mutableListOf<AtomicInteger>()
+        fun newEngine(): FakeTestEngine {
+            val releases = AtomicInteger()
+            releaseCounts += releases
+            return object : FakeTestEngine() {
+                override fun release() { releases.incrementAndGet() }
+            }
+        }
+        val owner = PlaybackEngineOwner(session, newEngine(), onOwnerThread = { action ->
+            synchronized(ownerLock) { action() }
+        })
+        try {
+            repeat(80) {
+                val current = owner.value
+                val replacement = newEngine()
+                val bridgeCloses = AtomicInteger()
+                val started = CountDownLatch(1)
+                val completed = CountDownLatch(2)
+                val error = AtomicReference<Throwable?>()
+                val register = Thread {
+                    try {
+                        started.await()
+                        owner.registerEngineResource(current) { bridgeCloses.incrementAndGet() }
+                    } catch (failure: Throwable) { error.compareAndSet(null, failure) }
+                    finally { completed.countDown() }
+                }
+                val replace = Thread {
+                    try {
+                        started.await()
+                        owner.value = replacement
+                    } catch (failure: Throwable) { error.compareAndSet(null, failure) }
+                    finally { completed.countDown() }
+                }
+                register.start()
+                replace.start()
+                started.countDown()
+                assertTrue("Concurrent engine lifecycle deadlocked", completed.await(5, TimeUnit.SECONDS))
+                error.get()?.let { throw AssertionError("Engine lifecycle race failed", it) }
+                assertEquals("Old engine bridge was leaked or closed twice", 1, bridgeCloses.get())
+            }
+        } finally {
+            owner.close()
+            PlaybackSessionController.stop(
+                session, PlaybackCacheStopReason.Dispose, cancelTdLibDownload = false
+            )
+        }
+        assertEquals(81, releaseCounts.size)
+        releaseCounts.forEach { assertEquals("Engine was released more or less than once", 1, it.get()) }
     }
 
     @Test
