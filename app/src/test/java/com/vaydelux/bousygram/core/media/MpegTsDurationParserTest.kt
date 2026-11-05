@@ -5,10 +5,10 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class MpegTsDurationParserTest {
-    private fun pcrPacket(pcr90k: Long): ByteArray = ByteArray(188).apply {
+    private fun pcrPacket(pcr90k: Long, pid: Int = 0x100): ByteArray = ByteArray(188).apply {
         this[0] = 0x47
-        this[1] = 0x01
-        this[2] = 0x00
+        this[1] = ((pid ushr 8) and 0x1f).toByte()
+        this[2] = (pid and 0xff).toByte()
         this[3] = 0x20
         this[4] = 7
         this[5] = 0x10
@@ -79,4 +79,42 @@ class MpegTsDurationParserTest {
         val tail = m2ts(90_000L * 124) + m2ts(90_000L * 125)
         assertEquals(120_000L, MpegTsDurationParser.durationMs(head, tail))
     }
+
+    @Test fun matchingPcrPidIsSelectedWhenFirstHeadPidIsAbsentFromTail() {
+        val head = pcrPacket(90_000L * 1, 0x100) +
+            pcrPacket(90_000L * 5, 0x101)
+        val tail = pcrPacket(90_000L * 124, 0x101) +
+            pcrPacket(90_000L * 125, 0x101)
+        assertEquals(120_000L, MpegTsDurationParser.durationMs(head, tail))
+    }
+
+    @Test fun disjointPcrPidsNeverInventDuration() {
+        val head = pcrPacket(90_000L * 5, 0x100) + pcrPacket(90_000L * 6, 0x100)
+        val tail = pcrPacket(90_000L * 125, 0x101) + pcrPacket(90_000L * 126, 0x101)
+        assertNull(MpegTsDurationParser.durationMs(head, tail))
+    }
+
+    @Test fun pcrWrapOnSamePidProducesRealTenSecondDuration() {
+        val wrap = 1L shl 33
+        val head = pcrPacket(wrap - 5L * 90_000L) +
+            pcrPacket(wrap - 4L * 90_000L)
+        val tail = pcrPacket(4L * 90_000L) + pcrPacket(5L * 90_000L)
+        assertEquals(10_000L, MpegTsDurationParser.durationMs(head, tail))
+    }
+
+    @Test fun fecProtected204ByteTsPacketStrideIsSupported() {
+        fun fecPacket(ticks: Long) = pcrPacket(ticks) + ByteArray(16) { 0x32 }
+        val head = fecPacket(5L * 90_000L) + fecPacket(6L * 90_000L)
+        val tail = fecPacket(124L * 90_000L) + fecPacket(125L * 90_000L)
+        assertEquals(120_000L, MpegTsDurationParser.durationMs(head, tail))
+    }
+
+    @Test fun arbitraryPartialPacketPrefixDoesNotBreakPcrAlignment() {
+        val head = ByteArray(37) { 0x20 } +
+            pcrPacket(5L * 90_000L) + pcrPacket(6L * 90_000L)
+        val tail = ByteArray(13) { 0x20 } +
+            pcrPacket(124L * 90_000L) + pcrPacket(125L * 90_000L)
+        assertEquals(120_000L, MpegTsDurationParser.durationMs(head, tail))
+    }
+
 }
