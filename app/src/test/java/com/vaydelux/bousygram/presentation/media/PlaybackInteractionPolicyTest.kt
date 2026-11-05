@@ -110,5 +110,6 @@ class PlaybackInteractionPolicyTest {
         assertEquals(0L, relativePlayerSeekTarget(5_000L, -10_000L, 0L))
         assertEquals(12_000L, relativePlayerSeekTarget(10_000L, 10_000L, 12_000L))
         assertEquals(Long.MAX_VALUE, relativePlayerSeekTarget(Long.MAX_VALUE, 10_000L, 0L))
+        assertEquals(12_000L, relativePlayerSeekTarget(Long.MAX_VALUE, 10_000L, 12_000L))
     }
 }
