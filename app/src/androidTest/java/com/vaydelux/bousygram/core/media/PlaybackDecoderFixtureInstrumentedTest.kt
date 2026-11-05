@@ -109,9 +109,10 @@ class PlaybackDecoderFixtureInstrumentedTest {
     private fun withMedia(
         name: String,
         mime: String,
+        interruptInitialResponse: Boolean = false,
         action: (ExoPlayerEngine, RangeFixtureServer) -> Unit
     ) {
-        RangeFixtureServer(fixture(name)).use { server ->
+        RangeFixtureServer(fixture(name), interruptFirstResponse = interruptInitialResponse).use { server ->
             lateinit var engine: ExoPlayerEngine
             lateinit var surface: Surface
             lateinit var texture: SurfaceTexture
@@ -223,6 +224,25 @@ class PlaybackDecoderFixtureInstrumentedTest {
         }
 
     @Test
+    fun droppedInitialHttpBodyRetriesAndKeepsPlaybackIntent() =
+        withMedia("indexed.mkv", "video/x-matroska", interruptInitialResponse = true) { engine, server ->
+            val initial = awaitState(engine, "MKV recovers from an interrupted HTTP body") {
+                it.isPlaying && it.playWhenReady && it.firstFrame && it.positionMs > 500L
+            }
+            assertEquals("A single controlled disconnect must be injected", 1, server.disconnectedResponses.get())
+            assertTrue("Media3 did not reopen the interrupted stream", server.requests.get() >= 2)
+            assertTrue("A retry must not change Play into Pause", initial.playWhenReady)
+
+            onMain { engine.seekTo(6_000L) }
+            val seeked = awaitState(engine, "Post-recovery MKV seek") {
+                it.isPlaying && it.playWhenReady && it.positionMs in 5_500L..9_500L
+            }
+            awaitState(engine, "Post-recovery timeline progress") {
+                it.isPlaying && it.positionMs > seeked.positionMs + 250L
+            }
+        }
+
+    @Test
     fun fixtureServerSupportsRealRandomAccessByteRanges() {
         RangeFixtureServer(fixture("indexed.mkv")).use { server ->
             val conn = URL(server.url("video/x-matroska")).openConnection() as HttpURLConnection
@@ -240,13 +260,17 @@ class PlaybackDecoderFixtureInstrumentedTest {
     }
 
     /** A tiny private HTTP origin with real 206 and 416 semantics, no network dependencies. */
-    private class RangeFixtureServer(private val file: File) : Closeable {
+    private class RangeFixtureServer(
+        private val file: File,
+        private val interruptFirstResponse: Boolean = false
+    ) : Closeable {
         private val listener = ServerSocket(
             0, 8, InetAddress.getByName("127.0.0.1")
         ).apply { soTimeout = 500 }
         private val active = java.util.concurrent.atomic.AtomicBoolean(true)
         val requests = AtomicInteger(0)
         val partialRequests = AtomicInteger(0)
+        val disconnectedResponses = AtomicInteger(0)
         private val worker = thread(name = "bousygram-fixture-http", isDaemon = true) {
             while (active.get()) {
                 try {
@@ -311,7 +335,12 @@ class PlaybackDecoderFixtureInstrumentedTest {
                 RandomAccessFile(file, "r").use { source ->
                     source.seek(start)
                     val buffer = ByteArray(16 * 1024)
-                    var remaining = length
+                    // One response advertises the full Content-Length, then its
+                    // body is cut short. This exercises a genuine HTTP EOF and
+                    // Media3's retry/reopen path without any Telegram credentials.
+                    val interruptThisBody = interruptFirstResponse &&
+                        disconnectedResponses.compareAndSet(0, 1)
+                    var remaining = if (interruptThisBody) minOf(length, 8L * 1024L) else length
                     while (remaining > 0L) {
                         val count = source.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
                         if (count <= 0) break
