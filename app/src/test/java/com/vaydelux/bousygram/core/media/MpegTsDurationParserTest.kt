@@ -36,4 +36,47 @@ class MpegTsDurationParserTest {
         val last = pcrPacket(90_000L * 1) + pcrPacket(90_000L * 2)
         assertNull(MpegTsDurationParser.durationMs(first, last))
     }
+
+    @Test fun discontinuityFlagOnPcrRejectsFabricatedDuration() {
+        val head = pcrPacket(90_000L * 5) + pcrPacket(90_000L * 6)
+        val tail = pcrPacket(90_000L * 124) + pcrPacket(90_000L * 125).apply {
+            this[5] = 0x90.toByte() // PCR + discontinuity flag
+        }
+        assertNull(MpegTsDurationParser.durationMs(head, tail))
+    }
+
+    @Test fun adaptationOnlyDiscontinuityOnSamePidRejectsDuration() {
+        val head = pcrPacket(90_000L * 5) + pcrPacket(90_000L * 6)
+        val discontinuityPacket = ByteArray(188).apply {
+            this[0] = 0x47
+            this[1] = 0x01
+            this[2] = 0x00
+            this[3] = 0x20
+            this[4] = 1
+            this[5] = 0x80.toByte()
+        }
+        val tail = discontinuityPacket + pcrPacket(90_000L * 125)
+        assertNull(MpegTsDurationParser.durationMs(head, tail))
+    }
+
+    @Test fun adaptationLengthOutsideTsPacketDoesNotSupplyPcr() {
+        val invalid = pcrPacket(90_000L * 5).apply { this[4] = 0xff.toByte() }
+        val head = invalid + invalid
+        val tail = pcrPacket(90_000L * 124) + pcrPacket(90_000L * 125)
+        assertNull(MpegTsDurationParser.durationMs(head, tail))
+    }
+
+    @Test fun transportErrorPacketsDoNotSupplyPcr() {
+        val corrupted = pcrPacket(90_000L * 5).apply { this[1] = 0x81.toByte() }
+        val head = corrupted + corrupted
+        val tail = pcrPacket(90_000L * 124) + pcrPacket(90_000L * 125)
+        assertNull(MpegTsDurationParser.durationMs(head, tail))
+    }
+
+    @Test fun m2ts192BytePacketStrideStillRecoversDuration() {
+        fun m2ts(ticks: Long) = ByteArray(4) + pcrPacket(ticks)
+        val head = m2ts(90_000L * 5) + m2ts(90_000L * 6)
+        val tail = m2ts(90_000L * 124) + m2ts(90_000L * 125)
+        assertEquals(120_000L, MpegTsDurationParser.durationMs(head, tail))
+    }
 }
