@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.media.launch
 
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
+import com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
@@ -47,6 +48,13 @@ object PlaybackLaunch {
     val coordinator: PlaybackLaunchCoordinator by lazy {
         PlaybackLaunchCoordinator(
             preflight = TelegramStreamPreflight(),
+            recoverMissingFileId = { item ->
+                // Re-resolve only from the account-scoped original Telegram message.
+                // The production gateway verifies the active account across both lookups.
+                if (item.chatId == 0L || item.messageId == 0L) null
+                else TelegramFileGatewayRegistry.current
+                    .reResolveFile(item.chatId, item.messageId)?.fileId
+            },
             onBeforeOpen = { item ->
                 item.fileId?.let { fileId ->
                     EnterprisePreferences.setLastPlayed(item.chatId, item.messageId, fileId, item.title)
