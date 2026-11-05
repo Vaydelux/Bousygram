@@ -94,6 +94,65 @@ class PlaybackCoreLifecycleTest {
     }
 
     @Test
+    fun lateEventsFromPreviousSessionCannotEndOrPauseTheNewVideo() {
+        val machine = PlaybackStateMachine()
+        val queue = sampleQueue(2)
+        val previous = PlaybackSession(queue, initialIndex = 0)
+        val active = PlaybackSession(queue, initialIndex = 1)
+
+        assertTrue(machine.onPreparing(previous, queue[0]))
+        assertFalse(machine.onPreparing(active, queue[1])) // requires teardown
+        assertFalse(machine.onPlaying(active, 40_000L, 60_000L))
+        assertFalse(machine.onEnding(active, queue[1]))
+        assertFalse(machine.onError(active, "unowned decoder error"))
+        assertEquals(PlaybackCoreState.Preparing(previous, queue[0]), machine.currentState)
+
+        assertTrue(machine.onResetToIdle())
+        assertTrue(machine.onPreparing(active, queue[1]))
+        assertFalse(machine.onBuffering(previous, 3_000L, 60_000L))
+        assertFalse(machine.onPlaying(previous, 3_000L, 60_000L))
+        assertFalse(machine.onPaused(previous, 3_000L, 60_000L))
+        assertFalse(machine.onEnding(previous, queue[0]))
+        assertFalse(machine.onError(previous, "stale error after engine replacement"))
+        assertEquals(PlaybackCoreState.Preparing(active, queue[1]), machine.currentState)
+
+        assertTrue(machine.onPlaying(active, 1_000L, 60_000L))
+        assertTrue(machine.isPlaying)
+    }
+
+    @Test
+    fun naturalEndCannotBeReplacedByLateDecoderError() {
+        val machine = PlaybackStateMachine()
+        val queue = sampleQueue(1)
+        val session = PlaybackSession(queue)
+        assertTrue(machine.onPreparing(session, queue[0]))
+        assertTrue(machine.onPlaying(session, 59_000L, 60_000L))
+        assertTrue(machine.onEnding(session, queue[0]))
+        assertFalse(machine.onEnding(session, queue[0]))
+        assertFalse(machine.onError(session, "late demuxer EOF reported as error"))
+        assertFalse(machine.onBuffering(session, 0L, 60_000L))
+        assertEquals(PlaybackCoreState.Ending(session, queue[0]), machine.currentState)
+    }
+
+    @Test
+    fun stoppedOrReleasedSessionsCannotRevivePlayback() {
+        val machine = PlaybackStateMachine()
+        val queue = sampleQueue(1)
+        val session = PlaybackSession(queue)
+        assertTrue(machine.onPreparing(session, queue[0]))
+        session.release()
+        assertFalse(machine.onPlaying(session, 3_000L, 60_000L))
+        assertFalse(machine.onError(session, "late native callback"))
+        machine.onResetToIdle()
+        assertFalse(machine.onPreparing(session, queue[0]))
+        assertFalse(machine.onEnding(session, queue[0]))
+        assertEquals(PlaybackCoreState.Idle, machine.currentState)
+        assertTrue(machine.onReleased())
+        assertFalse(machine.onPreparing(PlaybackSession(queue), queue[0]))
+        assertEquals(PlaybackCoreState.Released, machine.currentState)
+    }
+
+    @Test
     fun singleActiveSessionInvariantEnforcedByController() {
         val queueA = sampleQueue(2)
         val queueB = sampleQueue(2)
