@@ -2312,6 +2312,9 @@ fun PlayerScreen(
                         // Only the decoder's position callback can confirm the
                         // rewind. An accepted command may still time out.
                         toastFeedbackText = if (castState.connected) {
+                            // The remote receiver owns confirmation; do not
+                            // retain a local-only resume prompt while casting.
+                            showResumeRestartOption = false
                             "Restart requested on Cast"
                         } else {
                             "Seeking to beginning…"
