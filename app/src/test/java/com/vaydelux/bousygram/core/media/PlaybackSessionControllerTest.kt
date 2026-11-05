@@ -100,6 +100,16 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
+    fun cacheLeadNeverWrapsIntoNegativePlaybackTime() {
+        assertEquals(
+            Long.MAX_VALUE,
+            PlaybackSessionController.saturatedCacheLeadPositionMs(Long.MAX_VALUE - 1_000L, 30_000L)
+        )
+        assertEquals(30_000L, PlaybackSessionController.saturatedCacheLeadPositionMs(-5L, 30_000L))
+        assertEquals(45_000L, PlaybackSessionController.saturatedCacheLeadPositionMs(15_000L, 30_000L))
+    }
+
+    @Test
     fun byteOffsetUsesDurationWhenKnown() {
         assertEquals(
             500_000L,
