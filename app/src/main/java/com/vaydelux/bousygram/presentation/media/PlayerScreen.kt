@@ -2955,6 +2955,7 @@ fun PlayerScreen(
                 if (showResumeRestartOption) add("StartOver")
             }
 
+            val recoveryNow = recoveryCounters.snapshot()
             VideoDebugHud(
                 engineName = playerEngine.engineName,
                 decoderName = playerEngine.videoDecoderName.ifBlank { "Unknown" },
@@ -2975,6 +2976,14 @@ fun PlayerScreen(
                 disabledTracksDesc = playerEngine.disabledTrackTypesDesc,
                 timeSincePrepareMs = if (playerStartedAtMs > 0L) (System.currentTimeMillis() - playerStartedAtMs).coerceAtLeast(0L) else 0L,
                 timeToFirstFrameMs = firstFrameMs,
+                firstOutputEvidence = when {
+                    firstFrameMs > 0L -> "rendered video"
+                    firstAudioReadyMs > 0L -> "audio playback inferred"
+                    firstProgressReadyMs > 0L -> "native Ready (unverified)"
+                    else -> "no output evidence"
+                },
+                seekRecoverySummary = "Confirmed: per-session | rejected=${recoveryNow.rejectedSeekCount} timeout=${recoveryNow.timedOutSeekCount} superseded=${recoveryNow.supersededSeekCount}",
+                fallbackSummary = "Fallback: ${recoveryNow.fallbackSuccessCount}/${recoveryNow.fallbackAttemptCount} succeeded",
                 visibleOverlays = if (visibleOverlaysList.isEmpty()) "None (Video Visible)" else visibleOverlaysList.joinToString(", "),
                 onSwitchEngine = {
                     togglePlayerEngine()
@@ -3029,6 +3038,9 @@ private fun VideoDebugHud(
     disabledTracksDesc: String,
     timeSincePrepareMs: Long,
     timeToFirstFrameMs: Long,
+    firstOutputEvidence: String,
+    seekRecoverySummary: String,
+    fallbackSummary: String,
     visibleOverlays: String,
     onSwitchEngine: () -> Unit,
     onSwitchSurface: () -> Unit,
@@ -3103,7 +3115,25 @@ private fun VideoDebugHud(
                 fontSize = 12.sp
             )
             Text(
-                text = "Time: prep->now ${timeSincePrepareMs}ms | firstFrame: ${timeToFirstFrameMs}ms",
+                text = "Time: prep->now ${timeSincePrepareMs}ms | TTFF: ${if (timeToFirstFrameMs > 0L) "${timeToFirstFrameMs}ms" else "unverified"}",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = "First output: $firstOutputEvidence",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = seekRecoverySummary,
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = fallbackSummary,
                 color = Color.White,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp
