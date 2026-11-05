@@ -56,7 +56,9 @@ class PlaybackLaunchCoordinator(
     private val indicatorDelayMs: Long = INDICATOR_DELAY_MS,
     private val duplicateWindowMs: Long = DUPLICATE_WINDOW_MS,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val onBeforeOpen: (MediaItem) -> Unit = {}
+    private val onBeforeOpen: (MediaItem) -> Unit = {},
+    private val recoverMissingFileId: suspend (MediaItem) -> Int? = { null },
+    private val recoveryBudgetMs: Long = 2_500L
 ) {
     private val _state = MutableStateFlow(LaunchState())
     val state: StateFlow<LaunchState> = _state.asStateFlow()
@@ -78,8 +80,8 @@ class PlaybackLaunchCoordinator(
         anchor: LaunchAnchor? = null,
         onOutcome: (LaunchOutcome) -> Unit
     ): Boolean {
-        val fileId = item.fileId
-        if (fileId == null || fileId <= 0) {
+        val needsRecovery = (item.fileId ?: 0) <= 0
+        if (needsRecovery && (item.chatId == 0L || item.messageId == 0L)) {
             onOutcome(LaunchOutcome.Rejected("This item has no playable Telegram file"))
             return false
         }
@@ -107,12 +109,36 @@ class PlaybackLaunchCoordinator(
                 }
             }
             try {
+                // Only a message-scoped lookup can replace a missing cached native ID.
+                // Never construct a playback request with fileId=0 and let it hang on Preparing.
+                val resolved = if (needsRecovery) {
+                    try {
+                        withTimeoutOrNull(recoveryBudgetMs) { recoverMissingFileId(item) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else item.fileId
+                if (resolved == null || resolved <= 0) {
+                    if (launchGeneration == generation) {
+                        _state.value = LaunchState()
+                        pendingCallback = null
+                        onOutcome(LaunchOutcome.Rejected("Telegram media is unavailable; reopen the chat and retry"))
+                    }
+                    return@launch
+                }
+                val playableItem = if (resolved == item.fileId) item else item.copy(fileId = resolved)
+                val resolvedQueue = queueWithSelected(playableItem, queue).map { queued ->
+                    if (queued.chatId == playableItem.chatId && queued.messageId == playableItem.messageId) playableItem
+                    else queued
+                }
                 val deadline = clock() + preflightBudgetMs
                 // The preflight runs as a separate child so a blocking implementation can never
                 // hold navigation past the budget; the deadline stops it from minting late tokens.
                 val attempt = async {
                     try {
-                        preflight.prepare(item, deadline)
+                        preflight.prepare(playableItem, deadline)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -127,10 +153,10 @@ class PlaybackLaunchCoordinator(
                 pendingCallback = null
                 lastOpenAtMs = clock()
                 // Optional progress persistence must not make playable media fail to open.
-                runCatching { onBeforeOpen(item) }
+                runCatching { onBeforeOpen(playableItem) }
                 onOutcome(
                     LaunchOutcome.Open(
-                        request = buildPlaybackRequest(item, url, queueWithSelected(item, queue)),
+                        request = buildPlaybackRequest(playableItem, url, resolvedQueue),
                         prepared = !url.isNullOrBlank()
                     )
                 )
