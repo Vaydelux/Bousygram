@@ -119,6 +119,18 @@ class PlaybackDecoderFixtureInstrumentedTest {
                 texture = SurfaceTexture(10)
                 surface = Surface(texture)
                 engine = ExoPlayerEngine.create(targetContext)
+                // Instrumentation has no foreground player Activity and the
+                // system may deny/withdraw audio focus. Bypass only Media3's
+                // automatic focus manager so these tests measure the real
+                // extractor/decoder and our Play/Pause commands, not the
+                // headless test runner's process-audio-focus policy.
+                engine.player.setAudioAttributes(
+                    androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .build(),
+                    false
+                )
                 engine.attachSurface(surface)
                 engine.prepare(server.url(mime))
                 engine.play()
