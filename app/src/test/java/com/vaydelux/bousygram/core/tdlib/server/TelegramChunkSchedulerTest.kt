@@ -126,6 +126,71 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun timedOutFileAndPrefixWaitersReleaseAllListenerKeys() = runBlocking {
+        val gateway = FakeTelegramFileGateway(
+            ByteArray(8192) { 3 },
+            completed = false,
+            downloadedPrefixSize = 0L,
+            enforcePartialRanges = true
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        repeat(180) { index ->
+            val fileId = 30_000 + index
+            assertFalse(TelegramChunkScheduler.awaitPrefixReady(fileId, 0L, 4096, 1L))
+            assertNull(TelegramChunkScheduler.awaitFileState(fileId, 1L) { it.isDownloadingCompleted })
+        }
+        assertEquals(
+            "Expired waits must not retain an entry for every browsed file",
+            0, TelegramChunkScheduler.activeFileUpdateListenerFilesForTests()
+        )
+    }
+
+    @Test
+    fun concurrentWaitersShareOneSubscriptionKeyAndReleaseItAfterUpdate() = runBlocking {
+        val fileId = 32_000
+        val gateway = FakeTelegramFileGateway(
+            ByteArray(8192) { 7 },
+            completed = false,
+            downloadedPrefixSize = 0L,
+            enforcePartialRanges = true
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        val waiting = (0 until 20).map {
+            async(Dispatchers.IO) {
+                TelegramChunkScheduler.awaitPrefixReady(fileId, 0L, 4096, 2_000L)
+            }
+        }
+        kotlinx.coroutines.delay(80L)
+        TelegramChunkScheduler.onFileUpdated(
+            TelegramGatewayFile(
+                fileId = fileId, localPath = gateway.tempFileAbsolutePath,
+                isDownloadingCompleted = true, downloadOffset = 0L,
+                downloadedPrefixSize = 8192L, size = 8192L
+            )
+        )
+        waiting.forEach { assertTrue(it.await()) }
+        assertEquals(0, TelegramChunkScheduler.activeFileUpdateListenerFilesForTests())
+    }
+
+    @Test
+    fun cancelledFileWaiterDoesNotKeepAnEmptyListenerKey() = runBlocking {
+        val fileId = 32_001
+        TelegramFileGatewayRegistry.installForTests(
+            FakeTelegramFileGateway(
+                ByteArray(4096) { 4 }, completed = false, downloadedPrefixSize = 0L,
+                enforcePartialRanges = true
+            )
+        )
+        val waiting = async(Dispatchers.IO) {
+            TelegramChunkScheduler.awaitFileState(fileId, 10_000L) { it.isDownloadingCompleted }
+        }
+        kotlinx.coroutines.delay(80L)
+        waiting.cancel()
+        waiting.join()
+        assertEquals(0, TelegramChunkScheduler.activeFileUpdateListenerFilesForTests())
+    }
+
+    @Test
     fun networkBandwidthEstimateExpiresAfterFifteenSeconds() {
         assertFalse(TelegramChunkScheduler.isNetworkEstimateFresh(0L, 10_000L))
         assertTrue(TelegramChunkScheduler.isNetworkEstimateFresh(10_000L, 15_000L))
