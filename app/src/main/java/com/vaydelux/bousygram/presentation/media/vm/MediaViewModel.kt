@@ -3,6 +3,9 @@ package com.vaydelux.bousygram.presentation.media.vm
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
+import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
+import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
+import com.vaydelux.bousygram.core.memory.offscreenCatalogBudget
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
@@ -335,7 +338,30 @@ class MediaViewModel(
         }
     }
 
+    private fun trimOffscreenCatalog(severity: MediaMemoryTrim) {
+        val keep = offscreenCatalogBudget(severity)
+        synchronized(catalogSnapshotLock) {
+            while (catalogSnapshots.size > keep.snapshots) {
+                catalogSnapshots.remove(catalogSnapshots.keys.first())
+            }
+            while (topicSnapshots.size > keep.topics) {
+                topicSnapshots.remove(topicSnapshots.keys.first())
+            }
+        }
+        browseRestorations.trimToSize(keep.browsingPositions)
+        topicFolderFocus.trimToSize(keep.focusedTopics)
+        if (severity == MediaMemoryTrim.CRITICAL) {
+            thumbnailFailureTimesMs.clear()
+            synchronized(enrichedMediaKeys) { enrichedMediaKeys.clear() }
+            deferredThumbnailJob?.cancel()
+        }
+        // _uiState.items remains intact: no D-pad focus loss or playback reset.
+    }
+
     init {
+        viewModelScope.launch {
+            MediaMemoryPressure.events.collect { trimOffscreenCatalog(it) }
+        }
         viewModelScope.launch {
             AccountSession.state.collect { owner ->
                 if (owner == null && initializedAccount != null) {

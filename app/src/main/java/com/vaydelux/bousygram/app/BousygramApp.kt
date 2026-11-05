@@ -1,7 +1,9 @@
 package com.vaydelux.bousygram.app
 
 import android.app.Application
-import android.content.ComponentCallbacks2
+import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
+import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
+import com.vaydelux.bousygram.core.memory.mediaMemoryTrim
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -115,25 +117,17 @@ class BousygramApp : Application(), DefaultLifecycleObserver {
     @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        when {
-            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
-                level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
-                ExtrasCatalogApi.trimMemory(critical = true)
-                if (telegramRuntimeStarted) {
-                    TelegramPreCacheEngine.pauseBackgroundCaching()
-                    ThumbnailExtractor.trimMemory(critical = true)
-                    SeekThumbnailManager.trimMemory(critical = true)
-                }
-            }
-            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE ||
-                level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
-                ExtrasCatalogApi.trimMemory(critical = false)
-                if (telegramRuntimeStarted) {
-                    TelegramPreCacheEngine.pauseBackgroundCaching()
-                    ThumbnailExtractor.trimMemory(critical = false)
-                    SeekThumbnailManager.trimMemory(critical = false)
-                }
-            }
+        val severity = mediaMemoryTrim(level)
+        if (severity == MediaMemoryTrim.NONE) return
+        val critical = severity == MediaMemoryTrim.CRITICAL
+        MediaMemoryPressure.report(severity)
+        ExtrasCatalogApi.trimMemory(critical)
+        if (telegramRuntimeStarted) {
+            // Never tear down active decoded media or a foreground video here.
+            // Pause speculative work and release only reclaimable thumbnails.
+            TelegramPreCacheEngine.pauseBackgroundCaching()
+            ThumbnailExtractor.trimMemory(critical)
+            SeekThumbnailManager.trimMemory(critical)
         }
     }
 }
