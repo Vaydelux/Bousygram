@@ -97,3 +97,38 @@ real display, MKV/TS sample, audio, subtitle and seek test with visual review
 must still be performed in the normal player on physical devices. The surface
 test intentionally instantiates one native engine at a time to bound temporary
 ARM32 memory pressure.
+
+
+## Opt-in native MKV/TS timeline smoke on physical ARM
+
+NativeMediaPhysicalSmokeTest uses real libmpv and LibVLC engines with
+synthetic 12-second MKV and TS clips over the existing local HTTP range server.
+It checks startup timeline progress, manual Pause, optional native seek and
+Play after Pause. Indexed MKV must be seekable; TS is permitted to be unseekable.
+
+Generate fixtures on a development host with FFmpeg:
+
+```bash
+bash tools/ci/generate_playback_fixtures.sh ci-artifacts/decoder-fixtures
+```
+
+Install matching debug and AndroidTest APKs on a physical ARM32/ARM64 device.
+Place indexed.mkv and unindexed.ts in the app external-files decoder-fixtures
+directory. Where device policy permits Android/data writes:
+
+```bash
+adb shell mkdir -p /sdcard/Android/data/com.vaydelux.bousygram/files/decoder-fixtures
+adb push ci-artifacts/decoder-fixtures/indexed.mkv /sdcard/Android/data/com.vaydelux.bousygram/files/decoder-fixtures/
+adb push ci-artifacts/decoder-fixtures/unindexed.ts /sdcard/Android/data/com.vaydelux.bousygram/files/decoder-fixtures/
+```
+
+Run with explicit opt-in:
+
+```bash
+adb shell am instrument -w -e class com.vaydelux.bousygram.core.media.NativeMediaPhysicalSmokeTest -e physicalNativeMedia true com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The test skips without the opt-in argument and rejects emulator identifiers.
+It is **not** proof that pixels reached a physical display, that authenticated
+Telegram streams recover, or that a signed production release is qualified.
+Keep visual first-frame, audio, subtitle and 50+ engine-switch tests separate.

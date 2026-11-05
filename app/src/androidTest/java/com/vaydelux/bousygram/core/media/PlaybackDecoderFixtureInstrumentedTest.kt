@@ -260,7 +260,7 @@ class PlaybackDecoderFixtureInstrumentedTest {
     }
 
     /** A tiny private HTTP origin with real 206 and 416 semantics, no network dependencies. */
-    private class RangeFixtureServer(
+    internal class RangeFixtureServer(
         private val file: File,
         private val interruptFirstResponse: Boolean = false
     ) : Closeable {
