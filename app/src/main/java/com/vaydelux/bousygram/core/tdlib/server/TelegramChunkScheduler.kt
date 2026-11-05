@@ -1031,7 +1031,11 @@ internal object TelegramChunkScheduler {
         rememberWindow(fileId, offset, OPEN_ENDED, TelegramChunkPurpose.Streaming)
         val started = startChunkDownload(fileId, offset, limit = 0, priority = PLAYBACK_PRIORITY, synchronous = false)
         val failure = started.failure
-        if (failure is TelegramChunkResult.FatalFailure) {
+        // A retryable TDLib network/disconnect error did not start a download.
+        // Treating it as success leaves a phantom playback window and reports
+        // playbackReady even though no bytes can arrive. Let the next open or
+        // foreground extractor read retry the real request after reconnection.
+        if (failure != null) {
             clearDownloadWindow(fileId, offset)
             return failure
         }
@@ -1250,6 +1254,9 @@ internal object TelegramChunkScheduler {
             if (window.offset == offset) null else window
         }
     }
+
+    internal fun hasDownloadWindowForTests(fileId: Int): Boolean =
+        downloadWindows.containsKey(resolveEffectiveFileId(fileId))
 
     private fun isPlaybackPurpose(purpose: TelegramChunkPurpose): Boolean =
         purpose == TelegramChunkPurpose.Streaming || purpose == TelegramChunkPurpose.Preflight
