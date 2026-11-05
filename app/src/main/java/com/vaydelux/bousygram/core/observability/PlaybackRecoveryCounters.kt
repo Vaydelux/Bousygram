@@ -10,6 +10,7 @@ package com.vaydelux.bousygram.core.observability
  */
 internal class PlaybackRecoveryCounters {
     data class Snapshot(
+        val confirmedSeekCount: Int,
         val rejectedSeekCount: Int,
         val timedOutSeekCount: Int,
         val supersededSeekCount: Int,
@@ -19,6 +20,7 @@ internal class PlaybackRecoveryCounters {
     )
 
     private var seekPending = false
+    private var confirmedSeekCount = 0
     private var rejectedSeekCount = 0
     private var timedOutSeekCount = 0
     private var supersededSeekCount = 0
@@ -43,7 +45,11 @@ internal class PlaybackRecoveryCounters {
     @Synchronized fun seekCompleted(confirmed: Boolean): Boolean {
         if (!seekPending) return false
         seekPending = false
-        if (!confirmed) timedOutSeekCount = increment(timedOutSeekCount)
+        if (confirmed) {
+            confirmedSeekCount = increment(confirmedSeekCount)
+        } else {
+            timedOutSeekCount = increment(timedOutSeekCount)
+        }
         return confirmed
     }
 
@@ -68,6 +74,7 @@ internal class PlaybackRecoveryCounters {
     }
 
     @Synchronized fun snapshot(): Snapshot = Snapshot(
+        confirmedSeekCount = confirmedSeekCount,
         rejectedSeekCount = rejectedSeekCount,
         timedOutSeekCount = timedOutSeekCount,
         supersededSeekCount = supersededSeekCount,

@@ -911,9 +911,19 @@ fun PlayerScreen(
 
     LaunchedEffect(playerEngine, queueIndex) {
         fun recordInitialOutput(audioOnly: Boolean, verifiedVideoFrame: Boolean = false) {
-            if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) ||
-                playerStartedAtMs <= 0L
-            ) return
+            if (playerStartedAtMs <= 0L) return
+            // A decoder may advance its timeline before ExoPlayer actually
+            // presents the first frame. Preserve the later authoritative
+            // callback even when an earlier unverified progress signal
+            // already dismissed the loading overlay.
+            if (verifiedVideoFrame && firstFrameMs == 0L &&
+                hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)
+            ) {
+                firstFrameMs = (System.currentTimeMillis() - playerStartedAtMs).coerceAtLeast(1L)
+                PlaybackSessionController.recordFirstFrame(playbackSession, firstFrameMs)
+                return
+            }
+            if (hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)) return
             val effectiveStartMs = playerStartedAtMs
             val elapsedMs = (System.currentTimeMillis() - effectiveStartMs).coerceAtLeast(1L)
             if (audioOnly) {
@@ -978,7 +988,7 @@ fun PlayerScreen(
         playerEngine.firstFrameRendered?.let { frames ->
             launch {
                 frames.collect { rendered ->
-                    if (rendered && (isOpening || (playbackError != null && playerEngine.isPlaying))) {
+                    if (rendered && firstFrameMs == 0L && playerStartedAtMs > 0L) {
                         recordInitialOutput(audioOnly = false, verifiedVideoFrame = true)
                     }
                 }
@@ -2982,7 +2992,7 @@ fun PlayerScreen(
                     firstProgressReadyMs > 0L -> "native Ready (unverified)"
                     else -> "no output evidence"
                 },
-                seekRecoverySummary = "Confirmed: per-session | rejected=${recoveryNow.rejectedSeekCount} timeout=${recoveryNow.timedOutSeekCount} superseded=${recoveryNow.supersededSeekCount}",
+                seekRecoverySummary = "Seek confirmed=${recoveryNow.confirmedSeekCount} rejected=${recoveryNow.rejectedSeekCount} timeout=${recoveryNow.timedOutSeekCount} superseded=${recoveryNow.supersededSeekCount}",
                 fallbackSummary = "Fallback: ${recoveryNow.fallbackSuccessCount}/${recoveryNow.fallbackAttemptCount} succeeded",
                 visibleOverlays = if (visibleOverlaysList.isEmpty()) "None (Video Visible)" else visibleOverlaysList.joinToString(", "),
                 onSwitchEngine = {

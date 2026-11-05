@@ -14,6 +14,7 @@ class PlaybackRecoveryCountersTest {
         assertFalse(counters.seekCompleted(true))
         val snapshot = counters.snapshot()
         assertEquals(1, snapshot.rejectedSeekCount)
+        assertEquals(1, snapshot.confirmedSeekCount)
         assertEquals(0, snapshot.timedOutSeekCount)
         assertEquals(0, snapshot.unresolvedSeekCount)
     }
@@ -24,6 +25,7 @@ class PlaybackRecoveryCountersTest {
         assertFalse(counters.seekCompleted(false))
         assertFalse(counters.seekCompleted(true))
         assertEquals(1, counters.snapshot().timedOutSeekCount)
+        assertEquals(0, counters.snapshot().confirmedSeekCount)
         assertEquals(0, counters.snapshot().unresolvedSeekCount)
     }
 
