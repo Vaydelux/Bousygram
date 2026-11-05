@@ -280,6 +280,11 @@ fun EngineLabScreen(
                         selected = activeEngineType == SelectedPlayerEngine.MPV,
                         onClick = { activeEngineType = SelectedPlayerEngine.MPV }
                     )
+                    BousygramButton(
+                        text = "LibVLC",
+                        selected = activeEngineType == SelectedPlayerEngine.LIBVLC,
+                        onClick = { activeEngineType = SelectedPlayerEngine.LIBVLC }
+                    )
                 }
 
                 // Surface Mode Toggle
