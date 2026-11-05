@@ -4,6 +4,8 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
+import android.os.Debug
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
@@ -25,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +45,7 @@ import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.media.EnginePlaybackState
 import com.vaydelux.bousygram.core.media.PlayerEngine
 import com.vaydelux.bousygram.core.media.PlayerEngineFactory
+import com.vaydelux.bousygram.core.media.isTrustedExperimentalLocalStream
 import com.vaydelux.bousygram.core.media.diagnostics.BlackScreenDetector
 import com.vaydelux.bousygram.core.media.diagnostics.BlackScreenRecoveryAction
 import com.vaydelux.bousygram.core.media.diagnostics.EngineVerdictStore
@@ -49,7 +53,9 @@ import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.media.VideoSurfaceView
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * Diagnostic Activity for verifying video engines, surface compositing,
@@ -94,6 +100,9 @@ fun EngineLabScreen(
     var isPlaying by remember { mutableStateOf(false) }
     var statusText by remember { mutableStateOf("Initializing") }
     var diagnosticLog by remember { mutableStateOf("Engine Lab Ready") }
+    var appPssKiB by remember { mutableIntStateOf(0) }
+    var nativePssKiB by remember { mutableIntStateOf(0) }
+    var peakAppPssKiB by remember { mutableIntStateOf(0) }
 
     val blackScreenDetector = remember { BlackScreenDetector() }
 
@@ -109,24 +118,44 @@ fun EngineLabScreen(
 
     DisposableEffect(playerEngine) {
         onDispose {
-            playerEngine.detachSurface()
-            playerEngine.stop()
-            playerEngine.release()
+            // Debug Activity disposal must still release the native allocation
+            // when a vendor surface detach or stop command fails.
+            runCatching { playerEngine.detachSurface() }
+            runCatching { playerEngine.stop() }
+            runCatching { playerEngine.release() }
         }
     }
 
     LaunchedEffect(playerEngine, streamUrl) {
         playerEngine.stop()
         blackScreenDetector.reset()
+        if (streamUrl.isBlank()) {
+            statusText = "Idle — no private test media supplied"
+            diagnosticLog = "Engine initialized without media. Use an account-authorized loopback test stream to validate actual decoding."
+            return@LaunchedEffect
+        }
+        // This exported debug Activity must never fetch arbitrary remote URLs.
+        // Accept only the same private loopback origin used by native LibVLC.
+        if (!isTrustedExperimentalLocalStream(Uri.parse(streamUrl))) {
+            statusText = "Rejected non-local test media"
+            diagnosticLog = "Only private http://127.0.0.1 test streams are accepted; no request was sent."
+            return@LaunchedEffect
+        }
         statusText = "Preparing ${playerEngine.engineName}"
-        playerEngine.prepare(streamUrl)
-        playerEngine.play()
+        runCatching {
+            playerEngine.prepare(streamUrl)
+            playerEngine.play()
+        }.onFailure { failure ->
+            statusText = "Native player could not prepare"
+            diagnosticLog = "Preparation failed (${failure.javaClass.simpleName}). Review sanitized local device logs."
+        }
     }
 
     LaunchedEffect(playerEngine) {
         playerEngine.playbackState.collect { state ->
             statusText = when (state) {
-                is EnginePlaybackState.Idle -> "Idle"
+                is EnginePlaybackState.Idle ->
+                    if (streamUrl.isBlank()) "Idle — no test stream" else "Idle"
                 is EnginePlaybackState.Buffering -> "Buffering"
                 is EnginePlaybackState.Ready -> "Playing (${playerEngine.activeDecoder})"
                 is EnginePlaybackState.Ended -> "Ended"
@@ -146,7 +175,11 @@ fun EngineLabScreen(
                 currentEngine = activeEngineType,
                 isPlaying = isPlaying,
                 isBuffering = statusText.startsWith("Buffering"),
-                hasFirstFrame = currentPositionMs > 500L,
+                // Native MPV/LibVLC have no authoritative first-frame callback.
+                // Position progression is NOT proof of rendered video output.
+                // Disable automatic false-positive black-screen detection when
+                // unavailable; explicit failure simulation still works.
+                hasFirstFrame = playerEngine.firstFrameRendered?.value ?: true,
                 currentPositionMs = currentPositionMs,
                 decoderName = playerEngine.activeDecoder,
                 mediaKey = if (initialUrl.isNotBlank()) initialUrl.hashCode().toString() else "diagnostic_stream"
@@ -170,7 +203,22 @@ fun EngineLabScreen(
         }
     }
 
-    // Read system memory info
+    // Collect process Total PSS and Native Heap PSS, not system-available RAM.
+    // Sampling off the UI thread at 2-second intervals is diagnostic-only:
+    // no private media, stream URL or account identifiers are persisted.
+    LaunchedEffect(Unit) {
+        while (true) {
+            val memory = withContext(Dispatchers.Default) {
+                Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
+            }
+            appPssKiB = memory.totalPss
+            nativePssKiB = memory.nativePss
+            peakAppPssKiB = maxOf(peakAppPssKiB, appPssKiB)
+            delay(2_000L)
+        }
+    }
+
+    // Read system memory info (one-time device snapshot)
     val activityManager = remember { context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager }
     val memInfo = remember(activityManager) {
         ActivityManager.MemoryInfo().also { activityManager?.getMemoryInfo(it) }
@@ -259,10 +307,14 @@ fun EngineLabScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.secondary
                         )
-                        Text("Active Engine: ${playerEngine.engineName}", style = MaterialTheme.typography.bodySmall)
+                        Text("Requested engine: $activeEngineType", style = MaterialTheme.typography.bodySmall)
+                        Text("Actual engine: ${playerEngine.engineName} (fallback possible)", style = MaterialTheme.typography.bodySmall)
                         Text("Decoder: ${playerEngine.activeDecoder}", style = MaterialTheme.typography.bodySmall)
+                        Text("First video frame: ${playerEngine.firstFrameRendered?.value?.toString() ?: "not observable — verify visually"}", style = MaterialTheme.typography.bodySmall)
                         Text("Surface Mode: ${if (useTextureView) "TextureView" else "SurfaceView (Zero-Copy)"}", style = MaterialTheme.typography.bodySmall)
-                        Text("Memory: ${availMb}MB free / ${totalMb}MB total (lowRam=$isLowRam)", style = MaterialTheme.typography.bodySmall)
+                        Text("App PSS: ${appPssKiB} KiB; native heap PSS: ${nativePssKiB} KiB", style = MaterialTheme.typography.bodySmall)
+                        Text("Peak observed app PSS: ${peakAppPssKiB} KiB (debug sample only)", style = MaterialTheme.typography.bodySmall)
+                        Text("Device RAM at lab start: ${availMb}MB free / ${totalMb}MB total (lowRam=$isLowRam)", style = MaterialTheme.typography.bodySmall)
                         Text("Device: ${Build.MANUFACTURER} ${Build.MODEL} (SDK ${Build.VERSION.SDK_INT})", style = MaterialTheme.typography.bodySmall)
                     }
                 }
