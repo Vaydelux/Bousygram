@@ -245,6 +245,46 @@ internal object TelegramChunkScheduler {
     private val remappedFileIds = ConcurrentHashMap<Int, Int>()
 
     private val latestFiles = ConcurrentHashMap<Int, TelegramGatewayFile>()
+    // TDLib emits UpdateFile for thumbnails, chat search and catalog browsing.
+    // Keeping every old status for a whole TV session grows without bound.
+    // Re-query evicted idle statuses on demand; never trim active playback.
+    private const val FILE_STATUS_TARGET = 256
+    private const val FILE_STATUS_WATERMARK = 384
+    private val statusCacheLock = Any()
+    private val fileStatusTouchOrder = HashMap<Int, Long>()
+    private var nextFileStatusTouch = 0L
+
+    private fun retainFileStatus(file: TelegramGatewayFile) {
+        if (file.fileId <= 0) return
+        synchronized(statusCacheLock) {
+            latestFiles[file.fileId] = file
+            nextFileStatusTouch++
+            fileStatusTouchOrder[file.fileId] = nextFileStatusTouch
+            if (latestFiles.size <= FILE_STATUS_WATERMARK) return
+            // Prune only at a high watermark to avoid sorting for every update.
+            // Never steal status from a player, pending reader or active range.
+            for (entry in fileStatusTouchOrder.entries.sortedBy { it.value }) {
+                if (latestFiles.size <= FILE_STATUS_TARGET) break
+                val id = entry.key
+                if (id == file.fileId ||
+                    PlaybackSessionController.isCurrentPlaybackFile(id) ||
+                    (leaseCountsByFile[id] ?: 0) > 0 ||
+                    (activeCounts[id]?.get() ?: 0) > 0 ||
+                    downloadWindows.containsKey(id) ||
+                    updateListeners.containsKey(id) ||
+                    activeRequests.keys.any { it.fileId == id }
+                ) continue
+                latestFiles.remove(id)
+                fileStatusTouchOrder.remove(id)
+                cacheStates.remove(id)
+            }
+        }
+    }
+
+    internal fun retainedFileStatusCountForTests(): Int = latestFiles.size
+    internal fun hasRetainedFileStatusForTests(fileId: Int): Boolean =
+        latestFiles.containsKey(fileId)
+
     private val updateListeners = ConcurrentHashMap<Int, MutableSet<(TelegramGatewayFile) -> Unit>>()
     private val prefetchJobs = ConcurrentHashMap<Int, MutableSet<Job>>()
     private val prefetchLock = Any()
@@ -258,7 +298,7 @@ internal object TelegramChunkScheduler {
     }
 
     fun onFileUpdated(file: TelegramGatewayFile) {
-        latestFiles[file.fileId] = file
+        retainFileStatus(file)
         // Cache reads and ReadFilePart return bytes immediately, so timing those
         // operations measures disk/IPC speed, NOT Telegram network throughput.
         // Sample only positive contiguous TDLib download-prefix growth.
@@ -384,7 +424,11 @@ internal object TelegramChunkScheduler {
         fileContexts.clear()
         reResolveAttempted.clear()
         remappedFileIds.clear()
-        latestFiles.clear()
+        synchronized(statusCacheLock) {
+            latestFiles.clear()
+            fileStatusTouchOrder.clear()
+            nextFileStatusTouch = 0L
+        }
         updateListeners.clear()
         prefetchJobs.values.forEach { jobs -> jobs.toList().forEach { it.cancel() } }
         prefetchJobs.clear()
@@ -1363,7 +1407,7 @@ internal object TelegramChunkScheduler {
         if (limit > 0) PlaybackTelemetryRecorder.recordTelegramBytesRequested(effectiveId, limit.toLong())
         when (response) {
             is TelegramGatewayResult.Success -> {
-                response.value?.let { latestFiles[effectiveId] = it }
+                response.value?.let { retainFileStatus(it) }
                 return DownloadStart(file = response.value)
             }
             is TelegramGatewayResult.Failure -> {
@@ -1377,7 +1421,7 @@ internal object TelegramChunkScheduler {
                         remappedFileIds[fileId] = reResolved.fileId
                         remappedFileIds[effectiveId] = reResolved.fileId
                         fileContexts[reResolved.fileId] = context
-                        latestFiles[reResolved.fileId] = reResolved
+                        retainFileStatus(reResolved)
                         if (reResolved.size > 0L) fileSizes[reResolved.fileId] = reResolved.size
                         val retryResponse = TelegramFileGatewayRegistry.current.downloadFile(
                             reResolved.fileId,
@@ -1387,7 +1431,7 @@ internal object TelegramChunkScheduler {
                             synchronous
                         )
                         if (retryResponse is TelegramGatewayResult.Success) {
-                            retryResponse.value?.let { latestFiles[reResolved.fileId] = it }
+                            retryResponse.value?.let { retainFileStatus(it) }
                             return DownloadStart(file = retryResponse.value)
                         }
                     }
@@ -1416,7 +1460,7 @@ internal object TelegramChunkScheduler {
     private suspend fun getFileStatus(fileId: Int): TelegramGatewayFile? =
         withTimeoutOrNull(STATUS_TIMEOUT_MS) {
             TelegramFileGatewayRegistry.current.getFile(fileId)?.also {
-                latestFiles[fileId] = it
+                retainFileStatus(it)
             }
         }
 

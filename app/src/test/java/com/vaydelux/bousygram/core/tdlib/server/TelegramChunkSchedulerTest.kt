@@ -64,6 +64,68 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun thousandsOfCatalogUpdatesHaveBoundedIdleFileStatusRetention() {
+        val protectedFile = 10_000
+        val lease = TelegramChunkScheduler.acquireLease(
+            protectedFile, 0L, 4096L,
+            TelegramStreamConsumer.ExoPlayer,
+            TelegramChunkScheduler.PLAYBACK_PRIORITY
+        )
+        try {
+            // Simulate browsing hundreds of chats on a low-memory TV.
+            for (id in protectedFile..13_999) {
+                TelegramChunkScheduler.onFileUpdated(
+                    TelegramGatewayFile(
+                        fileId = id,
+                        localPath = "/tdlib/cache/$id",
+                        isDownloadingCompleted = true,
+                        downloadOffset = 0L,
+                        downloadedPrefixSize = 1024L
+                    )
+                )
+            }
+            assertTrue(
+                "Idle file statuses must remain within the low-memory watermark",
+                TelegramChunkScheduler.retainedFileStatusCountForTests() <= 384
+            )
+            assertTrue(TelegramChunkScheduler.hasRetainedFileStatusForTests(protectedFile))
+            assertFalse(TelegramChunkScheduler.hasRetainedFileStatusForTests(10_001))
+        } finally {
+            TelegramChunkScheduler.releaseLease(lease, TelegramLeaseReleaseReason.Completed)
+        }
+
+        // Released files can be evicted by the next sweep.
+        for (id in 14_000..14_599) {
+            TelegramChunkScheduler.onFileUpdated(
+                TelegramGatewayFile(fileId = id, localPath = "/tdlib/cache/$id",
+                    isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 1024L)
+            )
+        }
+        assertFalse(TelegramChunkScheduler.hasRetainedFileStatusForTests(protectedFile))
+        assertEquals(0, TelegramChunkScheduler.activeLeaseCount(protectedFile))
+        assertTrue(TelegramChunkScheduler.retainedFileStatusCountForTests() <= 384)
+    }
+
+    @Test
+    fun recentlyRefreshedFileStatusSurvivesIdleStatusPruning() {
+        for (id in 20_000..20_374) {
+            TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = id, localPath = "/tdlib/cache/$id",
+                isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 1024L))
+        }
+        TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = 20_000, localPath = "/tdlib/cache/20000",
+            isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 1024L))
+        for (id in 20_375..20_520) {
+            TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = id, localPath = "/tdlib/cache/$id",
+                isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 1024L))
+        }
+        assertTrue(TelegramChunkScheduler.hasRetainedFileStatusForTests(20_000))
+        assertFalse(TelegramChunkScheduler.hasRetainedFileStatusForTests(20_001))
+        assertTrue(TelegramChunkScheduler.retainedFileStatusCountForTests() <= 384)
+        TelegramChunkScheduler.resetForTests()
+        assertEquals(0, TelegramChunkScheduler.retainedFileStatusCountForTests())
+    }
+
+    @Test
     fun networkBandwidthEstimateExpiresAfterFifteenSeconds() {
         assertFalse(TelegramChunkScheduler.isNetworkEstimateFresh(0L, 10_000L))
         assertTrue(TelegramChunkScheduler.isNetworkEstimateFresh(10_000L, 15_000L))
