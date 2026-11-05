@@ -34,6 +34,15 @@ internal data class StreamPreparation(
     val warmupStarted: Boolean
 )
 
+/**
+ * A TDLib read may return more bytes than the caller requested. HTTP range
+ * responses must never exceed their Content-Length or leak into the next
+ * requested seek window.
+ */
+internal fun boundedHttpRangeWriteBytes(chunkBytes: Int, requestedBytes: Int, remainingBytes: Long): Int =
+    minOf(chunkBytes.coerceAtLeast(0), requestedBytes.coerceAtLeast(0),
+        remainingBytes.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+
 /** Avoid unlimited subtitle allocations and oversized responses on low-RAM TVs. */
 internal fun allowedSubtitleBytes(length: Long): Boolean = length in 0L..(16L * 1024L * 1024L)
 
@@ -683,11 +692,14 @@ object LocalStreamingServer {
                 }
                 when (result) {
                     is TelegramChunkResult.Ready -> {
-                        if (result.bytes.isEmpty()) throw IOException("Media range ended before its declared length")
+                        val writeBytes = boundedHttpRangeWriteBytes(
+                            result.bytes.size, readSize, endPos - currentOffset + 1L
+                        )
+                        if (writeBytes <= 0) throw IOException("Media range ended before its declared length")
                         try {
                             PlaybackTelemetryRecorder.notifyFirstByte(fileId)
-                            out.write(result.bytes)
-                            currentOffset += result.bytes.size
+                            out.write(result.bytes, 0, writeBytes)
+                            currentOffset += writeBytes
                         } catch (e: Exception) {
                             releaseReason = TelegramLeaseReleaseReason.ConsumerClosed
                             throw IOException("Media client disconnected", e)
