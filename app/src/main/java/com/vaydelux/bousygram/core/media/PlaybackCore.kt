@@ -109,7 +109,9 @@ object PlaybackCore {
             _currentSession.value = session
 
             // 4. Instantiate designated PlayerEngine
-            val item = queue.getOrNull(startIndex)
+            // PlaybackSession clamps invalid incoming queue indices. Always
+            // bind the engine and state machine to that same selected item.
+            val item = session.currentItem
             val initializationStartedNs = System.nanoTime()
             val engine = PlayerEngineFactory.create(
                 context = context,
