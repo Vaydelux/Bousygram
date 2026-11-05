@@ -47,6 +47,20 @@ class PlaybackHelpersTest {
     }
 
     @Test
+    fun knownShortClipsCanEndNaturallyOnlyNearTheirRealEnd() {
+        // A real 3s clip was previously rejected forever by the 5s threshold.
+        assertTrue(isCredibleNaturalPlaybackEnd(3_000L, 2_800L, true))
+        assertFalse(isCredibleNaturalPlaybackEnd(3_000L, 1_000L, true))
+        assertFalse(isCredibleNaturalPlaybackEnd(3_000L, 2_800L, false))
+
+        // A 6s clip must not auto-skip after a premature 1s native EOF.
+        assertFalse(isCredibleNaturalPlaybackEnd(6_000L, 1_000L, true))
+        assertTrue(isCredibleNaturalPlaybackEnd(6_000L, 5_800L, true))
+        assertTrue(isCredibleNaturalPlaybackEnd(1_000L, 900L, true))
+        assertFalse(isCredibleNaturalPlaybackEnd(1_000L, 400L, true))
+    }
+
+    @Test
     fun bufferingDurationUsesActualTimeAndIncludesActiveStall() {
         assertEquals(0L, measuredRebufferDurationMs(0L, 0L, 50_000L))
         assertEquals(4_200L, measuredRebufferDurationMs(1_200L, 10_000L, 13_000L))
