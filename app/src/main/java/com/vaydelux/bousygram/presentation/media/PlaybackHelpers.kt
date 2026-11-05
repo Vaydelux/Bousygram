@@ -152,6 +152,23 @@ internal fun canSeekTransportStream(
     engineSeekable: Boolean
 ): Boolean = !isTransportStream || engineSeekable
 
+/** Keep displayed/pending seek targets identical to what the decoder can accept. */
+internal fun boundedPlayerSeekTarget(targetMs: Long, knownDurationMs: Long): Long =
+    if (knownDurationMs > 0L) targetMs.coerceIn(0L, knownDurationMs)
+    else targetMs.coerceAtLeast(0L)
+
+/**
+ * Confirmation is based on a decoder-reported position, never a requested
+ * timestamp. Avoid signed-Long subtraction overflow on malformed native clocks.
+ */
+internal fun isConfirmedPlayerSeekPosition(
+    observedMs: Long, targetMs: Long, toleranceMs: Long = 5_000L
+): Boolean {
+    if (observedMs < 0L || targetMs < 0L || toleranceMs < 0L) return false
+    return if (observedMs >= targetMs) observedMs - targetMs <= toleranceMs
+    else targetMs - observedMs <= toleranceMs
+}
+
 /** A pending *backward* seek wins over an old high-water progress marker.
  * Otherwise reconnect would jump forward to an earlier timestamp after rewind.
  */

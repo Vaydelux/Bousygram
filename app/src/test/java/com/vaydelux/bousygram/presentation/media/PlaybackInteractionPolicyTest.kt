@@ -104,6 +104,21 @@ class PlaybackInteractionPolicyTest {
         ))
     }
 
+    @Test fun decoderSeekTargetMatchesKnownDurationWithoutFabricatedProgress() {
+        assertEquals(90_000L, boundedPlayerSeekTarget(Long.MAX_VALUE, 90_000L))
+        assertEquals(0L, boundedPlayerSeekTarget(-1_000L, 90_000L))
+        assertEquals(105_000L, boundedPlayerSeekTarget(105_000L, 0L))
+    }
+
+    @Test fun seekConfirmationRequiresObservedPositionNearAcceptedTarget() {
+        assertTrue(isConfirmedPlayerSeekPosition(85_000L, 90_000L))
+        assertTrue(isConfirmedPlayerSeekPosition(90_100L, 90_000L))
+        assertFalse(isConfirmedPlayerSeekPosition(0L, 90_000L))
+        assertFalse(isConfirmedPlayerSeekPosition(Long.MAX_VALUE, 0L))
+        assertFalse(isConfirmedPlayerSeekPosition(-1L, 90_000L))
+        assertFalse(isConfirmedPlayerSeekPosition(5_000L, Long.MAX_VALUE))
+    }
+
     @Test fun relativeSeekWorksWithoutDurationAndStopsAtKnownEnd() {
         assertEquals(10_000L, relativePlayerSeekTarget(0L, 10_000L, 0L))
         assertEquals(20_000L, relativePlayerSeekTarget(10_000L, 10_000L, 0L))
