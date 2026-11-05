@@ -42,6 +42,14 @@ data class PlaybackTelemetryRecord(
     val playerInitializationMs: Long? = null,
     val playerReleaseMs: Long? = null,
     val cancellationReason: String? = null,
+    /** rendered_video, audio_playback_inferred, native_ready_unverified or unobserved. */
+    val firstOutputEvidence: String = "unobserved",
+    val seekRejectedCount: Int = 0,
+    val seekTimedOutCount: Int = 0,
+    val seekSupersededCount: Int = 0,
+    val seekUnresolvedCount: Int = 0,
+    val fallbackAttemptCount: Int = 0,
+    val fallbackSuccessCount: Int = 0,
     val timestampMs: Long = System.currentTimeMillis()
 )
 
@@ -213,7 +221,7 @@ object PlaybackTelemetrySerializer {
         val initField = record.playerInitializationMs?.toString() ?: "null"
         val releaseField = record.playerReleaseMs?.toString() ?: "null"
         val cancellationField = record.cancellationReason?.let { "\"${escapeJson(it)}\"" } ?: "null"
-        return """{"sessionId":"${escapeJson(record.sessionId)}","timeToFirstByteMs":${record.timeToFirstByteMs},"timeToFirstFrameMs":${record.timeToFirstFrameMs},"rebufferCount":${record.rebufferCount},"totalRebufferMs":${record.totalRebufferMs},"engine":"${escapeJson(record.engine)}","videoDecoderName":"${escapeJson(record.videoDecoderName)}","audioDecoderName":"${escapeJson(record.audioDecoderName)}","container":"${escapeJson(record.container)}","fileSize":${record.fileSize},"failureReason":$reasonField,"fallbackReason":$fallbackField,"isFullyCachedAtStart":${record.isFullyCachedAtStart},"timeToHeaderChunkMs":$timeToHeaderField,"timeToTailChunkMs":$timeToTailField,"averageThroughputBytesPerSec":$throughputField,"bufferConfig":$bufferConfigField,"cacheHitCount":${record.cacheHitCount},"cacheMissCount":${record.cacheMissCount},"reusedCacheBytes":${record.reusedCacheBytes},"seekCount":${record.seekCount},"averageSeekLatencyMs":$seekLatencyField,"droppedFrameCount":${record.droppedFrameCount},"memoryPressure":$memoryPressureField,"telegramBytesRequested":${record.telegramBytesRequested},"localBytesServed":${record.localBytesServed},"deduplicatedRequestCount":${record.deduplicatedRequestCount},"supersededWindowCount":${record.supersededWindowCount},"playerInitializationMs":$initField,"playerReleaseMs":$releaseField,"cancellationReason":$cancellationField,"timestampMs":${record.timestampMs}}"""
+        return """{"sessionId":"${escapeJson(record.sessionId)}","timeToFirstByteMs":${record.timeToFirstByteMs},"timeToFirstFrameMs":${record.timeToFirstFrameMs},"rebufferCount":${record.rebufferCount},"totalRebufferMs":${record.totalRebufferMs},"engine":"${escapeJson(record.engine)}","videoDecoderName":"${escapeJson(record.videoDecoderName)}","audioDecoderName":"${escapeJson(record.audioDecoderName)}","container":"${escapeJson(record.container)}","fileSize":${record.fileSize},"failureReason":$reasonField,"fallbackReason":$fallbackField,"isFullyCachedAtStart":${record.isFullyCachedAtStart},"timeToHeaderChunkMs":$timeToHeaderField,"timeToTailChunkMs":$timeToTailField,"averageThroughputBytesPerSec":$throughputField,"bufferConfig":$bufferConfigField,"cacheHitCount":${record.cacheHitCount},"cacheMissCount":${record.cacheMissCount},"reusedCacheBytes":${record.reusedCacheBytes},"seekCount":${record.seekCount},"averageSeekLatencyMs":$seekLatencyField,"droppedFrameCount":${record.droppedFrameCount},"memoryPressure":$memoryPressureField,"telegramBytesRequested":${record.telegramBytesRequested},"localBytesServed":${record.localBytesServed},"deduplicatedRequestCount":${record.deduplicatedRequestCount},"supersededWindowCount":${record.supersededWindowCount},"playerInitializationMs":$initField,"playerReleaseMs":$releaseField,"cancellationReason":$cancellationField,"firstOutputEvidence":"${escapeJson(record.firstOutputEvidence)}","seekRejectedCount":${record.seekRejectedCount},"seekTimedOutCount":${record.seekTimedOutCount},"seekSupersededCount":${record.seekSupersededCount},"seekUnresolvedCount":${record.seekUnresolvedCount},"fallbackAttemptCount":${record.fallbackAttemptCount},"fallbackSuccessCount":${record.fallbackSuccessCount},"timestampMs":${record.timestampMs}}"""
     }
 
     fun recordsToJson(records: List<PlaybackTelemetryRecord>): String =
@@ -292,6 +300,13 @@ object PlaybackTelemetrySerializer {
             playerInitializationMs = extractNullableLong("playerInitializationMs"),
             playerReleaseMs = extractNullableLong("playerReleaseMs"),
             cancellationReason = if (Regex("\"cancellationReason\"\\s*:\\s*null").containsMatchIn(json)) null else extractString("cancellationReason"),
+            firstOutputEvidence = extractString("firstOutputEvidence") ?: "unobserved",
+            seekRejectedCount = extractInt("seekRejectedCount").coerceAtLeast(0),
+            seekTimedOutCount = extractInt("seekTimedOutCount").coerceAtLeast(0),
+            seekSupersededCount = extractInt("seekSupersededCount").coerceAtLeast(0),
+            seekUnresolvedCount = extractInt("seekUnresolvedCount").coerceAtLeast(0),
+            fallbackAttemptCount = extractInt("fallbackAttemptCount").coerceAtLeast(0),
+            fallbackSuccessCount = extractInt("fallbackSuccessCount").coerceAtLeast(0),
             timestampMs = extractLong("timestampMs", System.currentTimeMillis())
         )
     }
@@ -652,10 +667,16 @@ object PlaybackTelemetryRecorder {
             val sizeMb = if (r.fileSize > 0) "${r.fileSize / (1024 * 1024)}MB" else "unknown"
             val throughputStr = r.averageThroughputBytesPerSec?.let { "${it / 1024}KB/s" } ?: "unknown"
             sb.append("#${index + 1} [$dateStr] [${r.engine}] ${r.container.uppercase()} ($sizeMb) ")
-            sb.append("TTFB=${r.timeToFirstByteMs}ms TTFF=${r.timeToFirstFrameMs}ms ")
+            sb.append("TTFB=${if (r.timeToFirstByteMs > 0L) "${r.timeToFirstByteMs}ms" else "unknown"} ")
+            sb.append("TTFF=${if (r.timeToFirstFrameMs > 0L) "${r.timeToFirstFrameMs}ms" else "unverified"} ")
+            sb.append("firstOutput=${r.firstOutputEvidence} ")
             sb.append("rebuffers=${r.rebufferCount} (${r.totalRebufferMs}ms) ")
             sb.append("cached=${r.isFullyCachedAtStart} hits=${r.cacheHitCount} misses=${r.cacheMissCount} reused=${r.reusedCacheBytes}B ")
-            sb.append("seeks=${r.seekCount} seekAvg=${r.averageSeekLatencyMs ?: -1}ms dropped=${r.droppedFrameCount} memory=${r.memoryPressure ?: "unknown"} ")
+            sb.append("seeksConfirmed=${r.seekCount} seekAvgConfirmed=${r.averageSeekLatencyMs ?: -1}ms ")
+            sb.append("seekRejected=${r.seekRejectedCount} seekTimedOut=${r.seekTimedOutCount} ")
+            sb.append("seekSuperseded=${r.seekSupersededCount} seekUnresolved=${r.seekUnresolvedCount} ")
+            sb.append("fallbacks=${r.fallbackSuccessCount}/${r.fallbackAttemptCount} ")
+            sb.append("dropped=${r.droppedFrameCount} memory=${r.memoryPressure ?: "unknown"} ")
             sb.append("telegramRequested=${r.telegramBytesRequested}B localServed=${r.localBytesServed}B dedup=${r.deduplicatedRequestCount} superseded=${r.supersededWindowCount} ")
             sb.append("header=${r.timeToHeaderChunkMs ?: -1}ms tail=${r.timeToTailChunkMs ?: -1}ms tp=$throughputStr ")
             sb.append("vDec=${r.videoDecoderName} aDec=${r.audioDecoderName}")
@@ -689,13 +710,21 @@ object PlaybackTelemetryRecorder {
         val totalRebuffers = records.sumOf { it.rebufferCount }
         val totalRebufferMs = records.sumOf { it.totalRebufferMs }
         val failureCount = records.count { it.failureReason != null }
+        val rejectedSeeks = records.sumOf { it.seekRejectedCount.toLong() }
+        val timedOutSeeks = records.sumOf { it.seekTimedOutCount.toLong() }
+        val fallbackAttempts = records.sumOf { it.fallbackAttemptCount.toLong() }
+        val fallbackSuccesses = records.sumOf { it.fallbackSuccessCount.toLong() }
 
         sb.append("  \"summary\": {\n")
         sb.append("    \"avgTimeToFirstByteMs\": ${String.format(java.util.Locale.US, "%.1f", avgTtfb)},\n")
         sb.append("    \"avgTimeToFirstFrameMs\": ${String.format(java.util.Locale.US, "%.1f", avgTtff)},\n")
         sb.append("    \"totalRebuffers\": $totalRebuffers,\n")
         sb.append("    \"totalRebufferMs\": $totalRebufferMs,\n")
-        sb.append("    \"failureCount\": $failureCount\n")
+        sb.append("    \"failureCount\": $failureCount,\n")
+        sb.append("    \"seekRejectedCount\": $rejectedSeeks,\n")
+        sb.append("    \"seekTimedOutCount\": $timedOutSeeks,\n")
+        sb.append("    \"fallbackAttemptCount\": $fallbackAttempts,\n")
+        sb.append("    \"fallbackSuccessCount\": $fallbackSuccesses\n")
         sb.append("  },\n")
 
         sb.append("  \"sessions\": [\n")
@@ -734,6 +763,13 @@ object PlaybackTelemetryRecorder {
             sb.append("      \"cacheMissCount\": ${r.cacheMissCount},\n")
             sb.append("      \"reusedCacheBytes\": ${r.reusedCacheBytes},\n")
             sb.append("      \"seekCount\": ${r.seekCount},\n")
+            sb.append("      \"seekRejectedCount\": ${r.seekRejectedCount},\n")
+            sb.append("      \"seekTimedOutCount\": ${r.seekTimedOutCount},\n")
+            sb.append("      \"seekSupersededCount\": ${r.seekSupersededCount},\n")
+            sb.append("      \"seekUnresolvedCount\": ${r.seekUnresolvedCount},\n")
+            sb.append("      \"fallbackAttemptCount\": ${r.fallbackAttemptCount},\n")
+            sb.append("      \"fallbackSuccessCount\": ${r.fallbackSuccessCount},\n")
+            sb.append("      \"firstOutputEvidence\": \"${PlaybackTelemetrySerializer.escapeJson(r.firstOutputEvidence)}\",\n")
             sb.append("      \"averageSeekLatencyMs\": $seekLatencyField,\n")
             sb.append("      \"droppedFrameCount\": ${r.droppedFrameCount},\n")
             sb.append("      \"memoryPressure\": $memoryPressureField,\n")

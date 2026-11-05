@@ -429,4 +429,57 @@ class PlaybackTelemetryRecorderTest {
         val exportJson = PlaybackTelemetryRecorder.exportJson()
         assertTrue(exportJson.contains("\"bufferConfig\": \"exo:normal(min=30000ms,max=120000ms,play=2500ms,rebuf=5000ms,back=30000ms)\""))
     }
+    @Test
+    fun recoveryOutcomesRoundTripAndSeparateUnverifiedFromRenderedFrames() {
+        val record = PlaybackTelemetryRecord(
+            sessionId = "synthetic_recovery",
+            timeToFirstByteMs = 0L,
+            timeToFirstFrameMs = 0L,
+            rebufferCount = 2,
+            totalRebufferMs = 900L,
+            engine = "mpv",
+            videoDecoderName = "Unknown",
+            audioDecoderName = "Unknown",
+            container = "ts",
+            fileSize = 0L,
+            firstOutputEvidence = "native_ready_unverified",
+            seekRejectedCount = 2,
+            seekTimedOutCount = 1,
+            seekSupersededCount = 1,
+            seekUnresolvedCount = 0,
+            fallbackAttemptCount = 2,
+            fallbackSuccessCount = 1
+        )
+        PlaybackTelemetryRecorder.record(record)
+        val parsed = PlaybackTelemetrySerializer.parseRecord(
+            PlaybackTelemetrySerializer.recordToJson(record)
+        )!!
+        assertEquals("native_ready_unverified", parsed.firstOutputEvidence)
+        assertEquals(0L, parsed.timeToFirstFrameMs)
+        assertEquals(2, parsed.seekRejectedCount)
+        assertEquals(1, parsed.seekTimedOutCount)
+        assertEquals(1, parsed.seekSupersededCount)
+        assertEquals(2, parsed.fallbackAttemptCount)
+        assertEquals(1, parsed.fallbackSuccessCount)
+
+        val summary = PlaybackTelemetryRecorder.exportSummary()
+        assertTrue(summary.contains("TTFF=unverified"))
+        assertTrue(summary.contains("seekTimedOut=1"))
+        assertTrue(summary.contains("fallbacks=1/2"))
+        val json = PlaybackTelemetryRecorder.exportJson()
+        assertTrue(json.contains("\"firstOutputEvidence\": \"native_ready_unverified\""))
+        assertTrue(json.contains("\"seekRejectedCount\": 2"))
+        assertTrue(json.contains("\"fallbackSuccessCount\": 1"))
+    }
+
+    @Test
+    fun legacyTelemetryWithoutRecoveryFieldsKeepsSafeUnknownDefaults() {
+        val legacyJson = """{"sessionId":"legacy","engine":"mpv","timeToFirstFrameMs":0}"""
+        val record = PlaybackTelemetrySerializer.parseRecord(legacyJson)!!
+        assertEquals("unobserved", record.firstOutputEvidence)
+        assertEquals(0, record.seekRejectedCount)
+        assertEquals(0, record.seekTimedOutCount)
+        assertEquals(0, record.fallbackAttemptCount)
+    }
+
 }
