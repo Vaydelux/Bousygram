@@ -28,6 +28,19 @@ fail() {
 adb install -r ci-artifacts/debug/Bousygram-debug.apk
 adb install -r ci-artifacts/debug/Bousygram-debug-androidTest.apk
 
+# Push only synthetic, checksum-verified media into the target app's own
+# external-files sandbox. No real Telegram account, token, or private video.
+fixture_dir='ci-artifacts/decoder-fixtures'
+test -s "$fixture_dir/SHA256SUMS.txt" || fail 'Decoder fixtures were not generated'
+( cd "$fixture_dir" && sha256sum --check SHA256SUMS.txt ) || fail 'Decoder fixture checksum mismatch'
+remote_fixture_dir='/sdcard/Android/data/com.vaydelux.bousygram/files/decoder-fixtures'
+adb shell mkdir -p "$remote_fixture_dir" || fail 'Could not create decoder fixture sandbox'
+for name in seek-control.mp4 indexed.mkv unindexed.ts; do
+  adb push "$fixture_dir/$name" "$remote_fixture_dir/$name" >/dev/null \
+    || fail "Could not push $name to the emulator"
+done
+
+
 # ADB may briefly go offline after installation even when the runner reported
 # boot completion. Retry transport readiness, never test assertion failures.
 device_ready=false
@@ -72,7 +85,7 @@ fi
 # Give the emulator a stable window transition before the instrumentation runner.
 sleep 2
 
-test_classes='com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest,com.vaydelux.bousygram.app.MainActivitySmokeTest,com.vaydelux.bousygram.app.AndroidTvNavigationSmokeTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.media.PlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.CinematicPlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.CinematicScrubberInstrumentedTest,com.vaydelux.bousygram.presentation.media.ChatSourcePickerInstrumentedTest,com.vaydelux.bousygram.presentation.media.SubtitleAppearanceInstrumentedTest,com.vaydelux.bousygram.core.media.ExperimentalStreamUrlPolicyInstrumentedTest,com.vaydelux.bousygram.presentation.components.TvFocusIndicatorInstrumentedTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasDpadFocusInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasSearchUiInstrumentedTest'
+test_classes='com.vaydelux.bousygram.core.cast.CastRouteButtonThemeInstrumentedTest,com.vaydelux.bousygram.core.cast.CastReceiverIntentInstrumentedTest,com.vaydelux.bousygram.app.MainActivitySmokeTest,com.vaydelux.bousygram.app.AndroidTvNavigationSmokeTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.media.PlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.CinematicPlayerChromeInstrumentedTest,com.vaydelux.bousygram.presentation.media.CinematicScrubberInstrumentedTest,com.vaydelux.bousygram.presentation.media.ChatSourcePickerInstrumentedTest,com.vaydelux.bousygram.presentation.media.SubtitleAppearanceInstrumentedTest,com.vaydelux.bousygram.core.media.ExperimentalStreamUrlPolicyInstrumentedTest,com.vaydelux.bousygram.core.media.PlaybackDecoderFixtureInstrumentedTest,com.vaydelux.bousygram.presentation.components.TvFocusIndicatorInstrumentedTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasDpadFocusInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasSearchUiInstrumentedTest'
 runner='com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner'
 
 # Preserve the actual instrumentation exit status through tee. The test run
