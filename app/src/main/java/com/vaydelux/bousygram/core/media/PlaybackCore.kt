@@ -109,7 +109,9 @@ object PlaybackCore {
             _currentSession.value = session
 
             // 4. Instantiate designated PlayerEngine
-            val item = queue.getOrNull(startIndex)
+            // PlaybackSession clamps invalid incoming queue indices. Always
+            // bind the engine and state machine to that same selected item.
+            val item = session.currentItem
             val initializationStartedNs = System.nanoTime()
             val engine = PlayerEngineFactory.create(
                 context = context,
@@ -152,7 +154,9 @@ object PlaybackCore {
         preparingWatchdogJob?.cancel()
         preparingWatchdogJob = scope.launch {
             delay(PREPARING_WATCHDOG_TIMEOUT_MS)
-            if (stateMachine.isPreparing) {
+            if (_currentSession.value === session && _currentEngine.value === engine &&
+                !session.isStopped() && stateMachine.isPreparing
+            ) {
                 val item = session.currentItem
                 Log.w(TAG, "Preparing watchdog timed out after ${PREPARING_WATCHDOG_TIMEOUT_MS}ms with no first frame. FileId=${item?.fileId}")
                 PlaybackDiagnostics.recordStreamError("PreparingWatchdogTimeout")
@@ -174,6 +178,12 @@ object PlaybackCore {
         engineObserverJob?.cancel()
         engineObserverJob = scope.launch {
             engine.playbackState.collect { engineState ->
+                // Cancellation alone cannot prevent an already-delivered native
+                // callback after an engine fallback or a rapid session switch.
+                // Never let the superseded engine mutate the active timeline.
+                if (_currentSession.value !== session || _currentEngine.value !== engine ||
+                    session.isStopped()
+                ) return@collect
                 when (engineState) {
                     is EnginePlaybackState.Idle -> {
                         // Engine idle
