@@ -30,3 +30,14 @@ Stop releases on stale-account data exposure, lost manual-pause intent, crash/AN
 ## Where to start
 
 The first delivery is **P0.1**: physical TDLib account-reconnect tests. Use `docs/qualification/PHYSICAL_DEVICE_PRIORITY_GATE.md` and `tools/qualification/Capture-BousygramPhysicalSoak.ps1` from merged PR #100, then follow **P0.2** and **P0.3**. Keep the three results as separate test categories.
+
+## P1.2 source implementation (November 6, 2026)
+
+- Bounded access-order TV focus/viewport history, including concurrent-safe updates.
+- Bounded incoming Telegram new-message list while preserving deep-page scroll and cursor.
+- Per-category Android memory trim policy with reclaimable offscreen catalog metadata.
+- Lazily configured Coil 2.7 decoded-image cache with a smaller ARM32 budget and logout/critical-pressure cleanup.
+- Tests for LRU history, high-volume incoming media, trimmed memory levels and image-cache policy.
+- [Resource policy and physical validation plan](../qualification/LONG_SESSION_RESOURCE_BUDGETS.md).
+
+The source milestone does not replace the ARM32/ARM64 physical-device qualification gate.
