@@ -2061,7 +2061,7 @@ fun PlayerScreen(
                         } else {
                             val delta = if (offset.x < size.width / 2f) -SEEK_INCREMENT_MS else SEEK_INCREMENT_MS
                             val base = if (castState.connected) castState.positionMs else playerEngine.currentPositionMs
-                            val newPos = (base + delta).coerceIn(0L, max)
+                            val newPos = relativePlayerSeekTarget(base, delta, max)
                             val accepted = if (castState.connected) {
                                 CastSessionController.seekTo(newPos)
                                 true
