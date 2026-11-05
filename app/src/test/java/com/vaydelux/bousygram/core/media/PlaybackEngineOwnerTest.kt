@@ -5,6 +5,27 @@ import org.junit.Test
 
 class PlaybackEngineOwnerTest {
     @Test
+    fun replacingRegisteredResourceClosesOldBridgeExactlyOnce() {
+        val session = PlaybackSessionController.start(fileId = 778)
+        val engine = FakeTestEngine()
+        val owner = PlaybackEngineOwner(session, engine, onOwnerThread = { it() })
+        var older = 0
+        var newer = 0
+        try {
+            val closeOlder = owner.registerEngineResource(engine) { older++ }
+            owner.registerEngineResource(engine) { newer++ }
+            assertEquals(1, older)
+            assertEquals(0, newer)
+            closeOlder()
+            assertEquals(1, older)
+        } finally {
+            PlaybackSessionController.stop(session, PlaybackCacheStopReason.Dispose)
+        }
+        assertEquals(1, newer)
+        assertEquals(1, older)
+    }
+
+    @Test
     fun replacementAndRepeatedStopReleaseEachEngineOnlyOnce() {
         val session = PlaybackSessionController.start(fileId = 777)
         val firstCalls = mutableListOf<String>()
