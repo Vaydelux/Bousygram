@@ -98,7 +98,7 @@ class TelegramChunkSchedulerTest {
         for (id in 14_000..14_599) {
             TelegramChunkScheduler.onFileUpdated(
                 TelegramGatewayFile(fileId = id, localPath = "/tdlib/cache/$id",
-                    isDownloadingCompleted = true, downloadedPrefixSize = 1024L)
+                    isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 1024L)
             )
         }
         assertFalse(TelegramChunkScheduler.hasRetainedFileStatusForTests(protectedFile))
@@ -109,11 +109,14 @@ class TelegramChunkSchedulerTest {
     @Test
     fun recentlyRefreshedFileStatusSurvivesIdleStatusPruning() {
         for (id in 20_000..20_374) {
-            TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = id))
+            TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = id, localPath = "/tdlib/cache/$id",
+                isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 1024L))
         }
-        TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = 20_000))
+        TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = 20_000, localPath = "/tdlib/cache/20000",
+            isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 1024L))
         for (id in 20_375..20_520) {
-            TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = id))
+            TelegramChunkScheduler.onFileUpdated(TelegramGatewayFile(fileId = id, localPath = "/tdlib/cache/$id",
+                isDownloadingCompleted = true, downloadOffset = 0L, downloadedPrefixSize = 1024L))
         }
         assertTrue(TelegramChunkScheduler.hasRetainedFileStatusForTests(20_000))
         assertFalse(TelegramChunkScheduler.hasRetainedFileStatusForTests(20_001))
