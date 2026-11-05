@@ -646,6 +646,17 @@ internal object TelegramChunkScheduler {
             return TelegramChunkResult.Ready(bytes, TelegramChunkReadSource.DirectDisk, retryCount = 0)
         }
 
+        // Container duration probes are observational only. A TS tail/PCR scan
+        // must not start or reposition TDLib's native download window, including
+        // when playback is preparing and no foreground reader has a lease yet.
+        // The next scheduled probe can retry after these bytes arrive naturally.
+        if (effectiveRequest.purpose == TelegramChunkPurpose.Metadata) {
+            return readReadyChunk(
+                latestFiles[effectiveRequest.fileId] ?: getFileStatus(effectiveRequest.fileId),
+                effectiveRequest
+            ) ?: TelegramChunkResult.Pending
+        }
+
         if (isPlaybackPurpose(effectiveRequest.purpose)) {
             touchPlayback(effectiveRequest.fileId)
         } else if (isPlaybackBusy(effectiveRequest.fileId)) {
