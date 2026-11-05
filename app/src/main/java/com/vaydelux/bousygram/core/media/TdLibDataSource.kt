@@ -46,7 +46,9 @@ internal fun readAheadRequestBytes(requested: Int, remaining: Long): Int {
  * Access is authorized by verifying that the requested fileId is tied to an active [PlaybackSession].
  */
 @OptIn(UnstableApi::class)
-class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
+class TdLibDataSource(
+    private val isPlaybackFileAuthorized: (Int) -> Boolean = PlaybackSessionController::isFileActive
+) : BaseDataSource(/* isNetwork = */ true) {
 
     class Factory : DataSource.Factory {
         override fun createDataSource(): DataSource = TdLibDataSource()
@@ -88,7 +90,7 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         fileId = fileIdParam
 
         // Direct data source access needs no token, but must be tied to an active playback session.
-        if (!PlaybackSessionController.isFileActive(fileId)) {
+        if (!isPlaybackFileAuthorized(fileId)) {
             throw IOException("Direct TDLib data source access denied: fileId $fileId is not tied to an active playback session")
         }
 
@@ -156,7 +158,7 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
         if (isClosed || !opened) return C.RESULT_END_OF_INPUT
         // An account switch/logout revokes access even to bytes already buffered
         // in this DataSource; the lease granted during open() is not perpetual.
-        if (!PlaybackSessionController.isFileActive(fileId)) {
+        if (!isPlaybackFileAuthorized(fileId)) {
             throw IOException("TDLib direct read access revoked for this playback session")
         }
 
@@ -208,6 +210,12 @@ class TdLibDataSource : BaseDataSource(/* isNetwork = */ true) {
 
         if (isClosed || !opened) {
             throw IOException("TDLib direct read aborted")
+        }
+        // A read can wait up to 12 seconds inside TDLib. Logout, a TDLib
+        // restart or an account switch may revoke its session in that window.
+        // Authorization at read() entry is not a grant to return stale bytes.
+        if (!isPlaybackFileAuthorized(fileId)) {
+            throw IOException("TDLib direct read access revoked during fetch")
         }
 
         val bytes = when (chunk) {
