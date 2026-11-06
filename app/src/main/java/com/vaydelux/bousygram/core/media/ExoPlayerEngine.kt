@@ -48,6 +48,8 @@ class ExoPlayerEngine(
     override val engineName: String = "ExoPlayer"
     override val bufferConfigDescription: String get() = bufferConfig?.description ?: "exo:default"
 
+    private val _audioEqStatus = MutableStateFlow(AudioEffectStatus.BYPASSED)
+    override val audioEqualizerStatus: StateFlow<AudioEffectStatus> = _audioEqStatus.asStateFlow()
     private var requestedEqPreset = AudioEqualizerPreset.ORIGINAL
     private var audioFx: Equalizer? = null
     private var audioFxSessionId = -1
@@ -63,12 +65,14 @@ class ExoPlayerEngine(
         requestedEqPreset = preset
         if (!preset.isEnabled) {
             releaseAudioFx()
+            _audioEqStatus.value = AudioEffectStatus.BYPASSED
             return true
         }
         val session = player.audioSessionId
         // Never create a global output-mix effect on session 0.
         if (session <= 0) {
             releaseAudioFx()
+            _audioEqStatus.value = AudioEffectStatus.PENDING
             return false
         }
         return runCatching {
@@ -77,6 +81,7 @@ class ExoPlayerEngine(
                 val created = Equalizer(0, session)
                 if (!created.hasControl()) {
                     created.release()
+                    _audioEqStatus.value = AudioEffectStatus.UNSUPPORTED
                     return@runCatching false
                 }
                 audioFx = created
@@ -88,14 +93,18 @@ class ExoPlayerEngine(
                 val band = index.toShort()
                 val frequencyHz = fx.getCenterFreq(band) / 1_000f
                 fx.setBandLevel(
-                    band, audioEqMillibels(preset, frequencyHz, range[0].toInt(), range[1].toInt())
+                    band, safeAudioFxBandMillibels(preset, frequencyHz, range[0].toInt(), range[1].toInt())
                 )
             }
             fx.enabled = true
-            fx.enabled
+            val confirmed = fx.enabled && fx.hasControl()
+            _audioEqStatus.value = if (confirmed) AudioEffectStatus.APPLIED
+                else AudioEffectStatus.UNSUPPORTED
+            confirmed
         }.getOrElse { error ->
             Log.w("BousyAudioEq", "Android AudioFX unavailable for this output", error)
             releaseAudioFx()
+            _audioEqStatus.value = AudioEffectStatus.UNSUPPORTED
             false
         }
     }
@@ -341,6 +350,7 @@ class ExoPlayerEngine(
 
     override fun release() {
         releaseAudioFx()
+        _audioEqStatus.value = AudioEffectStatus.BYPASSED
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)
         player.release()
