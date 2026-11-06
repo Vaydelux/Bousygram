@@ -15,6 +15,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +87,9 @@ internal fun AudioSettingsPanel(isTv: Boolean) {
                 profile.customLayout.bandIndices.forEach { index ->
                     val hz = AudioProcessingProfile.CUSTOM_FREQUENCIES_HZ[index]
                     val gain = profile.sanitizedGains[index]
+                    // Do not rebuild the native EQ chain for every pixel moved.
+                    // A slider drag is one committed change on release.
+                    var draggedGain by remember(index, gain) { mutableFloatStateOf(gain) }
                     val label = if (hz >= 1_000) "${(hz / 1_000).toInt()}k"
                         else "${hz.toInt()}"
                     Row(
@@ -98,8 +104,11 @@ internal fun AudioSettingsPanel(isTv: Boolean) {
                         })
                         if (!isTv) {
                             Slider(
-                                value = gain,
-                                onValueChange = { apply(profile.editedBand(index, it)) },
+                                value = draggedGain,
+                                onValueChange = { draggedGain = it },
+                                onValueChangeFinished = {
+                                    apply(profile.editedBand(index, draggedGain))
+                                },
                                 valueRange = -6f..6f,
                                 steps = 11,
                                 modifier = Modifier.weight(1f)
