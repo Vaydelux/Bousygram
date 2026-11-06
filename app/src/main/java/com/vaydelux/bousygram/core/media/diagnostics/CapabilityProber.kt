@@ -34,16 +34,17 @@ object CapabilityProber {
         fileName: String?,
         title: String?,
         is10Bit: Boolean = false,
-        profileHint: Int = 0
+        profileHint: Int = 0,
+        mediaKey: String? = null
     ): ProbingResult {
-        val container = VideoFormatSupport.resolveContainer(fileName, mimeType, title.orEmpty())
         val resolvedMime = VideoFormatSupport.exoMimeType(mimeType, fileName, title.orEmpty())
 
         // 1. Check persistent verdict store first
-        val verdictKey = EngineVerdictStore.buildKey(resolvedMime, container, profileHint, is10Bit)
-        val savedVerdict = EngineVerdictStore.getVerdict(context, verdictKey)
+        // Read only a recovery hint for this account's exact Telegram media item.
+        // Older format-wide verdicts were too broad and are deliberately ignored.
+        val savedVerdict = mediaKey?.let { EngineVerdictStore.getVerdict(context, it) }
         if (savedVerdict != null) {
-            Log.i(TAG, "Using cached verdict for $verdictKey: ${savedVerdict.recommendedEngine} (reason: ${savedVerdict.reason})")
+            Log.i(TAG, "Using media-scoped recovery hint: ${savedVerdict.recommendedEngine}")
             return ProbingResult(
                 recommendedEngine = savedVerdict.recommendedEngine,
                 useTextureView = savedVerdict.useTextureView,

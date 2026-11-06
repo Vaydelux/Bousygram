@@ -399,7 +399,12 @@ fun PlayerScreen(
                 context = context,
                 mimeType = firstItem.mimeType,
                 fileName = firstItem.fileName,
-                title = firstItem.title
+                title = firstItem.title,
+                mediaKey = com.vaydelux.bousygram.core.media.diagnostics.EngineVerdictStore.buildMediaKey(
+                    com.vaydelux.bousygram.core.account.AccountSession.current()?.accountId,
+                    firstItem.chatId,
+                    firstItem.messageId
+                )
             )
         } else null
     }
@@ -911,6 +916,16 @@ fun PlayerScreen(
 
     LaunchedEffect(playerEngine, queueIndex) {
         fun recordInitialOutput(audioOnly: Boolean, verifiedVideoFrame: Boolean = false) {
+            if (verifiedVideoFrame) {
+                val current = queue.getOrNull(queueIndex)
+                val recoveryKey = current?.let {
+                    com.vaydelux.bousygram.core.media.diagnostics.EngineVerdictStore.buildMediaKey(
+                        com.vaydelux.bousygram.core.account.AccountSession.current()?.accountId,
+                        it.chatId, it.messageId
+                    )
+                }
+                if (recoveryKey != null) blackScreenDetector.confirmRenderedFrame(context, recoveryKey)
+            }
             if (playerStartedAtMs <= 0L) return
             // A decoder may advance its timeline before ExoPlayer actually
             // presents the first frame. Preserve the later authoritative
@@ -1866,7 +1881,13 @@ fun PlayerScreen(
                 videoWidth = videoDimensions.first,
                 videoHeight = videoDimensions.second,
                 decoderName = decoderName,
-                mediaKey = "${currentItem?.chatId}:${currentItem?.messageId}"
+                mediaKey = currentItem?.let {
+                    com.vaydelux.bousygram.core.media.diagnostics.EngineVerdictStore.buildMediaKey(
+                        com.vaydelux.bousygram.core.account.AccountSession.current()?.accountId,
+                        it.chatId,
+                        it.messageId
+                    )
+                }.orEmpty()
             )
             when (recoveryAction) {
                 BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW -> {

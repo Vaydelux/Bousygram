@@ -13,15 +13,53 @@ data class EngineVerdict(
 )
 
 /**
- * Persistent store for engine & surface verdicts per device, codec, container, and resolution.
- * Prevents repeating 3-4s black-screen stalls when playing known problematic media formats.
+ * Pure policy for bounded, time-limited playback recovery hints. A verdict is a hint for
+ * one particular Telegram media item, not proof that an entire container/codec works.
+ */
+internal object EngineVerdictPolicy {
+    const val MAX_ENTRIES = 96
+    const val MAX_REASON_LENGTH = 180
+    const val TTL_MS = 7L * 24L * 60L * 60L * 1000L
+
+    fun isFresh(timestampMs: Long, nowMs: Long): Boolean =
+        timestampMs > 0L && timestampMs <= nowMs && nowMs - timestampMs < TTL_MS
+
+    /** Fail closed on corrupt or unrecognized persisted preferences. */
+    fun decodeEngine(raw: String?): SelectedPlayerEngine? = when (raw) {
+        "ExoPlayer" -> SelectedPlayerEngine.ExoPlayer
+        "MPV", "Mpv", "MpvPlayer" -> SelectedPlayerEngine.MPV
+        "LIBVLC", "LIBVLC_EXPERIMENTAL" -> SelectedPlayerEngine.LIBVLC
+        else -> null
+    }
+
+    /** Each saved verdict uses four preference keys, with _time as its index. */
+    fun evictions(values: Map<String, *>, nowMs: Long): Set<String> {
+        val times = values.entries.asSequence()
+            .filter { it.key.endsWith("_time") }
+            .map { it.key.removeSuffix("_time") to (it.value as? Long ?: 0L) }
+            .toList()
+        val stale = times.filterNot { isFresh(it.second, nowMs) }.map { it.first }
+        val overflow = times.filter { isFresh(it.second, nowMs) }
+            .sortedWith(compareByDescending<Pair<String, Long>> { it.second }.thenBy { it.first })
+            .drop(MAX_ENTRIES)
+            .map { it.first }
+        return (stale + overflow).toSet()
+    }
+}
+
+/**
+ * A small cache of recovery hints. Keys are account-scoped media identities so a malformed
+ * file cannot change the default player for every other MKV/TS file on the device.
  */
 object EngineVerdictStore {
     private const val TAG = "EngineVerdictStore"
     private const val PREFS_NAME = "bousygram_engine_verdicts"
+    private const val MAX_KEY_LENGTH = 180
 
-    private val inMemoryCache = mutableMapOf<String, EngineVerdict>()
+    // Access-ordered for eviction. All accesses are guarded by the object's monitor.
+    private val inMemoryCache = LinkedHashMap<String, EngineVerdict>(16, 0.75f, true)
 
+    /** Older device/format key remains available to callers that explicitly use it. */
     fun buildKey(
         mimeType: String?,
         container: String?,
@@ -35,43 +73,94 @@ object EngineVerdictStore {
         return "${deviceModel}_${cont}_${mime}_p${profile}_$bit"
     }
 
+    /** Telegram chat ids may be negative; message ids and verified account ids are positive. */
+    fun buildMediaKey(accountId: Long?, chatId: Long, messageId: Long): String? =
+        if (accountId == null || accountId <= 0L || chatId == 0L || messageId <= 0L) null
+        else "media_${accountId}_${chatId}_${messageId}"
+
     @Synchronized
     fun getVerdict(context: Context, key: String): EngineVerdict? {
-        inMemoryCache[key]?.let { return it }
-
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val engineStr = prefs.getString("${key}_engine", null) ?: return null
-        val useTexture = prefs.getBoolean("${key}_texture", false)
-        val reason = prefs.getString("${key}_reason", "Persisted verdict") ?: "Persisted verdict"
-        val time = prefs.getLong("${key}_time", 0L)
-
-        val engine = when (engineStr) {
-            "MPV", "Mpv", "MpvPlayer" -> SelectedPlayerEngine.MPV
-            else -> SelectedPlayerEngine.ExoPlayer
+        if (key.isBlank() || key.length > MAX_KEY_LENGTH) return null
+        val now = System.currentTimeMillis()
+        inMemoryCache[key]?.let {
+            if (EngineVerdictPolicy.isFresh(it.timestampMs, now)) return it
+            inMemoryCache.remove(key)
         }
 
-        val verdict = EngineVerdict(engine, useTexture, reason, time)
-        inMemoryCache[key] = verdict
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        // Inspect the raw preferences to tolerate type mismatches caused by older installations.
+        val values = prefs.all
+        val engine = EngineVerdictPolicy.decodeEngine(values["${key}_engine"] as? String)
+        val time = values["${key}_time"] as? Long ?: 0L
+        if (engine == null || !EngineVerdictPolicy.isFresh(time, now)) {
+            if (values.containsKey("${key}_engine") || values.containsKey("${key}_time")) {
+                removeEntry(prefs, key)
+            }
+            return null
+        }
+
+        val verdict = EngineVerdict(
+            recommendedEngine = engine,
+            useTextureView = values["${key}_texture"] as? Boolean ?: false,
+            reason = (values["${key}_reason"] as? String).orEmpty()
+                .take(EngineVerdictPolicy.MAX_REASON_LENGTH),
+            timestampMs = time
+        )
+        remember(key, verdict)
         return verdict
     }
 
     @Synchronized
     fun recordVerdict(context: Context, key: String, verdict: EngineVerdict) {
-        inMemoryCache[key] = verdict
-        Log.i(TAG, "Recording verdict for $key: engine=${verdict.recommendedEngine}, texture=${verdict.useTextureView}, reason=${verdict.reason}")
+        if (key.isBlank() || key.length > MAX_KEY_LENGTH ||
+            verdict.recommendedEngine == SelectedPlayerEngine.AUTO ||
+            !EngineVerdictPolicy.isFresh(verdict.timestampMs, System.currentTimeMillis())
+        ) return
+
+        val sanitized = verdict.copy(reason = verdict.reason.take(EngineVerdictPolicy.MAX_REASON_LENGTH))
+        remember(key, sanitized)
+        // Do not log media identity or Telegram identifiers.
+        Log.i(TAG, "Recording recovery hint for ${sanitized.recommendedEngine}")
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putString("${key}_engine", verdict.recommendedEngine.name)
-            .putBoolean("${key}_texture", verdict.useTextureView)
-            .putString("${key}_reason", verdict.reason)
-            .putLong("${key}_time", verdict.timestampMs)
-            .apply()
+        val snapshot = prefs.all.toMutableMap()
+        snapshot["${key}_time"] = sanitized.timestampMs
+        val evictions = EngineVerdictPolicy.evictions(snapshot, System.currentTimeMillis())
+        val editor = prefs.edit()
+            .putString("${key}_engine", sanitized.recommendedEngine.name)
+            .putBoolean("${key}_texture", sanitized.useTextureView)
+            .putString("${key}_reason", sanitized.reason)
+            .putLong("${key}_time", sanitized.timestampMs)
+        evictions.forEach { old ->
+            removeFields(editor, old)
+            inMemoryCache.remove(old)
+        }
+        editor.apply()
     }
+
+    private fun remember(key: String, verdict: EngineVerdict) {
+        inMemoryCache[key] = verdict
+        while (inMemoryCache.size > EngineVerdictPolicy.MAX_ENTRIES) {
+            inMemoryCache.remove(inMemoryCache.keys.first())
+        }
+    }
+
+    private fun removeEntry(prefs: android.content.SharedPreferences, key: String) {
+        inMemoryCache.remove(key)
+        removeFields(prefs.edit(), key).apply()
+    }
+
+    private fun removeFields(
+        editor: android.content.SharedPreferences.Editor,
+        key: String
+    ): android.content.SharedPreferences.Editor = editor
+        .remove("${key}_engine")
+        .remove("${key}_texture")
+        .remove("${key}_reason")
+        .remove("${key}_time")
 
     @Synchronized
     fun clearAll(context: Context) {
         inMemoryCache.clear()
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().clear().apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
     }
 }
