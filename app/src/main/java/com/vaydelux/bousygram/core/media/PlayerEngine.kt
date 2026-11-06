@@ -38,6 +38,9 @@ interface PlayerEngine {
     val activeDecoder: String
     val videoDecoderName: String get() = activeDecoder
     val audioDecoderName: String get() = "Unknown"
+    /** The real processing outcome, not just the user's desired EQ preset. */
+    val audioEqualizerStatus: StateFlow<AudioEffectStatus>
+        get() = AudioEffectStatus.DEFAULT
     val tracks: StateFlow<List<MediaTrackInfo>>
     val videoDimensions: StateFlow<Pair<Int, Int>>
     val bufferConfigDescription: String get() = ""
