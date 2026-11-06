@@ -352,9 +352,26 @@ object EnterprisePreferences {
                 settings.bufferMode?.let { putString(KEY_BUFFER_MODE, it.name) }
                 settings.visualTheme?.let { putString(KEY_VISUAL_THEME, it) }
                 settings.audioEqualizer?.let { putString(KEY_AUDIO_EQ_PRESET, it.name) }
+                settings.audioCustomGains?.let {
+                    putString(KEY_AUDIO_CUSTOM_GAINS, JSONArray(it).toString())
+                }
+                settings.audioCustomLayout?.let { putString(KEY_AUDIO_CUSTOM_LAYOUT, it.name) }
+                settings.audioSmartVolume?.let { putString(KEY_AUDIO_SMART_VOLUME, it.name) }
             }
-            settings.audioEqualizer?.let { audioEqState.value = it }
-            Unit // Keep the settings-import action strictly () -> Unit, not Unit?.
+            if (settings.audioEqualizer != null || settings.audioCustomGains != null ||
+                settings.audioCustomLayout != null || settings.audioSmartVolume != null
+            ) {
+                val current = audioProfileState.value
+                val updated = current.copy(
+                    preset = settings.audioEqualizer ?: current.preset,
+                    customGainsDb = settings.audioCustomGains ?: current.customGainsDb,
+                    customLayout = settings.audioCustomLayout ?: current.customLayout,
+                    smartVolume = settings.audioSmartVolume ?: current.smartVolume
+                )
+                audioProfileState.value = updated
+                audioEqState.value = updated.preset
+            }
+            Unit // Keep settings-import callback strictly () -> Unit.
         }
         if (owner == null) applySettings() else check(AccountSession.runIfCurrent(owner, applySettings)) {
             "Telegram account changed; settings were not imported"
