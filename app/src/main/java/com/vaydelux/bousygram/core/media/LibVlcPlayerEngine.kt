@@ -10,6 +10,7 @@ import com.vaydelux.bousygram.core.media.PlayerEngine
 import com.vaydelux.bousygram.core.media.isTrustedExperimentalLocalStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
