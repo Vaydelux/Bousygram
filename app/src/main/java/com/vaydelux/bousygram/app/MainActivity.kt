@@ -44,6 +44,8 @@ import com.vaydelux.bousygram.presentation.media.FavoritesScreen
 import com.vaydelux.bousygram.presentation.media.PlaybackRequest
 import com.vaydelux.bousygram.presentation.media.PlayerScreen
 import com.vaydelux.bousygram.presentation.media.playableVideos
+import com.vaydelux.bousygram.presentation.media.canPageOlderEpisodes
+import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 import com.vaydelux.bousygram.presentation.components.BousygramAdaptiveShell
 import com.vaydelux.bousygram.presentation.components.ShellDestination
 import com.vaydelux.bousygram.presentation.navigation.AppScreen
@@ -278,9 +280,25 @@ private fun BousygramAppRoot(
         authState.step != AuthStep.Authorized -> AuthScreen(viewModel = authViewModel)
         appScreen is AppScreen.Player -> {
             val screen = appScreen as AppScreen.Player
+            // The same Activity-scoped catalog VM used by BrowseScreen survives
+            // navigation to the player. Never page an unrelated search/Cast source.
+            val mediaViewModel: MediaViewModel = viewModel()
+            val source by mediaViewModel.uiState.collectAsState()
+            val matchesCurrentSource = canPageOlderEpisodes(screen.request, source)
             PlayerScreen(
                 request = screen.request,
-                onExit = { appScreen = unwrapNonPlayerScreen(screen.returnTo) }
+                onExit = { appScreen = unwrapNonPlayerScreen(screen.returnTo) },
+                episodeCatalog = if (matchesCurrentSource) source.items else emptyList(),
+                isForumEpisodeSource = source.videoChats.any {
+                    it.chatId == screen.request.chatId && it.isForum
+                },
+                canLoadOlderEpisodes = matchesCurrentSource &&
+                    !source.isLoadingMore,
+                isLoadingOlderEpisodes = matchesCurrentSource &&
+                    source.isLoadingMore,
+                onLoadOlderEpisodes = if (matchesCurrentSource) {
+                    { mediaViewModel.loadMoreIfNeeded() }
+                } else null
             )
         }
         else -> {
