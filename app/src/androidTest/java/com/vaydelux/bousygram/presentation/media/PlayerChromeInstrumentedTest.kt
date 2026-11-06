@@ -6,10 +6,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import org.junit.Assert.assertEquals
@@ -108,4 +112,44 @@ class PlayerChromeInstrumentedTest {
         composeRule.onNodeWithTag("player_options_panel").assertExists()
         composeRule.onNodeWithText("Audio / CC").assertExists()
     }
+    @Test fun phoneOptionsHaveDescriptiveTalkBackActionsAndTouchSize() {
+        showChrome(PlayerChromeLayout.TOUCH_COMPACT)
+        composeRule.onNodeWithTag("player_options_toggle")
+            .assertContentDescriptionEquals("More playback options")
+            .performClick()
+        composeRule.onNodeWithTag("player_options_toggle")
+            .assertContentDescriptionEquals("Close playback options")
+        composeRule.onNodeWithTag("player_option_tracks")
+            .assertContentDescriptionEquals("Audio and subtitle tracks")
+            .assertHasClickAction()
+            .assertHeightIsAtLeast(48.dp)
+        composeRule.onNodeWithTag("player_option_speed")
+            .assertContentDescriptionEquals("Playback speed, 1.0x")
+            .assertHeightIsAtLeast(48.dp)
+        composeRule.onNodeWithTag("player_option_aspect")
+            .assertContentDescriptionEquals("Video aspect ratio, Fit")
+        composeRule.onNodeWithTag("player_option_seek_back_30")
+            .assertContentDescriptionEquals("Seek backward 30 seconds")
+        composeRule.onNodeWithTag("player_option_seek_forward_30")
+            .assertContentDescriptionEquals("Seek forward 30 seconds")
+        composeRule.onNodeWithTag("player_option_done")
+            .assertContentDescriptionEquals("Close playback options")
+            .performClick()
+        composeRule.onNodeWithTag("player_options_panel").assertDoesNotExist()
+    }
+
+    @Test fun tvOptionsExposeSemanticsWithoutTriggeringPlayback() {
+        showChrome(PlayerChromeLayout.TV)
+        composeRule.onNodeWithTag("player_toggle_playback")
+            .assertContentDescriptionEquals("Play video")
+        composeRule.onNodeWithTag("player_options_toggle").performClick()
+        composeRule.onNodeWithTag("player_option_tracks")
+            .assertContentDescriptionEquals("Audio and subtitle tracks")
+        composeRule.onNodeWithTag("player_option_seek_forward_30")
+            .assertContentDescriptionEquals("Seek forward 30 seconds")
+        composeRule.onNodeWithTag("player_option_done")
+            .assertHasClickAction()
+        composeRule.runOnIdle { assertEquals(0, playClicks) }
+    }
+
 }
