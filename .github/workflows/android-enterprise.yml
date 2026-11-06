@@ -79,6 +79,15 @@ jobs:
           & pwsh -NoProfile -File tools/ci/Test-BousygramPlaybackPerfComparator.ps1
           & pwsh -NoProfile -File tools/ci/Test-BousygramPhysicalSoakComparator.ps1
 
+      - name: Validate sanitized multi-run hardware evidence parsing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/qualification/compare_physical_cohorts.py tools/ci/test_physical_cohort_comparison.py
+          python3 -m unittest discover -s tools/ci -p 'test_physical_cohort_comparison.py' -v
+          # Synthetic fixtures are exclusively test data. This job has no
+          # authenticated device, no physical PSS and no release-approval path.
+
       - name: Exercise release identity and qualification failure fixtures
         shell: bash
         run: bash tools/ci/test_release_manifest.sh
