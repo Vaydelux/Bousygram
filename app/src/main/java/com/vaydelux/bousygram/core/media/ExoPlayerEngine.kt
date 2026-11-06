@@ -2,6 +2,8 @@ package com.vaydelux.bousygram.core.media
 
 import android.content.Context
 import android.net.Uri
+import android.media.audiofx.Equalizer
+import android.util.Log
 import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -45,6 +47,58 @@ class ExoPlayerEngine(
 
     override val engineName: String = "ExoPlayer"
     override val bufferConfigDescription: String get() = bufferConfig?.description ?: "exo:default"
+
+    private var requestedEqPreset = AudioEqualizerPreset.ORIGINAL
+    private var audioFx: Equalizer? = null
+    private var audioFxSessionId = -1
+
+    private fun releaseAudioFx() {
+        runCatching { audioFx?.enabled = false }
+        runCatching { audioFx?.release() }
+        audioFx = null
+        audioFxSessionId = -1
+    }
+
+    override fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean {
+        requestedEqPreset = preset
+        if (!preset.isEnabled) {
+            releaseAudioFx()
+            return true
+        }
+        val session = player.audioSessionId
+        // Never create a global output-mix effect on session 0.
+        if (session <= 0) {
+            releaseAudioFx()
+            return false
+        }
+        return runCatching {
+            if (audioFx == null || audioFxSessionId != session) {
+                releaseAudioFx()
+                val created = Equalizer(0, session)
+                if (!created.hasControl()) {
+                    created.release()
+                    return@runCatching false
+                }
+                audioFx = created
+                audioFxSessionId = session
+            }
+            val fx = requireNotNull(audioFx)
+            val range = fx.bandLevelRange
+            for (index in 0 until fx.numberOfBands.toInt()) {
+                val band = index.toShort()
+                val frequencyHz = fx.getCenterFreq(band) / 1_000f
+                fx.setBandLevel(
+                    band, audioEqMillibels(preset, frequencyHz, range[0].toInt(), range[1].toInt())
+                )
+            }
+            fx.enabled = true
+            fx.enabled
+        }.getOrElse { error ->
+            Log.w("BousyAudioEq", "Android AudioFX unavailable for this output", error)
+            releaseAudioFx()
+            false
+        }
+    }
 
     private val _playbackState = MutableStateFlow<EnginePlaybackState>(EnginePlaybackState.Idle)
     override val playbackState: StateFlow<EnginePlaybackState> = _playbackState.asStateFlow()
@@ -147,6 +201,12 @@ class ExoPlayerEngine(
     }
 
     private val listener = object : Player.Listener {
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            // Media3 can replace its AudioTrack/session across format or route changes.
+            releaseAudioFx()
+            if (requestedEqPreset.isEnabled) applyAudioEqualizer(requestedEqPreset)
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_BUFFERING -> _playbackState.value = EnginePlaybackState.Buffering
@@ -280,6 +340,7 @@ class ExoPlayerEngine(
     }
 
     override fun release() {
+        releaseAudioFx()
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)
         player.release()
