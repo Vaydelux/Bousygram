@@ -1325,6 +1325,9 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(request, queueIndex) {
+        // A new episode must not inherit the previous video's exhausted decoder
+        // recovery stages. Keep one detector for the active playback UI lifetime.
+        blackScreenDetector.resetForNewMedia()
         if (!playbackCommitted && playerStartedAtMs > 0L) {
             commitPlaybackTelemetry()
         }
@@ -1892,12 +1895,16 @@ fun PlayerScreen(
             when (recoveryAction) {
                 BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW -> {
                     useTextureView = true
+                    // Give the new surface its own first-frame observation window.
+                    blackScreenDetector.rearmAfterTransition()
                     toastFeedbackText = "Optimizing display surface…"
                     hudVisible = true
                 }
                 BlackScreenRecoveryAction.SWITCH_TO_MPV_HW,
                 BlackScreenRecoveryAction.SWITCH_TO_MPV_SW -> {
+                    val previous = playerEngine
                     requestEngineSwitch(SelectedPlayerEngine.MPV, "Switching player engine for video compatibility…")
+                    if (playerEngine !== previous) blackScreenDetector.rearmAfterTransition()
                 }
                 else -> {}
             }
