@@ -399,7 +399,12 @@ fun PlayerScreen(
                 context = context,
                 mimeType = firstItem.mimeType,
                 fileName = firstItem.fileName,
-                title = firstItem.title
+                title = firstItem.title,
+                mediaKey = com.vaydelux.bousygram.core.media.diagnostics.EngineVerdictStore.buildMediaKey(
+                    com.vaydelux.bousygram.core.account.AccountSession.current()?.accountId,
+                    firstItem.chatId,
+                    firstItem.messageId
+                )
             )
         } else null
     }
@@ -1866,7 +1871,13 @@ fun PlayerScreen(
                 videoWidth = videoDimensions.first,
                 videoHeight = videoDimensions.second,
                 decoderName = decoderName,
-                mediaKey = "${currentItem?.chatId}:${currentItem?.messageId}"
+                mediaKey = currentItem?.let {
+                    com.vaydelux.bousygram.core.media.diagnostics.EngineVerdictStore.buildMediaKey(
+                        com.vaydelux.bousygram.core.account.AccountSession.current()?.accountId,
+                        it.chatId,
+                        it.messageId
+                    )
+                }.orEmpty()
             )
             when (recoveryAction) {
                 BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW -> {
