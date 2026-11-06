@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.data.store
 
+import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -9,7 +10,8 @@ internal data class SettingsImport(
     val recentQueries: List<String>? = null, val lastPlayed: String? = null,
     val hideWatched: Boolean? = null, val safeMode: Boolean? = null,
     val autoPlayNext: Boolean? = null, val subtitlesDefault: Boolean? = null,
-    val speed: Float? = null, val bufferMode: BufferMode? = null, val visualTheme: String? = null
+    val speed: Float? = null, val bufferMode: BufferMode? = null, val visualTheme: String? = null,
+    val audioEqualizer: AudioEqualizerPreset? = null
 )
 
 internal object SettingsImportPolicy {
@@ -66,7 +68,13 @@ internal object SettingsImportPolicy {
         val theme = if (obj.has("visualTheme")) obj.getString("visualTheme").also {
             require(it in setOf("midnight", "aurora", "ocean", "sunset")) { "Unknown visual theme" }
         } else null
+        val eq = if (obj.has("audioEqPreset")) {
+            val raw = obj.get("audioEqPreset")
+            require(raw is String) { "Invalid equalizer preset" }
+            AudioEqualizerPreset.entries.firstOrNull { it.name == raw }
+                ?: throw IllegalArgumentException("Unknown equalizer preset")
+        } else null
         return SettingsImport(favorites, pinned, recent, last, bool("continueOnly"), bool("safeMode"),
-            bool("autoPlayNext"), bool("subtitlesDefault"), speed, mode, theme)
+            bool("autoPlayNext"), bool("subtitlesDefault"), speed, mode, theme, eq)
     }
 }
