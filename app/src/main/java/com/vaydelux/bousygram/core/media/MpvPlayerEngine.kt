@@ -75,6 +75,7 @@ class MpvPlayerEngine(
     private var appliedSmartMode = SmartVolumeMode.OFF
 
     override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
+        if (isDestroyed.get()) return false
         // A custom curve may change even when the preset enum remains CUSTOM.
         if (profile.preset == AudioEqualizerPreset.CUSTOM &&
             activeAudioProfile.sanitizedGains != profile.sanitizedGains
@@ -98,7 +99,10 @@ class MpvPlayerEngine(
                 else AudioEffectStatus.APPLIED
             return true
         }
-        if (verifySmartFilter() == FilterVerification.PRESENT || smartFilterInstalled) {
+        val currentSmart = verifySmartFilter()
+        // Confirmed absence wins over a stale local flag (e.g. after a decoder reset).
+        if (currentSmart == FilterVerification.ABSENT) smartFilterInstalled = false
+        if (mayNeedMpvFilterRemoval(currentSmart, smartFilterInstalled)) {
             val removed = runCatching {
                 mpv.command(arrayOf("af", "remove", "@bousy_smart"))
                 verifySmartFilter() == FilterVerification.ABSENT
@@ -124,6 +128,8 @@ class MpvPlayerEngine(
             val filters = checkNotNull(smartVolumeMpvGraph(
                 mode, is32BitProcess = !android.os.Process.is64Bit()
             ))
+            // Mark uncertainty before the call: the filter may survive a thrown exception.
+            smartFilterInstalled = true
             mpv.command(arrayOf("af", "add", "@bousy_smart:lavfi=[$filters]"))
             val result = verifySmartFilter()
             smartFilterInstalled = result != FilterVerification.ABSENT
@@ -157,7 +163,8 @@ class MpvPlayerEngine(
         }
 
         val current = verifyEq()
-        if (current == FilterVerification.PRESENT || customEqualizerInstalled) {
+        if (current == FilterVerification.ABSENT) customEqualizerInstalled = false
+        if (mayNeedMpvFilterRemoval(current, customEqualizerInstalled)) {
             val removed = runCatching {
                 mpv.command(arrayOf("af", "remove", "@bousy_eq"))
                 verifyEq() == FilterVerification.ABSENT
@@ -183,6 +190,9 @@ class MpvPlayerEngine(
                 "equalizer=f=$hz:t=q:w=1:g=$gain"
             }
             val preamp = String.format(Locale.US, "%.1f", activeAudioProfile.preampDb)
+            // A native add can partially succeed and then raise; remember that
+            // until the named filter is verified absent on a later update.
+            customEqualizerInstalled = true
             mpv.command(arrayOf("af", "add", "@bousy_eq:lavfi=[volume=${preamp}dB,$filters]"))
             val installed = verifyEq()
             customEqualizerInstalled = installed != FilterVerification.ABSENT
