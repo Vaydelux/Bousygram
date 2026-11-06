@@ -45,6 +45,7 @@ import com.vaydelux.bousygram.presentation.media.PlaybackRequest
 import com.vaydelux.bousygram.presentation.media.PlayerScreen
 import com.vaydelux.bousygram.presentation.media.playableVideos
 import com.vaydelux.bousygram.presentation.media.canPageOlderEpisodes
+import com.vaydelux.bousygram.presentation.media.isMatchingEpisodeSource
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 import com.vaydelux.bousygram.presentation.components.BousygramAdaptiveShell
 import com.vaydelux.bousygram.presentation.components.ShellDestination
@@ -284,7 +285,8 @@ private fun BousygramAppRoot(
             // navigation to the player. Never page an unrelated search/Cast source.
             val mediaViewModel: MediaViewModel = viewModel()
             val source by mediaViewModel.uiState.collectAsState()
-            val matchesCurrentSource = canPageOlderEpisodes(screen.request, source)
+            val matchesCurrentSource = isMatchingEpisodeSource(screen.request, source)
+            val canPageSource = canPageOlderEpisodes(screen.request, source)
             PlayerScreen(
                 request = screen.request,
                 onExit = { appScreen = unwrapNonPlayerScreen(screen.returnTo) },
@@ -292,11 +294,11 @@ private fun BousygramAppRoot(
                 isForumEpisodeSource = source.videoChats.any {
                     it.chatId == screen.request.chatId && it.isForum
                 },
-                canLoadOlderEpisodes = matchesCurrentSource &&
+                canLoadOlderEpisodes = canPageSource &&
                     !source.isLoadingMore,
                 isLoadingOlderEpisodes = matchesCurrentSource &&
                     source.isLoadingMore,
-                onLoadOlderEpisodes = if (matchesCurrentSource) {
+                onLoadOlderEpisodes = if (canPageSource) {
                     { mediaViewModel.loadMoreIfNeeded() }
                 } else null
             )
