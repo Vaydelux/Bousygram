@@ -18,6 +18,18 @@ enum class AudioEffectStatus(val displayLabel: String) {
 /** mpv serializes its requested audio filters via the 'af' property. */
 internal enum class FilterVerification { PRESENT, ABSENT, UNVERIFIABLE }
 
+/**
+ * The native read-back is authoritative when it confirms absence. A previous
+ * add attempt can have partially succeeded even if the command raised, so an
+ * unreadable state must still trigger a best-effort removal.
+ */
+internal fun mayNeedMpvFilterRemoval(
+    verification: FilterVerification,
+    possiblyInstalled: Boolean
+): Boolean =
+    verification == FilterVerification.PRESENT ||
+        (verification == FilterVerification.UNVERIFIABLE && possiblyInstalled)
+
 internal fun verifyNamedMpvAudioFilter(filters: String?, label: String): FilterVerification {
     if (filters == null) return FilterVerification.UNVERIFIABLE
     // Match the whole named label, not a prefix of a different filter.
