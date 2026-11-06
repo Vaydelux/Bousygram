@@ -25,6 +25,6 @@ The pure lifecycle policy has JVM tests for pending/bypassed states,
 missing session IDs, partial effects, already-applied effects, unsupported
 effects, and disabled effects.
 
-The JVM tests do not prove that OEM sound routes work. Physical test
+The emulator smoke suite also invokes `AudioOutputLifecycleInstrumentedTest` to\ncheck stopped-state status, repeated stop/release and post-release rejection. It\ndoes not load a video or confirm an audible audio session.\n\nThe JVM and emulator tests do not prove that OEM sound routes work. Physical test
 matrix: speaker, wired, Bluetooth, HDMI/passthrough, ARM32 and ARM64;
 stop/start, next episode, seek, engine switch, and long-session soak.
