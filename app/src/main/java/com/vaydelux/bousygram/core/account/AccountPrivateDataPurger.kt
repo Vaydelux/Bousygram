@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.account
 
 import android.content.Context
+import com.vaydelux.bousygram.core.media.diagnostics.EngineVerdictStore
 import java.io.File
 
 /** Exact account-specific stores, never the global TDLib database or another account's data. */
@@ -37,6 +38,9 @@ internal object AccountPrivateDataPurger {
         val names = privateDataPaths(context.filesDir, accountId)
         check(context.getSharedPreferences(names.preferencesName, Context.MODE_PRIVATE)
             .edit().clear().commit()) { "Unable to erase account preferences" }
+        // The globally bounded recovery store contains account-scoped media keys.
+        // Revoke only this account's records; another account may still be active later.
+        EngineVerdictStore.clearAccount(context, accountId)
         val db = context.getDatabasePath(names.roomDatabaseName)
         check(context.deleteDatabase(names.roomDatabaseName) || !db.exists()) {
             "Unable to erase account media index"
