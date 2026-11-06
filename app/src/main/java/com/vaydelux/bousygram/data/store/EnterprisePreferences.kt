@@ -310,6 +310,7 @@ object EnterprisePreferences {
                 settings.audioEqualizer?.let { putString(KEY_AUDIO_EQ_PRESET, it.name) }
             }
             settings.audioEqualizer?.let { audioEqState.value = it }
+            Unit // Keep the settings-import action strictly () -> Unit, not Unit?.
         }
         if (owner == null) applySettings() else check(AccountSession.runIfCurrent(owner, applySettings)) {
             "Telegram account changed; settings were not imported"
