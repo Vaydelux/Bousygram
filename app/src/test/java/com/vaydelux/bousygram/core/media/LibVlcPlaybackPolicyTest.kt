@@ -21,12 +21,16 @@ class LibVlcPlaybackPolicyTest {
     }
 
     @Test fun lateTerminalEventsDuringNewPrepareAreNotRealEofOrErrors() {
-        assertFalse(shouldReportLibVlcEnded(activeMedia = true, playbackStarted = false))
-        assertFalse(shouldReportLibVlcUnexpectedStop(true, false, false))
-        assertTrue(shouldReportLibVlcEnded(activeMedia = true, playbackStarted = true))
-        assertTrue(shouldReportLibVlcUnexpectedStop(true, true, false))
-        assertFalse(shouldReportLibVlcUnexpectedStop(true, true, true))
-        assertFalse(shouldReportLibVlcEnded(activeMedia = false, playbackStarted = true))
+        assertFalse(shouldReportLibVlcEnded(true, false, true))
+        assertFalse(shouldReportLibVlcUnexpectedStop(true, false, false, true))
+        assertTrue(shouldReportLibVlcEnded(true, true, true))
+        assertTrue(shouldReportLibVlcUnexpectedStop(true, true, false, true))
+        assertFalse(shouldReportLibVlcUnexpectedStop(true, true, true, true))
+        assertFalse(shouldReportLibVlcEnded(false, true, true))
+        // A late EOF/Stopped emitted after a real user Pause must not
+        // auto-skip episodes or force a decoder fallback.
+        assertFalse(shouldReportLibVlcEnded(true, true, false))
+        assertFalse(shouldReportLibVlcUnexpectedStop(true, true, false, false))
     }
 
     @Test fun seeksAreClampedToContainerBoundsWithoutOverflow() {
