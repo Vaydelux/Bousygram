@@ -118,6 +118,44 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     @Volatile private var timestampMs = 0L
     @Volatile private var knownDurationMs = 0L
 
+    // Native vout and media tracks may become available after Compose asks
+    // for Zoom/Stretch. Retain the user's choice until both dimensions exist.
+    private var nativeResizeMode = LibVlcResizeMode.FIT
+    private var surfaceWidthPx = 0
+    private var surfaceHeightPx = 0
+    private var activeNativeLayout: LibVlcVideoLayout? = null
+
+    /**
+     * Recreate only the native vout geometry; never pause/seek the decoder.
+     * VLC can replace its vout after a track or surface transition.
+     */
+    private fun updateNativeVideoLayout(force: Boolean = false) {
+        if (released.get()) return
+        val track = runCatching { nativePlayer.currentVideoTrack }.getOrNull()
+        val videoWidth = track?.width ?: 0
+        val videoHeight = track?.height ?: 0
+        if (videoWidth > 0 && videoHeight > 0) {
+            dimensions.value = videoWidth to videoHeight
+        }
+        val next = libVlcVideoLayout(
+            mode = nativeResizeMode,
+            windowWidth = surfaceWidthPx,
+            windowHeight = surfaceHeightPx,
+            videoWidth = videoWidth,
+            videoHeight = videoHeight,
+            sarNumerator = track?.sarNum ?: 1,
+            sarDenominator = track?.sarDen ?: 1
+        ) ?: return
+        if (!force && activeNativeLayout == next) return
+        runCatching {
+            // Scale zero means native automatic fit. Stretch sets a custom
+            // display aspect; Zoom uses a calculated scale to center-crop.
+            nativePlayer.setAspectRatio(next.aspectRatio)
+            nativePlayer.setScale(next.scale)
+            activeNativeLayout = next
+        }.onFailure { Log.w(TAG, "LibVLC video geometry update unavailable", it) }
+    }
+
     private fun requestNativePause() {
         if (released.get() || !filePrepared || pauseCommandPending) return
         try {
@@ -185,8 +223,17 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                                 knownDurationMs = runCatching { nativePlayer.length }
                                     .getOrDefault(-1L).coerceAtLeast(0L)
                                 refreshTracks()
+                                updateNativeVideoLayout(force = true)
                             }
                         }
+                    }
+                }
+                MediaPlayer.Event.Vout -> {
+                    val generation = mediaGeneration.get()
+                    eventHandler.post {
+                        if (generation == mediaGeneration.get() &&
+                            acceptsLibVlcMediaEvent(stoppedByOwner, filePrepared, released.get())
+                        ) updateNativeVideoLayout(force = true)
                     }
                 }
                 MediaPlayer.Event.Paused -> {
@@ -282,6 +329,8 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
             out.attachViews()
             this.surface = surface
             viewsAttached = true
+            activeNativeLayout = null
+            updateNativeVideoLayout(force = true)
         } catch (failure: Throwable) {
             Log.e(TAG, "LibVLC video surface attach failed", failure)
             runCatching { out.detachViews() }
@@ -294,8 +343,11 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     /** Update native VLC vout geometry without releasing an active decoder. */
     fun onVideoSurfaceSizeChanged(width: Int, height: Int) {
         if (released.get() || !viewsAttached || width <= 0 || height <= 0) return
+        surfaceWidthPx = width
+        surfaceHeightPx = height
         runCatching { nativePlayer.vlcVout.setWindowSize(width, height) }
             .onFailure { Log.w(TAG, "LibVLC surface size update failed", it) }
+        updateNativeVideoLayout()
     }
 
     override fun detachSurface() {
@@ -304,6 +356,9 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
             .onFailure { Log.w(TAG, "LibVLC surface detach failed", it) }
         viewsAttached = false
         surface = null
+        activeNativeLayout = null
+        surfaceWidthPx = 0
+        surfaceHeightPx = 0
     }
 
     override fun prepare(streamUrl: String) {
@@ -323,6 +378,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         knownDurationMs = 0L
         activeTracks.value = emptyList()
         dimensions.value = 0 to 0
+        activeNativeLayout = null
         state.value = EnginePlaybackState.Buffering
         val media = try {
             Media(vlc, uri)
@@ -380,15 +436,16 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun setResizeMode(mode: Int) {
         if (released.get()) return
-        // Native VLC 3.6 scale=0 chooses automatic aspect-preserving fit.
-        // Do not force a 16:9 aspect ratio or crop video on new installs.
-        // Explicit non-fit modes require separate native-output qualification.
-        if (mode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) {
-            runCatching {
-                nativePlayer.setAspectRatio(null)
-                nativePlayer.setScale(0f)
-            }.onFailure { Log.w(TAG, "LibVLC automatic fit unavailable", it) }
+        val desired = when (mode) {
+            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> LibVlcResizeMode.ZOOM
+            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL -> LibVlcResizeMode.STRETCH
+            else -> LibVlcResizeMode.FIT
         }
+        if (nativeResizeMode != desired) {
+            nativeResizeMode = desired
+            activeNativeLayout = null
+        }
+        updateNativeVideoLayout()
     }
 
     override fun selectTrack(track: MediaTrackInfo) {
