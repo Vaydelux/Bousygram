@@ -25,13 +25,16 @@ enum class SelectedPlayerEngine(val label: String) {
     LIBVLC("VideoLAN LibVLC — MKV / TS compatibility")
 }
 
-/** LibVLC is user-selectable, but AUTO does not silently choose it. */
-internal fun availablePlaybackEngines(): List<SelectedPlayerEngine> = SelectedPlayerEngine.entries.toList()
+/** New installs prefer LibVLC; existing saved player selections remain authoritative. */
+internal fun availablePlaybackEngines(): List<SelectedPlayerEngine> = listOf(
+    SelectedPlayerEngine.LIBVLC, SelectedPlayerEngine.AUTO,
+    SelectedPlayerEngine.ExoPlayer, SelectedPlayerEngine.MPV
+)
 
 internal fun parseSavedPlayerEngine(raw: String?): SelectedPlayerEngine =
     if (raw == "LIBVLC_EXPERIMENTAL") SelectedPlayerEngine.LIBVLC
-    else runCatching { SelectedPlayerEngine.valueOf(raw ?: "AUTO") }
-        .getOrDefault(SelectedPlayerEngine.AUTO)
+    else runCatching { SelectedPlayerEngine.valueOf(raw ?: "LIBVLC") }
+        .getOrDefault(SelectedPlayerEngine.LIBVLC)
 
 internal fun nextManualPlayerEngine(current: SelectedPlayerEngine): SelectedPlayerEngine =
     when (current) {
@@ -249,7 +252,7 @@ object EnterprisePreferences {
     fun supportedPlayerEngines(): List<SelectedPlayerEngine> = availablePlaybackEngines()
 
     fun selectedPlayerEngine(): SelectedPlayerEngine =
-        parseSavedPlayerEngine(prefs.getString(KEY_PLAYER_ENGINE, SelectedPlayerEngine.AUTO.name))
+        parseSavedPlayerEngine(prefs.getString(KEY_PLAYER_ENGINE, null))
 
     fun setSelectedPlayerEngine(engine: SelectedPlayerEngine) =
         prefs.edit { putString(KEY_PLAYER_ENGINE, engine.name) }
