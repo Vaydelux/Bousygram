@@ -102,6 +102,11 @@ class ExoPlayerEngine(
     private var dynamicsEffect: DynamicsProcessing? = null
     private var dynamicsSession = -1
     private var dynamicsMode = SmartVolumeMode.OFF
+    private var appliedEqConfiguration: AudioEqConfiguration? = null
+    private var eqBandWrites = 0L
+    private var eqUnchangedSkips = 0L
+    private var volumeEffectConstructions = 0L
+    private var volumeUnchangedSkips = 0L
 
     /** Stopped media has no active audible output even if the session id is cached. */
     private fun markEffectsWaitingForOutput() {
@@ -153,6 +158,16 @@ class ExoPlayerEngine(
             return false
         }
         return runCatching {
+            // A UI-only adjustment (e.g. changing EQ layout) must not toggle
+            // the native compressor or rebuild the DSP graph.
+            val existing = dynamicsEffect
+            if (existing != null && dynamicsSession == session &&
+                dynamicsMode == mode && existing.enabled && existing.hasControl()
+            ) {
+                volumeUnchangedSkips++
+                _smartVolumeStatus.value = AudioEffectStatus.APPLIED
+                return@runCatching true
+            }
             if (dynamicsSession != session || dynamicsMode != mode || dynamicsEffect == null) {
                 releaseSmartVolume()
                 val ratio = when (mode) {
@@ -191,9 +206,10 @@ class ExoPlayerEngine(
                 dynamicsEffect = fx
                 dynamicsSession = session
                 dynamicsMode = mode
+                volumeEffectConstructions++
             }
             val effect = requireNotNull(dynamicsEffect)
-            effect.enabled = true
+            if (!effect.enabled) effect.enabled = true
             val confirmed = effect.enabled && effect.hasControl()
             _smartVolumeStatus.value = if (confirmed) AudioEffectStatus.APPLIED
                 else AudioEffectStatus.UNSUPPORTED
@@ -213,6 +229,7 @@ class ExoPlayerEngine(
         runCatching { audioFx?.release() }
         audioFx = null
         audioFxSessionId = -1
+        appliedEqConfiguration = null
     }
 
     override fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean {
@@ -231,6 +248,15 @@ class ExoPlayerEngine(
             return false
         }
         return runCatching {
+            val configuration = audioEqConfiguration(activeAudioProfile.copy(preset = preset))
+            val existing = audioFx
+            if (existing != null && audioFxSessionId == session &&
+                appliedEqConfiguration == configuration && existing.enabled && existing.hasControl()
+            ) {
+                eqUnchangedSkips++
+                _audioEqStatus.value = AudioEffectStatus.APPLIED
+                return@runCatching true
+            }
             if (audioFx == null || audioFxSessionId != session) {
                 releaseAudioFx()
                 val created = Equalizer(0, session)
@@ -251,9 +277,11 @@ class ExoPlayerEngine(
                     band, safeAudioFxBandMillibels(activeAudioProfile.copy(preset = preset),
                         frequencyHz, range[0].toInt(), range[1].toInt())
                 )
+                eqBandWrites++
             }
-            fx.enabled = true
+            if (!fx.enabled) fx.enabled = true
             val confirmed = fx.enabled && fx.hasControl()
+            appliedEqConfiguration = if (confirmed) configuration else null
             _audioEqStatus.value = if (confirmed) AudioEffectStatus.APPLIED
                 else AudioEffectStatus.UNSUPPORTED
             confirmed
@@ -320,6 +348,10 @@ class ExoPlayerEngine(
             "audioOutputMonitor" to if (outputMonitorRegistered) "registered" else "unavailable",
             "audioTopologyChanges" to audioOutputTopologyEvents.toString(),
             "audioEffectRefreshAttempts" to audioOutputRefreshAttempts.toString(),
+            "audioEqBandWrites" to eqBandWrites.toString(),
+            "audioEqUnchangedSkips" to eqUnchangedSkips.toString(),
+            "audioSmartEffectCreations" to volumeEffectConstructions.toString(),
+            "audioSmartUnchangedSkips" to volumeUnchangedSkips.toString(),
             "audioEqualizerStatus" to _audioEqStatus.value.name,
             "smartVolumeStatus" to _smartVolumeStatus.value.name,
             "hasSurface" to (player.videoSize.width > 0).toString(),
