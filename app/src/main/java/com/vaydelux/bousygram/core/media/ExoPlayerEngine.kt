@@ -30,7 +30,8 @@ import kotlinx.coroutines.flow.asStateFlow
 @OptIn(UnstableApi::class)
 class ExoPlayerEngine(
     val player: ExoPlayer,
-    val bufferConfig: PlayerBufferConfig.ExoBufferConfig? = null
+    val bufferConfig: PlayerBufferConfig.ExoBufferConfig? = null,
+    private val outputContext: Context? = null
 ) : PlayerEngine {
 
     companion object {
@@ -44,13 +45,50 @@ class ExoPlayerEngine(
                 preferredSpeed = preferredSpeed,
                 bufferConfig = bufferConfig
             )
-            return ExoPlayerEngine(exo, bufferConfig)
+            return ExoPlayerEngine(exo, bufferConfig, context.applicationContext ?: context)
         }
     }
 
     // Media3 audio sessions can be replaced asynchronously. A disposed decoder must
     // never reacquire AudioFX through a stale settings or session callback.
     private val isReleased = AtomicBoolean(false)
+    @Volatile private var audioOutputTopologyEvents = 0
+    @Volatile private var audioOutputRefreshAttempts = 0
+    private val outputTopologyMonitor = outputContext?.let { appContext ->
+        AudioOutputTopologyMonitor(appContext, player.applicationLooper) {
+            onAudioOutputTopologyChanged()
+        }
+    }
+    private var outputMonitorRegistered = false
+
+    /**
+     * A connected-device change is not proof that Media3 switched its routed
+     * output. Rebind only local effects; never restart, pause or seek playback.
+     */
+    private fun onAudioOutputTopologyChanged() {
+        if (isReleased.get()) return
+        audioOutputTopologyEvents++
+        when (audioTopologyRecoveryAction(
+            activeAudioProfile,
+            hasMedia = player.mediaItemCount > 0,
+            isReady = player.playbackState == Player.STATE_READY,
+            sessionId = player.audioSessionId
+        )) {
+            AudioTopologyRecoveryAction.IGNORE -> Unit
+            AudioTopologyRecoveryAction.WAIT_FOR_OUTPUT -> {
+                releaseAudioFx()
+                releaseSmartVolume()
+                markEffectsWaitingForOutput()
+            }
+            AudioTopologyRecoveryAction.REAPPLY -> {
+                releaseAudioFx()
+                releaseSmartVolume()
+                markEffectsWaitingForOutput()
+                audioOutputRefreshAttempts++
+                applyAudioProcessing(activeAudioProfile)
+            }
+        }
+    }
 
     override val engineName: String = "ExoPlayer"
     override val bufferConfigDescription: String get() = bufferConfig?.description ?: "exo:default"
@@ -84,6 +122,13 @@ class ExoPlayerEngine(
     override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
         if (isReleased.get()) return false
         activeAudioProfile = profile.copy(customGainsDb = profile.sanitizedGains)
+        if (player.mediaItemCount == 0) {
+            // A retained Media3 session ID does not indicate audible output.
+            releaseAudioFx()
+            releaseSmartVolume()
+            markEffectsWaitingForOutput()
+            return !profile.preset.isEnabled && profile.smartVolume == SmartVolumeMode.OFF
+        }
         val equalizerApplied = applyAudioEqualizer(profile.preset)
         val volumeApplied = applySmartVolume(profile.smartVolume)
         return equalizerApplied && volumeApplied
@@ -272,6 +317,11 @@ class ExoPlayerEngine(
         }.ifBlank { "None" }
     override val diagnosticDetails: Map<String, String>
         get() = mapOf(
+            "audioOutputMonitor" to if (outputMonitorRegistered) "registered" else "unavailable",
+            "audioTopologyChanges" to audioOutputTopologyEvents.toString(),
+            "audioEffectRefreshAttempts" to audioOutputRefreshAttempts.toString(),
+            "audioEqualizerStatus" to _audioEqStatus.value.name,
+            "smartVolumeStatus" to _smartVolumeStatus.value.name,
             "hasSurface" to (player.videoSize.width > 0).toString(),
             "playWhenReady" to player.playWhenReady.toString(),
             "playbackState" to when (player.playbackState) {
@@ -377,6 +427,7 @@ class ExoPlayerEngine(
     init {
         player.addListener(listener)
         player.addAnalyticsListener(analyticsListener)
+        outputMonitorRegistered = outputTopologyMonitor?.start() == true
     }
 
     override fun attachSurface(surface: Surface) {
@@ -484,6 +535,10 @@ class ExoPlayerEngine(
     override fun release() {
         // Exactly one teardown may touch the underlying native audio session.
         if (!isReleased.compareAndSet(false, true)) return
+        // Unregister first, before stopping effects and native output.
+        runCatching { outputTopologyMonitor?.close() }
+            .onFailure { Log.w("BousyAudioEq", "Audio route monitor cleanup failed", it) }
+        outputMonitorRegistered = false
         releaseAudioFx()
         releaseSmartVolume()
         _smartVolumeStatus.value = AudioEffectStatus.BYPASSED
