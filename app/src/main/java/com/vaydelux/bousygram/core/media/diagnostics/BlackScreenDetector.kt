@@ -47,11 +47,23 @@ class BlackScreenDetector(
     var lastDiagnostic: BlackScreenDiagnostic? = null
         private set
 
+    // A fallback request is not evidence that the replacement decoder works.
+    // Persist only after the player confirms that a frame was actually rendered.
+    private var pendingRecovery: Pair<String, EngineVerdict>? = null
+
+    fun confirmRenderedFrame(context: Context, mediaKey: String) {
+        val pending = pendingRecovery ?: return
+        if (pending.first != mediaKey) return
+        pendingRecovery = null
+        EngineVerdictStore.recordVerdict(context, mediaKey, pending.second)
+    }
+
     fun reset() {
         playingStartedAtMs = 0L
         initialAudioPositionMs = -1L
         recoveryTriggered = false
         simulatedFailure = false
+        pendingRecovery = null
         lastDiagnostic = null
     }
 
@@ -207,7 +219,7 @@ class BlackScreenDetector(
                 else -> null
             }
             if (verdict != null) {
-                EngineVerdictStore.recordVerdict(context, mediaKey, verdict)
+                pendingRecovery = mediaKey to verdict
             }
         }
 
