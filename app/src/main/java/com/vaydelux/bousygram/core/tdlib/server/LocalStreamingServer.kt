@@ -53,6 +53,37 @@ internal fun staleStatusCacheIds(timestamps: Map<Int, Long>, retainCount: Int): 
 /** Avoid unlimited subtitle allocations and oversized responses on low-RAM TVs. */
 internal fun allowedSubtitleBytes(length: Long): Boolean = length in 0L..(16L * 1024L * 1024L)
 
+/**
+ * Speculative cache-ahead byte window, not a demuxer seek index. Avoid Long
+ * multiplication overflow for large MKV/TS media and malformed timestamps.
+ * Never request beyond the declared Telegram file size or a 48 MiB window.
+ */
+internal data class SeekPrefetchWindow(val offset: Long, val length: Long)
+
+internal fun calculateSeekPrefetchWindow(
+    totalSize: Long,
+    timeMs: Long,
+    durationMs: Long
+): SeekPrefetchWindow? {
+    if (totalSize <= 0L) return null
+    val offset = if (durationMs > 0L) {
+        val boundedTime = timeMs.coerceIn(0L, durationMs)
+        (totalSize.toDouble() * (boundedTime.toDouble() / durationMs.toDouble()))
+            .toLong().coerceIn(0L, totalSize - 1L)
+    } else {
+        val seconds = timeMs.coerceAtLeast(0L) / 1_000L
+        val maxSeconds = Long.MAX_VALUE / 512_000L
+        (seconds.coerceAtMost(maxSeconds) * 512_000L).coerceAtMost(totalSize - 1L)
+    }
+    // 25 seconds of estimated media data. Double arithmetic avoids both
+    // bitrate (size * 1000) and runway (bitrate * 25) overflow.
+    val runway = if (durationMs > 0L) {
+        (totalSize.toDouble() * 25_000.0 / durationMs.toDouble())
+            .coerceIn(8.0 * 1024 * 1024, 48.0 * 1024 * 1024).toLong()
+    } else 48L * 1024L * 1024L
+    return SeekPrefetchWindow(offset, min(runway, totalSize - offset))
+}
+
 object LocalStreamingServer {
     private const val TAG = "LocalStreamingServer"
     private const val VERBOSE_STREAM_LOGS = false
@@ -848,30 +879,16 @@ object LocalStreamingServer {
      * Hints TDLib to download bytes near [timeMs] so seek-preview extraction can read them.
      */
     fun requestPrefetch(fileId: Int, totalSize: Long, timeMs: Long, durationMs: Long) {
-        if (totalSize <= 0) return
-        val offset = if (durationMs > 0) {
-            ((timeMs.coerceAtLeast(0) * totalSize) / durationMs).coerceIn(0L, totalSize - 1)
-        } else {
-            min((timeMs / 1000L) * 512_000L, totalSize - 1).coerceAtLeast(0L)
-        }
-        val remaining = totalSize - offset
-        val bitrateBps = if (durationMs > 0) {
-            (totalSize * 1000L) / durationMs
-        } else {
-            2_000_000L // default ~2 MB/s for 1080p
-        }
-        val adaptiveRunway = max(8L * 1024L * 1024L, min(48L * 1024L * 1024L, bitrateBps * 25L))
-        val chunkSize = min(adaptiveRunway, remaining)
-        if (chunkSize > 0) {
-            TelegramChunkScheduler.prefetchRange(
-                fileId = fileId,
-                offset = offset,
-                length = chunkSize,
-                purpose = TelegramChunkPurpose.CacheAhead,
-                priority = TelegramChunkScheduler.PREFETCH_PRIORITY
-            )
-            if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Adaptive prefetch fileId=$fileId offset=$offset limit=$chunkSize (bitrate=${bitrateBps * 8 / 1_000_000}Mbps, timeMs=$timeMs)")
-        }
+        val window = calculateSeekPrefetchWindow(totalSize, timeMs, durationMs) ?: return
+        if (window.length <= 0L) return
+        TelegramChunkScheduler.prefetchRange(
+            fileId = fileId,
+            offset = window.offset,
+            length = window.length,
+            purpose = TelegramChunkPurpose.CacheAhead,
+            priority = TelegramChunkScheduler.PREFETCH_PRIORITY
+        )
+        if (VERBOSE_STREAM_LOGS) Log.d(TAG, "Adaptive prefetch fileId=$fileId offset=${window.offset} limit=${window.length}")
     }
 
     private fun getFileStatus(fileId: Int, waitMs: Long = 2_500L): TdApi.File? {
