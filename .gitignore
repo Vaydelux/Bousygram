@@ -109,3 +109,10 @@ $RECYCLE.BIN/
 # Generated TDLib Java comparison outputs belong in CI artifacts, not source control.
 /tdlib-java-generation-*/
 /tdlib-java-generation-*.zip
+
+# Raw physical-device memory observations and generated comparisons stay local.
+/qualification-evidence/
+/perf-evidence/
+/device-evidence/
+/ci-artifacts/qualification/
+/ci-artifacts/device-evidence/

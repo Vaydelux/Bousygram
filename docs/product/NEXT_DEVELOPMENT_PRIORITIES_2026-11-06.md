@@ -41,3 +41,17 @@ The first delivery is **P0.1**: physical TDLib account-reconnect tests. Use `doc
 - [Resource policy and physical validation plan](../qualification/LONG_SESSION_RESOURCE_BUDGETS.md).
 
 The source milestone does not replace the ARM32/ARM64 physical-device qualification gate.
+
+## P2.1 delivery — multi-run evidence gates (November 6, 2026)
+
+- Standard-library offline comparator for independent sanitized PSS histories,
+  with strict device/scenario/cadence/process continuity and build identity checks.
+- Separately reported observed, failed, missing and skipped measurement states;
+  zero manual/physical approval is inferred from passing statistics.
+- Opt-in numeric regression flags (no ungrounded default memory thresholds).
+- Synthetic negative fixtures in Android Enterprise CI; no private files or
+  credentials enter the build.
+- [P2.1 comparison workflow](../qualification/REPEATED_DEVICE_EVIDENCE_COMPARISON.md).
+
+**Remaining:** operator-driven ARM32 and ARM64 scenario runs plus reviewed
+hardware evidence. Source CI cannot certify those scenarios.
