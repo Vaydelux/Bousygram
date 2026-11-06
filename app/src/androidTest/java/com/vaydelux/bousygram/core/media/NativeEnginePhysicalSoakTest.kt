@@ -7,6 +7,7 @@ import android.view.Surface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -100,6 +101,10 @@ class NativeEnginePhysicalSoakTest {
                 mpv.stop()
                 mpv.release()
                 mpv.release()
+                // No effect may be reactivated by a late UI or settings update.
+                assertFalse(mpv.applyAudioProcessing(profile))
+                assertEquals(AudioEffectStatus.BYPASSED, mpv.audioEqualizerStatus.value)
+                assertEquals(AudioEffectStatus.BYPASSED, mpv.smartVolumeStatus.value)
             }
             val vlc = LibVlcPlayerEngine(context)
             try {
@@ -109,6 +114,10 @@ class NativeEnginePhysicalSoakTest {
                 vlc.stop()
                 vlc.release()
                 vlc.release()
+                // No effect may be reactivated by a late UI or settings update.
+                assertFalse(vlc.applyAudioProcessing(profile))
+                assertEquals(AudioEffectStatus.BYPASSED, vlc.audioEqualizerStatus.value)
+                assertEquals(AudioEffectStatus.BYPASSED, vlc.smartVolumeStatus.value)
             }
             val exo = ExoPlayerEngine.create(context)
             try {
@@ -118,6 +127,10 @@ class NativeEnginePhysicalSoakTest {
                 exo.stop()
                 exo.release()
                 exo.release()
+                // No effect may be reactivated by a late UI or settings update.
+                assertFalse(exo.applyAudioProcessing(profile))
+                assertEquals(AudioEffectStatus.BYPASSED, exo.audioEqualizerStatus.value)
+                assertEquals(AudioEffectStatus.BYPASSED, exo.smartVolumeStatus.value)
             }
             if ((cycle + 1) % 5 == 0) {
                 val mem = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
