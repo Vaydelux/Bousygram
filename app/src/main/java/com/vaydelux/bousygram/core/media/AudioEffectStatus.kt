@@ -41,3 +41,12 @@ internal fun safeAudioFxBandMillibels(
     val withHeadroomDb = preset.gainDbAt(frequencyHz) + preset.preampDb
     return (withHeadroomDb * 100f).toInt().coerceIn(low, high).toShort()
 }
+
+internal fun safeAudioFxBandMillibels(
+    profile: AudioProcessingProfile, frequencyHz: Float, minimum: Int, maximum: Int
+): Short {
+    val low = minOf(minimum, maximum).coerceAtLeast(Short.MIN_VALUE.toInt())
+    val high = maxOf(minimum, maximum).coerceAtMost(Short.MAX_VALUE.toInt())
+    val withHeadroomDb = profile.gainDbAt(frequencyHz) + profile.preampDb
+    return (withHeadroomDb * 100f).toInt().coerceIn(low, high).toShort()
+}

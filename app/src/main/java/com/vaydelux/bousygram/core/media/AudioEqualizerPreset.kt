@@ -27,7 +27,8 @@ enum class AudioEqualizerPreset(
     CLASSICAL("Classical", "Detailed, restrained lows", listOf(-0.5f, -0.2f, 0f, 0.6f, 0.8f, 1.4f, 1f)),
     GAMING("Gaming", "Effects and spatial cues", listOf(1.5f, 1f, -0.5f, 0.7f, 1.2f, 2f, 0.8f)),
     LIVE("Live", "Stage presence and clarity", listOf(0f, 0f, 0.5f, 1.2f, 1.7f, 1.5f, 0f)),
-    PODCAST("Podcast", "Speech-focused casual listening", listOf(-3f, -1.5f, 0f, 1.5f, 2f, 0.5f, -1f));
+    PODCAST("Podcast", "Speech-focused casual listening", listOf(-3f, -1.5f, 0f, 1.5f, 2f, 0.5f, -1f)),
+    CUSTOM("Custom", "Your own adjustable 5/10-band equalizer", listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f));
 
     val isEnabled: Boolean get() = this != ORIGINAL
 
