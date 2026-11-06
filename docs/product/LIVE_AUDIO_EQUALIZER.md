@@ -103,3 +103,15 @@ PSS and process CPU time every five cycles. It does **not** include a stream,
 measure audio continuity, or certify sound quality. For those acceptance
 criteria, play real verified MP4/MKV/TS media and record A/B audio and PSS
 traces independently.
+
+## Phase 3 — released-engine safety
+
+A player that has been released must reject late EQ and Smart Volume requests
+rather than opening a new audio effect on a stale session. Media3 teardown is
+idempotent and independently attempts listener cleanup and decoder release.
+LibVLC also refuses stale audio-profile updates after disposal. On all engines,
+the post-release EQ and Smart Volume status remains Bypassed.
+
+The opt-in physical audio stress test asserts these post-release invariants for
+ExoPlayer, libmpv and LibVLC. CI compilation alone cannot establish that an
+OEM device's effects are audible, correctly routed, or leak-free under playback.
