@@ -134,6 +134,42 @@ class PlaybackHelpersTest {
     }
 
     @Test
+    fun channelEpisodesIncludeOtherLoadedVideosEvenWhenUiIsFiltered() {
+        val episode1 = MediaItem(chatId = 90L, messageId = 1L, date = 1,
+            type = MediaType.Video, title = "Episode 1", fileId = 11,
+            messageThreadId = 101L)
+        val episode2 = episode1.copy(messageId = 2L, title = "Episode 2",
+            fileId = 12, messageThreadId = null)
+        val episode3 = episode1.copy(messageId = 3L, title = "Episode 3",
+            fileId = 13, messageThreadId = 999L)
+        val otherChat = episode1.copy(chatId = 91L, messageId = 4L, fileId = 14)
+        val queue = playbackQueueForLoadedSource(
+            episode1, listOf(episode1, episode2, episode3, otherChat), isForum = false
+        )
+        assertEquals(listOf(1L, 2L, 3L), queue.map { it.messageId })
+        assertTrue(queue.all { it.messageThreadId == null })
+        assertEquals(3, relatedSourceQueue(buildPlaybackQueue(queue), 0).size)
+    }
+
+    @Test
+    fun forumQueueNeverLeaksAcrossSubtopicsAndGeneralThreadAliases() {
+        val one = MediaItem(chatId = 90L, messageId = 1L, date = 1,
+            type = MediaType.Video, title = "S1", fileId = 11, messageThreadId = 20L)
+        val same = one.copy(messageId = 2L, fileId = 12)
+        val different = one.copy(messageId = 3L, fileId = 13, messageThreadId = 21L)
+        val general = one.copy(messageId = 4L, fileId = 14, messageThreadId = 1L)
+        val generalAlias = one.copy(messageId = 5L, fileId = 15, messageThreadId = null)
+        val topicQueue = playbackQueueForLoadedSource(one,
+            listOf(one, same, different, general), isForum = true)
+        assertEquals(listOf(1L, 2L), topicQueue.map { it.messageId })
+        val generalQueue = playbackQueueForLoadedSource(general,
+            listOf(one, same, general, generalAlias), isForum = true)
+        assertEquals(listOf(4L, 5L), generalQueue.map { it.messageId })
+        assertTrue(generalQueue.all { it.messageThreadId == null })
+        assertEquals(2, relatedSourceQueue(buildPlaybackQueue(generalQueue), 0).size)
+    }
+
+    @Test
     fun playbackRequestAndQueueRetainTelegramTopicIdentity() {
         val item = MediaItem(
             chatId = 901L,

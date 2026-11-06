@@ -2507,7 +2507,7 @@ fun PlayerScreen(
                     toastFeedbackText = "Speed: ${speed}x"
                     hudVisible = true
                 },
-                onEpisodes = if (queue.size > 1) { {
+                onEpisodes = if (queue.isNotEmpty()) { {
                     hudInteractionTick++
                     optionsPanelVisible = false
                     tracksPanelVisible = false
@@ -2743,6 +2743,14 @@ fun PlayerScreen(
                                 runCatching { episodesButtonFocusRequester.requestFocus() }
                             }
                         })
+                    }
+                    if (relatedQueue.size <= 1) {
+                        Text(
+                            "Only one playable item is loaded from this source. " +
+                                "Return to the channel and load more media to expand this list.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(trayColumns),

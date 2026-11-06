@@ -241,7 +241,12 @@ fun BrowseScreen(
 
     fun openVideo(item: MediaItem, sectionKey: String? = null) {
         viewModel.recordBrowseFocus(item)
-        launcher.launch(item, videos, sectionKey)
+        // The visible list can be narrowed by watched/category/year/search
+        // filters. Episodes belong to the loaded source (channel or forum
+        // topic), not only the matching cards currently shown on screen.
+        val isForum = state.videoChats.any { it.chatId == item.chatId && it.isForum }
+        val sourceQueue = playbackQueueForLoadedSource(item, state.items, isForum)
+        launcher.launch(item, sourceQueue, sectionKey)
     }
 
     fun openLastPlayed() {
