@@ -37,16 +37,24 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     // deadlocks. This Handler belongs only to this engine and is cleared on release.
     private val eventHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var activeEqualizer: MediaPlayer.Equalizer? = null
+    private var activeEqPreset = AudioEqualizerPreset.ORIGINAL
 
     override fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean {
         if (released.get()) return false
+        if (preset == activeEqPreset &&
+            (!preset.isEnabled || activeEqualizer != null)) return true
         return runCatching {
             if (!preset.isEnabled) {
                 val disabled = nativePlayer.setEqualizer(null)
-                activeEqualizer = null
+                if (disabled) {
+                    activeEqualizer = null
+                    activeEqPreset = preset
+                }
                 return@runCatching disabled
             }
-            val eq = MediaPlayer.Equalizer.create()
+            // Reuse one native equalizer across preset switches. The VLC object
+            // owns native resources and should not be reallocated for every tap.
+            val eq = activeEqualizer ?: MediaPlayer.Equalizer.create()
             eq.setPreAmp(preset.preampDb)
             val count = MediaPlayer.Equalizer.getBandCount().coerceIn(0, 32)
             for (index in 0 until count) {
@@ -54,7 +62,10 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                 eq.setAmp(index, preset.gainDbAt(freqHz))
             }
             val applied = nativePlayer.setEqualizer(eq)
-            if (applied) activeEqualizer = eq
+            if (applied) {
+                activeEqualizer = eq
+                activeEqPreset = preset
+            }
             applied
         }.getOrElse { failure ->
             Log.w(TAG, "LibVLC equalizer unavailable for current output", failure)
@@ -427,6 +438,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         runCatching { nativePlayer.setEventListener(null) }
         runCatching { nativePlayer.setEqualizer(null) }
         activeEqualizer = null
+        activeEqPreset = AudioEqualizerPreset.ORIGINAL
         runCatching { nativePlayer.vlcVout.detachViews() }
         viewsAttached = false
         surface = null
