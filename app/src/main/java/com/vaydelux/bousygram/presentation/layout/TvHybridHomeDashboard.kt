@@ -58,6 +58,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
+import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -220,13 +221,16 @@ fun TvHybridHomeDashboard(
     }
 
     val colors = MaterialTheme.colorScheme
+    val isLightTheme = colors.background == BousygramThemePreset.LIGHT.background
+    val isHighContrastTheme = colors.background == BousygramThemePreset.HIGH_CONTRAST.background
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(colors.background)
     ) {
-        // Ambient dynamic backdrop sampling focused card poster
-        if (backdropImageRequest != null) {
+        // Full-screen poster art was tinting Light mode dark and obscuring the
+        // high-contrast palette. Keep the neutral page background on both.
+        if (!isLightTheme && !isHighContrastTheme && backdropImageRequest != null) {
             AsyncImage(
                 model = backdropImageRequest,
                 contentDescription = null,
@@ -237,19 +241,21 @@ fun TvHybridHomeDashboard(
                     .blur(36.dp)
             )
         }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            colors.background.copy(alpha = 0.35f),
-                            colors.background.copy(alpha = 0.85f),
-                            colors.background
+        if (!isLightTheme && !isHighContrastTheme) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                colors.background.copy(alpha = 0.35f),
+                                colors.background.copy(alpha = 0.85f),
+                                colors.background
+                            )
                         )
                     )
-                )
-        )
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -963,7 +969,7 @@ fun TvHybridHomeDashboard(
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Text(
                                 text = "TV Shows & Series (${seriesGroups.size})",
-                                color = Color.White,
+                                color = colors.onBackground,
                                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                                 fontWeight = FontWeight.Bold
                             )
@@ -1003,7 +1009,7 @@ fun TvHybridHomeDashboard(
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Text(
                                 text = "Audio & Music (${audioItems.size})",
-                                color = Color.White,
+                                color = colors.onBackground,
                                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                                 fontWeight = FontWeight.Bold
                             )
@@ -1047,7 +1053,7 @@ fun TvHybridHomeDashboard(
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Text(
                                 text = "Documents & Files (${docItems.size})",
-                                color = Color.White,
+                                color = colors.onBackground,
                                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                                 fontWeight = FontWeight.Bold
                             )
@@ -1097,7 +1103,7 @@ fun TvHybridHomeDashboard(
                                     ) {
                                         Text(
                                             text = topicTitle,
-                                            color = Color.White,
+                                            color = colors.onBackground,
                                             style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
                                             fontWeight = FontWeight.Bold
                                         )
@@ -1234,6 +1240,8 @@ fun ModernHeroBanner(
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
+    val isLightTheme = colors.background == BousygramThemePreset.LIGHT.background
+    val isHighContrastTheme = colors.background == BousygramThemePreset.HIGH_CONTRAST.background
     val shape = RoundedCornerShape(if (isPhone) 16.dp else 22.dp)
     val title = video?.tmdbTitle?.takeIf { it.isNotBlank() }
         ?: video?.seriesTitle?.takeIf { it.isNotBlank() }
@@ -1266,7 +1274,7 @@ fun ModernHeroBanner(
             .background(colors.surface)
             .border(1.dp, colors.outlineVariant.copy(alpha = 0.5f), shape)
     ) {
-        if (backdropImageData != null) {
+        if (!isHighContrastTheme && backdropImageData != null) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(backdropImageData)
@@ -1276,23 +1284,29 @@ fun ModernHeroBanner(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = 0.45f }
+                    .graphicsLayer { alpha = if (isLightTheme) 0.13f else 0.45f }
             )
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            colors.background.copy(alpha = 0.95f),
-                            colors.background.copy(alpha = 0.75f),
-                            colors.background.copy(alpha = 0.25f)
+        if (!isHighContrastTheme) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            if (isLightTheme) listOf(
+                                colors.surface.copy(alpha = 0.99f),
+                                colors.surface.copy(alpha = 0.96f),
+                                colors.surface.copy(alpha = 0.86f)
+                            ) else listOf(
+                                colors.background.copy(alpha = 0.95f),
+                                colors.background.copy(alpha = 0.75f),
+                                colors.background.copy(alpha = 0.25f)
+                            )
                         )
                     )
-                )
-        )
+            )
+        }
 
         Column(
             modifier = Modifier

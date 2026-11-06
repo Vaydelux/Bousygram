@@ -18,6 +18,16 @@ class ThemePresetTest {
         assertNotEquals(BousygramThemePreset.DARK.primary, BousygramThemePreset.HIGH_CONTRAST.primary)
         assertNotEquals(BousygramThemePreset.LIGHT.background, BousygramThemePreset.DARK.background)
     }
+    @Test fun contrastModeHasOpaqueSurfacesAndDistinctReadableContainers() {
+        val high = schemeFor(BousygramThemePreset.HIGH_CONTRAST)
+        val light = schemeFor(BousygramThemePreset.LIGHT)
+        assertEquals(BousygramThemePreset.HIGH_CONTRAST.background, high.background)
+        assertNotEquals(light.surface, high.surface)
+        assertTrue(themeContrastRatio(high.onSurface, high.surfaceContainerHigh) >= 7.0)
+        assertTrue(themeContrastRatio(high.onBackground, high.background) >= 7.0)
+        assertTrue(themeContrastRatio(high.onPrimary, high.primary) >= 7.0)
+    }
+
     @Test fun hudOpacityRespectsHighContrastWhileShowingMoreVideoInDarkMode() {
         assertEquals(0.90f, playerHudSurfaceOpacity(BousygramThemePreset.DARK.background), 0.001f)
         assertEquals(0.96f, playerHudSurfaceOpacity(BousygramThemePreset.LIGHT.background), 0.001f)

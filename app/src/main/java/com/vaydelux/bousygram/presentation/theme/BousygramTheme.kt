@@ -53,6 +53,42 @@ enum class BousygramThemePreset(
 }
 
 internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
+    if (preset == BousygramThemePreset.HIGH_CONTRAST) {
+        // Opaque near-black surfaces and bright, semantically paired foregrounds.
+        // A dark blue container with yellow text was not consistently readable
+        // over thumbnails and cinematic home backdrops.
+        return darkColorScheme(
+            primary = Color(0xFFFFE66A),
+            onPrimary = Color(0xFF090909),
+            primaryContainer = Color(0xFF282400),
+            onPrimaryContainer = Color(0xFFFFF4AD),
+            secondary = Color(0xFFB1F6FF),
+            onSecondary = Color(0xFF061417),
+            secondaryContainer = Color(0xFF09252A),
+            onSecondaryContainer = Color.White,
+            tertiary = Color(0xFFFFCBEA),
+            onTertiary = Color(0xFF1D0716),
+            tertiaryContainer = Color(0xFF36202F),
+            onTertiaryContainer = Color.White,
+            background = preset.background,
+            onBackground = Color.White,
+            surface = preset.surface,
+            onSurface = Color.White,
+            surfaceVariant = preset.surfaceVariant,
+            onSurfaceVariant = Color(0xFFF2F4F8),
+            surfaceContainerLowest = preset.background,
+            surfaceContainerLow = Color(0xFF0B0D0E),
+            surfaceContainer = preset.surface,
+            surfaceContainerHigh = Color(0xFF181D21),
+            surfaceContainerHighest = preset.surfaceVariant,
+            outline = preset.outline,
+            outlineVariant = Color(0xFF9EA8B2),
+            error = Color(0xFFFF8799),
+            onError = Color(0xFF2C0309),
+            errorContainer = Color(0xFF52121B),
+            onErrorContainer = Color.White
+        )
+    }
     if (preset == BousygramThemePreset.LIGHT) {
         return lightColorScheme(
             primary = preset.primary,
