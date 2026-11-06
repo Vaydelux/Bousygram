@@ -2,6 +2,8 @@ package com.vaydelux.bousygram.presentation.media
 
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
+import com.vaydelux.bousygram.domain.model.MediaUiState
+import com.vaydelux.bousygram.domain.model.VideoChatItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -167,6 +169,39 @@ class PlaybackHelpersTest {
         assertEquals(listOf(4L, 5L), generalQueue.map { it.messageId })
         assertTrue(generalQueue.all { it.messageThreadId == null })
         assertEquals(2, relatedSourceQueue(buildPlaybackQueue(generalQueue), 0).size)
+    }
+
+    @Test
+    fun pagedEpisodesNeverCrossForumOrChatAndRemainBounded() {
+        val selected = MediaItem(chatId = 77L, messageId = 9L, date = 10,
+            type = MediaType.Video, title = "Ep9", fileId = 9, messageThreadId = 20L)
+        val same = selected.copy(messageId = 8L, fileId = 8)
+        val wrongTopic = selected.copy(messageId = 7L, fileId = 7, messageThreadId = 30L)
+        val wrongChat = selected.copy(chatId = 88L, messageId = 6L, fileId = 6)
+        val request = buildPlaybackRequest(selected, null, listOf(selected))
+        val page = listOf(selected, same, wrongTopic, wrongChat)
+        val added = newEpisodesForPlayer(request, page, isForum = true,
+            alreadyQueued = request.queue, capacity = 2)
+        assertEquals(listOf(8L), added.map { it.messageId })
+        assertEquals(emptyList<PlaybackQueueItem>(), newEpisodesForPlayer(
+            request, page, isForum = true, alreadyQueued = request.queue, capacity = 1
+        ))
+    }
+
+    @Test
+    fun forumPaginationOnlyMatchesSelectedChatAndRealTopic() {
+        val item = MediaItem(chatId = 77L, messageId = 9L, date = 10,
+            type = MediaType.Video, title = "Selected", fileId = 9, messageThreadId = 20L)
+        val request = buildPlaybackRequest(item, null, listOf(item))
+        val chat = VideoChatItem(chatId = 77L, title = "Forum", isForum = true)
+        val page = MediaUiState(items = listOf(item), isSavedMessagesSelected = false,
+            selectedChatId = 77L, selectedTopicId = 20,
+            videoChats = listOf(chat), hasMore = true, nextFromMessageId = 20L)
+        assertTrue(canPageOlderEpisodes(request, page))
+        assertFalse(canPageOlderEpisodes(request, page.copy(selectedTopicId = 21)))
+        assertFalse(canPageOlderEpisodes(request, page.copy(selectedChatId = 88L)))
+        assertFalse(canPageOlderEpisodes(request, page.copy(nextFromMessageId = 0L)))
+        assertFalse(canPageOlderEpisodes(request, page.copy(hasMore = false)))
     }
 
     @Test
