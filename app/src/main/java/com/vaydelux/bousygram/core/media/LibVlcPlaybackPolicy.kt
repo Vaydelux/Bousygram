@@ -21,14 +21,16 @@ internal fun acceptsLibVlcMediaEvent(
  */
 internal fun shouldReportLibVlcEnded(
     activeMedia: Boolean,
-    playbackStarted: Boolean
-): Boolean = activeMedia && playbackStarted
+    playbackStarted: Boolean,
+    playRequested: Boolean
+): Boolean = activeMedia && playbackStarted && playRequested
 
 internal fun shouldReportLibVlcUnexpectedStop(
     activeMedia: Boolean,
     playbackStarted: Boolean,
-    alreadyEnded: Boolean
-): Boolean = activeMedia && playbackStarted && !alreadyEnded
+    alreadyEnded: Boolean,
+    playRequested: Boolean
+): Boolean = activeMedia && playbackStarted && playRequested && !alreadyEnded
 
 /** Seek timestamps are native milliseconds; never overflow or exceed known duration. */
 internal fun boundedLibVlcSeekMs(requestedMs: Long, durationMs: Long): Long =
