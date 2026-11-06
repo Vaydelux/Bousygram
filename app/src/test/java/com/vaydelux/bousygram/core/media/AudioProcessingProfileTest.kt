@@ -60,6 +60,24 @@ class AudioProcessingProfileTest {
         assertFalse(mayNeedMpvFilterRemoval(FilterVerification.UNVERIFIABLE, false))
     }
 
+    @Test fun eqConfigurationIgnoresUiLayoutAndSmartVolumeButDetectsBandChanges() {
+        val a = AudioProcessingProfile().editedBand(3, 3f)
+        val key = audioEqConfiguration(a)
+        assertEquals(key, audioEqConfiguration(a.copy(
+            customLayout = CustomEqualizerLayout.TEN,
+            smartVolume = SmartVolumeMode.DIALOGUE_BOOST
+        )))
+        assertFalse(key == audioEqConfiguration(a.editedBand(3, 2f)))
+        assertFalse(key == audioEqConfiguration(a.copy(preset = AudioEqualizerPreset.CINEMA)))
+    }
+
+    @Test fun namedPresetIgnoresUnusedCustomCurve() {
+        val a = AudioProcessingProfile(preset = AudioEqualizerPreset.CINEMA)
+        val b = a.copy(customGainsDb = List(10) { 6f })
+        assertEquals(audioEqConfiguration(a), audioEqConfiguration(b))
+        assertTrue(audioEqConfiguration(a).customGainsDb.isEmpty())
+    }
+
     @Test fun arm32KeepsHeavyDynaudnormOffWhileRetainingLightCompression() {
         assertNull(smartVolumeMpvGraph(SmartVolumeMode.OFF, false))
         assertNull(smartVolumeMpvGraph(SmartVolumeMode.AUTO_LEVEL, true))
