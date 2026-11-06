@@ -257,6 +257,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         timestampMs = 0L
         knownDurationMs = 0L
         activeTracks.value = emptyList()
+        dimensions.value = 0 to 0
         state.value = EnginePlaybackState.Buffering
         val media = try {
             Media(vlc, uri)
@@ -345,25 +346,29 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
             val audioSelected = nativePlayer.audioTrack
             val spuSelected = nativePlayer.spuTrack
             val audio = nativePlayer.audioTracks.orEmpty()
+                .asSequence()
                 .filter { it.id >= 0 }
+                .take(PlaybackTrackBudget.MAX_UI_TRACKS)
                 .map {
                     MediaTrackInfo(
                         id = it.id,
                         type = MediaTrackInfo.TrackType.AUDIO,
-                        name = it.name ?: "Audio ${it.id}",
+                        name = PlaybackTrackBudget.label(it.name, "Audio ${it.id}"),
                         isSelected = it.id == audioSelected
                     )
-                }
+                }.toList()
             val subtitle = nativePlayer.spuTracks.orEmpty()
+                .asSequence()
                 .filter { it.id >= 0 }
+                .take(PlaybackTrackBudget.MAX_UI_TRACKS - audio.size)
                 .map {
                     MediaTrackInfo(
                         id = it.id,
                         type = MediaTrackInfo.TrackType.SUBTITLE,
-                        name = it.name ?: "Subtitles ${it.id}",
+                        name = PlaybackTrackBudget.label(it.name, "Subtitles ${it.id}"),
                         isSelected = it.id == spuSelected
                     )
-                }
+                }.toList()
             activeTracks.value = audio + subtitle
         }.onFailure { Log.w(TAG, "LibVLC track enumeration unavailable", it) }
     }
@@ -381,6 +386,8 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         playing = false
         filePrepared = false
         runCatching { nativePlayer.stop() }
+        activeTracks.value = emptyList()
+        dimensions.value = 0 to 0
         state.value = EnginePlaybackState.Idle
     }
 
@@ -401,6 +408,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         runCatching { vlc.release() }
         state.value = EnginePlaybackState.Idle
         activeTracks.value = emptyList()
+        dimensions.value = 0 to 0
     }
 
     companion object {

@@ -405,6 +405,10 @@ class MpvPlayerEngine(
             _currentPositionMs.value = 0L
             _durationMs.value = 0L
             _bufferedPositionMs.value = 0L
+            _tracks.value = emptyList()
+            _videoDimensions.value = 0 to 0
+            _videoCodec.value = "Unknown"
+            _audioCodec.value = "Unknown"
             pausedForCache = false
             _isPlaying.value = false
             _playbackState.value = EnginePlaybackState.Buffering
@@ -566,6 +570,8 @@ class MpvPlayerEngine(
             mpv.command(arrayOf("stop"))
             _playbackState.value = EnginePlaybackState.Idle
             _isPlaying.value = false
+            _tracks.value = emptyList()
+            _videoDimensions.value = 0 to 0
         } catch (e: Throwable) {
             Log.e(TAG, "Error stopping mpv", e)
         }
@@ -582,6 +588,8 @@ class MpvPlayerEngine(
             _playbackState.value = EnginePlaybackState.Idle
             _isPlaying.value = false
             _playWhenReady.value = false
+            _tracks.value = emptyList()
+            _videoDimensions.value = 0 to 0
             Log.i(TAG, "MpvPlayerEngine released")
         }
     }
@@ -591,11 +599,11 @@ class MpvPlayerEngine(
         try {
             val count = mpv.getPropertyInt("track-list/count") ?: 0
             val list = mutableListOf<MediaTrackInfo>()
-            for (i in 0 until count) {
+            for (i in 0 until PlaybackTrackBudget.boundedCount(count)) {
                 val typeStr = mpv.getPropertyString("track-list/$i/type") ?: continue
                 val id = mpv.getPropertyInt("track-list/$i/id") ?: (i + 1)
                 val title = mpv.getPropertyString("track-list/$i/title")
-                val lang = mpv.getPropertyString("track-list/$i/lang")
+                val lang = PlaybackTrackBudget.language(mpv.getPropertyString("track-list/$i/lang"))
                 val selected = mpv.getPropertyBoolean("track-list/$i/selected") ?: false
 
                 val trackType = when (typeStr) {
@@ -605,11 +613,9 @@ class MpvPlayerEngine(
                     else -> continue
                 }
 
-                val displayName = when {
-                    !title.isNullOrBlank() -> title
-                    !lang.isNullOrBlank() -> "Language: $lang"
-                    else -> "Track #$id"
-                }
+                val displayName = PlaybackTrackBudget.label(
+                    title, if (lang != null) "Language: $lang" else "Track #$id"
+                )
 
                 list.add(
                     MediaTrackInfo(
