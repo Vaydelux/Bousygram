@@ -48,6 +48,18 @@ class AudioProcessingProfileTest {
         assertEquals(9, five.last())
     }
 
+    @Test fun mpvFilterRemovalUsesVerifiedStateAndRetainsUncertainAdds() {
+        // A stale local flag must not cause a remove of a filter confirmed absent.
+        assertFalse(mayNeedMpvFilterRemoval(FilterVerification.ABSENT, true))
+        assertFalse(mayNeedMpvFilterRemoval(FilterVerification.ABSENT, false))
+        // Native read-back is authoritative when it confirms a filter exists.
+        assertTrue(mayNeedMpvFilterRemoval(FilterVerification.PRESENT, false))
+        assertTrue(mayNeedMpvFilterRemoval(FilterVerification.PRESENT, true))
+        // After a partially failed add, unverified state must be cleaned up.
+        assertTrue(mayNeedMpvFilterRemoval(FilterVerification.UNVERIFIABLE, true))
+        assertFalse(mayNeedMpvFilterRemoval(FilterVerification.UNVERIFIABLE, false))
+    }
+
     @Test fun arm32KeepsHeavyDynaudnormOffWhileRetainingLightCompression() {
         assertNull(smartVolumeMpvGraph(SmartVolumeMode.OFF, false))
         assertNull(smartVolumeMpvGraph(SmartVolumeMode.AUTO_LEVEL, true))
