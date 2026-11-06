@@ -53,7 +53,7 @@ class ExoPlayerEngine(
     private var audioFxSessionId = -1
 
     private fun releaseAudioFx() {
-        runCatching { audioFx?.enabled = false }
+        runCatching { audioFx?.let { it.enabled = false } }
         runCatching { audioFx?.release() }
         audioFx = null
         audioFxSessionId = -1
