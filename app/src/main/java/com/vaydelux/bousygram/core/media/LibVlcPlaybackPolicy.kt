@@ -32,6 +32,25 @@ internal fun shouldReportLibVlcUnexpectedStop(
     playRequested: Boolean
 ): Boolean = activeMedia && playbackStarted && playRequested && !alreadyEnded
 
+/**
+ * LibVLC occasionally reports a native Paused event without a user/system
+ * Pause request. Retry on the native owner thread at most twice per media.
+ * Repeated spontaneous pauses must become a visible recoverable error.
+ */
+internal enum class LibVlcUnexpectedPauseAction { IGNORE, RETRY, FAIL }
+
+internal fun libVlcUnexpectedPauseAction(
+    playRequested: Boolean,
+    prepared: Boolean,
+    stoppedByOwner: Boolean,
+    alreadyRetried: Int,
+    maxRetries: Int = 2
+): LibVlcUnexpectedPauseAction = when {
+    !prepared || stoppedByOwner || !playRequested -> LibVlcUnexpectedPauseAction.IGNORE
+    alreadyRetried < maxRetries -> LibVlcUnexpectedPauseAction.RETRY
+    else -> LibVlcUnexpectedPauseAction.FAIL
+}
+
 /** Seek timestamps are native milliseconds; never overflow or exceed known duration. */
 internal fun boundedLibVlcSeekMs(requestedMs: Long, durationMs: Long): Long =
     if (durationMs > 0L) requestedMs.coerceIn(0L, durationMs)
