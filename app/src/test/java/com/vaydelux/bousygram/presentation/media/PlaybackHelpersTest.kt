@@ -193,7 +193,7 @@ class PlaybackHelpersTest {
         val item = MediaItem(chatId = 77L, messageId = 9L, date = 10,
             type = MediaType.Video, title = "Selected", fileId = 9, messageThreadId = 20L)
         val request = buildPlaybackRequest(item, null, listOf(item))
-        val chat = VideoChatItem(chatId = 77L, title = "Forum", isForum = true)
+        val chat = VideoChatItem(chatId = 77L, title = "Forum", isSavedMessages = false, isForum = true)
         val page = MediaUiState(items = listOf(item), isSavedMessagesSelected = false,
             selectedChatId = 77L, selectedTopicId = 20,
             videoChats = listOf(chat), hasMore = true, nextFromMessageId = 20L)
