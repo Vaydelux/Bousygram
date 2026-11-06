@@ -7,6 +7,7 @@ import android.media.audiofx.DynamicsProcessing
 import android.os.Build
 import android.util.Log
 import android.view.Surface
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -47,6 +48,10 @@ class ExoPlayerEngine(
         }
     }
 
+    // Media3 audio sessions can be replaced asynchronously. A disposed decoder must
+    // never reacquire AudioFX through a stale settings or session callback.
+    private val isReleased = AtomicBoolean(false)
+
     override val engineName: String = "ExoPlayer"
     override val bufferConfigDescription: String get() = bufferConfig?.description ?: "exo:default"
 
@@ -69,6 +74,7 @@ class ExoPlayerEngine(
     }
 
     override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
+        if (isReleased.get()) return false
         activeAudioProfile = profile.copy(customGainsDb = profile.sanitizedGains)
         val equalizerApplied = applyAudioEqualizer(profile.preset)
         val volumeApplied = applySmartVolume(profile.smartVolume)
@@ -76,6 +82,7 @@ class ExoPlayerEngine(
     }
 
     private fun applySmartVolume(mode: SmartVolumeMode): Boolean {
+        if (isReleased.get()) return false
         if (mode == SmartVolumeMode.OFF) {
             releaseSmartVolume()
             _smartVolumeStatus.value = AudioEffectStatus.BYPASSED
@@ -156,6 +163,7 @@ class ExoPlayerEngine(
     }
 
     override fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean {
+        if (isReleased.get()) return false
         requestedEqPreset = preset
         if (!preset.isEnabled) {
             releaseAudioFx()
@@ -306,6 +314,7 @@ class ExoPlayerEngine(
 
     private val listener = object : Player.Listener {
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            if (isReleased.get()) return
             // Media3 can replace its AudioTrack/session across format or route changes.
             releaseAudioFx()
             releaseSmartVolume()
@@ -438,6 +447,7 @@ class ExoPlayerEngine(
     }
 
     override fun stop() {
+        if (isReleased.get()) return
         _firstFrameRendered.value = false
         player.stop()
         player.clearMediaItems()
@@ -445,13 +455,18 @@ class ExoPlayerEngine(
     }
 
     override fun release() {
+        // Exactly one teardown may touch the underlying native audio session.
+        if (!isReleased.compareAndSet(false, true)) return
         releaseAudioFx()
         releaseSmartVolume()
         _smartVolumeStatus.value = AudioEffectStatus.BYPASSED
         _audioEqStatus.value = AudioEffectStatus.BYPASSED
-        player.removeListener(listener)
-        player.removeAnalyticsListener(analyticsListener)
-        player.release()
+        runCatching { player.removeListener(listener) }
+            .onFailure { Log.w("BousyAudioEq", "Media3 listener cleanup failed", it) }
+        runCatching { player.removeAnalyticsListener(analyticsListener) }
+            .onFailure { Log.w("BousyAudioEq", "Media3 analytics cleanup failed", it) }
+        runCatching { player.release() }
+            .onFailure { Log.e("BousyAudioEq", "Media3 player release failed", it) }
     }
 
     private fun updateTracks(tracks: Tracks) {
