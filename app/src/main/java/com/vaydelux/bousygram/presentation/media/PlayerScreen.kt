@@ -326,6 +326,8 @@ fun PlayerScreen(
     var cacheState by remember { mutableStateOf(PlaybackCacheState.Preparing) }
     var activeLocalStreamUrl by remember { mutableStateOf<String?>(null) }
     var pendingResumeMs by remember { mutableLongStateOf(0L) }
+    // Nullable: zero means an intentional rewind, null means no handoff override.
+    var handoffResumePositionMs by remember(request, queueIndex) { mutableStateOf<Long?>(null) }
     var seekPreviewPositionMs by remember { mutableLongStateOf(-1L) }
     var pendingSeekTargetMs by remember { mutableLongStateOf(-1L) }
     var pendingSeekStartedAtMs by remember { mutableLongStateOf(0L) }
@@ -463,11 +465,14 @@ fun PlayerScreen(
             !castState.connected
     }
     fun requestEngineSwitch(target: SelectedPlayerEngine, feedback: String) {
-        val resume = recoveryPositionMs(pendingSeekTargetMs, position, lastGoodPosition)
+        val resume = engineHandoffPositionMs(
+            pendingSeekTargetMs, playerEngine.currentPositionMs, lastGoodPosition, pendingResumeMs
+        )
         engineSwitcher.switchTo(target, speed).fold(
             onSuccess = {
                 audioFocusController.abandon()
                 lastGoodPosition = resume
+                handoffResumePositionMs = resume
                 pendingResumeMs = resume
                 toastFeedbackText = feedback
                 hudVisible = true
@@ -1118,8 +1123,8 @@ fun PlayerScreen(
                     EnterprisePreferences.setLastError(message)
                     PlaybackDiagnostics.recordStreamError(message)
                     val item = queue.getOrNull(queueIndex)
-                    val retryPosition = recoveryPositionMs(
-                        pendingSeekTargetMs, playerEngine.currentPositionMs, lastGoodPosition
+                    val retryPosition = engineHandoffPositionMs(
+                        pendingSeekTargetMs, playerEngine.currentPositionMs, lastGoodPosition, pendingResumeMs
                     )
                     lastGoodPosition = retryPosition
                     hudVisible = true
@@ -1152,11 +1157,14 @@ fun PlayerScreen(
                                 ) to retryPosition
                             } else PlayerEngineFactory.createFallback(context, playerEngine, speed)
                         }.fold(
-                            onSuccess = { (_, pos) ->
+                            onSuccess = { _ ->
                                 recoveryCounters.fallbackCompleted(true)
                                 audioFocusController.abandon()
-                                pendingResumeMs = if (pos > 0L) pos else retryPosition
-                                lastGoodPosition = pendingResumeMs
+                                // The old engine may expose an obsolete position while a
+                                // backward seek is pending. Use the pre-switch snapshot.
+                                handoffResumePositionMs = retryPosition
+                                pendingResumeMs = retryPosition
+                                lastGoodPosition = retryPosition
                                 retryCount = 1
                                 isReconnecting = true
                                 isBuffering = true
@@ -1490,9 +1498,13 @@ fun PlayerScreen(
             activeLocalStreamUrl = resolvedUrl.takeIf { it.startsWith("http://127.0.0.1") }
             resolvedUrl
         }
-        val resumePosition = lastGoodPosition
-            .takeIf { it > 0L }
-            ?: PlaybackProgressTracker.getMessagePosition(item.chatId, item.messageId, duration).toLong()
+        val resumePosition = enginePreparationResumePositionMs(
+            handoffPositionMs = handoffResumePositionMs,
+            lastConfirmedMs = lastGoodPosition,
+            savedResumeMs = PlaybackProgressTracker.getMessagePosition(
+                item.chatId, item.messageId, duration
+            ).toLong()
+        )
         playbackSession.onPreparing(item)
         playbackSession.currentPositionMs = resumePosition
         playerEngine.stop()
@@ -1823,6 +1835,12 @@ fun PlayerScreen(
             if (position > lastGoodPosition && playerEngine.playbackState.value is EnginePlaybackState.Ready) {
                 lastGoodPosition = position
             }
+            // A fresh decoded timeline supersedes the one-time handoff. Retaining a
+            // stale zero override after playback progresses would rewind later retries.
+            if (handoffResumePositionMs != null && pendingResumeMs == 0L &&
+                pendingSeekTargetMs < 0L && position > 0L &&
+                playerEngine.playbackState.value is EnginePlaybackState.Ready
+            ) handoffResumePositionMs = null
             PlaybackSessionController.recordProgress(playbackSession, position, fileSizeBytes, duration)
             if (position > 0L &&
                 duration > 0L &&
