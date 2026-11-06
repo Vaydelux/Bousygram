@@ -73,6 +73,18 @@ jq '.scenarioResults.forceStopReopen = "not-run"' "$tmp/qualification.json" > "$
 expect_rejected 'failed mandatory recovery scenario'
 jq '.openP0P1 = 1' "$tmp/qualification.json" > "$tmp/rejected.json"
 expect_rejected 'unresolved P1 release blocker'
+# P2.1 parsed PSS observations and an opt-in memory-threshold comparison do
+# NOT qualify a physical device. Every device and scenario must have an
+# independent, reviewed "passed" result before a protected release.
+jq '.deviceResults.arm32Tv.status = "observed"' "$tmp/qualification.json" > "$tmp/rejected.json"
+expect_rejected 'PSS observations masquerading as ARM32 hardware success'
+jq '.deviceResults.arm64Tv.nativeTdlibRuntime = "skipped"' "$tmp/qualification.json" > "$tmp/rejected.json"
+expect_rejected 'native engine runtime never exercised on ARM64 TV'
+jq '.scenarioResults.longSession = "observed"' "$tmp/qualification.json" > "$tmp/rejected.json"
+expect_rejected 'memory graph substituted for reviewed long-session playback'
+jq -n '{schemaVersion: 1, status: "observations-only", productionQualified: false,
+    checks: {memoryComparison: "observed", physicalPlayback: "missing"}}' > "$tmp/rejected.json"
+expect_rejected 'unreviewed synthetic cohort comparison as release qualification'
 
 bash "$ROOT/tools/ci/qualify_release_manifest.sh" "$out" "$tmp/qualification.json" "$RELEASE_TAG" "$RELEASE_SHA" > /dev/null
 jq -e '.ciVerification.runId == 42 and .deviceQualification.status == "passed" and .deviceQualificationEvidence == "https://qualification.example/review/7"' "$out/RELEASE_MANIFEST.json" >/dev/null
