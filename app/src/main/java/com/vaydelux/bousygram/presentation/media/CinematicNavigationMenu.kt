@@ -36,6 +36,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -71,7 +72,7 @@ private fun MenuAction(
             .onFocusChanged { focused = it.isFocused }
             .background(surface, RoundedCornerShape(8.dp))
             .border(if (focused) 2.dp else 0.dp, ring, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .defaultMinSize(minHeight = 48.dp)
             .padding(horizontal = 12.dp, vertical = 9.dp)
             .semantics { contentDescription = description }
