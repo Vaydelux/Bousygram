@@ -65,9 +65,11 @@ class MpvPlayerEngine(
         ?: throw IllegalStateException("Failed to create libmpv instance from native context")
     private val isDestroyed = AtomicBoolean(false)
     private var customEqualizerInstalled = false
+    private var appliedEqPreset = AudioEqualizerPreset.ORIGINAL
 
     override fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean {
         if (isDestroyed.get()) return false
+        if (preset == appliedEqPreset && (!preset.isEnabled || customEqualizerInstalled)) return true
         // Remove only our own named filter, preserving any other audio filters.
         // Native libavfilter availability varies by ABI and vendor build.
         if (customEqualizerInstalled) {
@@ -75,7 +77,10 @@ class MpvPlayerEngine(
                 .onFailure { Log.w(TAG, "MPV EQ removal unsupported", it) }
             customEqualizerInstalled = false
         }
-        if (!preset.isEnabled) return true
+        if (!preset.isEnabled) {
+            appliedEqPreset = preset
+            return true
+        }
         return runCatching {
             // Four modest peaking filters minimize CPU use on ARM32 Android TVs.
             val filters = listOf(90, 400, 2_000, 8_000).joinToString(",") { hz ->
@@ -86,6 +91,7 @@ class MpvPlayerEngine(
             val filter = "@bousy_eq:lavfi=[volume=${preamp}dB,$filters]"
             mpv.command(arrayOf("af", "add", filter))
             customEqualizerInstalled = true
+            appliedEqPreset = preset
             true
         }.getOrElse { error ->
             Log.w(TAG, "MPV audio filter unavailable; leaving original audio", error)
