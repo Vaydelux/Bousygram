@@ -68,6 +68,72 @@ class NativeEnginePhysicalSoakTest {
     }
 
     @Test
+    fun optInPhysicalAudioEffectsStressMeasuresPssAndCpuButNotAcousticOutput() {
+        val args = InstrumentationRegistry.getArguments()
+        assumeTrue(
+            "Explicit -e physicalNativeAudioSoak true on ARM TV is required",
+            args.getString("physicalNativeAudioSoak") == "true"
+        )
+        val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
+        assertTrue("Physical ARM32/ARM64 required", abi == "armeabi-v7a" || abi == "arm64-v8a")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val initial = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
+        val cpuStartMs = android.os.Process.getElapsedCpuTime()
+        Log.i("BousyNativeAudio", "Initial PSS KiB=${initial.totalPss} native=${initial.nativePss}")
+        val modes = listOf(
+            SmartVolumeMode.OFF, SmartVolumeMode.NIGHT,
+            SmartVolumeMode.DIALOGUE_BOOST, SmartVolumeMode.AUTO_LEVEL
+        )
+        repeat(30) { cycle ->
+            val profile = AudioProcessingProfile(
+                preset = if (cycle % 2 == 0) AudioEqualizerPreset.CUSTOM
+                    else AudioEqualizerPreset.DIALOGUE,
+                customGainsDb = List(10) { index -> if (index % 2 == 0) 2f else -2f },
+                smartVolume = modes[cycle % modes.size]
+            )
+            // One native engine at a time: no simultaneous decoder peak allocations.
+            val mpv = MpvPlayerEngine(context)
+            try {
+                mpv.applyAudioProcessing(profile)
+                mpv.applyAudioProcessing(AudioProcessingProfile()) // explicit bypass
+            } finally {
+                mpv.stop()
+                mpv.release()
+                mpv.release()
+            }
+            val vlc = LibVlcPlayerEngine(context)
+            try {
+                vlc.applyAudioProcessing(profile)
+                vlc.applyAudioProcessing(AudioProcessingProfile())
+            } finally {
+                vlc.stop()
+                vlc.release()
+                vlc.release()
+            }
+            val exo = ExoPlayerEngine.create(context)
+            try {
+                exo.applyAudioProcessing(profile)
+                exo.applyAudioProcessing(AudioProcessingProfile())
+            } finally {
+                exo.stop()
+                exo.release()
+                exo.release()
+            }
+            if ((cycle + 1) % 5 == 0) {
+                val mem = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
+                Log.i("BousyNativeAudio", "Audio lifecycle cycle=${cycle + 1}/30 " +
+                    "PSS KiB=${mem.totalPss} native=${mem.nativePss} " +
+                    "processCpuMs=${android.os.Process.getElapsedCpuTime() - cpuStartMs}")
+            }
+        }
+        val final = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
+        Log.i("BousyNativeAudio", "Audio final PSS KiB=${final.totalPss} " +
+            "deltaKiB=${final.totalPss - initial.totalPss} " +
+            "cpuMs=${android.os.Process.getElapsedCpuTime() - cpuStartMs}")
+        // No assertion of audio effect audible output: decoders are idle without a stream.
+    }
+
+    @Test
     fun optInPhysicalSurfaceAttachDetachSmokeWithoutPlaybackClaims() {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue("Requires explicit physicalNativeSurface true", args.getString("physicalNativeSurface") == "true")
