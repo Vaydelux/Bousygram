@@ -15,6 +15,7 @@ import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -115,6 +116,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     @Volatile private var stoppedByOwner = false
     // LibVLC pause() toggles; command once until acknowledged or re-armed by Play.
     @Volatile private var pauseCommandPending = false
+    private val unexpectedPauseRetries = AtomicInteger(0)
     @Volatile private var timestampMs = 0L
     @Volatile private var knownDurationMs = 0L
 
@@ -239,7 +241,42 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                 MediaPlayer.Event.Paused -> {
                     pauseCommandPending = false
                     playing = false
-                    if (filePrepared) state.value = EnginePlaybackState.Ready
+                    when (libVlcUnexpectedPauseAction(
+                        playRequested = wantedPlayback,
+                        prepared = filePrepared,
+                        stoppedByOwner = stoppedByOwner,
+                        alreadyRetried = unexpectedPauseRetries.get()
+                    )) {
+                        LibVlcUnexpectedPauseAction.IGNORE -> {
+                            if (filePrepared) state.value = EnginePlaybackState.Ready
+                        }
+                        LibVlcUnexpectedPauseAction.RETRY -> {
+                            unexpectedPauseRetries.incrementAndGet()
+                            // Ready may already be the current StateFlow value,
+                            // so reasserting through the UI collector is unreliable.
+                            state.value = EnginePlaybackState.Buffering
+                            val generation = mediaGeneration.get()
+                            eventHandler.post {
+                                if (generation == mediaGeneration.get() &&
+                                    acceptsLibVlcMediaEvent(stoppedByOwner, filePrepared, released.get()) &&
+                                    wantedPlayback
+                                ) {
+                                    runCatching {
+                                        if (!nativePlayer.isPlaying) nativePlayer.play()
+                                    }.onFailure { failure ->
+                                        state.value = EnginePlaybackState.Error(
+                                            "LibVLC could not resume playback", failure
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        LibVlcUnexpectedPauseAction.FAIL -> {
+                            state.value = EnginePlaybackState.Error(
+                                "LibVLC paused repeatedly without a user Pause request"
+                            )
+                        }
+                    }
                 }
                 MediaPlayer.Event.TimeChanged -> {
                     timestampMs = event.timeChanged.coerceAtLeast(0L)
@@ -256,7 +293,11 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     }
                 }
                 MediaPlayer.Event.EndReached -> {
-                    if (shouldReportLibVlcEnded(activeMedia = true, playbackStarted = playbackStarted)) {
+                    if (shouldReportLibVlcEnded(
+                            activeMedia = true,
+                            playbackStarted = playbackStarted,
+                            playRequested = wantedPlayback
+                        )) {
                         playing = false
                         state.value = EnginePlaybackState.Ended
                     }
@@ -266,21 +307,22 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     if (shouldReportLibVlcUnexpectedStop(
                             activeMedia = true,
                             playbackStarted = playbackStarted,
-                            alreadyEnded = state.value is EnginePlaybackState.Ended
+                            alreadyEnded = state.value is EnginePlaybackState.Ended,
+                            playRequested = wantedPlayback
                         )
                     ) {
                         // VLC can report Stopped after EndReached. Preserve a
                         // genuine EOF instead of converting it into a false
                         // stream error and triggering unnecessary retry.
                         state.value = EnginePlaybackState.Error(
-                            "Experimental LibVLC stopped before playback completed"
+                            "LibVLC stopped before playback completed"
                         )
                     }
                 }
                 MediaPlayer.Event.EncounteredError -> {
                     playing = false
                     state.value = EnginePlaybackState.Error(
-                        "Experimental LibVLC could not decode or stream this file"
+                        "LibVLC could not decode or stream this file"
                     )
                 }
             }
@@ -370,6 +412,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         mediaGeneration.incrementAndGet()
         stoppedByOwner = false
         pauseCommandPending = false
+        unexpectedPauseRetries.set(0)
         filePrepared = false
         playbackStarted = false
         playing = false
@@ -517,6 +560,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         wantedPlayback = false
         playing = false
         filePrepared = false
+        unexpectedPauseRetries.set(0)
         runCatching { nativePlayer.stop() }
         activeTracks.value = emptyList()
         dimensions.value = 0 to 0

@@ -1229,6 +1229,8 @@ fun PlayerScreen(
     val activeLifecycleEngine by rememberUpdatedState(playerEngine)
     val activeLifecycleQueueIndex by rememberUpdatedState(queueIndex)
     val activeLifecycleDuration by rememberUpdatedState(duration)
+    val activeLifecycleExplicitPause by rememberUpdatedState(explicitlyPaused)
+    val activeLifecycleCastConnected by rememberUpdatedState(castState.connected)
     DisposableEffect(lifecycleOwner, playbackSession, streamingSessionManager) {
         streamingSessionManager.acquireLocks()
         // A transient lifecycle pause must not become a permanent user pause.
@@ -1256,9 +1258,15 @@ fun PlayerScreen(
                     }
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    if (foregroundIntent.consumeResume()) {
-                        activeLifecycleEngine.play()
-                    }
+                    // The app can receive a manual Pause or Cast handoff while
+                    // backgrounded. Reacquire audio focus before any native play.
+                    if (shouldResumeAfterActivityReturn(
+                            pendingPlay = foregroundIntent.consumeResume(),
+                            explicitlyPaused = activeLifecycleExplicitPause,
+                            castConnected = activeLifecycleCastConnected,
+                            audioFocusSuppressed = audioFocusController.isSuppressed
+                        ) && audioFocusController.request(activeLifecycleEngine)
+                    ) activeLifecycleEngine.play()
                 }
                 Lifecycle.Event.ON_STOP -> {
                     stopCurrentCache(PlaybackCacheStopReason.LifecycleStop)

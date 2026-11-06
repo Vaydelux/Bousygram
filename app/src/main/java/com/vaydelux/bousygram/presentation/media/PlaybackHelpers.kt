@@ -266,6 +266,18 @@ internal fun shouldPauseOnTransportToggle(
  * not erase the user's Play intent (including while the engine is buffering).
  * Explicitly paused playback never gets an automatic resume.
  */
+/**
+ * A prior foreground Play request is necessary but never sufficient to resume.
+ * A user pause, active Cast session, or interrupted audio focus wins.
+ */
+internal fun shouldResumeAfterActivityReturn(
+    pendingPlay: Boolean,
+    explicitlyPaused: Boolean,
+    castConnected: Boolean,
+    audioFocusSuppressed: Boolean
+): Boolean = pendingPlay && !explicitlyPaused && !castConnected &&
+    !audioFocusSuppressed
+
 internal class ForegroundPlaybackIntent {
     private var pendingResume = false
 
