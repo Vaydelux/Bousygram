@@ -366,28 +366,36 @@ object PlaybackCore {
         val resumePos = current.currentPositionMs.coerceAtLeast(0L)
         Log.w(TAG, "Executing engine fallback from ${current.engineName} to mpv at $resumePos ms")
 
-        current.detachSurface()
-        runCatching {
-            current.stop()
-            current.release()
-        }
-
-        return try {
-            val mpv = MpvPlayerEngine(context = context).apply {
-                setPlaybackSpeed(speed)
-            }
-            _currentEngine.value = mpv
-            activeSurface?.let { surface ->
-                if (surface.isValid) {
-                    mpv.attachSurface(surface)
+        // Native initialization is fallible, especially under ARM32 pressure.
+        // Do not release the current engine until MPV is constructed, surfaced,
+        // and published. On failure restore the old engine and its observer.
+        return replacePlayerEngineSafely(
+            current = current,
+            create = {
+                MpvPlayerEngine(context = context).apply {
+                    setPlaybackSpeed(speed)
                 }
+            },
+            bind = { mpv ->
+                activeSurface?.takeIf { it.isValid }?.let(mpv::attachSurface)
+                _currentEngine.value = mpv
+                observeEngineState(session, mpv, context)
+            },
+            restore = {
+                _currentEngine.value = current
+                activeSurface?.takeIf { it.isValid }?.let(current::attachSurface)
+                observeEngineState(session, current, context)
+            },
+            reportCleanupFailure = { error ->
+                Log.w(TAG, "Previous engine cleanup failed after native fallback", error)
             }
-            observeEngineState(session, mpv, context)
-            true
-        } catch (e: Throwable) {
-            Log.e(TAG, "Failed to instantiate fallback MpvPlayerEngine", e)
-            false
-        }
+        ).fold(
+            onSuccess = { true },
+            onFailure = { error ->
+                Log.e(TAG, "Failed to initialize or bind fallback MpvPlayerEngine", error)
+                false
+            }
+        )
     }
 
     // Transport controls
