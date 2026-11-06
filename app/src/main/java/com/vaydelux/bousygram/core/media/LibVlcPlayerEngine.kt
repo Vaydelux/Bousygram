@@ -10,6 +10,7 @@ import com.vaydelux.bousygram.core.media.PlayerEngine
 import com.vaydelux.bousygram.core.media.isTrustedExperimentalLocalStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -36,6 +37,8 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     // Keep native VLC calls off its event callback thread to prevent reentry
     // deadlocks. This Handler belongs only to this engine and is cleared on release.
     private val eventHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val _audioEqStatus = MutableStateFlow(AudioEffectStatus.BYPASSED)
+    override val audioEqualizerStatus: StateFlow<AudioEffectStatus> = _audioEqStatus.asStateFlow()
     private var activeEqualizer: MediaPlayer.Equalizer? = null
     private var activeEqPreset = AudioEqualizerPreset.ORIGINAL
 
@@ -50,24 +53,31 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     activeEqualizer = null
                     activeEqPreset = preset
                 }
+                _audioEqStatus.value = if (disabled) AudioEffectStatus.BYPASSED
+                    else AudioEffectStatus.UNSUPPORTED
                 return@runCatching disabled
             }
             // Reuse one native equalizer across preset switches. The VLC object
             // owns native resources and should not be reallocated for every tap.
             val eq = activeEqualizer ?: MediaPlayer.Equalizer.create()
-            eq.setPreAmp(preset.preampDb)
+            check(eq.setPreAmp(preset.preampDb)) { "Native VLC preamp rejected" }
             val count = MediaPlayer.Equalizer.getBandCount().coerceIn(0, 32)
             for (index in 0 until count) {
                 val freqHz = MediaPlayer.Equalizer.getBandFrequency(index)
-                eq.setAmp(index, preset.gainDbAt(freqHz))
+                check(eq.setAmp(index, preset.gainDbAt(freqHz))) {
+                    "Native VLC EQ band rejected"
+                }
             }
             val applied = nativePlayer.setEqualizer(eq)
             if (applied) {
                 activeEqualizer = eq
                 activeEqPreset = preset
             }
+            _audioEqStatus.value = if (applied) AudioEffectStatus.APPLIED
+                else AudioEffectStatus.UNSUPPORTED
             applied
         }.getOrElse { failure ->
+            _audioEqStatus.value = AudioEffectStatus.UNSUPPORTED
             Log.w(TAG, "LibVLC equalizer unavailable for current output", failure)
             false
         }
@@ -439,6 +449,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         runCatching { nativePlayer.setEqualizer(null) }
         activeEqualizer = null
         activeEqPreset = AudioEqualizerPreset.ORIGINAL
+        _audioEqStatus.value = AudioEffectStatus.BYPASSED
         runCatching { nativePlayer.vlcVout.detachViews() }
         viewsAttached = false
         surface = null

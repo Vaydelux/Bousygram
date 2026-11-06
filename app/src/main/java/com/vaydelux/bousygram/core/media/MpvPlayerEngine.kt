@@ -64,37 +64,66 @@ class MpvPlayerEngine(
     private val mpv: MPVLib = MPVLib.create(context)
         ?: throw IllegalStateException("Failed to create libmpv instance from native context")
     private val isDestroyed = AtomicBoolean(false)
+    private val _audioEqStatus = MutableStateFlow(AudioEffectStatus.BYPASSED)
+    override val audioEqualizerStatus: StateFlow<AudioEffectStatus> = _audioEqStatus.asStateFlow()
     private var customEqualizerInstalled = false
     private var appliedEqPreset = AudioEqualizerPreset.ORIGINAL
 
+    private fun verifyEq(): FilterVerification =
+        runCatching { verifyNamedMpvAudioFilter(mpv.getPropertyString("af"), "bousy_eq") }
+            .getOrDefault(FilterVerification.UNVERIFIABLE)
+
     override fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean {
         if (isDestroyed.get()) return false
-        if (preset == appliedEqPreset && (!preset.isEnabled || customEqualizerInstalled)) return true
-        // Remove only our own named filter, preserving any other audio filters.
-        // Native libavfilter availability varies by ABI and vendor build.
-        if (customEqualizerInstalled) {
-            runCatching { mpv.command(arrayOf("af", "remove", "@bousy_eq")) }
-                .onFailure { Log.w(TAG, "MPV EQ removal unsupported", it) }
-            customEqualizerInstalled = false
-        }
-        if (!preset.isEnabled) {
-            appliedEqPreset = preset
+        if (preset == appliedEqPreset &&
+            (if (preset.isEnabled) verifyEq() == FilterVerification.PRESENT
+             else verifyEq() == FilterVerification.ABSENT)) {
+            _audioEqStatus.value = if (preset.isEnabled) AudioEffectStatus.APPLIED
+                else AudioEffectStatus.BYPASSED
             return true
         }
+
+        val current = verifyEq()
+        if (current == FilterVerification.PRESENT || customEqualizerInstalled) {
+            val removed = runCatching {
+                mpv.command(arrayOf("af", "remove", "@bousy_eq"))
+                verifyEq() == FilterVerification.ABSENT
+            }.getOrDefault(false)
+            if (!removed) {
+                // Never claim Original has bypassed processing when removal is unknown.
+                _audioEqStatus.value = AudioEffectStatus.UNSUPPORTED
+                Log.w(TAG, "Native audio filter removal could not be verified")
+                return false
+            }
+            customEqualizerInstalled = false
+        }
+
+        if (!preset.isEnabled) {
+            appliedEqPreset = AudioEqualizerPreset.ORIGINAL
+            _audioEqStatus.value = AudioEffectStatus.BYPASSED
+            return true
+        }
+
         return runCatching {
-            // Four modest peaking filters minimize CPU use on ARM32 Android TVs.
             val filters = listOf(90, 400, 2_000, 8_000).joinToString(",") { hz ->
                 val gain = String.format(Locale.US, "%.1f", preset.gainDbAt(hz.toFloat()))
                 "equalizer=f=$hz:t=q:w=1:g=$gain"
             }
             val preamp = String.format(Locale.US, "%.1f", preset.preampDb)
-            val filter = "@bousy_eq:lavfi=[volume=${preamp}dB,$filters]"
-            mpv.command(arrayOf("af", "add", filter))
-            customEqualizerInstalled = true
-            appliedEqPreset = preset
-            true
-        }.getOrElse { error ->
-            Log.w(TAG, "MPV audio filter unavailable; leaving original audio", error)
+            mpv.command(arrayOf("af", "add", "@bousy_eq:lavfi=[volume=${preamp}dB,$filters]"))
+            val installed = verifyEq()
+            customEqualizerInstalled = installed != FilterVerification.ABSENT
+            if (installed == FilterVerification.PRESENT) {
+                appliedEqPreset = preset
+                _audioEqStatus.value = AudioEffectStatus.APPLIED
+                true
+            } else {
+                _audioEqStatus.value = AudioEffectStatus.UNSUPPORTED
+                false
+            }
+        }.getOrElse { failure ->
+            _audioEqStatus.value = AudioEffectStatus.UNSUPPORTED
+            Log.w(TAG, "MPV EQ unavailable for current output", failure)
             false
         }
     }
@@ -621,6 +650,7 @@ class MpvPlayerEngine(
             runCatching { mpv.detachSurface() }
             runCatching { mpv.destroy() }.onFailure { Log.e(TAG, "Error destroying mpv", it) }
             customEqualizerInstalled = false
+            _audioEqStatus.value = AudioEffectStatus.BYPASSED
             _playbackState.value = EnginePlaybackState.Idle
             _isPlaying.value = false
             _playWhenReady.value = false

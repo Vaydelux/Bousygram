@@ -2533,6 +2533,7 @@ fun PlayerScreen(
                 compact = compactHud,
                 subtitleAppearance = subtitleAppearance,
                 audioEqPreset = audioEqPreset,
+                castAudioActive = castState.connected,
                 onAudioEqPresetChange = { preset ->
                     EnterprisePreferences.setAudioEqualizerPreset(preset)
                 },
@@ -3243,12 +3244,14 @@ private fun TrackPickerOverlay(
     compact: Boolean,
     subtitleAppearance: SubtitleAppearance,
     audioEqPreset: AudioEqualizerPreset,
+    castAudioActive: Boolean,
     onAudioEqPresetChange: (AudioEqualizerPreset) -> Unit,
     onSubtitleAppearanceChange: (SubtitleAppearance) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tracks by playerEngine.tracks.collectAsStateWithLifecycle()
+    val eqStatus by playerEngine.audioEqualizerStatus.collectAsStateWithLifecycle()
     var selectedType by remember { mutableStateOf(MediaTrackInfo.TrackType.SUBTITLE) }
     val firstChoiceFocus = remember { FocusRequester() }
     val visibleTracks = tracks.filter { it.type == selectedType }
@@ -3319,6 +3322,13 @@ private fun TrackPickerOverlay(
                     "Real-time EQ for this device. Original bypasses processing. Audio passthrough and Cast may bypass EQ.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = if (castAudioActive) "Bypassed: Cast receiver audio"
+                        else eqStatus.displayLabel,
+                    color = if (eqStatus == com.vaydelux.bousygram.core.media.AudioEffectStatus.UNSUPPORTED && !castAudioActive)
+                        MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium
                 )
                 AudioEqualizerPreset.entries.forEach { preset ->
                     TrackChoice(
