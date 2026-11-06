@@ -44,6 +44,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.focusGroup
@@ -123,6 +124,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem as ExoMediaItem
+import com.vaydelux.bousygram.domain.model.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -204,7 +206,12 @@ private const val CACHE_AHEAD_REFRESH_MS = 10_000L
 fun PlayerScreen(
     request: PlaybackRequest,
     onExit: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    episodeCatalog: List<MediaItem> = emptyList(),
+    isForumEpisodeSource: Boolean = false,
+    canLoadOlderEpisodes: Boolean = false,
+    isLoadingOlderEpisodes: Boolean = false,
+    onLoadOlderEpisodes: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val castState by CastSessionController.state.collectAsStateWithLifecycle()
@@ -227,13 +234,17 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val compactHud = adaptive.isCompact
-    val queue = remember(request) {
-        val seeded = request.queue.ifEmpty { listOf(queueItemFromRequest(request)) }
-        (if (queueIndexForRequest(seeded, request.chatId, request.messageId, request.fileId) >= 0) {
-            seeded
-        } else {
-            listOf(queueItemFromRequest(request)) + seeded
-        }).toMutableStateList()
+    // Bound BOTH the initial catalog and later pagination; a large initial
+    // Browse list must not bypass the ARM32 memory budget.
+    val maxEpisodeEntries = remember { if (android.os.Process.is64Bit()) 512 else 256 }
+    val queue = remember(request, maxEpisodeEntries) {
+        boundedInitialEpisodeQueue(request, maxEpisodeEntries).toMutableStateList()
+    }
+    LaunchedEffect(request, episodeCatalog, isForumEpisodeSource) {
+        val additions = newEpisodesForPlayer(
+            request, episodeCatalog, isForumEpisodeSource, queue, maxEpisodeEntries
+        )
+        if (additions.isNotEmpty()) queue.addAll(additions)
     }
     val initialIndex = remember(request, queue) {
         queueIndexForRequest(queue, request.chatId, request.messageId, request.fileId).coerceAtLeast(0)
@@ -267,6 +278,7 @@ fun PlayerScreen(
     val optionsFocusRequester = remember { FocusRequester() }
     val firstOptionFocusRequester = remember { FocusRequester() }
     val episodesButtonFocusRequester = remember { FocusRequester() }
+    val trayCurrentFocusRequester = remember { FocusRequester() }
     val retryFocusRequester = remember { FocusRequester() }
     var optionsPanelVisible by remember { mutableStateOf(false) }
     var cinematicMenuSection by remember { mutableStateOf(CinematicMenuSection.ROOT) }
@@ -2711,6 +2723,10 @@ fun PlayerScreen(
                 .padding(bottom = if (compactHud) 110.dp else 135.dp)
         ) {
             val relatedQueue = relatedSourceQueue(queue, queueIndex)
+            val episodeGridState = rememberLazyGridState()
+            val playingLocalIndex = relatedQueue.indexOfFirst { it.first == queueIndex }
+            val moreAvailable = onLoadOlderEpisodes != null && canLoadOlderEpisodes &&
+                !isLoadingOlderEpisodes && queue.size < maxEpisodeEntries
             // Window size reflects split-screen and system insets more accurately
             // than Configuration.screenWidthDp (which Android Compose lint forbids).
             val availableWidthDp = with(androidx.compose.ui.platform.LocalDensity.current) {
@@ -2749,6 +2765,15 @@ fun PlayerScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.titleMedium
                         )
+                        if (playingLocalIndex >= 0) {
+                            BousygramButton("Current", {
+                                scope.launch {
+                                    episodeGridState.animateScrollToItem(playingLocalIndex)
+                                    delay(90L)
+                                    runCatching { trayCurrentFocusRequester.requestFocus() }
+                                }
+                            })
+                        }
                         BousygramButton("Close", {
                             episodesDrawerVisible = false
                             playerInputController.activeMenu = PlayerMenuType.NONE
@@ -2758,16 +2783,17 @@ fun PlayerScreen(
                             }
                         })
                     }
-                    if (relatedQueue.size <= 1) {
+                    if (relatedQueue.size <= 1 && !moreAvailable && !isLoadingOlderEpisodes) {
                         Text(
-                            "Only one playable item is loaded from this source. " +
-                                "Return to the channel and load more media to expand this list.",
+                            "Only one playable item is available in this loaded source. " +
+                                "Open the channel to browse additional history.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(trayColumns),
+                        state = episodeGridState,
                         modifier = Modifier.fillMaxWidth()
                             .heightIn(max = if (compactHud) 210.dp else 265.dp)
                             .onPreviewKeyEvent { event ->
@@ -2803,6 +2829,7 @@ fun PlayerScreen(
                                 ),
                                 modifier = Modifier.fillMaxWidth()
                                     .then(if (localIndex == 0) Modifier.focusRequester(trayFirstFocus) else Modifier)
+                                    .then(if (current) Modifier.focusRequester(trayCurrentFocusRequester) else Modifier)
                                     .onFocusChanged {
                                         focused = it.isFocused
                                         if (it.isFocused) trayFocusedIndex = localIndex
@@ -2829,6 +2856,23 @@ fun PlayerScreen(
                                 }
                             }
                         }
+                    }
+                    if (moreAvailable) {
+                        BousygramButton("Load older episodes", {
+                            if (!isLoadingOlderEpisodes) onLoadOlderEpisodes?.invoke()
+                        })
+                    } else if (isLoadingOlderEpisodes) {
+                        Text(
+                            "Loading older episodes…",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else if (queue.size >= maxEpisodeEntries) {
+                        Text(
+                            "Episode queue limit reached. Return to the source to browse deeper history.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
             }
