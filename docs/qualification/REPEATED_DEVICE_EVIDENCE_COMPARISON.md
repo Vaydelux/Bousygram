@@ -5,7 +5,7 @@ and a CI validation gate. **No physical ARM32/ARM64 device has been attached
 to this work.** This is not a performance pass or release certification.
 
 The comparer accepts **only** sanitized schema-1 outputs from
-\`tools/qualification/Capture-BousygramPhysicalSoak.ps1\`. It never reads
+`tools/qualification/Capture-BousygramPhysicalSoak.ps1`. It never reads
 Telegram authentication, media URLs, logs, raw video, accounts, or APK binaries.
 
 ## A controlled run
@@ -17,10 +17,10 @@ cycle count and sampling interval between before/after groups.
 
 Capture baseline and candidate using the existing sampler:
 
-\`\`\`powershell
+```powershell
 .\tools\qualification\Capture-BousygramPhysicalSoak.ps1 -Scenario arm32-playback -Cycles 60 -SampleSeconds 60 -ApkPath ".\baseline.apk" -SourceCommit "<40-char-baseline-commit>"
 .\tools\qualification\Capture-BousygramPhysicalSoak.ps1 -Scenario arm32-playback -Cycles 60 -SampleSeconds 60 -ApkPath ".\candidate.apk" -SourceCommit "<40-char-candidate-commit>"
-\`\`\`
+```
 
 Run each command **at least three independent times** and rename the resulting
 JSON files locally to distinguish runs. The sampler's APK hash is
@@ -28,9 +28,9 @@ JSON files locally to distinguish runs. The sampler's APK hash is
 
 On a computer with Python 3.10+:
 
-\`\`\`powershell
+```powershell
 python tools/qualification/compare_physical_cohorts.py --baseline ".\qualification-evidence\before-1.json" ".\qualification-evidence\before-2.json" ".\qualification-evidence\before-3.json" --candidate ".\qualification-evidence\after-1.json" ".\qualification-evidence\after-2.json" ".\qualification-evidence\after-3.json" --min-runs 3 --min-cycles 20 --out ".\qualification-evidence\comparison.json"
-\`\`\`
+```
 
 The single-PSS-pair PowerShell comparator remains available for exploratory
 debugging, but this command requires repeated runs by default.
@@ -47,9 +47,9 @@ debugging, but this command requires repeated runs by default.
 - A separately controlled **regression flag** may be enabled only after
   collecting representative physical baselines:
 
-\`\`\`powershell
+```powershell
 python tools/qualification/compare_physical_cohorts.py --baseline ".\qualification-evidence\before-1.json" ".\qualification-evidence\before-2.json" ".\qualification-evidence\before-3.json" --candidate ".\qualification-evidence\after-1.json" ".\qualification-evidence\after-2.json" ".\qualification-evidence\after-3.json" --max-extra-drift-kib 4096 --max-peak-increase-kib 8192 --out ".\qualification-evidence\comparison.json"
-\`\`\`
+```
 
 The **4096/8192 KiB thresholds above are illustrative command arguments, not
 adopted Bousygram limits**. Use thresholds only when justified by repeat runs
@@ -73,24 +73,24 @@ The output uses **observed**, **missing**, **failed**, and **skipped** checks,
 while all manual authorization, actual rendered frames and native-engine
 behavior stay **missing** until reviewed by an operator. There is no
 automatic status named "hardware passed." All output contains
-\`productionQualified: false\`.
+`productionQualified: false`.
 
 | Exit code | Meaning |
 | --- | --- |
-| \`0\` | Enough comparable observations; no optional threshold flagged |
-| \`1\` | One or more **opt-in** numeric regression thresholds flagged |
-| \`2\` | Missing minimum runs or invalid/incompatible evidence |
+| `0` | Enough comparable observations; no optional threshold flagged |
+| `1` | One or more **opt-in** numeric regression thresholds flagged |
+| `2` | Missing minimum runs or invalid/incompatible evidence |
 
 A code 0 **does not** mean Bousygram has passed device qualification.
 
 ## CI versus device-lab roles
 
 The Android Enterprise workflow invokes only Python's standard-library
-\`unittest\` suite against **fabricated** memory histories and deliberate
+`unittest` suite against **fabricated** memory histories and deliberate
 failure fixtures. It does not upload real-device captures, passwords or logs.
 
 The existing optional Firebase Test Lab jobs require
-\`FIREBASE_TEST_LAB_ENABLED=true\` and configured protected credentials/device
+`FIREBASE_TEST_LAB_ENABLED=true` and configured protected credentials/device
 variables. Firebase emulator/device instrumentation is **not** equivalent
 to authenticated Telegram reconnect, physical ARM32 memory profiling, or
 manual rendered-video/audio/subtitle verification. These remain separately
