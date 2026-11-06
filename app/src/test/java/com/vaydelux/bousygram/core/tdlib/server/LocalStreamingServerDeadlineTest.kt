@@ -26,9 +26,9 @@ class LocalStreamingServerDeadlineTest {
     @Test
     fun prefetchWindowMatchesNormalVideoRunwayWithoutOverfetch() {
         val size = 200L * 1024L * 1024L
-        val w = requireNotNull(calculateSeekPrefetchWindow(size, 60_000L, 120_000L))
+        val w = requireNotNull(calculateSeekPrefetchWindow(size, 100_000L, 200_000L))
         assertEquals(size / 2L, w.offset)
-        assertEquals(40L * 1024L * 1024L + 8L * 1024L * 1024L, w.length)
+        assertEquals(25L * 1024L * 1024L, w.length)
         assertEquals(null, calculateSeekPrefetchWindow(0L, 60_000L, 120_000L))
     }
 
@@ -54,7 +54,7 @@ class LocalStreamingServerDeadlineTest {
         assertEquals(size - 1L, atEnd.offset)
         assertEquals(1L, atEnd.length)
 
-        val noDuration = requireNotNull(calculateSeekPrefetchWindow(size, 200_000L, 0L))
+        val noDuration = requireNotNull(calculateSeekPrefetchWindow(size, 1_000_000L, 0L))
         assertEquals(size - 1L, noDuration.offset)
         assertEquals(1L, noDuration.length)
 
