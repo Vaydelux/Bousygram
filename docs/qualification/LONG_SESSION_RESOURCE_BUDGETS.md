@@ -18,6 +18,15 @@ P1.1 source baseline: `661a0f8`; see
 | Extras catalog results | 120 retained per tab | 240 per tab | Existing bounded Extras paging window |
 | Extras public HTTP JSON cache | Bounded warm metadata (LruCache) | Same | Existing ExtrasCatalogApi |
 
+**32-bit process buffer guard (2026-11-06):** A 32-bit Android TV process
+uses the compact libmpv demuxer tier (64 MiB max, 12 MiB back buffer)
+even when Android reports a Java heap class above 384 MiB. A TV
+already classified as low-RAM keeps the smaller 32 MiB/5 MiB tier.
+The same 32-bit TV guard avoids ExoPlayer's high-memory back-buffer tier.
+64-bit TV and phone profiles retain their existing behavior. This is a
+source-level safety cap, **not a measured PSS reduction or physical-TV
+qualification**; the matched-device soak gate below remains mandatory.
+
 **Clarification:** budgets for independent caches are additive. Native decoder
 allocations, GPU textures, TDLib native heap and Android Java heap are separate.
 Percent-of-heap is not a promised physical PSS reduction.

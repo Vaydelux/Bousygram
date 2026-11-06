@@ -129,9 +129,18 @@ object PlayerBufferConfig {
         }
     }
 
-    fun resolveExoConfig(isLowRamDevice: Boolean, memoryClass: Int): ExoBufferConfig {
+    fun resolveExoConfig(
+        isLowRamDevice: Boolean,
+        memoryClass: Int,
+        is32BitProcess: Boolean = false,
+        isTv: Boolean = false
+    ): ExoBufferConfig {
         if (isLowRam(isLowRamDevice, memoryClass)) return resolveExoConfig(isLowRam = true)
-        if (memoryClass < HIGH_MEMORY_CLASS_MB) return resolveExoConfig(isLowRam = false)
+        // A 32-bit TV has a smaller native address space even if Android reports
+        // a generous Java heap. Do not assign the high-memory back buffer to it.
+        if (memoryClass < HIGH_MEMORY_CLASS_MB || (is32BitProcess && isTv)) {
+            return resolveExoConfig(isLowRam = false)
+        }
         return ExoBufferConfig(
             minBufferMs = EXO_HIGH_MEMORY_MIN_BUFFER_MS,
             maxBufferMs = EXO_HIGH_MEMORY_MAX_BUFFER_MS,
@@ -149,7 +158,9 @@ object PlayerBufferConfig {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         resolveExoConfig(
             isLowRamDevice = am?.isLowRamDevice == true,
-            memoryClass = am?.memoryClass ?: 256
+            memoryClass = am?.memoryClass ?: 256,
+            is32BitProcess = !android.os.Process.is64Bit(),
+            isTv = isTv(context)
         )
     }.getOrElse { resolveExoConfig(isLowRam = false) }
 
@@ -172,8 +183,12 @@ object PlayerBufferConfig {
     }
 
     internal fun shouldUseCompactTvMpvCache(
-        isTv: Boolean, memoryClassMb: Int, isLowRam: Boolean
-    ): Boolean = isTv && !isLowRam && memoryClassMb in 193..384
+        isTv: Boolean,
+        memoryClassMb: Int,
+        isLowRam: Boolean,
+        is32BitProcess: Boolean = false
+    ): Boolean = isTv && !isLowRam &&
+        (memoryClassMb in 193..384 || is32BitProcess)
 
     fun resolveMpvConfig(
         isLowRam: Boolean,
@@ -219,7 +234,9 @@ object PlayerBufferConfig {
             isLowRam = lowRam,
             isTv = tv,
             isCellular = isCellular,
-            isCompactTv = shouldUseCompactTvMpvCache(tv, memoryClassMb, lowRam)
+            isCompactTv = shouldUseCompactTvMpvCache(
+                tv, memoryClassMb, lowRam, is32BitProcess = !android.os.Process.is64Bit()
+            )
         )
     }
 }

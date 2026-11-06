@@ -170,6 +170,51 @@ class PlayerBufferConfigTest {
     }
 
     @Test
+    fun arm32TvWithGenerousJavaHeapStillUsesCompactNativeDemuxerBudget() {
+        assertTrue(PlayerBufferConfig.shouldUseCompactTvMpvCache(
+            isTv = true, memoryClassMb = 512, isLowRam = false, is32BitProcess = true
+        ))
+        assertTrue(PlayerBufferConfig.shouldUseCompactTvMpvCache(
+            isTv = true, memoryClassMb = 1024, isLowRam = false, is32BitProcess = true
+        ))
+        assertFalse(PlayerBufferConfig.shouldUseCompactTvMpvCache(
+            isTv = true, memoryClassMb = 512, isLowRam = false, is32BitProcess = false
+        ))
+        assertFalse(PlayerBufferConfig.shouldUseCompactTvMpvCache(
+            isTv = false, memoryClassMb = 512, isLowRam = false, is32BitProcess = true
+        ))
+        assertFalse(PlayerBufferConfig.shouldUseCompactTvMpvCache(
+            isTv = true, memoryClassMb = 128, isLowRam = true, is32BitProcess = true
+        ))
+        val compact = PlayerBufferConfig.resolveMpvConfig(
+            isLowRam = false, isTv = true, isCompactTv = true
+        )
+        assertEquals(PlayerBufferConfig.MPV_COMPACT_TV_DEMUXER_MAX_BYTES, compact.demuxerMaxBytes)
+        assertEquals(PlayerBufferConfig.MPV_COMPACT_TV_MAX_BACK_BYTES, compact.demuxerMaxBackBytes)
+    }
+
+    @Test
+    fun arm32TvDoesNotSelectHighHeapExoBackBuffer() {
+        val arm32Tv = PlayerBufferConfig.resolveExoConfig(
+            isLowRamDevice = false, memoryClass = 512, is32BitProcess = true, isTv = true
+        )
+        assertEquals(PlayerBufferConfig.ExoMemoryProfile.Standard, arm32Tv.profile)
+        assertEquals(PlayerBufferConfig.EXO_DEFAULT_BACK_BUFFER_MS, arm32Tv.backBufferMs)
+        val arm64Tv = PlayerBufferConfig.resolveExoConfig(
+            isLowRamDevice = false, memoryClass = 512, is32BitProcess = false, isTv = true
+        )
+        assertEquals(PlayerBufferConfig.ExoMemoryProfile.HighMemory, arm64Tv.profile)
+        val arm32Phone = PlayerBufferConfig.resolveExoConfig(
+            isLowRamDevice = false, memoryClass = 512, is32BitProcess = true, isTv = false
+        )
+        assertEquals(PlayerBufferConfig.ExoMemoryProfile.HighMemory, arm32Phone.profile)
+        val actualLowRam = PlayerBufferConfig.resolveExoConfig(
+            isLowRamDevice = true, memoryClass = 1024, is32BitProcess = true, isTv = true
+        )
+        assertEquals(PlayerBufferConfig.ExoMemoryProfile.LowRam, actualLowRam.profile)
+    }
+
+    @Test
     fun buildLoadControlConstructsConfiguredDefaultLoadControl() {
         val normalConfig = PlayerBufferConfig.resolveExoConfig(isLowRam = false)
         val normalLoadControl = PlayerBufferConfig.buildLoadControl(normalConfig)
