@@ -91,3 +91,15 @@ engine switches, comparing CPU%, Java heap and native/total PSS before,
 after and after teardown. Track crashes, audio interruptions,
 AV drift and any retained filters. Ensure Original/Off restores a dry
 signal before declaring the feature production-qualified.
+
+### Opt-in native audio lifecycle stress
+
+`NativeEnginePhysicalSoakTest.optInPhysicalAudioEffectsStressMeasuresPssAndCpuButNotAcousticOutput`
+runs only on an ARM32/ARM64 device when the instrumentation argument
+`physicalNativeAudioSoak=true` is explicitly provided. It cycles through
+libmpv, LibVLC and ExoPlayer 30 times, applies/bypasses custom EQ and Smart
+Volume, releases resources twice to exercise idempotency, and logs total/native
+PSS and process CPU time every five cycles. It does **not** include a stream,
+measure audio continuity, or certify sound quality. For those acceptance
+criteria, play real verified MP4/MKV/TS media and record A/B audio and PSS
+traces independently.
