@@ -65,6 +65,14 @@ class ExoPlayerEngine(
     private var dynamicsSession = -1
     private var dynamicsMode = SmartVolumeMode.OFF
 
+    /** Stopped media has no active audible output even if the session id is cached. */
+    private fun markEffectsWaitingForOutput() {
+        _audioEqStatus.value = audioEffectStatusWithoutOutput(activeAudioProfile.preset.isEnabled)
+        _smartVolumeStatus.value = audioEffectStatusWithoutOutput(
+            activeAudioProfile.smartVolume != SmartVolumeMode.OFF
+        )
+    }
+
     private fun releaseSmartVolume() {
         runCatching { dynamicsEffect?.let { it.enabled = false } }
         runCatching { dynamicsEffect?.release() }
@@ -318,13 +326,27 @@ class ExoPlayerEngine(
             // Media3 can replace its AudioTrack/session across format or route changes.
             releaseAudioFx()
             releaseSmartVolume()
-            applyAudioProcessing(activeAudioProfile)
+            if (player.mediaItemCount == 0) {
+                markEffectsWaitingForOutput()
+            } else {
+                applyAudioProcessing(activeAudioProfile)
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_BUFFERING -> _playbackState.value = EnginePlaybackState.Buffering
-                Player.STATE_READY -> _playbackState.value = EnginePlaybackState.Ready
+                Player.STATE_READY -> {
+                    _playbackState.value = EnginePlaybackState.Ready
+                    // On some devices a reusable session ID survives stop/prepare,
+                    // so no new session callback is emitted for the next item.
+                    if (!isReleased.get() && player.mediaItemCount > 0 &&
+                        shouldRetryPendingAudioEffectsOnReady(
+                            activeAudioProfile, _audioEqStatus.value,
+                            _smartVolumeStatus.value, player.audioSessionId
+                        )
+                    ) applyAudioProcessing(activeAudioProfile)
+                }
                 Player.STATE_ENDED -> _playbackState.value = EnginePlaybackState.Ended
                 Player.STATE_IDLE -> {
                     if (player.mediaItemCount == 0) {
@@ -449,8 +471,13 @@ class ExoPlayerEngine(
     override fun stop() {
         if (isReleased.get()) return
         _firstFrameRendered.value = false
+        // Retain the user's preference, not the disposed effect instance.
+        // Recreating it while a stopped decoder has no output is misleading.
         player.stop()
         player.clearMediaItems()
+        releaseAudioFx()
+        releaseSmartVolume()
+        markEffectsWaitingForOutput()
         _playbackState.value = EnginePlaybackState.Idle
     }
 
