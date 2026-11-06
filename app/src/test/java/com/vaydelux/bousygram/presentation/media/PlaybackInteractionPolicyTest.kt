@@ -80,6 +80,55 @@ class PlaybackInteractionPolicyTest {
         assertEquals(0L, recoveryPositionMs(-1L, -99L, -45L))
     }
 
+    @Test fun handoffRetainsPendingBackwardSeekOverObsoleteNativePosition() {
+        assertEquals(20_000L, engineHandoffPositionMs(
+            pendingSeekTargetMs = 20_000L,
+            enginePositionMs = 220_000L,
+            lastConfirmedMs = 250_000L,
+            pendingResumeMs = 260_000L
+        ))
+        assertEquals(0L, engineHandoffPositionMs(
+            pendingSeekTargetMs = 0L,
+            enginePositionMs = 220_000L,
+            lastConfirmedMs = 250_000L,
+            pendingResumeMs = 260_000L
+        ))
+        assertEquals(260_000L, engineHandoffPositionMs(
+            pendingSeekTargetMs = -1L,
+            enginePositionMs = 220_000L,
+            lastConfirmedMs = 250_000L,
+            pendingResumeMs = 260_000L
+        ))
+    }
+
+    @Test fun reprepareRespectsExplicitZeroInsteadOfOldSavedResume() {
+        assertEquals(0L, enginePreparationResumePositionMs(
+            handoffPositionMs = 0L,
+            lastConfirmedMs = 0L,
+            savedResumeMs = 175_000L
+        ))
+        assertEquals(20_000L, enginePreparationResumePositionMs(
+            handoffPositionMs = 20_000L,
+            lastConfirmedMs = 250_000L,
+            savedResumeMs = 175_000L
+        ))
+        assertEquals(250_000L, enginePreparationResumePositionMs(
+            handoffPositionMs = null,
+            lastConfirmedMs = 250_000L,
+            savedResumeMs = 175_000L
+        ))
+        assertEquals(175_000L, enginePreparationResumePositionMs(
+            handoffPositionMs = null,
+            lastConfirmedMs = 0L,
+            savedResumeMs = 175_000L
+        ))
+        assertEquals(0L, enginePreparationResumePositionMs(
+            handoffPositionMs = null,
+            lastConfirmedMs = -5L,
+            savedResumeMs = -9L
+        ))
+    }
+
     @Test fun transientAudioFocusLossResumesOnlyOnGainAndWithoutUserPause() {
         val gate = AudioFocusRecoveryPolicy()
         gate.onFocusLost(transient = true, wasPlayRequested = true)
