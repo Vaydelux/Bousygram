@@ -172,6 +172,24 @@ class PlaybackHelpersTest {
     }
 
     @Test
+    fun initialQueuePreservesSelectedEpisodeWithinArm32Budget() {
+        val selected = MediaItem(chatId = 100L, messageId = 35L, date = 35,
+            type = MediaType.Video, title = "Episode 35", fileId = 35)
+        val items = (1L..80L).map { n ->
+            selected.copy(messageId = n, title = "Episode $n", fileId = n.toInt())
+        }
+        val request = buildPlaybackRequest(selected, null, items)
+        val bounded = boundedInitialEpisodeQueue(request, capacity = 16)
+        assertEquals(16, bounded.size)
+        assertTrue(queueIndexForRequest(bounded, 100L, 35L, 35) >= 0)
+        val fallback = boundedInitialEpisodeQueue(request.copy(
+            messageId = 500L, fileId = 500
+        ), capacity = 16)
+        assertEquals(16, fallback.size)
+        assertEquals(500L, fallback.first().messageId)
+    }
+
+    @Test
     fun pagedEpisodesNeverCrossForumOrChatAndRemainBounded() {
         val selected = MediaItem(chatId = 77L, messageId = 9L, date = 10,
             type = MediaType.Video, title = "Ep9", fileId = 9, messageThreadId = 20L)
