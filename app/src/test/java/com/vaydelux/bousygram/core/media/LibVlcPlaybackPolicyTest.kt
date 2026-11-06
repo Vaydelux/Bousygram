@@ -33,6 +33,23 @@ class LibVlcPlaybackPolicyTest {
         assertFalse(shouldReportLibVlcUnexpectedStop(true, true, false, false))
     }
 
+    @Test fun unexpectedNativePauseIsBoundedAndCannotOverrideExplicitPause() {
+        assertEquals(LibVlcUnexpectedPauseAction.IGNORE,
+            libVlcUnexpectedPauseAction(false, true, false, 0))
+        assertEquals(LibVlcUnexpectedPauseAction.IGNORE,
+            libVlcUnexpectedPauseAction(true, false, false, 0))
+        assertEquals(LibVlcUnexpectedPauseAction.IGNORE,
+            libVlcUnexpectedPauseAction(true, true, true, 0))
+        assertEquals(LibVlcUnexpectedPauseAction.RETRY,
+            libVlcUnexpectedPauseAction(true, true, false, 0))
+        assertEquals(LibVlcUnexpectedPauseAction.RETRY,
+            libVlcUnexpectedPauseAction(true, true, false, 1))
+        assertEquals(LibVlcUnexpectedPauseAction.FAIL,
+            libVlcUnexpectedPauseAction(true, true, false, 2))
+        assertEquals(LibVlcUnexpectedPauseAction.FAIL,
+            libVlcUnexpectedPauseAction(true, true, false, 20))
+    }
+
     @Test fun seeksAreClampedToContainerBoundsWithoutOverflow() {
         assertEquals(0L, boundedLibVlcSeekMs(-250L, 9000L))
         assertEquals(9000L, boundedLibVlcSeekMs(Long.MAX_VALUE, 9000L))
