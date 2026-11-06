@@ -335,10 +335,10 @@ internal fun playbackQueueForLoadedSource(
  * authenticated browse source, never for an unrelated Search/Favorites/Cast
  * request. Forum topic identity must match before fetching or appending.
  */
-internal fun canPageOlderEpisodes(request: PlaybackRequest, source: MediaUiState): Boolean {
-    if (!source.hasMore || source.nextFromMessageId == 0L ||
-        source.isLoading || source.items.none { it.chatId == request.chatId }
-    ) return false
+internal fun isMatchingEpisodeSource(request: PlaybackRequest, source: MediaUiState): Boolean {
+    // Remain matched after the *final page* clears hasMore/cursor, so that
+    // its media can still be appended to the live player queue.
+    if (source.items.none { it.chatId == request.chatId }) return false
     if (source.isSavedMessagesSelected) return source.selectedChatId == null &&
         source.items.all { it.chatId == request.chatId }
     if (source.selectedChatId != request.chatId) return false
@@ -349,6 +349,10 @@ internal fun canPageOlderEpisodes(request: PlaybackRequest, source: MediaUiState
     return normalizedForumTopicId(browsedTopic.toLong()) ==
         normalizedForumTopicId(request.topicId)
 }
+
+internal fun canPageOlderEpisodes(request: PlaybackRequest, source: MediaUiState): Boolean =
+    isMatchingEpisodeSource(request, source) && source.hasMore &&
+        source.nextFromMessageId != 0L && !source.isLoading
 
 /**
  * Append only never-before-queued metadata. TDLib URLs are generated only
