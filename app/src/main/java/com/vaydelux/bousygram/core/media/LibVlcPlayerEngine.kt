@@ -377,6 +377,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
             .onFailure { Log.w(TAG, "LibVLC speed setting unsupported", it) }
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun setResizeMode(mode: Int) {
         if (released.get()) return
         // Native VLC 3.6 scale=0 chooses automatic aspect-preserving fit.
