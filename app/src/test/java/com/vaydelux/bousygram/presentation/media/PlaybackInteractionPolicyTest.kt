@@ -35,6 +35,15 @@ class PlaybackInteractionPolicyTest {
         assertEquals(listOf(2L, 3L), stableChatCatalog(previous, incoming).map { it.chatId })
     }
 
+    @Test fun activityReturnRespectsCurrentPauseCastAndFocusState() {
+        assertTrue(shouldResumeAfterActivityReturn(true, false, false, false))
+        assertFalse(shouldResumeAfterActivityReturn(false, false, false, false))
+        assertFalse(shouldResumeAfterActivityReturn(true, true, false, false))
+        assertFalse(shouldResumeAfterActivityReturn(true, false, true, false))
+        assertFalse(shouldResumeAfterActivityReturn(true, false, false, true))
+        assertFalse(shouldResumeAfterActivityReturn(true, true, true, true))
+    }
+
     @Test fun temporaryLifecyclePauseResumesOnlyPreviouslyRequestedPlayback() {
         val intent = ForegroundPlaybackIntent()
         assertFalse(intent.onActivityPaused(playWhenReady = false))
