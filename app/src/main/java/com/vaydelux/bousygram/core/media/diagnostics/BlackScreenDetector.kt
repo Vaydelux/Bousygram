@@ -58,13 +58,31 @@ class BlackScreenDetector(
         EngineVerdictStore.recordVerdict(context, mediaKey, pending.second)
     }
 
-    fun reset() {
+    /**
+     * Re-arm the watchdog after a surface/engine transition without erasing the
+     * recovery stage. A later black screen can advance from TextureView to mpv,
+     * but the same stage cannot be repeated indefinitely.
+     */
+    fun rearmAfterTransition() {
         playingStartedAtMs = 0L
         initialAudioPositionMs = -1L
         recoveryTriggered = false
         simulatedFailure = false
-        pendingRecovery = null
         lastDiagnostic = null
+    }
+
+    /** Reset the active watch without forgetting which fallback stages were attempted. */
+    fun reset() {
+        rearmAfterTransition()
+        pendingRecovery = null
+    }
+
+    /** Each new media item receives a fresh, independent recovery budget. */
+    fun resetForNewMedia() {
+        reset()
+        hasSwitchedToTextureView = false
+        hasSwitchedToMpvHw = false
+        hasSwitchedToMpvSw = false
     }
 
     fun simulateCompositorFailure() {

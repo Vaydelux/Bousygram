@@ -108,6 +108,35 @@ class BlackScreenDetectorTest {
     }
 
     @Test
+    fun recoveryRearmsAfterTransitionAndNewEpisodeRestartsAtFirstStage() {
+        fun sample(positionMs: Long): BlackScreenRecoveryAction = detector.evaluate(
+            context = null,
+            currentEngine = SelectedPlayerEngine.ExoPlayer,
+            isPlaying = true,
+            isBuffering = false,
+            hasFirstFrame = false,
+            currentPositionMs = positionMs
+        )
+
+        assertEquals(BlackScreenRecoveryAction.NONE, sample(100L))
+        virtualTimeMs += 4_000L
+        assertEquals(BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW, sample(4_100L))
+        // The same failed stage must not trigger again without a transition.
+        virtualTimeMs += 4_000L
+        assertEquals(BlackScreenRecoveryAction.NONE, sample(8_100L))
+
+        detector.rearmAfterTransition()
+        assertEquals(BlackScreenRecoveryAction.NONE, sample(8_100L))
+        virtualTimeMs += 4_000L
+        assertEquals(BlackScreenRecoveryAction.SWITCH_TO_MPV_HW, sample(12_100L))
+
+        detector.resetForNewMedia()
+        assertEquals(BlackScreenRecoveryAction.NONE, sample(100L))
+        virtualTimeMs += 4_000L
+        assertEquals(BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW, sample(4_100L))
+    }
+
+    @Test
     fun bufferingState_pausesWatchdog_neverTriggersRecovery() {
         // Start buffering
         detector.evaluate(
