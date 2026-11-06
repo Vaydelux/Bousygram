@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import statistics
 import sys
@@ -84,7 +85,9 @@ def load_report(path: str, minimum_cycles: int) -> dict:
                  "installedApkMatchesCandidate"):
         require(raw.get(flag) is False, "untrusted_qualification_claim")
     require(raw.get("aborted") is False, "interrupted_capture")
-    require(raw.get("scenario") in SCENARIOS, "unknown_scenario")
+    scenario = raw.get("scenario")
+    require(isinstance(scenario, str) and scenario in SCENARIOS,
+            "unknown_scenario")
     require(integer(raw.get("requestedCycles"), minimum_cycles) and
             raw.get("capturedCycles") == raw["requestedCycles"], "incomplete_capture")
     require(integer(raw.get("secondsBetweenActions"), 1) and
@@ -263,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-peak-increase-kib", type=float)
     args = parser.parse_args(argv)
     if args.min_runs < 2 or args.min_cycles < 2 or any(
-        value is not None and (value < 0 or not __import__("math").isfinite(value))
+        value is not None and (value < 0 or not math.isfinite(value))
         for value in (args.max_extra_drift_kib, args.max_peak_increase_kib)
     ):
         parser.error("minimum runs/cycles must be >=2; optional thresholds must be nonnegative finite KiB")
@@ -278,8 +281,11 @@ def main(argv: list[str] | None = None) -> int:
                     Path(x).resolve() for x in (args.baseline + args.candidate)
                 }, "invalid_report_output_path")
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n",
-                          encoding="utf-8")
+        # Write only fully validated summaries; partial JSON is not evidence.
+        temporary = output.with_name(output.name + ".tmp")
+        temporary.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n",
+                             encoding="utf-8")
+        temporary.replace(output)
     except (EvidenceError, OSError) as exc:
         reason = str(exc) if isinstance(exc, EvidenceError) else "local_file_io_error"
         print("Device evidence rejected: " + reason, file=sys.stderr)

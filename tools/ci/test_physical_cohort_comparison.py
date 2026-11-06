@@ -164,6 +164,7 @@ class CohortComparisonTest(unittest.TestCase):
         cases = [
             (lambda r: r["memory"].update(peakTotalPssKiB=1), "sample_summary_mismatch"),
             (lambda r: r.update(authToken="private"), "private_field_present"),
+            (lambda r: r.update(scenario=[]), "unknown_scenario"),
             (lambda r: r["device"].update(serial="private"), "private_field_present"),
             (lambda r: r["samples"][0].update(totalPssKiB=-5), "invalid_process_or_pss"),
             (lambda r: r.update(capturedCycles=19), "incomplete_capture")
