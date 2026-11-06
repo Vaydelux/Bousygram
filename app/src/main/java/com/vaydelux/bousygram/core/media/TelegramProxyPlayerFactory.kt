@@ -140,11 +140,13 @@ object TelegramProxyPlayerFactory {
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                     .build(),
-                true
+                // PlayerScreen owns audio focus for all three engines. Do not
+                // have Media3 request a second competing focus token.
+                false
             )
             .build()
             .apply {
-                playWhenReady = true
+                playWhenReady = false
                 setPlaybackSpeed(preferredSpeed)
                 setSeekParameters(SeekParameters.CLOSEST_SYNC)
                 setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
