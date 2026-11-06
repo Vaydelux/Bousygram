@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.presentation.media
 
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
+import com.vaydelux.bousygram.domain.model.MediaUiState
 
 /**
  * Poll decoder progress frequently while controls or seek feedback are visible,
@@ -296,13 +297,28 @@ internal fun playbackQueueForLoadedSource(
     selected: MediaItem,
     loaded: List<MediaItem>,
     isForum: Boolean
+): List<MediaItem> = playbackQueueForLoadedSource(
+    selectedChatId = selected.chatId,
+    selectedTopicId = selected.messageThreadId,
+    loaded = loaded,
+    isForum = isForum
+)
+
+internal fun normalizedForumTopicId(topicId: Long?): Long =
+    topicId?.takeIf { it > 1L } ?: 0L
+
+internal fun playbackQueueForLoadedSource(
+    selectedChatId: Long,
+    selectedTopicId: Long?,
+    loaded: List<MediaItem>,
+    isForum: Boolean
 ): List<MediaItem> {
-    val selectedTopic = selected.messageThreadId?.takeIf { it > 1L } ?: 0L
+    val selectedTopic = normalizedForumTopicId(selectedTopicId)
     return playableVideos(loaded)
         .asSequence()
-        .filter { it.chatId == selected.chatId }
+        .filter { it.chatId == selectedChatId }
         .filter { item ->
-            !isForum || (item.messageThreadId?.takeIf { it > 1L } ?: 0L) == selectedTopic
+            !isForum || normalizedForumTopicId(item.messageThreadId) == selectedTopic
         }
         .map { item ->
             // Make reply threads part of a plain channel's single source queue;
@@ -312,6 +328,48 @@ internal fun playbackQueueForLoadedSource(
         }
         .distinctBy { it.chatId to it.messageId }
         .toList()
+}
+
+/**
+ * The player may request an older page only for the currently selected,
+ * authenticated browse source, never for an unrelated Search/Favorites/Cast
+ * request. Forum topic identity must match before fetching or appending.
+ */
+internal fun canPageOlderEpisodes(request: PlaybackRequest, source: MediaUiState): Boolean {
+    if (!source.hasMore || source.nextFromMessageId == 0L ||
+        source.isLoading || source.items.none { it.chatId == request.chatId }
+    ) return false
+    if (source.isSavedMessagesSelected) return source.selectedChatId == null &&
+        source.items.all { it.chatId == request.chatId }
+    if (source.selectedChatId != request.chatId) return false
+    val chat = source.videoChats.firstOrNull { it.chatId == request.chatId }
+        ?: return false
+    if (!chat.isForum) return source.selectedTopicId == null
+    val browsedTopic = source.selectedTopicId ?: return false
+    return normalizedForumTopicId(browsedTopic.toLong()) ==
+        normalizedForumTopicId(request.topicId)
+}
+
+/**
+ * Append only never-before-queued metadata. TDLib URLs are generated only
+ * when a video becomes active, and the queue stays bounded on 32-bit TVs.
+ */
+internal fun newEpisodesForPlayer(
+    request: PlaybackRequest,
+    loaded: List<MediaItem>,
+    isForum: Boolean,
+    alreadyQueued: List<PlaybackQueueItem>,
+    capacity: Int
+): List<PlaybackQueueItem> {
+    if (alreadyQueued.size >= capacity) return emptyList()
+    val existing = alreadyQueued.mapTo(mutableSetOf()) { it.chatId to it.messageId }
+    return buildPlaybackQueue(playbackQueueForLoadedSource(
+        selectedChatId = request.chatId,
+        selectedTopicId = request.topicId,
+        loaded = loaded,
+        isForum = isForum
+    )).filter { (it.chatId to it.messageId) !in existing }
+        .take((capacity - alreadyQueued.size).coerceAtLeast(0))
 }
 
 fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
