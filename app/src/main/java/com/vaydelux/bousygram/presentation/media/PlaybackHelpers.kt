@@ -199,6 +199,32 @@ internal fun recoveryPositionMs(
 else maxOf(enginePositionMs, lastConfirmedMs).coerceAtLeast(0L)
 
 /**
+ * Snapshot the playback timeline before an engine is released. A pending seek, including
+ * an explicit Start Over at 0ms, always wins over the old decoder's position and the
+ * previous resume checkpoint. A resume awaiting a seek index must not be discarded.
+ */
+internal fun engineHandoffPositionMs(
+    pendingSeekTargetMs: Long,
+    enginePositionMs: Long,
+    lastConfirmedMs: Long,
+    pendingResumeMs: Long
+): Long = if (pendingSeekTargetMs >= 0L) pendingSeekTargetMs
+else maxOf(enginePositionMs, lastConfirmedMs, pendingResumeMs).coerceAtLeast(0L)
+
+/**
+ * The nullable handoff value distinguishes "resume exactly at zero" from "no handoff".
+ * Without this distinction, a decoder switch after Start Over restores the old saved
+ * checkpoint instead of the beginning of the media.
+ */
+internal fun enginePreparationResumePositionMs(
+    handoffPositionMs: Long?,
+    lastConfirmedMs: Long,
+    savedResumeMs: Long
+): Long = (handoffPositionMs?.coerceAtLeast(0L)
+    ?: lastConfirmedMs.takeIf { it > 0L }
+    ?: savedResumeMs).coerceAtLeast(0L)
+
+/**
  * An interrupted audio focus is not an explicit user pause.
  * Never re-arm playback without a fresh focus-gain event.
  */
