@@ -56,6 +56,8 @@ interface PlayerEngine {
     fun pause()
     fun seekTo(positionMs: Long)
     fun setPlaybackSpeed(speed: Float)
+    /** Live audio EQ; return false when the current output does not support effects. */
+    fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean = !preset.isEnabled
     fun setResizeMode(mode: Int)
     fun selectTrack(track: MediaTrackInfo)
     fun deselectTrack(type: MediaTrackInfo.TrackType)
