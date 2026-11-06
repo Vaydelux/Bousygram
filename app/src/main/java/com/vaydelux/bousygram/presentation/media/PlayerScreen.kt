@@ -234,17 +234,12 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val compactHud = adaptive.isCompact
-    val queue = remember(request) {
-        val seeded = request.queue.ifEmpty { listOf(queueItemFromRequest(request)) }
-        (if (queueIndexForRequest(seeded, request.chatId, request.messageId, request.fileId) >= 0) {
-            seeded
-        } else {
-            listOf(queueItemFromRequest(request)) + seeded
-        }).toMutableStateList()
-    }
-    // PlaybackQueueItem contains metadata only. Keep a bounded queue while
-    // allowing older pages to arrive without replacing the active decoder.
+    // Bound BOTH the initial catalog and later pagination; a large initial
+    // Browse list must not bypass the ARM32 memory budget.
     val maxEpisodeEntries = remember { if (android.os.Process.is64Bit()) 512 else 256 }
+    val queue = remember(request, maxEpisodeEntries) {
+        boundedInitialEpisodeQueue(request, maxEpisodeEntries).toMutableStateList()
+    }
     LaunchedEffect(request, episodeCatalog, isForumEpisodeSource) {
         val additions = newEpisodesForPlayer(
             request, episodeCatalog, isForumEpisodeSource, queue, maxEpisodeEntries
@@ -2723,7 +2718,7 @@ fun PlayerScreen(
             val episodeGridState = rememberLazyGridState()
             val playingLocalIndex = relatedQueue.indexOfFirst { it.first == queueIndex }
             val moreAvailable = onLoadOlderEpisodes != null && canLoadOlderEpisodes &&
-                queue.size < maxEpisodeEntries
+                !isLoadingOlderEpisodes && queue.size < maxEpisodeEntries
             // Window size reflects split-screen and system insets more accurately
             // than Configuration.screenWidthDp (which Android Compose lint forbids).
             val availableWidthDp = with(androidx.compose.ui.platform.LocalDensity.current) {
@@ -2780,7 +2775,7 @@ fun PlayerScreen(
                             }
                         })
                     }
-                    if (relatedQueue.size <= 1 && !moreAvailable) {
+                    if (relatedQueue.size <= 1 && !moreAvailable && !isLoadingOlderEpisodes) {
                         Text(
                             "Only one playable item is available in this loaded source. " +
                                 "Open the channel to browse additional history.",
