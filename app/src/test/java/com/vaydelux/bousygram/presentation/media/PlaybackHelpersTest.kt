@@ -202,6 +202,10 @@ class PlaybackHelpersTest {
         assertFalse(canPageOlderEpisodes(request, page.copy(selectedChatId = 88L)))
         assertFalse(canPageOlderEpisodes(request, page.copy(nextFromMessageId = 0L)))
         assertFalse(canPageOlderEpisodes(request, page.copy(hasMore = false)))
+        val finalPage = page.copy(hasMore = false, nextFromMessageId = 0L)
+        assertTrue("The last page must still be included in the episode tray",
+            isMatchingEpisodeSource(request, finalPage))
+        assertFalse(canPageOlderEpisodes(request, finalPage))
     }
 
     @Test
