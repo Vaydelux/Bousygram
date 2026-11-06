@@ -46,6 +46,8 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     override val smartVolumeStatus: StateFlow<AudioEffectStatus> = _smartVolumeStatus.asStateFlow()
 
     override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
+        // A stale Settings/Compose observer must not republish effect status after release.
+        if (released.get()) return false
         if (profile.preset == AudioEqualizerPreset.CUSTOM &&
             audioProfile.sanitizedGains != profile.sanitizedGains
         ) activeEqPreset = AudioEqualizerPreset.ORIGINAL
