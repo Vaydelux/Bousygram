@@ -10,6 +10,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
@@ -70,6 +73,8 @@ class CinematicPlayerChromeInstrumentedTest {
         composeRule.onNodeWithTag("cinematic_more").performClick()
         composeRule.onNodeWithTag("cinematic_navigation_menu").assertExists()
         composeRule.onNodeWithTag("cinematic_menu_group_playback").assertExists()
+        composeRule.onNodeWithTag("cinematic_menu_group_playback")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
         composeRule.onNodeWithTag("cinematic_menu_group_library").assertExists()
         composeRule.onNodeWithTag("cinematic_menu_group_advanced").assertExists()
 
