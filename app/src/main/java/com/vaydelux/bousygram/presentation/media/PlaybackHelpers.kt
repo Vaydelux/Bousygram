@@ -284,6 +284,36 @@ internal class ForegroundPlaybackIntent {
 fun playableVideos(items: List<MediaItem>): List<MediaItem> =
     items.filter { (it.type == MediaType.Video || it.type == MediaType.Audio) && it.fileId != null }
 
+/**
+ * Launch the player with the loaded SOURCE CATALOG, not a UI-filtered rail or
+ * search result. For non-forum groups/channels, messageThreadId can refer to a
+ * reply thread; it must not hide other videos as if it were a forum subtopic.
+ *
+ * This includes only already-loaded, authorized chat media and is bounded by
+ * the existing browsing window; it does not issue extra TDLib requests.
+ */
+internal fun playbackQueueForLoadedSource(
+    selected: MediaItem,
+    loaded: List<MediaItem>,
+    isForum: Boolean
+): List<MediaItem> {
+    val selectedTopic = selected.messageThreadId?.takeIf { it > 1L } ?: 0L
+    return playableVideos(loaded)
+        .asSequence()
+        .filter { it.chatId == selected.chatId }
+        .filter { item ->
+            !isForum || (item.messageThreadId?.takeIf { it > 1L } ?: 0L) == selectedTopic
+        }
+        .map { item ->
+            // Make reply threads part of a plain channel's single source queue;
+            // normalize Telegram General topic (null, 0 and 1) in forums.
+            if (!isForum || selectedTopic == 0L) item.copy(messageThreadId = null)
+            else item
+        }
+        .distinctBy { it.chatId to it.messageId }
+        .toList()
+}
+
 fun buildPlaybackQueue(videos: List<MediaItem>): List<PlaybackQueueItem> =
     playableVideos(videos).mapNotNull { item ->
         val fileId = item.fileId ?: return@mapNotNull null
