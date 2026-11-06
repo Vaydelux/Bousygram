@@ -12,14 +12,16 @@ class ExperimentalPlayerVisibilityTest {
         assertTrue(SelectedPlayerEngine.MPV in choices)
     }
 
-    @Test fun optInLabListsVlcWithoutChangingAutoPreference() {
+    @Test fun freshInstallDefaultsToLibVlcWithoutOverridingExplicitAuto() {
         val choices = availablePlaybackEngines()
         assertEquals(4, choices.size)
         assertEquals(SelectedPlayerEngine.LIBVLC, parseSavedPlayerEngine("LIBVLC_EXPERIMENTAL"))
-        assertEquals(SelectedPlayerEngine.AUTO, parseSavedPlayerEngine("invalid"))
+        assertEquals(SelectedPlayerEngine.LIBVLC, parseSavedPlayerEngine(null))
+        assertEquals(SelectedPlayerEngine.LIBVLC, parseSavedPlayerEngine("invalid"))
+        assertEquals(SelectedPlayerEngine.AUTO, parseSavedPlayerEngine("AUTO"))
         assertEquals(SelectedPlayerEngine.MPV, nextManualPlayerEngine(SelectedPlayerEngine.ExoPlayer))
         assertEquals(SelectedPlayerEngine.LIBVLC, nextManualPlayerEngine(SelectedPlayerEngine.MPV))
         assertEquals(SelectedPlayerEngine.ExoPlayer, nextManualPlayerEngine(SelectedPlayerEngine.LIBVLC))
-        assertEquals(SelectedPlayerEngine.AUTO, choices.first())
+        assertEquals(SelectedPlayerEngine.LIBVLC, choices.first())
     }
 }

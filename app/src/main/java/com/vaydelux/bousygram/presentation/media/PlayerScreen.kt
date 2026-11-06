@@ -341,10 +341,10 @@ fun PlayerScreen(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     var userSelectedResizeMode by remember { mutableStateOf<Int?>(null) }
 
-    val effectiveResizeMode = when {
-        isLandscape && userSelectedResizeMode == null -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-        else -> userSelectedResizeMode ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
-    }
+    // Always show the entire picture first. Cropping/zooming requires an
+    // explicit action, on both TV landscape and portrait displays.
+    val effectiveResizeMode = userSelectedResizeMode
+        ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
 
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
     var seekFeedbackSide by remember { mutableIntStateOf(0) }
@@ -1532,9 +1532,15 @@ fun PlayerScreen(
             playerEngine.pause()
             isPlaying = false
         } else {
-            // New selection auto-plays immediately; buffering is not a Pause.
-            playerEngine.play()
-            isPlaying = true
+            // Exactly one owner (this screen) requests platform audio focus for
+            // Media3, mpv and VLC. Media3 no longer races a second focus request.
+            if (audioFocusController.request(playerEngine)) {
+                playerEngine.play()
+                isPlaying = playerEngine.playWhenReady
+            } else {
+                isPlaying = false
+                toastFeedbackText = "Audio is in use by another app. Select Play to retry."
+            }
         }
     }
 
