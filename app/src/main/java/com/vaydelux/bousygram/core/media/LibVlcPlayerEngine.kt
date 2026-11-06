@@ -209,7 +209,11 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     }
                 }
                 MediaPlayer.Event.EndReached -> {
-                    if (shouldReportLibVlcEnded(activeMedia = true, playbackStarted = playbackStarted)) {
+                    if (shouldReportLibVlcEnded(
+                            activeMedia = true,
+                            playbackStarted = playbackStarted,
+                            playRequested = wantedPlayback
+                        )) {
                         playing = false
                         state.value = EnginePlaybackState.Ended
                     }
@@ -219,21 +223,22 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     if (shouldReportLibVlcUnexpectedStop(
                             activeMedia = true,
                             playbackStarted = playbackStarted,
-                            alreadyEnded = state.value is EnginePlaybackState.Ended
+                            alreadyEnded = state.value is EnginePlaybackState.Ended,
+                            playRequested = wantedPlayback
                         )
                     ) {
                         // VLC can report Stopped after EndReached. Preserve a
                         // genuine EOF instead of converting it into a false
                         // stream error and triggering unnecessary retry.
                         state.value = EnginePlaybackState.Error(
-                            "Experimental LibVLC stopped before playback completed"
+                            "LibVLC stopped before playback completed"
                         )
                     }
                 }
                 MediaPlayer.Event.EncounteredError -> {
                     playing = false
                     state.value = EnginePlaybackState.Error(
-                        "Experimental LibVLC could not decode or stream this file"
+                        "LibVLC could not decode or stream this file"
                     )
                 }
             }
