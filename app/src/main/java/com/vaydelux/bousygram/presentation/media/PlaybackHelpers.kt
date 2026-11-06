@@ -358,6 +358,29 @@ internal fun canPageOlderEpisodes(request: PlaybackRequest, source: MediaUiState
  * Append only never-before-queued metadata. TDLib URLs are generated only
  * when a video becomes active, and the queue stays bounded on 32-bit TVs.
  */
+/**
+ * Bounded launch queue. Retain the actively selected item even if the source
+ * list is much larger than the available device memory budget.
+ */
+internal fun boundedInitialEpisodeQueue(request: PlaybackRequest, capacity: Int): List<PlaybackQueueItem> {
+    require(capacity > 0) { "Episode queue capacity must be positive" }
+    val seeded = request.queue.ifEmpty { listOf(queueItemFromRequest(request)) }
+    val selectedIndex = queueIndexForRequest(
+        seeded, request.chatId, request.messageId, request.fileId
+    )
+    val window = if (seeded.size > capacity) {
+        val first = if (selectedIndex >= 0) {
+            (selectedIndex - capacity / 2).coerceIn(0, seeded.size - capacity)
+        } else 0
+        seeded.subList(first, first + capacity)
+    } else seeded
+    return if (queueIndexForRequest(window, request.chatId, request.messageId, request.fileId) >= 0) {
+        window
+    } else {
+        listOf(queueItemFromRequest(request)) + window.take(capacity - 1)
+    }
+}
+
 internal fun newEpisodesForPlayer(
     request: PlaybackRequest,
     loaded: List<MediaItem>,
