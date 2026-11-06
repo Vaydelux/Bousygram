@@ -26,30 +26,40 @@ object TvOverscanMargins {
  * 3. Inconsistent focus landing on initial screen load.
  */
 class FocusCoordinator {
-    private val lastFocusedByKey = ConcurrentHashMap<String, String>()
+    private val lastFocusedByKey = LinkedHashMap<String, String>(64, 0.75f, true)
+    // FocusRequesters must remain stable while active Compose nodes are attached.
     private val requesters = ConcurrentHashMap<String, FocusRequester>()
 
-    fun recordFocus(screenKey: String, itemKey: String) {
-        lastFocusedByKey[screenKey] = itemKey
+    internal fun rememberedScreenCount(): Int =
+        synchronized(lastFocusedByKey) { lastFocusedByKey.size }
+
+    private companion object {
+        const val MAX_RESTORED_SCREENS = 64
     }
 
-    fun getLastFocusedKey(screenKey: String, fallbackKey: String): String {
-        return lastFocusedByKey[screenKey] ?: fallbackKey
+    fun recordFocus(screenKey: String, itemKey: String) {
+        synchronized(lastFocusedByKey) {
+            lastFocusedByKey[screenKey] = itemKey
+            while (lastFocusedByKey.size > MAX_RESTORED_SCREENS) {
+                lastFocusedByKey.remove(lastFocusedByKey.keys.first())
+            }
+        }
     }
+
+    fun getLastFocusedKey(screenKey: String, fallbackKey: String): String =
+        synchronized(lastFocusedByKey) { lastFocusedByKey[screenKey] ?: fallbackKey }
 
     fun getOrCreateRequester(key: String): FocusRequester {
         return requesters.computeIfAbsent(key) { FocusRequester() }
     }
 
     fun requestFocus(key: String): Boolean {
-        return runCatching {
-            requesters[key]?.requestFocus()
-            true
-        }.getOrDefault(false)
+        // Missing or unattached focus nodes are not successful D-pad focus.
+        return runCatching { requesters[key]?.requestFocus() == true }.getOrDefault(false)
     }
 
     fun clearScreen(screenKey: String) {
-        lastFocusedByKey.remove(screenKey)
+        synchronized(lastFocusedByKey) { lastFocusedByKey.remove(screenKey) }
     }
 }
 
