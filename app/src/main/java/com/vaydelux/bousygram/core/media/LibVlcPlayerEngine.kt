@@ -378,7 +378,16 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     }
 
     override fun setResizeMode(mode: Int) {
-        // LibVLC uses the native vout. Aspect-fill/zoom parity is not qualified.
+        if (released.get()) return
+        // Native VLC 3.6 scale=0 chooses automatic aspect-preserving fit.
+        // Do not force a 16:9 aspect ratio or crop video on new installs.
+        // Explicit non-fit modes require separate native-output qualification.
+        if (mode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) {
+            runCatching {
+                nativePlayer.setAspectRatio(null)
+                nativePlayer.setScale(0f)
+            }.onFailure { Log.w(TAG, "LibVLC automatic fit unavailable", it) }
+        }
     }
 
     override fun selectTrack(track: MediaTrackInfo) {
