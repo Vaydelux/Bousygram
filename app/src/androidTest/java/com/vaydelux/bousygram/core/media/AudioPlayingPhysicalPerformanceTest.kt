@@ -49,6 +49,8 @@ class AudioPlayingPhysicalPerformanceTest {
             InstrumentationRegistry.getArguments().getString("physicalAudioPlayingPerf") == "true")
         val abi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
         assertTrue("Physical ARM hardware required", abi == "arm64-v8a" || abi == "armeabi-v7a")
+        val baselineOnly = InstrumentationRegistry.getArguments()
+            .getString("audioPerfBaseline") == "true"
         val context = instrumentation.targetContext
         val fixture = File(context.getExternalFilesDir("decoder-fixtures"), "seek-control.mp4")
         assertTrue("Push the synthetic seek-control.mp4 fixture before running", fixture.isFile)
@@ -104,7 +106,7 @@ class AudioPlayingPhysicalPerformanceTest {
                 val gains = List(10) { index -> if (index % 2 == 0) 2f else -2f }
 
                 repeat(30) { cycle ->
-                    val profile = when (cycle % 6) {
+                    val profile = if (baselineOnly) AudioProcessingProfile() else when (cycle % 6) {
                         0 -> AudioProcessingProfile()
                         1 -> AudioProcessingProfile(preset = AudioEqualizerPreset.DIALOGUE,
                             smartVolume = SmartVolumeMode.NIGHT)
@@ -134,7 +136,8 @@ class AudioPlayingPhysicalPerformanceTest {
                     if ((cycle + 1) % 5 == 0) {
                         val current = memory()
                         Log.i("BousyAudioPerf",
-                            "cycle=${cycle + 1}/30 process64bit=${Process.is64Bit()} " +
+                            "cycle=${cycle + 1}/30 baselineOnly=$baselineOnly " +
+                                "process64bit=${Process.is64Bit()} " +
                                 "pssKiB=${current.totalPss} nativePssKiB=${current.nativePss} " +
                                 "cpuMs=${Process.getElapsedCpuTime() - cpuStart} " +
                                 "eq=${statuses.first.name} volume=${statuses.second.name}")
@@ -153,7 +156,8 @@ class AudioPlayingPhysicalPerformanceTest {
             }
             val finalPss = memory()
             Log.i("BousyAudioPerf",
-                "final process64bit=${Process.is64Bit()} cycles=${applyTimesMs.size} " +
+                "final baselineOnly=$baselineOnly process64bit=${Process.is64Bit()} " +
+                    "cycles=${applyTimesMs.size} " +
                     "nativeEffectsApplied=${nativeEffectsApplied.get()} " +
                     "p95ApplyMs=${p95(applyTimesMs)} " +
                     "maxApplyMs=${applyTimesMs.maxOrNull() ?: 0L} " +
