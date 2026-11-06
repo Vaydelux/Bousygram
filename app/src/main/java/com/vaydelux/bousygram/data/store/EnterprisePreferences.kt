@@ -9,6 +9,9 @@ import android.content.SharedPreferences
 import com.vaydelux.bousygram.core.media.SubtitleAppearance
 import com.vaydelux.bousygram.core.media.SubtitleColorPreset
 import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
+import com.vaydelux.bousygram.core.media.AudioProcessingProfile
+import com.vaydelux.bousygram.core.media.CustomEqualizerLayout
+import com.vaydelux.bousygram.core.media.SmartVolumeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,6 +78,9 @@ object EnterprisePreferences {
     private const val KEY_SURFACE_TYPE = "surface_type"
     private const val KEY_MPV_HWDEC_MODE = "mpv_hwdec_mode"
     private const val KEY_AUDIO_EQ_PRESET = "audio_eq_preset"
+    private const val KEY_AUDIO_CUSTOM_GAINS = "audio_eq_custom_gains"
+    private const val KEY_AUDIO_CUSTOM_LAYOUT = "audio_eq_custom_layout"
+    private const val KEY_AUDIO_SMART_VOLUME = "audio_smart_volume"
 
 
     private val prefs by lazy {
@@ -193,17 +199,51 @@ object EnterprisePreferences {
     fun preferredSpeed(): Float = prefs.getFloat(KEY_SPEED, 1.0f).takeIf { it.isFinite() && it in 0.25f..3f } ?: 1f
     fun setPreferredSpeed(value: Float) { require(value.isFinite() && value in 0.25f..3f); prefs.edit { putFloat(KEY_SPEED, value) } }
 
-    /** One device-local sound preference. Off by default, never tied to Telegram content. */
-    private val audioEqState by lazy { MutableStateFlow(audioEqualizerPreset()) }
+    /** Local playback-only preferences; never associated with a Telegram account. */
+    private val audioProfileState by lazy { MutableStateFlow(audioProcessingProfile()) }
+    val audioProcessingProfileFlow: StateFlow<AudioProcessingProfile>
+        get() = audioProfileState.asStateFlow()
     val audioEqualizerPresetFlow: StateFlow<AudioEqualizerPreset>
         get() = audioEqState.asStateFlow()
+    private val audioEqState by lazy { MutableStateFlow(audioEqualizerPreset()) }
 
     fun audioEqualizerPreset(): AudioEqualizerPreset =
         AudioEqualizerPreset.fromStored(prefs.getString(KEY_AUDIO_EQ_PRESET, null))
 
+    fun audioProcessingProfile(): AudioProcessingProfile {
+        val raw = prefs.getString(KEY_AUDIO_CUSTOM_GAINS, null)
+        val values = runCatching {
+            val a = JSONArray(raw ?: "[]")
+            List(10) { idx ->
+                if (idx >= a.length()) 0f
+                else a.getDouble(idx).toFloat().takeIf(Float::isFinite)?.coerceIn(-6f, 6f) ?: 0f
+            }
+        }.getOrDefault(List(10) { 0f })
+        val layout = runCatching {
+            CustomEqualizerLayout.valueOf(prefs.getString(KEY_AUDIO_CUSTOM_LAYOUT, "FIVE") ?: "FIVE")
+        }.getOrDefault(CustomEqualizerLayout.FIVE)
+        return AudioProcessingProfile(
+            preset = audioEqualizerPreset(),
+            customGainsDb = values,
+            customLayout = layout,
+            smartVolume = SmartVolumeMode.fromStored(prefs.getString(KEY_AUDIO_SMART_VOLUME, null))
+        )
+    }
+
+    fun setAudioProcessingProfile(profile: AudioProcessingProfile) {
+        val clean = profile.copy(customGainsDb = profile.sanitizedGains)
+        prefs.edit {
+            putString(KEY_AUDIO_EQ_PRESET, clean.preset.name)
+            putString(KEY_AUDIO_CUSTOM_GAINS, JSONArray(clean.sanitizedGains).toString())
+            putString(KEY_AUDIO_CUSTOM_LAYOUT, clean.customLayout.name)
+            putString(KEY_AUDIO_SMART_VOLUME, clean.smartVolume.name)
+        }
+        audioProfileState.value = clean
+        audioEqState.value = clean.preset
+    }
+
     fun setAudioEqualizerPreset(preset: AudioEqualizerPreset) {
-        prefs.edit { putString(KEY_AUDIO_EQ_PRESET, preset.name) }
-        audioEqState.value = preset
+        setAudioProcessingProfile(audioProfileState.value.copy(preset = preset))
     }
 
     fun supportedPlayerEngines(): List<SelectedPlayerEngine> = availablePlaybackEngines()
@@ -252,6 +292,7 @@ object EnterprisePreferences {
         appendLine("Playback: TDLib local")
         appendLine("Preferred speed: ${preferredSpeed()}x")
         appendLine("Audio EQ: ${audioEqualizerPreset().title}")
+        appendLine("Smart Volume: ${audioProcessingProfile().smartVolume.title}")
         appendLine("Auto-play next: ${autoPlayNext()}")
         appendLine("Subtitles default: ${subtitlesDefault()}")
         appendLine("Privacy mode: ${safeMode()}")
@@ -281,6 +322,9 @@ object EnterprisePreferences {
         .put("subtitlesDefault", subtitlesDefault())
         .put("preferredSpeed", preferredSpeed().toDouble())
         .put("audioEqPreset", audioEqualizerPreset().name)
+        .put("audioCustomBands", JSONArray(audioProcessingProfile().sanitizedGains))
+        .put("audioCustomLayout", audioProcessingProfile().customLayout.name)
+        .put("audioSmartVolume", audioProcessingProfile().smartVolume.name)
         .put("bufferMode", bufferMode().name)
         .put("cacheLimit", cacheLimitOption().name)
         .toString(2)
