@@ -28,6 +28,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import com.vaydelux.bousygram.core.media.SeekThumbnailManager
 import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
+import com.vaydelux.bousygram.core.media.AudioProcessingProfile
 import com.vaydelux.bousygram.core.media.SubtitleAppearance
 import com.vaydelux.bousygram.core.media.SubtitleColorPreset
 import com.vaydelux.bousygram.core.media.TdLibDataSource
@@ -271,7 +272,7 @@ fun PlayerScreen(
     var cinematicMenuSection by remember { mutableStateOf(CinematicMenuSection.ROOT) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
     var subtitleAppearance by remember { mutableStateOf(EnterprisePreferences.subtitleAppearance()) }
-    val audioEqPreset by EnterprisePreferences.audioEqualizerPresetFlow.collectAsStateWithLifecycle()
+    val audioProfile by EnterprisePreferences.audioProcessingProfileFlow.collectAsStateWithLifecycle()
     var episodesDrawerVisible by remember { mutableStateOf(false) }
     var trayFocusedIndex by remember { mutableIntStateOf(0) }
     val trayFirstFocus = remember { FocusRequester() }
@@ -450,9 +451,9 @@ fun PlayerScreen(
         )
     }
     var playerEngine by engineOwner
-    LaunchedEffect(playerEngine, audioEqPreset) {
-        // Apply live EQ after engine switches; Media3 will attach when its session is ready.
-        playerEngine.applyAudioEqualizer(audioEqPreset)
+    LaunchedEffect(playerEngine, audioProfile) {
+        // Reapply EQ/compression on engine switches without modifying TDLib media.
+        playerEngine.applyAudioProcessing(audioProfile)
     }
     LaunchedEffect(playerEngine, subtitleAppearance) {
         (playerEngine as? MpvPlayerEngine)?.applySubtitleAppearance(subtitleAppearance)
@@ -2532,11 +2533,9 @@ fun PlayerScreen(
                 playerEngine = playerEngine,
                 compact = compactHud,
                 subtitleAppearance = subtitleAppearance,
-                audioEqPreset = audioEqPreset,
+                audioProfile = audioProfile,
                 castAudioActive = castState.connected,
-                onAudioEqPresetChange = { preset ->
-                    EnterprisePreferences.setAudioEqualizerPreset(preset)
-                },
+                onAudioProfileChange = EnterprisePreferences::setAudioProcessingProfile,
                 onSubtitleAppearanceChange = { updated ->
                     subtitleAppearance = updated
                     EnterprisePreferences.setSubtitleAppearance(updated)
@@ -3243,15 +3242,14 @@ private fun TrackPickerOverlay(
     playerEngine: PlayerEngine,
     compact: Boolean,
     subtitleAppearance: SubtitleAppearance,
-    audioEqPreset: AudioEqualizerPreset,
+    audioProfile: AudioProcessingProfile,
     castAudioActive: Boolean,
-    onAudioEqPresetChange: (AudioEqualizerPreset) -> Unit,
+    onAudioProfileChange: (AudioProcessingProfile) -> Unit,
     onSubtitleAppearanceChange: (SubtitleAppearance) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tracks by playerEngine.tracks.collectAsStateWithLifecycle()
-    val eqStatus by playerEngine.audioEqualizerStatus.collectAsStateWithLifecycle()
     var selectedType by remember { mutableStateOf(MediaTrackInfo.TrackType.SUBTITLE) }
     val firstChoiceFocus = remember { FocusRequester() }
     val visibleTracks = tracks.filter { it.type == selectedType }
@@ -3313,34 +3311,12 @@ private fun TrackPickerOverlay(
             }
 
             if (selectedType == MediaTrackInfo.TrackType.AUDIO) {
-                Text(
-                    "Sound profiles",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    "Real-time EQ for this device. Original bypasses processing. Audio passthrough and Cast may bypass EQ.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    text = if (castAudioActive) "Bypassed: Cast receiver audio"
-                        else eqStatus.displayLabel,
-                    color = if (eqStatus == com.vaydelux.bousygram.core.media.AudioEffectStatus.UNSUPPORTED && !castAudioActive)
-                        MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium
-                )
-                AudioEqualizerPreset.entries.forEach { preset ->
-                    TrackChoice(
-                        label = preset.title,
-                        selected = audioEqPreset == preset,
-                        onSelect = { onAudioEqPresetChange(preset) }
-                    )
-                }
-                Text(
-                    audioEqPreset.detail,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall
+                AudioProcessingControls(
+                    engine = playerEngine,
+                    profile = audioProfile,
+                    castConnected = castAudioActive,
+                    firstPresetFocus = firstChoiceFocus,
+                    onChange = onAudioProfileChange
                 )
             }
 
@@ -3422,9 +3398,7 @@ private fun TrackPickerOverlay(
                 TrackChoice(
                     label = track.name,
                     selected = track.isSelected,
-                    modifier = if (index == 0 && selectedType == MediaTrackInfo.TrackType.AUDIO) {
-                        Modifier.focusRequester(firstChoiceFocus)
-                    } else Modifier,
+                    modifier = Modifier,
                     onSelect = { playerEngine.selectTrack(track) }
                 )
             }

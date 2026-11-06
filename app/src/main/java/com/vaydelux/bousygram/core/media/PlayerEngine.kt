@@ -41,6 +41,9 @@ interface PlayerEngine {
     /** The real processing outcome, not just the user's desired EQ preset. */
     val audioEqualizerStatus: StateFlow<AudioEffectStatus>
         get() = AudioEffectStatus.DEFAULT
+    /** Dynamic-range processing is distinct from the tonal equalizer. */
+    val smartVolumeStatus: StateFlow<AudioEffectStatus>
+        get() = AudioEffectStatus.DEFAULT
     val tracks: StateFlow<List<MediaTrackInfo>>
     val videoDimensions: StateFlow<Pair<Int, Int>>
     val bufferConfigDescription: String get() = ""
@@ -61,6 +64,9 @@ interface PlayerEngine {
     fun setPlaybackSpeed(speed: Float)
     /** Live audio EQ; return false when the current output does not support effects. */
     fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean = !preset.isEnabled
+    /** Engines that cannot perform compression should expose UNSUPPORTED, not pretend. */
+    fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean =
+        applyAudioEqualizer(profile.preset) && profile.smartVolume == SmartVolumeMode.OFF
     fun setResizeMode(mode: Int)
     fun selectTrack(track: MediaTrackInfo)
     fun deselectTrack(type: MediaTrackInfo.TrackType)

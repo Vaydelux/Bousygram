@@ -1,6 +1,8 @@
 package com.vaydelux.bousygram.data.store
 
 import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
+import com.vaydelux.bousygram.core.media.CustomEqualizerLayout
+import com.vaydelux.bousygram.core.media.SmartVolumeMode
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -11,7 +13,10 @@ internal data class SettingsImport(
     val hideWatched: Boolean? = null, val safeMode: Boolean? = null,
     val autoPlayNext: Boolean? = null, val subtitlesDefault: Boolean? = null,
     val speed: Float? = null, val bufferMode: BufferMode? = null, val visualTheme: String? = null,
-    val audioEqualizer: AudioEqualizerPreset? = null
+    val audioEqualizer: AudioEqualizerPreset? = null,
+    val audioCustomGains: List<Float>? = null,
+    val audioCustomLayout: CustomEqualizerLayout? = null,
+    val audioSmartVolume: SmartVolumeMode? = null
 )
 
 internal object SettingsImportPolicy {
@@ -74,7 +79,20 @@ internal object SettingsImportPolicy {
             AudioEqualizerPreset.entries.firstOrNull { it.name == raw }
                 ?: throw IllegalArgumentException("Unknown equalizer preset")
         } else null
+        val gains = if (obj.has("audioCustomBands")) {
+            val array = obj.get("audioCustomBands")
+            require(array is JSONArray && array.length() == 10) { "Expected 10 equalizer bands" }
+            List(10) { index ->
+                val value = array.getDouble(index).toFloat()
+                require(value.isFinite() && value in -6f..6f) { "EQ gain out of range" }
+                value
+            }
+        } else null
+        val layout = if (obj.has("audioCustomLayout"))
+            CustomEqualizerLayout.valueOf(obj.getString("audioCustomLayout")) else null
+        val smart = if (obj.has("audioSmartVolume"))
+            SmartVolumeMode.valueOf(obj.getString("audioSmartVolume")) else null
         return SettingsImport(favorites, pinned, recent, last, bool("continueOnly"), bool("safeMode"),
-            bool("autoPlayNext"), bool("subtitlesDefault"), speed, mode, theme, eq)
+            bool("autoPlayNext"), bool("subtitlesDefault"), speed, mode, theme, eq, gains, layout, smart)
     }
 }

@@ -15,7 +15,7 @@ object PlayerEngineFactory {
 
     /** Decoder-specific audio effects are scoped to the current engine, not TDLib data. */
     private fun configureAudio(engine: PlayerEngine): PlayerEngine = engine.also {
-        runCatching { it.applyAudioEqualizer(EnterprisePreferences.audioEqualizerPreset()) }
+        runCatching { it.applyAudioProcessing(EnterprisePreferences.audioProcessingProfile()) }
             .onFailure { error -> Log.w(TAG, "Audio preset unsupported on this engine", error) }
     }
 

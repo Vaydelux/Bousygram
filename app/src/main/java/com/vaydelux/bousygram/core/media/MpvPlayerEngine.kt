@@ -68,6 +68,79 @@ class MpvPlayerEngine(
     override val audioEqualizerStatus: StateFlow<AudioEffectStatus> = _audioEqStatus.asStateFlow()
     private var customEqualizerInstalled = false
     private var appliedEqPreset = AudioEqualizerPreset.ORIGINAL
+    private var activeAudioProfile = AudioProcessingProfile()
+    private val _smartVolumeStatus = MutableStateFlow(AudioEffectStatus.BYPASSED)
+    override val smartVolumeStatus: StateFlow<AudioEffectStatus> = _smartVolumeStatus.asStateFlow()
+    private var smartFilterInstalled = false
+    private var appliedSmartMode = SmartVolumeMode.OFF
+
+    override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
+        // A custom curve may change even when the preset enum remains CUSTOM.
+        if (profile.preset == AudioEqualizerPreset.CUSTOM &&
+            activeAudioProfile.sanitizedGains != profile.sanitizedGains
+        ) appliedEqPreset = AudioEqualizerPreset.ORIGINAL
+        activeAudioProfile = profile.copy(customGainsDb = profile.sanitizedGains)
+        val eqApplied = applyAudioEqualizer(profile.preset)
+        val volumeApplied = applySmartVolume(profile.smartVolume)
+        return eqApplied && volumeApplied
+    }
+
+    private fun verifySmartFilter(): FilterVerification =
+        runCatching { verifyNamedMpvAudioFilter(mpv.getPropertyString("af"), "bousy_smart") }
+            .getOrDefault(FilterVerification.UNVERIFIABLE)
+
+    private fun applySmartVolume(mode: SmartVolumeMode): Boolean {
+        if (isDestroyed.get()) return false
+        if (mode == appliedSmartMode &&
+            (if (mode == SmartVolumeMode.OFF) verifySmartFilter() == FilterVerification.ABSENT
+             else verifySmartFilter() == FilterVerification.PRESENT)) {
+            _smartVolumeStatus.value = if (mode == SmartVolumeMode.OFF) AudioEffectStatus.BYPASSED
+                else AudioEffectStatus.APPLIED
+            return true
+        }
+        if (verifySmartFilter() == FilterVerification.PRESENT || smartFilterInstalled) {
+            val removed = runCatching {
+                mpv.command(arrayOf("af", "remove", "@bousy_smart"))
+                verifySmartFilter() == FilterVerification.ABSENT
+            }.getOrDefault(false)
+            if (!removed) {
+                _smartVolumeStatus.value = AudioEffectStatus.UNSUPPORTED
+                return false
+            }
+            smartFilterInstalled = false
+        }
+        if (mode == SmartVolumeMode.OFF) {
+            appliedSmartMode = SmartVolumeMode.OFF
+            _smartVolumeStatus.value = AudioEffectStatus.BYPASSED
+            return true
+        }
+        // Adaptive normalization uses history and can be expensive on ARM32 TVs.
+        // Never silently select the CPU-intensive mode on a 32-bit process.
+        if (mode == SmartVolumeMode.AUTO_LEVEL && !android.os.Process.is64Bit()) {
+            _smartVolumeStatus.value = AudioEffectStatus.UNSUPPORTED
+            return false
+        }
+        return runCatching {
+            val filters = checkNotNull(smartVolumeMpvGraph(
+                mode, is32BitProcess = !android.os.Process.is64Bit()
+            ))
+            mpv.command(arrayOf("af", "add", "@bousy_smart:lavfi=[$filters]"))
+            val result = verifySmartFilter()
+            smartFilterInstalled = result != FilterVerification.ABSENT
+            if (result == FilterVerification.PRESENT) {
+                appliedSmartMode = mode
+                _smartVolumeStatus.value = AudioEffectStatus.APPLIED
+                true
+            } else {
+                _smartVolumeStatus.value = AudioEffectStatus.UNSUPPORTED
+                false
+            }
+        }.getOrElse { error ->
+            Log.w(TAG, "Smart Volume native filter unsupported", error)
+            _smartVolumeStatus.value = AudioEffectStatus.UNSUPPORTED
+            false
+        }
+    }
 
     private fun verifyEq(): FilterVerification =
         runCatching { verifyNamedMpvAudioFilter(mpv.getPropertyString("af"), "bousy_eq") }
@@ -106,10 +179,10 @@ class MpvPlayerEngine(
 
         return runCatching {
             val filters = listOf(90, 400, 2_000, 8_000).joinToString(",") { hz ->
-                val gain = String.format(Locale.US, "%.1f", preset.gainDbAt(hz.toFloat()))
+                val gain = String.format(Locale.US, "%.1f", activeAudioProfile.gainDbAt(hz.toFloat()))
                 "equalizer=f=$hz:t=q:w=1:g=$gain"
             }
-            val preamp = String.format(Locale.US, "%.1f", preset.preampDb)
+            val preamp = String.format(Locale.US, "%.1f", activeAudioProfile.preampDb)
             mpv.command(arrayOf("af", "add", "@bousy_eq:lavfi=[volume=${preamp}dB,$filters]"))
             val installed = verifyEq()
             customEqualizerInstalled = installed != FilterVerification.ABSENT
@@ -651,6 +724,7 @@ class MpvPlayerEngine(
             runCatching { mpv.destroy() }.onFailure { Log.e(TAG, "Error destroying mpv", it) }
             customEqualizerInstalled = false
             _audioEqStatus.value = AudioEffectStatus.BYPASSED
+            _smartVolumeStatus.value = AudioEffectStatus.BYPASSED
             _playbackState.value = EnginePlaybackState.Idle
             _isPlaying.value = false
             _playWhenReady.value = false

@@ -3,6 +3,8 @@ package com.vaydelux.bousygram.core.media
 import android.content.Context
 import android.net.Uri
 import android.media.audiofx.Equalizer
+import android.media.audiofx.DynamicsProcessing
+import android.os.Build
 import android.util.Log
 import android.view.Surface
 import androidx.annotation.OptIn
@@ -51,6 +53,98 @@ class ExoPlayerEngine(
     private val _audioEqStatus = MutableStateFlow(AudioEffectStatus.BYPASSED)
     override val audioEqualizerStatus: StateFlow<AudioEffectStatus> = _audioEqStatus.asStateFlow()
     private var requestedEqPreset = AudioEqualizerPreset.ORIGINAL
+    private var activeAudioProfile = AudioProcessingProfile()
+    private val _smartVolumeStatus = MutableStateFlow(AudioEffectStatus.BYPASSED)
+    override val smartVolumeStatus: StateFlow<AudioEffectStatus> = _smartVolumeStatus.asStateFlow()
+    private var dynamicsEffect: DynamicsProcessing? = null
+    private var dynamicsSession = -1
+    private var dynamicsMode = SmartVolumeMode.OFF
+
+    private fun releaseSmartVolume() {
+        runCatching { dynamicsEffect?.let { it.enabled = false } }
+        runCatching { dynamicsEffect?.release() }
+        dynamicsEffect = null
+        dynamicsSession = -1
+        dynamicsMode = SmartVolumeMode.OFF
+    }
+
+    override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
+        activeAudioProfile = profile.copy(customGainsDb = profile.sanitizedGains)
+        val equalizerApplied = applyAudioEqualizer(profile.preset)
+        val volumeApplied = applySmartVolume(profile.smartVolume)
+        return equalizerApplied && volumeApplied
+    }
+
+    private fun applySmartVolume(mode: SmartVolumeMode): Boolean {
+        if (mode == SmartVolumeMode.OFF) {
+            releaseSmartVolume()
+            _smartVolumeStatus.value = AudioEffectStatus.BYPASSED
+            return true
+        }
+        val session = player.audioSessionId
+        if (session <= 0) {
+            releaseSmartVolume()
+            _smartVolumeStatus.value = AudioEffectStatus.PENDING
+            return false
+        }
+        if (Build.VERSION.SDK_INT < 28) {
+            releaseSmartVolume()
+            _smartVolumeStatus.value = AudioEffectStatus.UNSUPPORTED
+            return false
+        }
+        return runCatching {
+            if (dynamicsSession != session || dynamicsMode != mode || dynamicsEffect == null) {
+                releaseSmartVolume()
+                val ratio = when (mode) {
+                    SmartVolumeMode.NIGHT -> 2.5f
+                    SmartVolumeMode.DIALOGUE_BOOST -> 3.0f
+                    SmartVolumeMode.AUTO_LEVEL -> 4.0f
+                    SmartVolumeMode.OFF -> 1.0f
+                }
+                val threshold = when (mode) {
+                    SmartVolumeMode.NIGHT -> -18f
+                    SmartVolumeMode.DIALOGUE_BOOST -> -23f
+                    SmartVolumeMode.AUTO_LEVEL -> -28f
+                    SmartVolumeMode.OFF -> -12f
+                }
+                // One compressor band plus linked peak limiter, avoiding multiple
+                // FFT bands and large lookahead allocations on ARM32 Android TV.
+                val compressor = DynamicsProcessing.Mbc(true, true, 1)
+                compressor.setBand(0, DynamicsProcessing.MbcBand(
+                    true, 20_000f, 12f, 230f, ratio, threshold, 4f, -80f, 1f,
+                    0f, if (mode == SmartVolumeMode.AUTO_LEVEL) 1.5f else 0f
+                ))
+                val limiter = DynamicsProcessing.Limiter(
+                    true, true, 0, 3f, 90f, 10f, -1.5f, 0f
+                )
+                val config = DynamicsProcessing.Config.Builder(
+                    DynamicsProcessing.VARIANT_FAVOR_TIME_RESOLUTION,
+                    2, false, 0, true, 1, false, 0, true
+                ).setMbcAllChannelsTo(compressor)
+                    .setLimiterAllChannelsTo(limiter)
+                    .build()
+                val fx = DynamicsProcessing(0, session, config)
+                if (!fx.hasControl()) {
+                    fx.release()
+                    throw IllegalStateException("DynamicsProcessing has no audio control")
+                }
+                dynamicsEffect = fx
+                dynamicsSession = session
+                dynamicsMode = mode
+            }
+            val effect = requireNotNull(dynamicsEffect)
+            effect.enabled = true
+            val confirmed = effect.enabled && effect.hasControl()
+            _smartVolumeStatus.value = if (confirmed) AudioEffectStatus.APPLIED
+                else AudioEffectStatus.UNSUPPORTED
+            confirmed
+        }.getOrElse { error ->
+            Log.w("BousyAudioEq", "Smart Volume unavailable on this audio session", error)
+            releaseSmartVolume()
+            _smartVolumeStatus.value = AudioEffectStatus.UNSUPPORTED
+            false
+        }
+    }
     private var audioFx: Equalizer? = null
     private var audioFxSessionId = -1
 
@@ -93,7 +187,8 @@ class ExoPlayerEngine(
                 val band = index.toShort()
                 val frequencyHz = fx.getCenterFreq(band) / 1_000f
                 fx.setBandLevel(
-                    band, safeAudioFxBandMillibels(preset, frequencyHz, range[0].toInt(), range[1].toInt())
+                    band, safeAudioFxBandMillibels(activeAudioProfile.copy(preset = preset),
+                        frequencyHz, range[0].toInt(), range[1].toInt())
                 )
             }
             fx.enabled = true
@@ -213,7 +308,8 @@ class ExoPlayerEngine(
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
             // Media3 can replace its AudioTrack/session across format or route changes.
             releaseAudioFx()
-            if (requestedEqPreset.isEnabled) applyAudioEqualizer(requestedEqPreset)
+            releaseSmartVolume()
+            applyAudioProcessing(activeAudioProfile)
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -350,6 +446,8 @@ class ExoPlayerEngine(
 
     override fun release() {
         releaseAudioFx()
+        releaseSmartVolume()
+        _smartVolumeStatus.value = AudioEffectStatus.BYPASSED
         _audioEqStatus.value = AudioEffectStatus.BYPASSED
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)

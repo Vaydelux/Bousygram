@@ -41,6 +41,23 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     override val audioEqualizerStatus: StateFlow<AudioEffectStatus> = _audioEqStatus.asStateFlow()
     private var activeEqualizer: MediaPlayer.Equalizer? = null
     private var activeEqPreset = AudioEqualizerPreset.ORIGINAL
+    private var audioProfile = AudioProcessingProfile()
+    private val _smartVolumeStatus = MutableStateFlow(AudioEffectStatus.BYPASSED)
+    override val smartVolumeStatus: StateFlow<AudioEffectStatus> = _smartVolumeStatus.asStateFlow()
+
+    override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
+        if (profile.preset == AudioEqualizerPreset.CUSTOM &&
+            audioProfile.sanitizedGains != profile.sanitizedGains
+        ) activeEqPreset = AudioEqualizerPreset.ORIGINAL
+        audioProfile = profile.copy(customGainsDb = profile.sanitizedGains)
+        val eqApplied = applyAudioEqualizer(profile.preset)
+        // LibVLC 3.6 MediaPlayer has a graphic EQ API, but no comparable native
+        // compressor/limiter control. Do not mislabel its EQ as volume leveling.
+        val smartSupported = profile.smartVolume == SmartVolumeMode.OFF
+        _smartVolumeStatus.value = if (smartSupported) AudioEffectStatus.BYPASSED
+            else AudioEffectStatus.UNSUPPORTED
+        return eqApplied && smartSupported
+    }
 
     override fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean {
         if (released.get()) return false
@@ -60,11 +77,11 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
             // Reuse one native equalizer across preset switches. The VLC object
             // owns native resources and should not be reallocated for every tap.
             val eq = activeEqualizer ?: MediaPlayer.Equalizer.create()
-            check(eq.setPreAmp(preset.preampDb)) { "Native VLC preamp rejected" }
+            check(eq.setPreAmp(audioProfile.preampDb)) { "Native VLC preamp rejected" }
             val count = MediaPlayer.Equalizer.getBandCount().coerceIn(0, 32)
             for (index in 0 until count) {
                 val freqHz = MediaPlayer.Equalizer.getBandFrequency(index)
-                check(eq.setAmp(index, preset.gainDbAt(freqHz))) {
+                check(eq.setAmp(index, audioProfile.gainDbAt(freqHz))) {
                     "Native VLC EQ band rejected"
                 }
             }
@@ -450,6 +467,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         activeEqualizer = null
         activeEqPreset = AudioEqualizerPreset.ORIGINAL
         _audioEqStatus.value = AudioEffectStatus.BYPASSED
+        _smartVolumeStatus.value = AudioEffectStatus.BYPASSED
         runCatching { nativePlayer.vlcVout.detachViews() }
         viewsAttached = false
         surface = null
