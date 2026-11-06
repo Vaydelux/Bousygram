@@ -25,6 +25,13 @@ adb shell am instrument -w -r \
   -e physicalAudioPlayingPerf true \
   com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner
 adb logcat -d -s BousyAudioPerf:I
+
+# Run a second, comparable pass with audio processing Off throughout:
+adb shell am instrument -w -r \
+  -e class com.vaydelux.bousygram.core.media.AudioPlayingPhysicalPerformanceTest \
+  -e physicalAudioPlayingPerf true -e audioPerfBaseline true \
+  com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner
+adb logcat -d -s BousyAudioPerf:I
 ```
 
 The APK locations above assume the existing CI-normalized debug artifacts
@@ -34,7 +41,10 @@ were downloaded to `ci-artifacts/debug`. Use their actual paths if different.
 
 The test reports the process bitness, CPU milliseconds, total/native PSS
 in KiB every five profile changes, the p95 and max cost (ms) of applying a
-profile, and how many changes reported a native Applied status. It asserts
+profile, and how many changes reported a native Applied status. Use the
+`audioPerfBaseline` argument to measure an equivalent 30-cycle profile loop
+with Original/Off selected, then compare differences against the effects-on run
+on the same firmware and thermal state. It asserts
 that a real Media3 session exists and its timeline advances.
 
 It does **not** prove audible output, calibrate LUFS, measure end-to-end
