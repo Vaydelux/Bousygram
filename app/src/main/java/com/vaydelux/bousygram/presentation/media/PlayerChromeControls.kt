@@ -223,24 +223,34 @@ internal fun PlayerOptionsPanel(
                 "Audio / CC", onTracks,
                 modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
                     .focusRequester(firstOptionFocusRequester)
+                    .semantics { contentDescription = "Audio and subtitle tracks" }
+                    .testTag("player_option_tracks")
             )
             BousygramButton(
                 "$speedLabel Speed", onSpeed,
                 modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                    .semantics { contentDescription = "Playback speed, $speedLabel" }
+                    .testTag("player_option_speed")
             )
             BousygramButton(
                 aspectLabel, onAspect,
                 modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                    .semantics { contentDescription = "Video aspect ratio, $aspectLabel" }
+                    .testTag("player_option_aspect")
             )
             if (onEpisodes != null) {
                 BousygramButton(
                     "☰ Queue", onEpisodes,
                     modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                        .semantics { contentDescription = "Open episode queue" }
+                        .testTag("player_option_queue")
                 )
             }
             BousygramButton(
                 "✕ Done", onClose,
                 modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                    .semantics { contentDescription = "Close playback options" }
+                    .testTag("player_option_done")
             )
         }
         Row(
@@ -248,21 +258,33 @@ internal fun PlayerOptionsPanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (!isTv) {
-                BousygramButton("⏮ Previous", onPrevious, modifier = Modifier.heightIn(min = 48.dp))
-                BousygramButton("Next ⏭", onNext, modifier = Modifier.heightIn(min = 48.dp))
+                BousygramButton("⏮ Previous", onPrevious,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                        .semantics { contentDescription = "Previous video" }
+                        .testTag("player_option_previous"))
+                BousygramButton("Next ⏭", onNext,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                        .semantics { contentDescription = "Next video" }
+                        .testTag("player_option_next"))
             }
             BousygramButton(
                 "↶ 30s", onSeekBack30,
                 modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                    .semantics { contentDescription = "Seek backward 30 seconds" }
+                    .testTag("player_option_seek_back_30")
             )
             BousygramButton(
                 "30s ↷", onSeekForward30,
                 modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                    .semantics { contentDescription = "Seek forward 30 seconds" }
+                    .testTag("player_option_seek_forward_30")
             )
             if (onSwitchEngine != null) {
                 BousygramButton(
                     "⚙ Decoder", onSwitchEngine,
                     modifier = (if (isTv) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp)
+                        .semantics { contentDescription = "Select playback decoder" }
+                        .testTag("player_option_decoder")
                 )
             }
         }
