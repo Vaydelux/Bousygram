@@ -2763,7 +2763,7 @@ fun PlayerScreen(
                             style = MaterialTheme.typography.titleMedium
                         )
                         if (playingLocalIndex >= 0) {
-                            BousygramButton("Current episode", {
+                            BousygramButton("Current", {
                                 scope.launch {
                                     episodeGridState.animateScrollToItem(playingLocalIndex)
                                     delay(90L)
