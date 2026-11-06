@@ -121,18 +121,9 @@ class MpvPlayerEngine(
             return false
         }
         return runCatching {
-            val filters = when (mode) {
-                SmartVolumeMode.NIGHT ->
-                    "acompressor=threshold=0.18:ratio=2.5:attack=15:release=240:makeup=1.0," +
-                        "alimiter=limit=0.92:level=false"
-                SmartVolumeMode.DIALOGUE_BOOST ->
-                    "highpass=f=80,acompressor=threshold=0.14:ratio=3:attack=10:release=230:makeup=1.2," +
-                        "alimiter=limit=0.92:level=false"
-                SmartVolumeMode.AUTO_LEVEL ->
-                    "dynaudnorm=f=150:g=5:p=0.88:m=2:s=4," +
-                        "alimiter=limit=0.92:level=false"
-                SmartVolumeMode.OFF -> ""
-            }
+            val filters = checkNotNull(smartVolumeMpvGraph(
+                mode, is32BitProcess = !android.os.Process.is64Bit()
+            ))
             mpv.command(arrayOf("af", "add", "@bousy_smart:lavfi=[$filters]"))
             val result = verifySmartFilter()
             smartFilterInstalled = result != FilterVerification.ABSENT
