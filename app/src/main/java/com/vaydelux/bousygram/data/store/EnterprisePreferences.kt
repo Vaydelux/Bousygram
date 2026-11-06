@@ -8,6 +8,10 @@ import org.json.JSONObject
 import android.content.SharedPreferences
 import com.vaydelux.bousygram.core.media.SubtitleAppearance
 import com.vaydelux.bousygram.core.media.SubtitleColorPreset
+import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 
@@ -70,6 +74,7 @@ object EnterprisePreferences {
     private const val KEY_VIDEO_DEBUG_HUD = "video_debug_hud"
     private const val KEY_SURFACE_TYPE = "surface_type"
     private const val KEY_MPV_HWDEC_MODE = "mpv_hwdec_mode"
+    private const val KEY_AUDIO_EQ_PRESET = "audio_eq_preset"
 
 
     private val prefs by lazy {
@@ -188,6 +193,19 @@ object EnterprisePreferences {
     fun preferredSpeed(): Float = prefs.getFloat(KEY_SPEED, 1.0f).takeIf { it.isFinite() && it in 0.25f..3f } ?: 1f
     fun setPreferredSpeed(value: Float) { require(value.isFinite() && value in 0.25f..3f); prefs.edit { putFloat(KEY_SPEED, value) } }
 
+    /** One device-local sound preference. Off by default, never tied to Telegram content. */
+    private val audioEqState by lazy { MutableStateFlow(audioEqualizerPreset()) }
+    val audioEqualizerPresetFlow: StateFlow<AudioEqualizerPreset>
+        get() = audioEqState.asStateFlow()
+
+    fun audioEqualizerPreset(): AudioEqualizerPreset =
+        AudioEqualizerPreset.fromStored(prefs.getString(KEY_AUDIO_EQ_PRESET, null))
+
+    fun setAudioEqualizerPreset(preset: AudioEqualizerPreset) {
+        prefs.edit { putString(KEY_AUDIO_EQ_PRESET, preset.name) }
+        audioEqState.value = preset
+    }
+
     fun supportedPlayerEngines(): List<SelectedPlayerEngine> = availablePlaybackEngines()
 
     fun selectedPlayerEngine(): SelectedPlayerEngine =
@@ -233,6 +251,7 @@ object EnterprisePreferences {
         appendLine("Buffer mode: ${bufferMode().label}")
         appendLine("Playback: TDLib local")
         appendLine("Preferred speed: ${preferredSpeed()}x")
+        appendLine("Audio EQ: ${audioEqualizerPreset().title}")
         appendLine("Auto-play next: ${autoPlayNext()}")
         appendLine("Subtitles default: ${subtitlesDefault()}")
         appendLine("Privacy mode: ${safeMode()}")
@@ -261,6 +280,7 @@ object EnterprisePreferences {
         .put("autoPlayNext", autoPlayNext())
         .put("subtitlesDefault", subtitlesDefault())
         .put("preferredSpeed", preferredSpeed().toDouble())
+        .put("audioEqPreset", audioEqualizerPreset().name)
         .put("bufferMode", bufferMode().name)
         .put("cacheLimit", cacheLimitOption().name)
         .toString(2)
