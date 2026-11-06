@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.presentation.media
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
