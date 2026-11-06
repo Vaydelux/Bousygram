@@ -27,6 +27,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import com.vaydelux.bousygram.core.media.SeekThumbnailManager
+import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
 import com.vaydelux.bousygram.core.media.SubtitleAppearance
 import com.vaydelux.bousygram.core.media.SubtitleColorPreset
 import com.vaydelux.bousygram.core.media.TdLibDataSource
@@ -270,6 +271,7 @@ fun PlayerScreen(
     var cinematicMenuSection by remember { mutableStateOf(CinematicMenuSection.ROOT) }
     var tracksPanelVisible by remember { mutableStateOf(false) }
     var subtitleAppearance by remember { mutableStateOf(EnterprisePreferences.subtitleAppearance()) }
+    val audioEqPreset by EnterprisePreferences.audioEqualizerPresetFlow.collectAsStateWithLifecycle()
     var episodesDrawerVisible by remember { mutableStateOf(false) }
     var trayFocusedIndex by remember { mutableIntStateOf(0) }
     val trayFirstFocus = remember { FocusRequester() }
@@ -448,6 +450,10 @@ fun PlayerScreen(
         )
     }
     var playerEngine by engineOwner
+    LaunchedEffect(playerEngine, audioEqPreset) {
+        // Apply live EQ after engine switches; Media3 will attach when its session is ready.
+        playerEngine.applyAudioEqualizer(audioEqPreset)
+    }
     LaunchedEffect(playerEngine, subtitleAppearance) {
         (playerEngine as? MpvPlayerEngine)?.applySubtitleAppearance(subtitleAppearance)
     }
@@ -2526,6 +2532,10 @@ fun PlayerScreen(
                 playerEngine = playerEngine,
                 compact = compactHud,
                 subtitleAppearance = subtitleAppearance,
+                audioEqPreset = audioEqPreset,
+                onAudioEqPresetChange = { preset ->
+                    EnterprisePreferences.setAudioEqualizerPreset(preset)
+                },
                 onSubtitleAppearanceChange = { updated ->
                     subtitleAppearance = updated
                     EnterprisePreferences.setSubtitleAppearance(updated)
@@ -3232,6 +3242,8 @@ private fun TrackPickerOverlay(
     playerEngine: PlayerEngine,
     compact: Boolean,
     subtitleAppearance: SubtitleAppearance,
+    audioEqPreset: AudioEqualizerPreset,
+    onAudioEqPresetChange: (AudioEqualizerPreset) -> Unit,
     onSubtitleAppearanceChange: (SubtitleAppearance) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
@@ -3295,6 +3307,31 @@ private fun TrackPickerOverlay(
                         selected = selectedType == MediaTrackInfo.TrackType.VIDEO
                     )
                 }
+            }
+
+            if (selectedType == MediaTrackInfo.TrackType.AUDIO) {
+                Text(
+                    "Sound profiles",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    "Real-time EQ for this device. Original bypasses processing. Audio passthrough and Cast may bypass EQ.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                AudioEqualizerPreset.entries.forEach { preset ->
+                    TrackChoice(
+                        label = preset.title,
+                        selected = audioEqPreset == preset,
+                        onSelect = { onAudioEqPresetChange(preset) }
+                    )
+                }
+                Text(
+                    audioEqPreset.detail,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
 
             if (selectedType == MediaTrackInfo.TrackType.SUBTITLE) {
