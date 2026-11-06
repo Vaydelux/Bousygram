@@ -44,6 +44,22 @@ class EngineVerdictPolicyTest {
         assertTrue("media_96" in evicted)
     }
 
+    @Test fun privatePurgeTargetsOnlyTheChosenAccount() {
+        val own = "media_101_-404_88"
+        val other = "media_1011_-404_88"
+        for (suffix in listOf("_engine", "_texture", "_reason", "_time")) {
+            assertTrue(EngineVerdictStore.isAccountPreferenceKey(101, own + suffix))
+            assertFalse(EngineVerdictStore.isAccountPreferenceKey(101, other + suffix))
+            assertFalse(EngineVerdictStore.isAccountPreferenceKey(101, "media_202_-404_88" + suffix))
+        }
+        assertFalse(EngineVerdictStore.isAccountPreferenceKey(101, own + "_extra"))
+        assertFalse(EngineVerdictStore.isAccountPreferenceKey(101, "not_media_101_-404_88_engine"))
+        assertEquals("media_101_", EngineVerdictStore.accountKeyPrefix(101))
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            EngineVerdictStore.accountKeyPrefix(0)
+        }
+    }
+
     @Test fun mediaKeysAreAccountScopedAndRejectMissingIdentity() {
         assertEquals("media_101_-404_88", EngineVerdictStore.buildMediaKey(101, -404, 88))
         assertEquals("media_202_-404_88", EngineVerdictStore.buildMediaKey(202, -404, 88))

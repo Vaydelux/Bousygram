@@ -59,6 +59,37 @@ object EngineVerdictStore {
     // Access-ordered for eviction. All accesses are guarded by the object's monitor.
     private val inMemoryCache = LinkedHashMap<String, EngineVerdict>(16, 0.75f, true)
 
+    /** Separates an account's private hints from other signed-in accounts. */
+    internal fun accountKeyPrefix(accountId: Long): String {
+        require(accountId > 0L) { "Only verified accounts may be purged" }
+        return "media_${accountId}_"
+    }
+
+    internal fun isAccountPreferenceKey(accountId: Long, preferenceKey: String): Boolean {
+        val prefix = accountKeyPrefix(accountId)
+        return preferenceKey.startsWith(prefix) && listOf(
+            "_engine", "_texture", "_reason", "_time"
+        ).any(preferenceKey::endsWith)
+    }
+
+    /**
+     * Called after AccountSession invalidation when TDLib confirms an account's
+     * authorization has been revoked. Never erase another account's hints.
+     * Use commit() so failed cleanup blocks activation just like account DB cleanup.
+     */
+    @Synchronized
+    fun clearAccount(context: Context, accountId: Long) {
+        val prefix = accountKeyPrefix(accountId)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val keys = prefs.all.keys.filter { isAccountPreferenceKey(accountId, it) }
+        if (keys.isNotEmpty()) {
+            val editor = prefs.edit()
+            keys.forEach { editor.remove(it) }
+            check(editor.commit()) { "Unable to erase account playback recovery hints" }
+        }
+        inMemoryCache.keys.removeAll { it.startsWith(prefix) }
+    }
+
     /** Older device/format key remains available to callers that explicitly use it. */
     fun buildKey(
         mimeType: String?,
