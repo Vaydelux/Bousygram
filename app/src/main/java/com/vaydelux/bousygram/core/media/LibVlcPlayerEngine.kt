@@ -36,6 +36,42 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     // Keep native VLC calls off its event callback thread to prevent reentry
     // deadlocks. This Handler belongs only to this engine and is cleared on release.
     private val eventHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var activeEqualizer: MediaPlayer.Equalizer? = null
+    private var activeEqPreset = AudioEqualizerPreset.ORIGINAL
+
+    override fun applyAudioEqualizer(preset: AudioEqualizerPreset): Boolean {
+        if (released.get()) return false
+        if (preset == activeEqPreset &&
+            (!preset.isEnabled || activeEqualizer != null)) return true
+        return runCatching {
+            if (!preset.isEnabled) {
+                val disabled = nativePlayer.setEqualizer(null)
+                if (disabled) {
+                    activeEqualizer = null
+                    activeEqPreset = preset
+                }
+                return@runCatching disabled
+            }
+            // Reuse one native equalizer across preset switches. The VLC object
+            // owns native resources and should not be reallocated for every tap.
+            val eq = activeEqualizer ?: MediaPlayer.Equalizer.create()
+            eq.setPreAmp(preset.preampDb)
+            val count = MediaPlayer.Equalizer.getBandCount().coerceIn(0, 32)
+            for (index in 0 until count) {
+                val freqHz = MediaPlayer.Equalizer.getBandFrequency(index)
+                eq.setAmp(index, preset.gainDbAt(freqHz))
+            }
+            val applied = nativePlayer.setEqualizer(eq)
+            if (applied) {
+                activeEqualizer = eq
+                activeEqPreset = preset
+            }
+            applied
+        }.getOrElse { failure ->
+            Log.w(TAG, "LibVLC equalizer unavailable for current output", failure)
+            false
+        }
+    }
     private val state = MutableStateFlow<EnginePlaybackState>(EnginePlaybackState.Idle)
     private val activeTracks = MutableStateFlow<List<MediaTrackInfo>>(emptyList())
     private val dimensions = MutableStateFlow(0 to 0)
@@ -400,6 +436,9 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         playing = false
         wantedPlayback = false
         runCatching { nativePlayer.setEventListener(null) }
+        runCatching { nativePlayer.setEqualizer(null) }
+        activeEqualizer = null
+        activeEqPreset = AudioEqualizerPreset.ORIGINAL
         runCatching { nativePlayer.vlcVout.detachViews() }
         viewsAttached = false
         surface = null

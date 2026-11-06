@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCacheStorageStats
+import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
@@ -87,6 +88,7 @@ fun SettingsScreen(
     var safeMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
     var subtitleLang by remember { mutableStateOf(EnterprisePreferences.subtitleLanguage()) }
     var playerEngine by remember { mutableStateOf(EnterprisePreferences.selectedPlayerEngine()) }
+    var audioEqPreset by remember { mutableStateOf(EnterprisePreferences.audioEqualizerPreset()) }
     var videoDebugHud by remember { mutableStateOf(EnterprisePreferences.videoDebugHudEnabled()) }
     var surfaceType by remember { mutableStateOf(EnterprisePreferences.surfaceTypePreference()) }
     var mpvHwDecMode by remember { mutableStateOf(EnterprisePreferences.mpvHwDecMode()) }
@@ -111,7 +113,7 @@ fun SettingsScreen(
     }
     val cacheSize = storageStats.totalBytes
 
-    val diagnosticsText = remember(safeMode, subtitleLang, playerEngine, cacheSize) {
+    val diagnosticsText = remember(safeMode, subtitleLang, playerEngine, audioEqPreset, cacheSize) {
         EnterprisePreferences.diagnosticsText(cacheSize, BuildConfig.VERSION_NAME)
     }
 
@@ -288,6 +290,49 @@ fun SettingsScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+
+                // Live audio equalizer — presets are stored per device, not per Telegram message.
+                item {
+                    EnterprisePanel(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                "Audio equalizer",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Premium sound profiles for local video playback. Audio is processed in real time; Telegram files are never modified. Output passthrough, Cast, or unsupported hardware may bypass the effect.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            androidx.compose.foundation.lazy.LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(AudioEqualizerPreset.entries.size) { idx ->
+                                    val preset = AudioEqualizerPreset.entries[idx]
+                                    BousygramChip(
+                                        text = preset.title,
+                                        selected = audioEqPreset == preset,
+                                        onClick = {
+                                            audioEqPreset = preset
+                                            EnterprisePreferences.setAudioEqualizerPreset(preset)
+                                        }
+                                    )
+                                }
+                            }
+                            Text(
+                                audioEqPreset.detail,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                 }

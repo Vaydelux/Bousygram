@@ -13,6 +13,12 @@ import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 object PlayerEngineFactory {
     private const val TAG = "PlayerEngineFactory"
 
+    /** Decoder-specific audio effects are scoped to the current engine, not TDLib data. */
+    private fun configureAudio(engine: PlayerEngine): PlayerEngine = engine.also {
+        runCatching { it.applyAudioEqualizer(EnterprisePreferences.audioEqualizerPreset()) }
+            .onFailure { error -> Log.w(TAG, "Audio preset unsupported on this engine", error) }
+    }
+
     /**
      * TS has no mandatory time index; prefer libmpv's demuxer for AUTO files.
      * Explicit engine choices always win. Other containers retain Exo-first.
@@ -44,7 +50,7 @@ object PlayerEngineFactory {
     ): PlayerEngine {
         val isCellular = NetworkConnectivityObserver.isCellular
         if (preferredEngine == SelectedPlayerEngine.LIBVLC) {
-            createLibVlc(context, preferredSpeed)?.let { return it }
+            createLibVlc(context, preferredSpeed)?.let { return configureAudio(it) }
             Log.w(TAG, "LibVLC unavailable; falling back to libmpv")
         }
         val shouldUseMpv = preferredEngine == SelectedPlayerEngine.LIBVLC ||
@@ -56,15 +62,15 @@ object PlayerEngineFactory {
                     setPlaybackSpeed(preferredSpeed)
                 }
                 com.vaydelux.bousygram.data.store.StreamHealthTelemetry.recordMpvInitSuccess()
-                engine
+                configureAudio(engine)
             } catch (e: Throwable) {
                 Log.w(TAG, "Failed to instantiate MpvPlayerEngine, recording failure and falling back to ExoPlayerEngine", e)
                 com.vaydelux.bousygram.data.store.StreamHealthTelemetry.recordMpvInitFailure()
-                ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed)
+                configureAudio(ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed))
             }
         } else {
             Log.i(TAG, "Creating ExoPlayerEngine (default engine)")
-            ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed)
+            configureAudio(ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed))
         }
     }
 
@@ -94,6 +100,6 @@ object PlayerEngineFactory {
         } else {
             ExoPlayerEngine.create(context = context, preferredSpeed = preferredSpeed)
         }
-        return Pair(fallback, position)
+        return Pair(configureAudio(fallback), position)
     }
 }
