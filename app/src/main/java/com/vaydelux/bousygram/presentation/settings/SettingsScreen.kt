@@ -29,6 +29,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -88,7 +89,7 @@ fun SettingsScreen(
     var safeMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
     var subtitleLang by remember { mutableStateOf(EnterprisePreferences.subtitleLanguage()) }
     var playerEngine by remember { mutableStateOf(EnterprisePreferences.selectedPlayerEngine()) }
-    var audioEqPreset by remember { mutableStateOf(EnterprisePreferences.audioEqualizerPreset()) }
+    val audioProfile by EnterprisePreferences.audioProcessingProfileFlow.collectAsState()
     var videoDebugHud by remember { mutableStateOf(EnterprisePreferences.videoDebugHudEnabled()) }
     var surfaceType by remember { mutableStateOf(EnterprisePreferences.surfaceTypePreference()) }
     var mpvHwDecMode by remember { mutableStateOf(EnterprisePreferences.mpvHwDecMode()) }
@@ -113,7 +114,7 @@ fun SettingsScreen(
     }
     val cacheSize = storageStats.totalBytes
 
-    val diagnosticsText = remember(safeMode, subtitleLang, playerEngine, audioEqPreset, cacheSize) {
+    val diagnosticsText = remember(safeMode, subtitleLang, playerEngine, audioProfile, cacheSize) {
         EnterprisePreferences.diagnosticsText(cacheSize, BuildConfig.VERSION_NAME)
     }
 
@@ -294,48 +295,8 @@ fun SettingsScreen(
                     }
                 }
 
-                // Live audio equalizer — presets are stored per device, not per Telegram message.
-                item {
-                    EnterprisePanel(Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                "Audio equalizer",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "Premium sound profiles for local video playback. Audio is processed in real time; Telegram files are never modified. Output passthrough, Cast, or unsupported hardware may bypass the effect.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            androidx.compose.foundation.lazy.LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                items(AudioEqualizerPreset.entries.size) { idx ->
-                                    val preset = AudioEqualizerPreset.entries[idx]
-                                    BousygramChip(
-                                        text = preset.title,
-                                        selected = audioEqPreset == preset,
-                                        onClick = {
-                                            audioEqPreset = preset
-                                            EnterprisePreferences.setAudioEqualizerPreset(preset)
-                                        }
-                                    )
-                                }
-                            }
-                            Text(
-                                audioEqPreset.detail,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                }
+                // Integrated custom EQ, Smart Volume and TV-friendly controls.
+                item { AudioSettingsPanel(isTv = adaptive.isTv) }
 
                 // 3. Subtitle Language
                 item {
