@@ -307,7 +307,9 @@ object EnterprisePreferences {
                 settings.speed?.let { putFloat(KEY_SPEED, it) }
                 settings.bufferMode?.let { putString(KEY_BUFFER_MODE, it.name) }
                 settings.visualTheme?.let { putString(KEY_VISUAL_THEME, it) }
+                settings.audioEqualizer?.let { putString(KEY_AUDIO_EQ_PRESET, it.name) }
             }
+            settings.audioEqualizer?.let { audioEqState.value = it }
         }
         if (owner == null) applySettings() else check(AccountSession.runIfCurrent(owner, applySettings)) {
             "Telegram account changed; settings were not imported"
