@@ -115,3 +115,17 @@ the post-release EQ and Smart Volume status remains Bypassed.
 The opt-in physical audio stress test asserts these post-release invariants for
 ExoPlayer, libmpv and LibVLC. CI compilation alone cannot establish that an
 OEM device's effects are audible, correctly routed, or leak-free under playback.
+
+## Phase 4 — libmpv filter recovery policy
+
+libmpv EQ and Smart Volume now treat a confirmed `af` read-back of **Absent**
+as authoritative, even if a previous add operation left an in-memory flag set.
+This avoids removing already-absent filters and incorrectly reporting failures.
+
+Before issuing a native add, the engine conservatively remembers that the
+filter *might* have been installed. If the native command throws or the filter
+read-back is unavailable, subsequent changes will still attempt a named
+removal, and will not claim a confirmed bypass until absence is observed.
+
+Unit tests cover the removal decision matrix. The tests do not simulate native
+DSP processing, sound output, or the performance of real ARM television hardware.

@@ -16,6 +16,7 @@ on:
     paths:
       - '.github/workflows/android-emulator-smoke.yml'
       - 'app/src/main/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/media/**'
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
       - 'app/src/androidTest/**'
       - 'tools/ci/generate_playback_fixtures.sh'
