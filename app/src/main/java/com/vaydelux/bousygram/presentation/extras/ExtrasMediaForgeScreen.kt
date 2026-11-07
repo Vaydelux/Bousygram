@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
+import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.InspectionResult
@@ -185,7 +187,16 @@ internal fun ExtrasMediaForgeScreen(
         ) {
             AndroidView(
                 factory = { ctx ->
-                    bridge.create(ctx, request.url).also { webView = it }
+                    try {
+                        bridge.create(ctx, request.url).also { webView = it }
+                    } catch (_: RuntimeException) {
+                        status = "Android WebView is unavailable on this device."
+                        android.widget.TextView(ctx).apply {
+                            text = "Unable to open the embedded player. Check Android System WebView."
+                            setTextColor(android.graphics.Color.WHITE)
+                            setBackgroundColor(android.graphics.Color.BLACK)
+                        }
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -317,11 +328,19 @@ private fun ExtrasMediaForgeNativePlayer(
 ) {
     val context = LocalContext.current
     val player = remember(media.stream.url) { MediaForgeMedia3.newPlayer(context) }
+    var playbackError by remember(media.stream.url) { mutableStateOf<String?>(null) }
     DisposableEffect(player, media, caption) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                playbackError = "Native playback failed. Return to WebView or try another source."
+            }
+        }
+        player.addListener(listener)
         player.setMediaItem(MediaForgeMedia3.mediaItem(media, caption))
         player.prepare()
         player.playWhenReady = true
         onDispose {
+            player.removeListener(listener)
             player.stop()
             player.release()
         }
@@ -334,6 +353,9 @@ private fun ExtrasMediaForgeNativePlayer(
         ) {
             OutlinedButton(onClick = onBack) { Text("Back to WebView") }
             Text(title, color = Color.White, maxLines = 1)
+        }
+        playbackError?.let { error ->
+            Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp))
         }
         AndroidView(
             factory = { ctx ->
