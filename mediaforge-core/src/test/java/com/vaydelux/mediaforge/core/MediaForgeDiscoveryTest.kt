@@ -29,9 +29,9 @@ class MediaForgeDiscoveryTest {
 
     @Test fun playbackTransportHasGuardedDnsAndHttpsRedirects() {
         val client = MediaForgePlaybackTransport.client
-        assertTrue(client.followRedirects())
-        assertFalse(client.followSslRedirects())
-        assertEquals(java.net.Proxy.NO_PROXY, client.proxy())
+        assertTrue(client.followRedirects)
+        assertFalse(client.followSslRedirects)
+        assertEquals(java.net.Proxy.NO_PROXY, client.proxy)
         assertTrue(client.networkInterceptors.isNotEmpty())
         try {
             client.dns.lookup("127.0.0.1")
