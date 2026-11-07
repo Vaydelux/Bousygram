@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
 import android.net.http.SslError
@@ -26,10 +27,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class MediaForgeWebBridge(
     private val onMediaResource: (String) -> Unit,
-    private val onNavigationBlocked: (() -> Unit)? = null
+    private val onNavigationBlocked: (() -> Unit)? = null,
+    private val onFullscreenRequested: ((View) -> Unit)? = null,
+    private val onFullscreenEnded: (() -> Unit)? = null
 ) {
     private val open = AtomicBoolean(true)
     private val main = Handler(Looper.getMainLooper())
+    private var fullscreenView: View? = null
+    private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     fun create(context: Context, embedUrl: String): WebView {
@@ -51,7 +56,21 @@ class MediaForgeWebBridge(
         webView.setBackgroundColor(android.graphics.Color.BLACK)
         webView.isFocusableInTouchMode = true
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
-        webView.webChromeClient = WebChromeClient()
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                if (!open.get() || fullscreenView != null || onFullscreenRequested == null) {
+                    callback.onCustomViewHidden()
+                    return
+                }
+                fullscreenView = view
+                fullscreenCallback = callback
+                onFullscreenRequested.invoke(view)
+            }
+
+            override fun onHideCustomView() {
+                dismissFullscreen()
+            }
+        }
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (!request.isForMainFrame) return false
@@ -99,5 +118,23 @@ class MediaForgeWebBridge(
         }
     }
 
-    fun close() { open.set(false); main.removeCallbacksAndMessages(null) }
+    /**
+     * HTML5 video fullscreen is a view owned by the embedded browser. Dismissing
+     * it must notify Chromium and release the host overlay before destroying
+     * the WebView. These methods are used on Android's main thread.
+     */
+    fun dismissFullscreen() {
+        val callback = fullscreenCallback
+        if (fullscreenView == null && callback == null) return
+        fullscreenView = null
+        fullscreenCallback = null
+        onFullscreenEnded?.invoke()
+        callback?.onCustomViewHidden()
+    }
+
+    fun close() {
+        if (!open.compareAndSet(true, false)) return
+        dismissFullscreen()
+        main.removeCallbacksAndMessages(null)
+    }
 }

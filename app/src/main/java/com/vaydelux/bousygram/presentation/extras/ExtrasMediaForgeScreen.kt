@@ -1,6 +1,9 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import android.view.KeyEvent as AndroidKeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -102,6 +105,7 @@ internal fun ExtrasMediaForgeScreen(
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
+    var htmlFullscreenView by remember(request.url) { mutableStateOf<View?>(null) }
     // The previous bridge is permanently closed when native playback disposes WebView.
     // A new generation must create a new bridge when the user returns to WebView.
     var webGeneration by remember(request.url) { mutableIntStateOf(0) }
@@ -125,7 +129,9 @@ internal fun ExtrasMediaForgeScreen(
             },
             onNavigationBlocked = {
                 status = "Blocked a navigation outside the selected embed."
-            }
+            },
+            onFullscreenRequested = { view -> htmlFullscreenView = view },
+            onFullscreenEnded = { htmlFullscreenView = null }
         )
     }
 
@@ -142,6 +148,7 @@ internal fun ExtrasMediaForgeScreen(
     BackHandler {
         when {
             nativeMedia != null -> returnToWebView()
+            htmlFullscreenView != null -> bridge.dismissFullscreen()
             immersiveWeb -> immersiveWeb = false
             cursorEnabled -> cursorEnabled = false
             else -> onBack()
@@ -183,6 +190,23 @@ internal fun ExtrasMediaForgeScreen(
         }
     }
 
+    // Browser media should not continue consuming resources while the app is
+    // backgrounded. WebView.onPause is best-effort for third-party players.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(webView, lifecycleOwner) {
+        val activeView = webView
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> activeView?.onPause()
+                Lifecycle.Event.ON_START -> activeView?.onResume()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (!immersiveWeb) {
         Row(
@@ -416,6 +440,32 @@ internal fun ExtrasMediaForgeScreen(
             }
         }
         }
+    }
+
+    // Chromium's HTML5 fullscreen surface is distinct from the ordinary
+    // WebView. Keep the browser mounted; never remount the iframe on fullscreen.
+    htmlFullscreenView?.let { videoView ->
+        AndroidView(
+            factory = { ctx ->
+                FrameLayout(ctx).apply {
+                    (videoView.parent as? ViewGroup)?.removeView(videoView)
+                    addView(
+                        videoView,
+                        FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                    )
+                    isFocusableInTouchMode = true
+                    requestFocus()
+                }
+            },
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            onRelease = { parent ->
+                if (parent is FrameLayout) parent.removeAllViews()
+            }
+        )
+    }
     }
 }
 
