@@ -2,6 +2,8 @@ package com.vaydelux.mediaforge.players
 
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.ExoPlayer
@@ -15,7 +17,16 @@ import com.vaydelux.mediaforge.core.StreamFormat
  * Hosting app owns the ExoPlayer lifecycle and audio focus.
  */
 object MediaForgeMedia3 {
-    fun newPlayer(context: Context): ExoPlayer = ExoPlayer.Builder(context).build()
+    fun newPlayer(context: Context): ExoPlayer = ExoPlayer.Builder(context.applicationContext)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            /* handleAudioFocus = */ true
+        )
+        .setHandleAudioBecomingNoisy(true)
+        .build()
 
     fun mediaItem(media: InspectedMedia, selectedCaption: CaptionCandidate?): MediaItem {
         val mime = when (media.stream.format) {
