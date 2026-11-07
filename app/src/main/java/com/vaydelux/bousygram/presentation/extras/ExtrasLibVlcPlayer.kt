@@ -84,6 +84,7 @@ internal class ExtrasLibVlcSession(
     }
     private var attached = false
     private var initialized = false
+    private var hasAudioFocus = false
 
     init {
         player.setEventListener { event ->
@@ -118,11 +119,10 @@ internal class ExtrasLibVlcSession(
                 vlcMedia.release()
             }
             subtitle?.takeIf { MediaForgeUrlPolicy.safeHttpsUrl(it.url) != null }?.let {
-                runCatching {
+                val accepted = runCatching {
                     player.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(it.url), true)
-                }.onFailure {
-                    onStatus("External subtitles unavailable in LibVLC")
-                }
+                }.getOrDefault(false)
+                if (!accepted) onStatus("External subtitles unavailable in LibVLC")
             }
         }
         play()
@@ -130,9 +130,12 @@ internal class ExtrasLibVlcSession(
 
     fun play() {
         if (released.get() || !initialized) return
-        if (audioManager.requestAudioFocus(focusRequest) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            onStatus("Audio output unavailable")
-            return
+        if (!hasAudioFocus) {
+            if (audioManager.requestAudioFocus(focusRequest) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                onStatus("Audio output unavailable")
+                return
+            }
+            hasAudioFocus = true
         }
         runCatching { player.play() }.onFailure { onStatus("LibVLC could not start playback") }
     }
@@ -142,6 +145,13 @@ internal class ExtrasLibVlcSession(
         if (runCatching { player.isPlaying }.getOrDefault(false)) {
             runCatching { player.pause() }
         }
+        releaseAudioFocus()
+    }
+
+    private fun releaseAudioFocus() {
+        if (!hasAudioFocus) return
+        hasAudioFocus = false
+        runCatching { audioManager.abandonAudioFocusRequest(focusRequest) }
     }
 
     fun skip(deltaMs: Long) {
@@ -170,7 +180,7 @@ internal class ExtrasLibVlcSession(
         attached = false
         runCatching { player.release() }
         runCatching { libVlc.release() }
-        runCatching { audioManager.abandonAudioFocusRequest(focusRequest) }
+        releaseAudioFocus()
     }
 }
 
