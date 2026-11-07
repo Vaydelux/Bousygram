@@ -164,14 +164,6 @@ internal fun ExtrasMediaForgeScreen(
             inspectionGeneration += 1
             inspectionJob?.cancel()
             bridge.close()
-            webView?.apply {
-                stopLoading()
-                loadUrl("about:blank")
-                onPause()
-                removeAllViews()
-                destroy()
-            }
-            webView = null
             discovery.clear()
         }
     }
@@ -250,7 +242,17 @@ internal fun ExtrasMediaForgeScreen(
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    onRelease = { view ->
+                        if (view is WebView) {
+                            view.stopLoading()
+                            view.loadUrl("about:blank")
+                            view.onPause()
+                            view.removeAllViews()
+                            view.destroy()
+                        }
+                        if (webView === view) webView = null
+                    }
                 )
             }
             if (cursorEnabled && isAndroidTv) {
