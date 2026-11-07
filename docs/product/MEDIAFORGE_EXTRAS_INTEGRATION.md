@@ -1,0 +1,35 @@
+# MediaForge Extras integration (initial implementation)
+
+MediaForge is split into three Android library modules:
+
+- `mediaforge-core`: bounded URL discovery and guarded stream preflight, HLS subtitle list parsing.
+- `mediaforge-webbridge`: opt-in WebView resource observation and D-pad touch dispatch.
+- `mediaforge-player-adapters`: standalone Media3 player item creation and native adapter extension point.
+
+## Scope
+Only Extras catalog details may launch this feature. Telegram PlaybackRequest, TDLib, PlaybackCore,
+Telegram networking and account state must not be used or changed.
+
+TMDB identifies a title, but **TMDB does not supply the media**. Third-party embeds can be unavailable,
+geo-restricted, rights-restricted, non-playable or DRM-protected. No blanket provider compatibility claim.
+The configured CineSrc example is a user-selected external embed, not an official TMDB integration.
+Inspect licensing/provider terms before distributing a public build.
+
+## Flow
+1. User chooses movie or a TV episode on Extras details.
+2. A scoped WebView opens the generated HTTPS embed URL. TV users toggle a D-pad cursor; touch users interact normally.
+3. Resource URLs are observed on a best-effort basis. No JavaScript injection or hidden autoplay is attempted.
+4. Discovered media candidates are shown. Selection explicitly triggers a bounded HTTPS probe.
+5. On accepted preflight, the user enters a separate Media3 player. WebView navigates to about:blank to stop remote audio.
+6. Back from native reopens the embed. If no direct URL is exposed, the user continues using WebView.
+
+## Unsupported behavior
+- No claim that CineSrc exposes a direct playable URL or SRT.
+- Not a full Chromium network inspector: blob:/MSE, service worker or internal redirects can be invisible.
+- No DRM bypass, cookie/token theft, rate-limit evasion, or circumventing provider access controls.
+- No automatic media extraction from TMDB/AniList metadata alone.
+- No LibVLC integration yet; the adapters module exposes a host-extensible contract.
+
+## Validation
+Run `./gradlew :mediaforge-core:testDebugUnitTest :app:testDebugUnitTest :app:compileDebugKotlin`,
+then run the device emulator/TV tests and physical ARM32/ARM64 smoke suites.
