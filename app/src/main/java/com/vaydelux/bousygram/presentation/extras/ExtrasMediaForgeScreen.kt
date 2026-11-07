@@ -121,7 +121,6 @@ internal fun ExtrasMediaForgeScreen(
     var busy by remember { mutableStateOf(false) }
     var inspectionGeneration by remember { mutableIntStateOf(0) }
     var status by remember { mutableStateOf("Play the embedded media to discover available sources.") }
-    val cursorFocus = remember { FocusRequester() }
     val bridge = remember(request.url, webGeneration) {
         MediaForgeWebBridge(
             onMediaResource = { url ->
@@ -130,7 +129,10 @@ internal fun ExtrasMediaForgeScreen(
             onNavigationBlocked = {
                 status = "Blocked a navigation outside the selected embed."
             },
-            onFullscreenRequested = { view -> htmlFullscreenView = view },
+            onFullscreenRequested = { view ->
+                htmlFullscreenView = view
+                if (isAndroidTv) cursorEnabled = true
+            },
             onFullscreenEnded = { htmlFullscreenView = null }
         )
     }
@@ -173,12 +175,8 @@ internal fun ExtrasMediaForgeScreen(
         return
     }
 
-    LaunchedEffect(cursorEnabled) {
-        if (cursorEnabled) {
-            cursorFocus.requestFocus()
-        } else {
-            webView?.requestFocus()
-        }
+    LaunchedEffect(cursorEnabled, webView) {
+        if (!cursorEnabled) webView?.requestFocus()
     }
 
     DisposableEffect(bridge) {
@@ -304,47 +302,17 @@ internal fun ExtrasMediaForgeScreen(
                 )
             }
             if (cursorEnabled && isAndroidTv) {
-                Box(
-                    modifier = Modifier.fillMaxSize()
-                        .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            val jump = if (event.nativeKeyEvent.repeatCount > 4) 34 else 18
-                            when (event.nativeKeyEvent.keyCode) {
-                                AndroidKeyEvent.KEYCODE_DPAD_UP -> {
-                                    pointerY = (pointerY - jump).coerceAtLeast(0); true
-                                }
-                                AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
-                                    pointerY = (pointerY + jump).coerceAtMost(areaHeight - 1); true
-                                }
-                                AndroidKeyEvent.KEYCODE_DPAD_LEFT -> {
-                                    pointerX = (pointerX - jump).coerceAtLeast(0); true
-                                }
-                                AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    pointerX = (pointerX + jump).coerceAtMost(areaWidth - 1); true
-                                }
-                                AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> {
-                                    if (event.nativeKeyEvent.repeatCount > 0) return@onPreviewKeyEvent true
-                                    webView?.let {
-                                        bridge.click(it, pointerX.toFloat(), pointerY.toFloat())
-                                    }
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        .focusRequester(cursorFocus)
-                        .focusable()
-                        .testTag("extras-virtual-cursor")
-                ) {
-                    Box(
-                        Modifier.offset {
-                            IntOffset(
-                                pointerX.coerceIn(0, areaWidth - 1),
-                                pointerY.coerceIn(0, areaHeight - 1)
-                            )
-                        }.size(18.dp).background(Color.Cyan, CircleShape)
-                    )
-                }
+                ExtrasVirtualCursor(
+                    target = webView,
+                    bridge = bridge,
+                    widthPx = areaWidth,
+                    heightPx = areaHeight,
+                    xPx = pointerX,
+                    yPx = pointerY,
+                    onMove = { x, y -> pointerX = x; pointerY = y },
+                    isActive = htmlFullscreenView == null,
+                    tag = "extras-virtual-cursor"
+                )
             }
         }
 
@@ -445,27 +413,117 @@ internal fun ExtrasMediaForgeScreen(
     // Chromium's HTML5 fullscreen surface is distinct from the ordinary
     // WebView. Keep the browser mounted; never remount the iframe on fullscreen.
     htmlFullscreenView?.let { videoView ->
-        AndroidView(
-            factory = { ctx ->
-                FrameLayout(ctx).apply {
-                    (videoView.parent as? ViewGroup)?.removeView(videoView)
-                    addView(
-                        videoView,
-                        FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    )
-                    isFocusableInTouchMode = true
-                    requestFocus()
+        var fullscreenWidth by remember { mutableIntStateOf(1) }
+        var fullscreenHeight by remember { mutableIntStateOf(1) }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black)
+                .onSizeChanged { size ->
+                    fullscreenWidth = size.width.coerceAtLeast(1)
+                    fullscreenHeight = size.height.coerceAtLeast(1)
+                    pointerX = pointerX.coerceIn(0, fullscreenWidth - 1)
+                    pointerY = pointerY.coerceIn(0, fullscreenHeight - 1)
                 }
-            },
-            modifier = Modifier.fillMaxSize().background(Color.Black),
-            onRelease = { parent ->
-                if (parent is FrameLayout) parent.removeAllViews()
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    FrameLayout(ctx).apply {
+                        (videoView.parent as? ViewGroup)?.removeView(videoView)
+                        addView(
+                            videoView,
+                            FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                onRelease = { parent ->
+                    if (parent is FrameLayout) parent.removeAllViews()
+                }
+            )
+            if (cursorEnabled && isAndroidTv) {
+                ExtrasVirtualCursor(
+                    target = videoView,
+                    bridge = bridge,
+                    widthPx = fullscreenWidth,
+                    heightPx = fullscreenHeight,
+                    xPx = pointerX,
+                    yPx = pointerY,
+                    onMove = { x, y -> pointerX = x; pointerY = y },
+                    isActive = true,
+                    tag = "extras-fullscreen-virtual-cursor"
+                )
             }
-        )
+        }
     }
+    }
+}
+
+/**
+ * Reuses the same DPAD pointer for ordinary WebView and HTML5 custom fullscreen.
+ * Pointer coordinates belong to the target view, not its outer Activity.
+ */
+@Composable
+private fun ExtrasVirtualCursor(
+    target: View?,
+    bridge: MediaForgeWebBridge,
+    widthPx: Int,
+    heightPx: Int,
+    xPx: Int,
+    yPx: Int,
+    onMove: (Int, Int) -> Unit,
+    isActive: Boolean,
+    tag: String
+) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(isActive, target) {
+        if (isActive) runCatching { focus.requestFocus() }
+    }
+    Box(
+        modifier = Modifier.fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (!isActive || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val repeat = event.nativeKeyEvent.repeatCount
+                val step = if (repeat > 4) 34 else 18
+                when (event.nativeKeyEvent.keyCode) {
+                    AndroidKeyEvent.KEYCODE_DPAD_UP -> {
+                        onMove(xPx, (yPx - step).coerceAtLeast(0))
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                        onMove(xPx, (yPx + step).coerceAtMost(heightPx - 1))
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> {
+                        onMove((xPx - step).coerceAtLeast(0), yPx)
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        onMove((xPx + step).coerceAtMost(widthPx - 1), yPx)
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> {
+                        if (repeat == 0) target?.let {
+                            bridge.click(it, xPx.toFloat(), yPx.toFloat())
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusRequester(focus)
+            .focusable()
+            .testTag(tag)
+    ) {
+        Box(
+            Modifier.offset {
+                IntOffset(
+                    xPx.coerceIn(0, widthPx - 1),
+                    yPx.coerceIn(0, heightPx - 1)
+                )
+            }.size(18.dp).background(Color.Cyan, CircleShape)
+        )
     }
 }
 

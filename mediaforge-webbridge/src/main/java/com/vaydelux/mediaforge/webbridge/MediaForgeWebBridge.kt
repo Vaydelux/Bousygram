@@ -109,12 +109,12 @@ class MediaForgeWebBridge(
     }
 
     /** Dispatch a D-pad-confirmed real touch event to the WebView at view-local coordinates. */
-    fun click(webView: WebView, x: Float, y: Float) {
+    fun click(target: View, x: Float, y: Float) {
         val time = android.os.SystemClock.uptimeMillis()
         for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
             val event = MotionEvent.obtain(time, time + if (action == MotionEvent.ACTION_UP) 70 else 0,
                 action, x, y, 0)
-            try { webView.dispatchTouchEvent(event) } finally { event.recycle() }
+            try { target.dispatchTouchEvent(event) } finally { event.recycle() }
         }
     }
 
