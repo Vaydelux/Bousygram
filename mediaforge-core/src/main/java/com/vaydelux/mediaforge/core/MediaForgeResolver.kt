@@ -1,6 +1,7 @@
 package com.vaydelux.mediaforge.core
 
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -12,11 +13,16 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.job
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.coroutineContext
 
 data class InspectedMedia(
@@ -60,11 +66,19 @@ class MediaForgeResolver {
                     .get()
                     .build()
                 val call = PublicMediaTransport.client.newCall(request)
-                val cancellation = coroutineContext.job.invokeOnCompletion { cause ->
-                    if (cause is CancellationException) call.cancel()
+                val response = suspendCancellableCoroutine<Response> { continuation ->
+                    continuation.invokeOnCancellation { call.cancel() }
+                    call.enqueue(object : Callback {
+                        override fun onFailure(call: Call, error: IOException) {
+                            if (continuation.isActive) continuation.resumeWithException(error)
+                        }
+                        override fun onResponse(call: Call, response: Response) {
+                            if (continuation.isActive) continuation.resume(response)
+                            else response.close()
+                        }
+                    })
                 }
-                try {
-                    call.execute().use { response ->
+                response.use { response ->
                         val status = response.code
                         if (status in 300..399) {
                             val location = response.header("Location")
@@ -113,10 +127,8 @@ class MediaForgeResolver {
                             )
                         }
                     }
-                } finally {
-                    cancellation.dispose()
-                }
             }
+
             InspectionResult.Unavailable("Too many redirects")
         } catch (cancelled: CancellationException) {
             throw cancelled
