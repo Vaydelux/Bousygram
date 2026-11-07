@@ -17,4 +17,5 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:" + libs.versions.media3.get())
     implementation("com.squareup.okhttp3:okhttp:4.12.1")
     implementation(libs.kotlinx.coroutines.android)
+    testImplementation(libs.junit)
 }

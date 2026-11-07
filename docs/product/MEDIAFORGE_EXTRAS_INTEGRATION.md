@@ -166,3 +166,5 @@ and ARM32/ARM64 codec/device compatibility need qualification. HLS and DASH
 are deliberately ineligible for LibVLC until a safe manifest/segment transport
 is implemented; those formats remain supported by Media3. This is not yet
 proof of production-safe LibVLC behavior for arbitrary untrusted content.
+
+The guarded progressive source now sets a 30-second absolute HTTP call timeout, closes its Android proxy FD on setup exceptions, and has dedicated pure-JVM tests for Content-Range parsing and eligible formats. Enterprise CI runs the player-adapter JVM test task.

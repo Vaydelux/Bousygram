@@ -145,6 +145,7 @@ jobs:
             :app:verifyTdlibBindingCompatibility \
             :app:compileDebugKotlin \
             :mediaforge-core:testDebugUnitTest \
+            :mediaforge-player-adapters:testDebugUnitTest \
             :app:lintDebug \
             :app:testDebugUnitTest \
             :app:assembleDebug \
@@ -164,6 +165,7 @@ jobs:
           if-no-files-found: warn
           path: |
             mediaforge-core/build/test-results/testDebugUnitTest/**/*.xml
+            mediaforge-player-adapters/build/test-results/testDebugUnitTest/**/*.xml
             mediaforge-core/build/reports/tests/testDebugUnitTest/**
             app/build/test-results/testDebugUnitTest/**/*.xml
             app/build/reports/tests/testDebugUnitTest/**

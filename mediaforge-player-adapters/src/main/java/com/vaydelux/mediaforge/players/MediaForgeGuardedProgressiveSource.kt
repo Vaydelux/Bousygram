@@ -17,6 +17,7 @@ import com.vaydelux.mediaforge.core.StreamFormat
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -67,24 +68,30 @@ class MediaForgeGuardedProgressiveSource private constructor(
             require(MediaForgeUrlPolicy.safeHttpsUrl(stream.url) != null) {
                 "LibVLC guarded FD requires HTTPS"
             }
-            val client = MediaForgePlaybackTransport.client
+            val client = MediaForgePlaybackTransport.client.newBuilder()
+                .callTimeout(30, TimeUnit.SECONDS)
+                .build()
             val length = inspectLength(client, stream.url)
             coroutineContext.ensureActive()
             val subtitle = if (caption != null) fetchSubtitle(context, client, caption) else null
             val callback = GuardedRangeCallback(client, stream.url, length)
             val thread = HandlerThread("mediaforge-vlc-range-io")
+            var descriptor: ParcelFileDescriptor? = null
             try {
                 thread.start()
                 val storage = context.getSystemService(Context.STORAGE_SERVICE) as StorageManager
-                val descriptor = storage.openProxyFileDescriptor(
+                descriptor = storage.openProxyFileDescriptor(
                     ParcelFileDescriptor.MODE_READ_ONLY,
                     callback,
                     Handler(thread.looper)
                 )
                 coroutineContext.ensureActive()
-                MediaForgeGuardedProgressiveSource(descriptor, subtitle, callback, thread)
+                MediaForgeGuardedProgressiveSource(
+                    descriptor, subtitle, callback, thread
+                )
             } catch (error: Exception) {
                 callback.stop()
+                runCatching { descriptor?.close() }
                 thread.quitSafely()
                 subtitle?.delete()
                 throw error
@@ -149,7 +156,7 @@ class MediaForgeGuardedProgressiveSource private constructor(
     }
 }
 
-private fun parseContentRange(value: String?): Triple<Long, Long, Long>? {
+internal fun parseContentRange(value: String?): Triple<Long, Long, Long>? {
     val match = Regex("""bytes\s+(\d+)-(\d+)/(\d+)""", RegexOption.IGNORE_CASE)
         .matchEntire(value?.trim() ?: return null) ?: return null
     return runCatching {
