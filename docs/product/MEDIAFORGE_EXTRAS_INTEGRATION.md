@@ -117,3 +117,17 @@ The core resolver now performs bounded container signature sanity checks on cand
 WebM and direct MPEG-TS responses, rather than accepting any HTTP 2xx (including HTML/JSON
 error pages) as a native stream. This does not guarantee codec, subtitle or live-segment
 compatibility and does not bypass provider authorization or DRM.
+
+## Android emulator WebBridge tests
+
+The existing `Android Emulator Cast Smoke` workflow now includes
+`MediaForgeWebBridgeInstrumentedTest`. It runs real Android WebView initialization
+against a reserved, non-routable `.invalid` URL and verifies JavaScript/domStorage
+are enabled only alongside strict mixed-content rejection, file/content access
+denial, disabled automatic popups, user-gesture-required media playback, and
+third-party cookie rejection. It also checks that invalid HTTP, loopback, file,
+and credential-bearing embed URLs are rejected before loading.
+
+This tests Android WebView configuration and basic security only. It does
+**not** qualify CineSrc, production streams, LibVLC on ARM32/ARM64, DRM, or
+device-specific playback behavior.
