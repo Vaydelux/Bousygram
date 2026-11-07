@@ -12,5 +12,6 @@ android {
 }
 dependencies {
     implementation(libs.kotlinx.coroutines.android)
+    implementation("com.squareup.okhttp3:okhttp:4.12.1")
     testImplementation(libs.junit)
 }

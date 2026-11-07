@@ -1,18 +1,22 @@
 package com.vaydelux.mediaforge.core
 
 import java.io.ByteArrayOutputStream
-import java.io.IOException
 import java.io.InputStream
-import java.net.HttpURLConnection
 import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URI
-import java.net.URL
+import java.net.UnknownHostException
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
+import okhttp3.Dns
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import kotlin.coroutines.coroutineContext
 
 data class InspectedMedia(
@@ -43,60 +47,75 @@ class MediaForgeResolver {
                 coroutineContext.ensureActive()
                 val uri = MediaForgeUrlPolicy.safeHttpsUrl(currentUrl)
                     ?: return@withContext InspectionResult.Unavailable("Unsafe or non-HTTPS source")
-                rejectNonPublicAddresses(uri.host)
-                val connection = (URL(uri.toString()).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 5_000
-                    readTimeout = 5_000
-                    instanceFollowRedirects = false
-                    requestMethod = "GET"
-                    setRequestProperty("Range", "bytes=0-65535")
-                    setRequestProperty("Accept", "application/vnd.apple.mpegurl, application/dash+xml, video/*, */*")
+
+                // OkHttp's validated DNS result is the result the socket itself
+                // uses, preventing a second, unchecked DNS resolution.
+                val request = Request.Builder()
+                    .url(currentUrl)
+                    .header("Range", "bytes=0-65535")
+                    .header(
+                        "Accept",
+                        "application/vnd.apple.mpegurl, application/dash+xml, video/*, */*"
+                    )
+                    .get()
+                    .build()
+                val call = PublicMediaTransport.client.newCall(request)
+                val cancellation = coroutineContext.job.invokeOnCompletion { cause ->
+                    if (cause is CancellationException) call.cancel()
                 }
-                var redirect: String? = null
                 try {
-                    val code = connection.responseCode
-                    if (code in 300..399) {
-                        val location = connection.getHeaderField("Location")
-                            ?: return@withContext InspectionResult.Unavailable("Missing redirect location")
-                        redirect = uri.resolve(location).toString()
-                    } else {
-                        if (code !in 200..299)
-                            return@withContext InspectionResult.Unavailable("Media returned HTTP $code")
-                        val contentType = connection.contentType.orEmpty().lowercase(Locale.ROOT)
-                        if ("text/html" in contentType)
-                            return@withContext InspectionResult.Unavailable("Media URL returned HTML")
+                    call.execute().use { response ->
+                        val status = response.code
+                        if (status in 300..399) {
+                            val location = response.header("Location")
+                                ?: return@withContext InspectionResult.Unavailable("Missing redirect location")
+                            currentUrl = uri.resolve(location).toString()
+                        } else {
+                            if (status !in 200..299) {
+                                return@withContext InspectionResult.Unavailable(
+                                    "Media returned HTTP $status"
+                                )
+                            }
+                            val contentType = response.header("Content-Type")
+                                .orEmpty().lowercase(Locale.ROOT)
+                            if ("text/html" in contentType) {
+                                return@withContext InspectionResult.Unavailable("Media URL returned HTML")
+                            }
+                            val body = response.body?.byteStream()?.use { readBounded(it, 65_536) }
+                                ?: return@withContext InspectionResult.Unavailable("Empty response")
+                            if (body.isEmpty()) {
+                                return@withContext InspectionResult.Unavailable("Empty response")
+                            }
+                            val text = body.toString(Charsets.UTF_8).trimStart('\uFEFF')
+                            if (stream.format == StreamFormat.HLS &&
+                                !text.trimStart().startsWith("#EXTM3U")
+                            ) return@withContext InspectionResult.Unavailable("Invalid HLS manifest")
+                            if (stream.format == StreamFormat.DASH && !text.contains("<MPD")) {
+                                return@withContext InspectionResult.Unavailable("Invalid DASH manifest")
+                            }
+                            if (stream.format !in setOf(StreamFormat.HLS, StreamFormat.DASH) &&
+                                (text.trimStart().startsWith("<!DOCTYPE", true) ||
+                                    text.trimStart().startsWith("<html", true))
+                            ) return@withContext InspectionResult.Unavailable("Unexpected HTML response")
 
-                        val body = connection.inputStream.use { readBounded(it, 65_536) }
-                        if (body.isEmpty())
-                            return@withContext InspectionResult.Unavailable("Empty response")
-                        val text = body.toString(Charsets.UTF_8)
-                        if (stream.format == StreamFormat.HLS && !text.trimStart().startsWith("#EXTM3U"))
-                            return@withContext InspectionResult.Unavailable("Invalid HLS manifest")
-                        if (stream.format == StreamFormat.DASH && !text.contains("<MPD"))
-                            return@withContext InspectionResult.Unavailable("Invalid DASH manifest")
-                        if (stream.format !in setOf(StreamFormat.HLS, StreamFormat.DASH) &&
-                            (text.trimStart().startsWith("<!DOCTYPE", true) || text.trimStart().startsWith("<html", true))
-                        ) return@withContext InspectionResult.Unavailable("Unexpected HTML response")
-
-                        val captions = observedCaptions.filter {
-                            MediaForgeUrlPolicy.safeHttpsUrl(it.url) != null
-                        }.take(30).toMutableList()
-                        if (stream.format == StreamFormat.HLS) {
-                            captions += MediaForgeHlsCaptions.parse(text, currentUrl)
-                        }
-                        return@withContext InspectionResult.Playable(
-                            InspectedMedia(
-                                stream.copy(url = currentUrl, host = uri.host),
-                                captions.distinctBy { it.url }.take(30),
-                                code
+                            val captions = observedCaptions
+                                .filter { MediaForgeUrlPolicy.safeHttpsUrl(it.url) != null }
+                                .take(30).toMutableList()
+                            if (stream.format == StreamFormat.HLS) {
+                                captions += MediaForgeHlsCaptions.parse(text, currentUrl)
+                            }
+                            return@withContext InspectionResult.Playable(
+                                InspectedMedia(
+                                    stream.copy(url = currentUrl, host = uri.host),
+                                    captions.distinctBy { it.url }.take(30),
+                                    status
+                                )
                             )
-                        )
+                        }
                     }
                 } finally {
-                    connection.disconnect()
+                    cancellation.dispose()
                 }
-                currentUrl = redirect
-                    ?: return@withContext InspectionResult.Unavailable("Unusable redirect")
             }
             InspectionResult.Unavailable("Too many redirects")
         } catch (cancelled: CancellationException) {
@@ -116,28 +135,55 @@ class MediaForgeResolver {
         }
         return bytes.toByteArray()
     }
+}
 
-    private fun rejectNonPublicAddresses(host: String) {
-        // A second DNS resolution by HttpURLConnection creates residual rebinding
-        // risk; production allowlists/proxy transport should further constrain hosts.
-        val addresses = InetAddress.getAllByName(host)
-        if (addresses.isEmpty() || addresses.any { address ->
-            if (address.isAnyLocalAddress || address.isLoopbackAddress ||
-                address.isLinkLocalAddress || address.isSiteLocalAddress ||
-                address.isMulticastAddress
-            ) return@any true
-            if (address is Inet4Address) {
-                val octets = address.address.map { it.toInt() and 255 }
-                val a = octets[0]; val b = octets[1]; val c = octets[2]
-                a == 0 || a >= 224 || (a == 100 && b in 64..127) ||
-                    (a == 192 && b == 0 && c == 0) ||
-                    (a == 192 && b == 0 && c == 2) ||
-                    (a == 198 && b in 18..19) ||
-                    (a == 198 && b == 51 && c == 100) ||
-                    (a == 203 && b == 0 && c == 113)
-            } else false
-        }) throw IOException("Private/reserved network destination rejected")
+/**
+ * Trust boundary for DNS used by stream probes. All resolved addresses must
+ * be public. OkHttp connects to these checked InetAddress values directly,
+ * retaining normal TLS hostname verification for the original DNS name.
+ */
+internal object PublicNetworkPolicy {
+    fun isPublicAddress(address: InetAddress): Boolean {
+        if (address.isAnyLocalAddress || address.isLoopbackAddress ||
+            address.isLinkLocalAddress || address.isSiteLocalAddress ||
+            address.isMulticastAddress
+        ) return false
+        if (address is Inet4Address) {
+            val octets = address.address.map { it.toInt() and 255 }
+            val a = octets[0]
+            val b = octets[1]
+            val c = octets[2]
+            return !(a == 0 || a >= 224 || (a == 100 && b in 64..127) ||
+                (a == 192 && b == 0 && c == 0) || (a == 192 && b == 0 && c == 2) ||
+                (a == 198 && b in 18..19) || (a == 198 && b == 51 && c == 100) ||
+                (a == 203 && b == 0 && c == 113))
+        }
+        if (address is Inet6Address) {
+            val first = address.address[0].toInt() and 255
+            // ULA fc00::/7 is not covered by Java's deprecated "site local" check.
+            if (first and 0xfe == 0xfc) return false
+        }
+        return true
     }
+}
+
+private object PublicMediaTransport {
+    val client: OkHttpClient = OkHttpClient.Builder()
+        .dns(object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                val results = Dns.SYSTEM.lookup(hostname)
+                if (results.isEmpty() || results.any { !PublicNetworkPolicy.isPublicAddress(it) }) {
+                    throw UnknownHostException("Private or reserved network destination blocked")
+                }
+                return results
+            }
+        })
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
+        .build()
 }
 
 object MediaForgeHlsCaptions {

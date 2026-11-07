@@ -17,6 +17,16 @@ class MediaForgeDiscoveryTest {
         assertTrue(registry.snapshot().streams.isEmpty())
     }
 
+    @Test fun networkPolicyRejectsPrivateAndReservedAddresses() {
+        fun address(value: String) = java.net.InetAddress.getByName(value)
+        for (ip in listOf("127.0.0.1", "10.0.0.1", "192.168.1.1", "172.16.0.1",
+            "100.64.0.1", "169.254.1.1", "fc00::1", "fe80::1", "::1")) {
+            assertFalse("Should block $ip", PublicNetworkPolicy.isPublicAddress(address(ip)))
+        }
+        assertTrue(PublicNetworkPolicy.isPublicAddress(address("8.8.8.8")))
+        assertTrue(PublicNetworkPolicy.isPublicAddress(address("2001:4860:4860::8888")))
+    }
+
     @Test fun unsafeUrlsRejected() {
         assertNull(MediaForgeClassifier.stream("http://example.org/master.m3u8"))
         assertNull(MediaForgeClassifier.stream("https://127.0.0.1/secret.mp4"))
