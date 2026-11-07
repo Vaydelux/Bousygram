@@ -59,3 +59,5 @@ The previously planned generic `MediaForgeNativeAdapter` extension interface
 remains available to other hosts; no LibVLC native dependency has been added
 to `mediaforge-core`. Real-device verification is still required for LibVLC
 stream playback, SRT loading, subtitle renderer, seek and engine behavior.
+
+- Both Extras-only native engines pause upon Activity ON_STOP. They do not resume automatically when returning from background; the user can explicitly resume with the player controls.

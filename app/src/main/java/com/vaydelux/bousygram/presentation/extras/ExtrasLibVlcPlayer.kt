@@ -20,6 +20,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -179,14 +182,22 @@ internal fun ExtrasLibVlcPlayer(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var status by remember(media.stream.url) { mutableStateOf("Preparing LibVLC…") }
     // LibVLC initialization can fail on unsupported devices/ABIs: show recovery UI.
     val sessionResult = remember(media.stream.url, caption?.url) {
         runCatching { ExtrasLibVlcSession(context, media, caption) { status = it } }
     }
     val session = sessionResult.getOrNull()
-    DisposableEffect(session) {
-        onDispose { session?.release() }
+    DisposableEffect(session, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) session?.pause()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            session?.release()
+        }
     }
     Column(Modifier.fillMaxSize().background(Color.Black)) {
         Row(

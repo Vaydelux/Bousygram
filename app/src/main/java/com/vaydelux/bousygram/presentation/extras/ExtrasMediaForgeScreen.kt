@@ -49,6 +49,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.InspectionResult
@@ -424,9 +427,14 @@ private fun ExtrasMediaForgeNativePlayer(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val player = remember(media.stream.url) { MediaForgeMedia3.newPlayer(context) }
     var playbackError by remember(media.stream.url) { mutableStateOf<String?>(null) }
-    DisposableEffect(player, media, caption) {
+    DisposableEffect(player, media, caption, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) player.pause()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 playbackError = "Native playback failed. Return to WebView or try another source."
@@ -437,6 +445,7 @@ private fun ExtrasMediaForgeNativePlayer(
         player.prepare()
         player.playWhenReady = true
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             player.removeListener(listener)
             player.stop()
             player.release()
