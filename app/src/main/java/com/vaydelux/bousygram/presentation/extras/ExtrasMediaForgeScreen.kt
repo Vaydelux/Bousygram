@@ -1,0 +1,591 @@
+package com.vaydelux.bousygram.presentation.extras
+
+import android.view.KeyEvent as AndroidKeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.webkit.WebView
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.ui.PlayerView
+import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.vaydelux.mediaforge.core.CaptionCandidate
+import com.vaydelux.mediaforge.core.InspectedMedia
+import com.vaydelux.mediaforge.core.InspectionResult
+import com.vaydelux.mediaforge.core.MediaForgeDiscovery
+import com.vaydelux.mediaforge.core.MediaForgeResolver
+import com.vaydelux.mediaforge.core.MediaSnapshot
+import com.vaydelux.mediaforge.players.MediaForgeMedia3
+import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+
+/**
+ * A title-specific embed chosen explicitly by the Extras user. This is not a
+ * TMDB stream and is never used by Telegram Media.
+ */
+internal data class ExtrasEmbedRequest(val url: String, val title: String) {
+    companion object {
+        fun movie(tmdbId: Int, title: String): ExtrasEmbedRequest {
+            require(tmdbId > 0)
+            return ExtrasEmbedRequest("https://cinesrc.st/embed/movie/$tmdbId", title)
+        }
+
+        fun episode(tmdbId: Int, season: Int, episode: Int, title: String): ExtrasEmbedRequest {
+            require(tmdbId > 0 && season >= 0 && episode > 0)
+            return ExtrasEmbedRequest(
+                "https://cinesrc.st/embed/tv/$tmdbId?s=$season&e=$episode",
+                "$title · S$season E$episode"
+            )
+        }
+    }
+}
+
+/**
+ * Opt-in, isolated WebView playback. Only visible resource URLs are collected.
+ * The user decides whether to continue in WebView or launch native playback.
+ */
+@Composable
+internal fun ExtrasMediaForgeScreen(
+    request: ExtrasEmbedRequest,
+    onBack: () -> Unit,
+    isAndroidTv: Boolean
+) {
+    val discovery = remember(request.url) { MediaForgeDiscovery() }
+    val resolver = remember { MediaForgeResolver() }
+    val scope = rememberCoroutineScope()
+    var snapshot by remember(request.url) { mutableStateOf(MediaSnapshot(emptyList(), emptyList())) }
+    var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
+    var cursorEnabled by remember(request.url) { mutableStateOf(false) }
+    var immersiveWeb by remember(request.url) { mutableStateOf(false) }
+    var htmlFullscreenView by remember(request.url) { mutableStateOf<View?>(null) }
+    // The previous bridge is permanently closed when native playback disposes WebView.
+    // A new generation must create a new bridge when the user returns to WebView.
+    var webGeneration by remember(request.url) { mutableIntStateOf(0) }
+    var pointerX by remember(request.url) { mutableIntStateOf(70) }
+    var pointerY by remember(request.url) { mutableIntStateOf(70) }
+    var areaWidth by remember { mutableIntStateOf(1) }
+    var areaHeight by remember { mutableIntStateOf(1) }
+    var selectedCaption by remember(request.url) { mutableStateOf<CaptionCandidate?>(null) }
+    var approved by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
+    var nativeMedia by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
+    var nativeEngine by remember(request.url) { mutableStateOf(ExtrasNativeEngine.MEDIA3) }
+    var inspectionJob by remember { mutableStateOf<Job?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var inspectionGeneration by remember { mutableIntStateOf(0) }
+    var status by remember { mutableStateOf("Play the embedded media to discover available sources.") }
+    val bridge = remember(request.url, webGeneration) {
+        MediaForgeWebBridge(
+            onMediaResource = { url ->
+                if (discovery.observe(url)) snapshot = discovery.snapshot()
+            },
+            onNavigationBlocked = {
+                status = "Blocked a navigation outside the selected embed."
+            },
+            onFullscreenRequested = { view ->
+                htmlFullscreenView = view
+                if (isAndroidTv) cursorEnabled = true
+            },
+            onFullscreenEnded = { htmlFullscreenView = null }
+        )
+    }
+
+    fun returnToWebView() {
+        // Force a fresh bridge after the old observer was closed on native handoff.
+        inspectionGeneration += 1
+        inspectionJob?.cancel()
+        inspectionJob = null
+        busy = false
+        webGeneration += 1
+        nativeMedia = null
+    }
+
+    BackHandler {
+        when {
+            nativeMedia != null -> returnToWebView()
+            htmlFullscreenView != null -> bridge.dismissFullscreen()
+            immersiveWeb -> immersiveWeb = false
+            cursorEnabled -> cursorEnabled = false
+            else -> onBack()
+        }
+    }
+
+    nativeMedia?.let { media ->
+        when (nativeEngine) {
+            ExtrasNativeEngine.MEDIA3 -> ExtrasMediaForgeNativePlayer(
+                media = media,
+                caption = selectedCaption,
+                title = request.title,
+                onBack = { returnToWebView() }
+            )
+            ExtrasNativeEngine.LIBVLC -> ExtrasLibVlcPlayer(
+                media = media,
+                caption = selectedCaption,
+                title = request.title,
+                onBack = { returnToWebView() }
+            )
+        }
+        return
+    }
+
+    LaunchedEffect(cursorEnabled, webView) {
+        if (!cursorEnabled) webView?.requestFocus()
+    }
+
+    DisposableEffect(bridge) {
+        onDispose {
+            inspectionGeneration += 1
+            inspectionJob?.cancel()
+            bridge.close()
+            discovery.clear()
+        }
+    }
+
+    // Browser media should not continue consuming resources while the app is
+    // backgrounded. WebView.onPause is best-effort for third-party players.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(webView, lifecycleOwner) {
+        val activeView = webView
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> activeView?.onPause()
+                Lifecycle.Event.ON_START -> activeView?.onResume()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        if (!immersiveWeb) {
+        Row(
+            Modifier.fillMaxWidth().padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(onClick = onBack, modifier = Modifier.testTag("extras-embed-back")) {
+                Text("Back")
+            }
+            Text(request.title, modifier = Modifier.weight(1f), maxLines = 1)
+            OutlinedButton(
+                onClick = { immersiveWeb = true },
+                modifier = Modifier.testTag("extras-embed-fullscreen")
+            ) { Text("Fullscreen") }
+            if (isAndroidTv) {
+                OutlinedButton(
+                    onClick = { cursorEnabled = !cursorEnabled },
+                    modifier = Modifier.testTag("extras-virtual-mouse")
+                ) { Text(if (cursorEnabled) "Cursor ON" else "Cursor OFF") }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = {
+                    inspectionGeneration += 1
+                    inspectionJob?.cancel()
+                    inspectionJob = null
+                    busy = false
+                    approved = null
+                    selectedCaption = null
+                    discovery.clear()
+                    snapshot = discovery.snapshot()
+                    status = "Reloading embedded player…"
+                    if (webView != null) webView?.reload() else webGeneration += 1
+                },
+                modifier = Modifier.testTag("extras-embed-reload")
+            ) { Text("Reload player") }
+            OutlinedButton(
+                onClick = {
+                    inspectionGeneration += 1
+                    inspectionJob?.cancel()
+                    inspectionJob = null
+                    busy = false
+                    approved = null
+                    selectedCaption = null
+                    discovery.clear()
+                    snapshot = discovery.snapshot()
+                    status = "Detected sources cleared."
+                },
+                modifier = Modifier.testTag("extras-clear-sources")
+            ) { Text("Clear sources") }
+        }
+
+        }
+
+        Box(
+            modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black)
+                .onSizeChanged { size ->
+                    areaWidth = size.width.coerceAtLeast(1)
+                    areaHeight = size.height.coerceAtLeast(1)
+                    pointerX = pointerX.coerceIn(0, areaWidth - 1)
+                    pointerY = pointerY.coerceIn(0, areaHeight - 1)
+                }
+        ) {
+            key(webGeneration) {
+                AndroidView(
+                    factory = { ctx ->
+                        try {
+                            bridge.create(ctx, request.url).also { webView = it }
+                        } catch (_: RuntimeException) {
+                            status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
+                            android.widget.TextView(ctx).apply {
+                                setText(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
+                                setTextColor(android.graphics.Color.WHITE)
+                                setBackgroundColor(android.graphics.Color.BLACK)
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    onRelease = { view ->
+                        if (view is WebView) {
+                            runCatching { view.stopLoading() }
+                            runCatching { view.loadUrl("about:blank") }
+                            runCatching { view.onPause() }
+                            runCatching { view.removeAllViews() }
+                            runCatching { view.destroy() }
+                        }
+                        if (webView === view) webView = null
+                    }
+                )
+            }
+            if (cursorEnabled && isAndroidTv) {
+                ExtrasVirtualCursor(
+                    target = webView,
+                    bridge = bridge,
+                    widthPx = areaWidth,
+                    heightPx = areaHeight,
+                    xPx = pointerX,
+                    yPx = pointerY,
+                    onMove = { x, y -> pointerX = x; pointerY = y },
+                    isActive = htmlFullscreenView == null,
+                    tag = "extras-virtual-cursor"
+                )
+            }
+        }
+
+        if (!immersiveWeb) {
+        Column(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "WebView playback · ${snapshot.streams.size} video candidate(s) · ${snapshot.captions.size} subtitle(s)",
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(status, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+            if (snapshot.streams.isEmpty()) {
+                Text(
+                    "No accessible stream discovered yet. You can continue watching in WebView.",
+                    style = MaterialTheme.typography.labelSmall
+                )
+            } else {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(snapshot.streams.size) { index ->
+                        val candidate = snapshot.streams[index]
+                        OutlinedButton(
+                        enabled = !busy,
+                        onClick = {
+                            inspectionGeneration += 1
+                            val generation = inspectionGeneration
+                            inspectionJob?.cancel()
+                            approved = null
+                            selectedCaption = null
+                            busy = true
+                            status = "Checking source availability…"
+                            inspectionJob = scope.launch {
+                                try {
+                                    when (val result = resolver.inspect(candidate, snapshot.captions)) {
+                                        is InspectionResult.Playable -> {
+                                            if (generation == inspectionGeneration) {
+                                                approved = result.media
+                                                status = "Native playback may be available. Select Play natively."
+                                            }
+                                        }
+                                        is InspectionResult.Unavailable -> {
+                                            if (generation == inspectionGeneration) status = result.reason
+                                        }
+                                    }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } finally {
+                                    if (generation == inspectionGeneration) busy = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("extras-stream-candidate")
+                    ) {
+                        Text("${candidate.format} · ${candidate.host}", maxLines = 1)
+                    }
+                    }
+                }
+            }
+            if (busy) CircularProgressIndicator(Modifier.size(22.dp))
+            approved?.let { media ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExtrasNativeEngine.entries.forEach { engine ->
+                        val available = engine != ExtrasNativeEngine.LIBVLC ||
+                            com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED
+                        FilterChip(
+                            selected = nativeEngine == engine,
+                            enabled = available,
+                            onClick = { if (available) nativeEngine = engine },
+                            label = {
+                                Text(if (available) engine.label else "LibVLC (debug only)")
+                            },
+                            modifier = Modifier.testTag("extras-player-" + engine.name.lowercase())
+                        )
+                    }
+                }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(media.captions.size) { index ->
+                        val caption = media.captions[index]
+                        OutlinedButton(onClick = {
+                        selectedCaption = if (selectedCaption?.url == caption.url) null else caption
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "${if (selectedCaption?.url == caption.url) "✓ " else ""}Subtitles: ${caption.label ?: caption.language ?: caption.host} · ${caption.format}",
+                            maxLines = 1
+                        )
+                    }
+                    }
+                }
+                Button(
+                    modifier = Modifier.fillMaxWidth().testTag("extras-play-native"),
+                    onClick = {
+                        inspectionGeneration += 1
+                        inspectionJob?.cancel()
+                        nativeMedia = media
+                    }
+                ) { Text("Play with " + nativeEngine.label) }
+            }
+        }
+        }
+    }
+
+    // Chromium's HTML5 fullscreen surface is distinct from the ordinary
+    // WebView. Keep the browser mounted; never remount the iframe on fullscreen.
+    htmlFullscreenView?.let { videoView ->
+        var fullscreenWidth by remember { mutableIntStateOf(1) }
+        var fullscreenHeight by remember { mutableIntStateOf(1) }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black)
+                .onSizeChanged { size ->
+                    fullscreenWidth = size.width.coerceAtLeast(1)
+                    fullscreenHeight = size.height.coerceAtLeast(1)
+                    pointerX = pointerX.coerceIn(0, fullscreenWidth - 1)
+                    pointerY = pointerY.coerceIn(0, fullscreenHeight - 1)
+                }
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    FrameLayout(ctx).apply {
+                        (videoView.parent as? ViewGroup)?.removeView(videoView)
+                        addView(
+                            videoView,
+                            FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                onRelease = { parent ->
+                    if (parent is FrameLayout) parent.removeAllViews()
+                }
+            )
+            if (cursorEnabled && isAndroidTv) {
+                ExtrasVirtualCursor(
+                    target = videoView,
+                    bridge = bridge,
+                    widthPx = fullscreenWidth,
+                    heightPx = fullscreenHeight,
+                    xPx = pointerX,
+                    yPx = pointerY,
+                    onMove = { x, y -> pointerX = x; pointerY = y },
+                    isActive = true,
+                    tag = "extras-fullscreen-virtual-cursor"
+                )
+            }
+        }
+    }
+    }
+}
+
+/**
+ * Reuses the same DPAD pointer for ordinary WebView and HTML5 custom fullscreen.
+ * Pointer coordinates belong to the target view, not its outer Activity.
+ */
+@Composable
+internal fun ExtrasVirtualCursor(
+    target: View?,
+    bridge: MediaForgeWebBridge,
+    widthPx: Int,
+    heightPx: Int,
+    xPx: Int,
+    yPx: Int,
+    onMove: (Int, Int) -> Unit,
+    isActive: Boolean,
+    tag: String
+) {
+    val focus = remember { FocusRequester() }
+    // Explicit user input is required before any synthetic pointer action.
+    LaunchedEffect(isActive, target) {
+        if (isActive) runCatching { focus.requestFocus() }
+    }
+    Box(
+        modifier = Modifier.fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (!isActive || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val repeat = event.nativeKeyEvent.repeatCount
+                val step = if (repeat > 4) 34 else 18
+                when (event.nativeKeyEvent.keyCode) {
+                    AndroidKeyEvent.KEYCODE_DPAD_UP -> {
+                        onMove(xPx, (yPx - step).coerceAtLeast(0))
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                        onMove(xPx, (yPx + step).coerceAtMost(heightPx - 1))
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_LEFT -> {
+                        onMove((xPx - step).coerceAtLeast(0), yPx)
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        onMove((xPx + step).coerceAtMost(widthPx - 1), yPx)
+                        true
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> {
+                        if (repeat == 0) target?.let {
+                            bridge.click(it, xPx.toFloat(), yPx.toFloat())
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusRequester(focus)
+            .focusable()
+            .testTag(tag)
+    ) {
+        Box(
+            Modifier.offset {
+                IntOffset(
+                    xPx.coerceIn(0, widthPx - 1),
+                    yPx.coerceIn(0, heightPx - 1)
+                )
+            }.size(18.dp).background(Color.Cyan, CircleShape)
+        )
+    }
+}
+
+@Composable
+private fun ExtrasMediaForgeNativePlayer(
+    media: InspectedMedia,
+    caption: CaptionCandidate?,
+    title: String,
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val player = remember(media.stream.url) { MediaForgeMedia3.newPlayer(context) }
+    var playbackError by remember(media.stream.url) { mutableStateOf<String?>(null) }
+    DisposableEffect(player, media, caption, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) player.pause()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                playbackError = "Native playback failed. Return to WebView or try another source."
+            }
+        }
+        player.addListener(listener)
+        player.setMediaItem(MediaForgeMedia3.mediaItem(media, caption))
+        player.prepare()
+        player.playWhenReady = true
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            player.removeListener(listener)
+            player.stop()
+            player.release()
+        }
+    }
+    Column(Modifier.fillMaxSize().background(Color.Black)) {
+        Row(
+            Modifier.fillMaxWidth().padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(onClick = onBack) { Text("Back to WebView") }
+            Text(title, color = Color.White, maxLines = 1)
+        }
+        playbackError?.let { error ->
+            Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp))
+        }
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    useController = true
+                    this.player = player
+                }
+            },
+            update = { it.player = player },
+            modifier = Modifier.fillMaxWidth().weight(1f)
+        )
+    }
+}

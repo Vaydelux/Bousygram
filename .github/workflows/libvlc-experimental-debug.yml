@@ -10,6 +10,15 @@ on:
       - 'app/src/main/java/com/vaydelux/bousygram/core/media/PlayerEngineFactory.kt'
       - 'app/src/main/java/com/vaydelux/bousygram/core/media/ExperimentalStreamUrlPolicy.kt'
       - 'app/src/main/java/com/vaydelux/bousygram/data/store/EnterprisePreferences.kt'
+  pull_request:
+    paths:
+      - '.github/workflows/libvlc-experimental-debug.yml'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/extras/**'
+      - 'app/src/androidTest/java/com/vaydelux/bousygram/presentation/extras/**'
+      - 'mediaforge-core/**'
+      - 'mediaforge-webbridge/**'
+      - 'mediaforge-player-adapters/**'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +38,7 @@ jobs:
       matrix:
         abi: [armeabi-v7a, arm64-v8a]
     steps:
-      - name: Check out exact main commit
+      - name: Check out exact branch/PR commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Java 21
