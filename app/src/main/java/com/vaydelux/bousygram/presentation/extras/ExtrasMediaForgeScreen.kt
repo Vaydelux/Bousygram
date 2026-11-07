@@ -235,6 +235,8 @@ internal fun ExtrasMediaForgeScreen(
                 .onSizeChanged { size ->
                     areaWidth = size.width.coerceAtLeast(1)
                     areaHeight = size.height.coerceAtLeast(1)
+                    pointerX = pointerX.coerceIn(0, areaWidth - 1)
+                    pointerY = pointerY.coerceIn(0, areaHeight - 1)
                 }
         ) {
             key(webGeneration) {
@@ -254,11 +256,11 @@ internal fun ExtrasMediaForgeScreen(
                     modifier = Modifier.fillMaxSize(),
                     onRelease = { view ->
                         if (view is WebView) {
-                            view.stopLoading()
-                            view.loadUrl("about:blank")
-                            view.onPause()
-                            view.removeAllViews()
-                            view.destroy()
+                            runCatching { view.stopLoading() }
+                            runCatching { view.loadUrl("about:blank") }
+                            runCatching { view.onPause() }
+                            runCatching { view.removeAllViews() }
+                            runCatching { view.destroy() }
                         }
                         if (webView === view) webView = null
                     }

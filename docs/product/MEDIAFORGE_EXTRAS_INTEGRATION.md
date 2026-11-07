@@ -43,3 +43,6 @@ then run the device emulator/TV tests and physical ARM32/ARM64 smoke suites.
 
 - Added explicit **Reload player** and **Clear sources** controls in Extras; these invalidate pending source checks and clear stale candidates.
 - D-pad center key-repeat is filtered to avoid duplicate pointer clicks during long presses.
+
+- On rotation/layout changes, D-pad pointer coordinates are clamped to the current WebView bounds.
+- WebView disposal is owned by the actual AndroidView instance and tolerates renderer failure.

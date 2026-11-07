@@ -2,8 +2,6 @@ package com.vaydelux.mediaforge.webbridge
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Bitmap
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
@@ -19,7 +17,6 @@ import android.webkit.WebViewClient
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.core.MediaForgeClassifier
 import com.vaydelux.mediaforge.core.StreamFormat
-import java.net.URI
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
