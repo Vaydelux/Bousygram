@@ -470,7 +470,7 @@ internal fun ExtrasMediaForgeScreen(
  * Pointer coordinates belong to the target view, not its outer Activity.
  */
 @Composable
-private fun ExtrasVirtualCursor(
+internal fun ExtrasVirtualCursor(
     target: View?,
     bridge: MediaForgeWebBridge,
     widthPx: Int,
@@ -482,6 +482,7 @@ private fun ExtrasVirtualCursor(
     tag: String
 ) {
     val focus = remember { FocusRequester() }
+    // Explicit user input is required before any synthetic pointer action.
     LaunchedEffect(isActive, target) {
         if (isActive) runCatching { focus.requestFocus() }
     }
