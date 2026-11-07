@@ -40,3 +40,6 @@ then run the device emulator/TV tests and physical ARM32/ARM64 smoke suites.
 - Returning from native playback creates a new WebBridge instance, because closed resource observers must not be reused.
 - Stale/canceled stream probes are generation-gated and cannot overwrite the latest source selection.
 - These changes do **not** establish third-party player compatibility; encrypted, blob: and session-restricted sources may remain WebView-only.
+
+- Added explicit **Reload player** and **Clear sources** controls in Extras; these invalidate pending source checks and clear stale candidates.
+- D-pad center key-repeat is filtered to avoid duplicate pointer clicks during long presses.

@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -160,6 +161,7 @@ internal fun ExtrasMediaForgeScreen(
 
     DisposableEffect(bridge) {
         onDispose {
+            inspectionGeneration += 1
             inspectionJob?.cancel()
             bridge.close()
             webView?.apply {
@@ -192,6 +194,41 @@ internal fun ExtrasMediaForgeScreen(
             }
         }
 
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = {
+                    inspectionGeneration += 1
+                    inspectionJob?.cancel()
+                    inspectionJob = null
+                    busy = false
+                    approved = null
+                    selectedCaption = null
+                    discovery.clear()
+                    snapshot = discovery.snapshot()
+                    status = "Reloading embedded player…"
+                    if (webView != null) webView?.reload() else webGeneration += 1
+                },
+                modifier = Modifier.testTag("extras-embed-reload")
+            ) { Text("Reload player") }
+            OutlinedButton(
+                onClick = {
+                    inspectionGeneration += 1
+                    inspectionJob?.cancel()
+                    inspectionJob = null
+                    busy = false
+                    approved = null
+                    selectedCaption = null
+                    discovery.clear()
+                    snapshot = discovery.snapshot()
+                    status = "Detected sources cleared."
+                },
+                modifier = Modifier.testTag("extras-clear-sources")
+            ) { Text("Clear sources") }
+        }
+
         Box(
             modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black)
                 .onSizeChanged { size ->
@@ -199,21 +236,23 @@ internal fun ExtrasMediaForgeScreen(
                     areaHeight = size.height.coerceAtLeast(1)
                 }
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    try {
-                        bridge.create(ctx, request.url).also { webView = it }
-                    } catch (_: RuntimeException) {
-                        status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
-                        android.widget.TextView(ctx).apply {
-                            setText(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
-                            setTextColor(android.graphics.Color.WHITE)
-                            setBackgroundColor(android.graphics.Color.BLACK)
+            key(webGeneration) {
+                AndroidView(
+                    factory = { ctx ->
+                        try {
+                            bridge.create(ctx, request.url).also { webView = it }
+                        } catch (_: RuntimeException) {
+                            status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
+                            android.widget.TextView(ctx).apply {
+                                setText(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
+                                setTextColor(android.graphics.Color.WHITE)
+                                setBackgroundColor(android.graphics.Color.BLACK)
+                            }
                         }
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
             if (cursorEnabled && isAndroidTv) {
                 Box(
                     modifier = Modifier.fillMaxSize()
@@ -234,6 +273,7 @@ internal fun ExtrasMediaForgeScreen(
                                     pointerX = (pointerX + jump).coerceAtMost(areaWidth - 1); true
                                 }
                                 AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> {
+                                    if (event.nativeKeyEvent.repeatCount > 0) return@onPreviewKeyEvent true
                                     webView?.let {
                                         bridge.click(it, pointerX.toFloat(), pointerY.toFloat())
                                     }

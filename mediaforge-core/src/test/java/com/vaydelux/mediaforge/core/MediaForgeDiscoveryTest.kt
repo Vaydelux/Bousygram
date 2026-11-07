@@ -24,6 +24,21 @@ class MediaForgeDiscoveryTest {
         assertNull(MediaForgeClassifier.stream("https://example.org@localhost/file.mp4"))
     }
 
+    @Test fun mediaQueryStringsAndCaseInsensitiveExtensions() {
+        val manifest = MediaForgeClassifier.stream("https://cdn.example.org/MOVIE.M3U8?token=123")
+        assertEquals(StreamFormat.HLS, manifest?.format)
+        val caption = MediaForgeClassifier.caption("https://cdn.example.org/english.VTT?key=456")
+        assertEquals(CaptionFormat.VTT, caption?.format)
+        assertNull(MediaForgeClassifier.stream("https://cdn.example.org/fake.m3u8.html"))
+    }
+
+    @Test fun maxCaptionsDoNotGrowUnbounded() {
+        val collector = MediaForgeDiscovery(maxCaptions = 2)
+        for (i in 1..5) assertTrue(collector.observe("https://cdn.example.org/$i.srt"))
+        assertEquals(2, collector.snapshot().captions.size)
+        assertFalse(collector.observe("https://cdn.example.org/5.srt"))
+    }
+
     @Test fun hlsCaptionPlaylist() {
         val playlist = "#EXTM3U\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",URI=\"sub/en.vtt\""
         val results = MediaForgeHlsCaptions.parse(playlist, "https://media.example.org/master.m3u8")
