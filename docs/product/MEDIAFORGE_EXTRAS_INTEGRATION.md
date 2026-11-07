@@ -131,3 +131,16 @@ and credential-bearing embed URLs are rejected before loading.
 This tests Android WebView configuration and basic security only. It does
 **not** qualify CineSrc, production streams, LibVLC on ARM32/ARM64, DRM, or
 device-specific playback behavior.
+
+## TV virtual mouse qualification (offline emulator)
+
+`MediaForgeVirtualMouseInstrumentedTest` is now part of the Android emulator
+smoke class list. It uses an actual Android `View` that records
+`dispatchTouchEvent` invocations and confirms D-pad Right/Down movement,
+one DOWN/UP tap pair on OK/Center, and bounds clamping.
+The test exercises the **same `ExtrasVirtualCursor` composable** used by the
+ordinary WebView and HTML5 custom fullscreen view.
+
+This establishes Android emulator input behavior for the cursor component,
+not real third-party iframe click-to-play behavior, device-specific D-pad
+focus, or browser player compatibility. Continue physical ARM32/ARM64 QA.
