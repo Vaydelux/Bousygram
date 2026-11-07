@@ -22,3 +22,6 @@ dependencyResolutionManagement {
 rootProject.name = "Bousygram"
 include(":app")
 include(":baselineprofile")
+include(":mediaforge-core")
+include(":mediaforge-webbridge")
+include(":mediaforge-player-adapters")

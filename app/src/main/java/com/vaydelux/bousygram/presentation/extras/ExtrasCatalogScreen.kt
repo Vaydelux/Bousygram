@@ -154,6 +154,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         if (state.page >= 1 && state.results.isEmpty()) activeGrid.scrollToItem(0)
     }
     var detailItem by remember { mutableStateOf<ExtrasItem?>(null) }
+    var activeEmbed by remember { mutableStateOf<ExtrasEmbedRequest?>(null) }
     val detailHistory = remember { mutableStateListOf<ExtrasItem>() }
     val selectedPoster = remember { mutableStateMapOf<ExtrasType, Int>() }
     val moviePosterFocus = remember { FocusRequester() }
@@ -203,7 +204,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         restoredPosterFocus = restorePosterFocus
     }
 
-    BackHandler {
+    BackHandler(enabled = activeEmbed == null) {
         when {
             showCredits -> showCredits = false
             detailItem != null -> goBackFromDetails()
@@ -228,7 +229,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     Text("Regional watch availability data supplied by JustWatch via TMDB.")
                     Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
                     Text("Anime: AniList. Titles, artwork, community ratings and linked episodes come from AniList.")
-                    Text("Trailers and official episode links open in external apps. Bousygram does not host or stream those videos.")
+                    Text("Extras web sources open in an isolated WebView; native playback is offered only for observed and validated accessible streams. Bousygram does not host those videos.")
                     Text("TMDB: themoviedb.org · AniList: anilist.co",
                         style = MaterialTheme.typography.labelSmall)
                 }
@@ -324,6 +325,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         }
     }
 
+    if (activeEmbed != null) {
+        ExtrasMediaForgeScreen(
+            request = activeEmbed!!,
+            isAndroidTv = isAndroidTv,
+            onBack = { activeEmbed = null }
+        )
+    } else {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
@@ -335,7 +343,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text(if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
                             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Catalog metadata · TMDB / AniList",
+                        Text("Catalog metadata · TMDB / AniList · optional Web sources",
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     TextButton(onClick = { showCredits = true }) { Text("Credits") }
@@ -362,6 +370,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             } else detail?.let { info ->
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
                     onSeason = { selectedSeason = it },
+                    onPlayMovie = { activeEmbed = ExtrasEmbedRequest.movie(info.item.id, info.item.title) },
+                    onPlayEpisode = { episodeNumber ->
+                        selectedSeason?.let { season ->
+                            activeEmbed = ExtrasEmbedRequest.episode(info.item.id, season, episodeNumber, info.item.title)
+                        }
+                    },
                     onSeasonRetry = { seasonRetry += 1 },
                     onOpenItem = { related ->
                         detailItem?.let {
@@ -587,6 +601,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 }
             }
         }
+    }
     }
 }
 
@@ -842,6 +857,8 @@ private fun ExtrasDetailContent(
     episodeError: String?,
     onSeason: (Int) -> Unit,
     onSeasonRetry: () -> Unit,
+    onPlayMovie: () -> Unit,
+    onPlayEpisode: (Int) -> Unit,
     onOpenItem: (ExtrasItem) -> Unit,
     modifier: Modifier,
     compact: Boolean,
@@ -869,6 +886,14 @@ private fun ExtrasDetailContent(
                     )
                     Column(Modifier.weight(1f)) { DetailText(info) }
                 }
+            }
+        }
+        if (info.item.type == ExtrasType.MOVIES) {
+            item {
+                Button(
+                    onClick = onPlayMovie,
+                    modifier = Modifier.fillMaxWidth().testTag("extras-play-movie")
+                ) { Text("Play · Web source") }
             }
         }
         info.youtubeId?.let { youtube ->
@@ -1011,10 +1036,16 @@ private fun ExtrasDetailContent(
                     AsyncImage(model = episode.still, contentDescription = null,
                         modifier = Modifier.size(width = 110.dp, height = 70.dp),
                         contentScale = ContentScale.Crop)
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text("${episode.number}. ${episode.title}", fontWeight = FontWeight.SemiBold)
                         Text(episode.overview, maxLines = 3, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (selectedSeason != null && episode.number > 0) {
+                        OutlinedButton(
+                            onClick = { onPlayEpisode(episode.number) },
+                            modifier = Modifier.testTag("extras-play-episode")
+                        ) { Text("Play") }
                     }
                 }
             }
@@ -1047,7 +1078,7 @@ private fun ExtrasDetailContent(
             }
         }
         item {
-            Text((if (info.item.type == ExtrasType.ANIME) "Anime metadata from AniList." else "This product uses the TMDB API but is not endorsed or certified by TMDB.") + " Titles, scores and episode availability depend on the provider. No video streaming is supplied.",
+            Text((if (info.item.type == ExtrasType.ANIME) "Anime metadata from AniList." else "This product uses the TMDB API but is not endorsed or certified by TMDB.") + " Catalog metadata does not provide streaming sources. Web embeds are third-party and may be unavailable.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

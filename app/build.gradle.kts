@@ -711,6 +711,8 @@ tasks.register<Copy>("copyApksToDist") {
 }
 
 dependencies {
+    implementation(project(":mediaforge-webbridge"))
+    implementation(project(":mediaforge-player-adapters"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
