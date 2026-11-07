@@ -46,3 +46,16 @@ then run the device emulator/TV tests and physical ARM32/ARM64 smoke suites.
 
 - On rotation/layout changes, D-pad pointer coordinates are clamped to the current WebView bounds.
 - WebView disposal is owned by the actual AndroidView instance and tolerates renderer failure.
+
+## Native LibVLC option
+
+The Extras picker now offers either Media3 or LibVLC. LibVLC is backed by
+`ExtrasLibVlcSession` and never calls Telegram's loopback-only LibVLC engine.
+It owns native resources and Android audio focus within the selected Extras
+player's lifecycle, uses FIT aspect ratio, provides basic transport controls,
+and attempts user-selected external subtitle attachment.
+
+The previously planned generic `MediaForgeNativeAdapter` extension interface
+remains available to other hosts; no LibVLC native dependency has been added
+to `mediaforge-core`. Real-device verification is still required for LibVLC
+stream playback, SRT loading, subtitle renderer, seek and engine behavior.

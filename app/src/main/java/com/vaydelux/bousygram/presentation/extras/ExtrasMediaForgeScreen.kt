@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -108,6 +109,7 @@ internal fun ExtrasMediaForgeScreen(
     var selectedCaption by remember(request.url) { mutableStateOf<CaptionCandidate?>(null) }
     var approved by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
     var nativeMedia by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
+    var nativeEngine by remember(request.url) { mutableStateOf(ExtrasNativeEngine.MEDIA3) }
     var inspectionJob by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
     var inspectionGeneration by remember { mutableIntStateOf(0) }
@@ -143,13 +145,21 @@ internal fun ExtrasMediaForgeScreen(
         }
     }
 
-    if (nativeMedia != null) {
-        ExtrasMediaForgeNativePlayer(
-            media = nativeMedia!!,
-            caption = selectedCaption,
-            title = request.title,
-            onBack = { returnToWebView() }
-        )
+    nativeMedia?.let { media ->
+        when (nativeEngine) {
+            ExtrasNativeEngine.MEDIA3 -> ExtrasMediaForgeNativePlayer(
+                media = media,
+                caption = selectedCaption,
+                title = request.title,
+                onBack = { returnToWebView() }
+            )
+            ExtrasNativeEngine.LIBVLC -> ExtrasLibVlcPlayer(
+                media = media,
+                caption = selectedCaption,
+                title = request.title,
+                onBack = { returnToWebView() }
+            )
+        }
         return
     }
 
@@ -369,6 +379,16 @@ internal fun ExtrasMediaForgeScreen(
             }
             if (busy) CircularProgressIndicator(Modifier.size(22.dp))
             approved?.let { media ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExtrasNativeEngine.entries.forEach { engine ->
+                        FilterChip(
+                            selected = nativeEngine == engine,
+                            onClick = { nativeEngine = engine },
+                            label = { Text(engine.label) },
+                            modifier = Modifier.testTag("extras-player-" + engine.name.lowercase())
+                        )
+                    }
+                }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(media.captions.size) { index ->
                         val caption = media.captions[index]
@@ -389,7 +409,7 @@ internal fun ExtrasMediaForgeScreen(
                         inspectionJob?.cancel()
                         nativeMedia = media
                     }
-                ) { Text("Play natively") }
+                ) { Text("Play with " + nativeEngine.label) }
             }
         }
         }
