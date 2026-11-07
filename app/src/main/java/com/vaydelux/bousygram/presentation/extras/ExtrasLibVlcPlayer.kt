@@ -15,11 +15,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -35,18 +37,21 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
+import com.vaydelux.mediaforge.players.MediaForgeGuardedProgressiveSource
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.interfaces.IMedia
 import org.videolan.libvlc.util.VLCVideoLayout
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.isActive
 
 /** Only Extras uses this decoder; Telegram's loopback-only LibVlcPlayerEngine is untouched. */
 internal class ExtrasLibVlcSession(
     context: Context,
     private val media: InspectedMedia,
     private val subtitle: CaptionCandidate?,
+    private val guarded: MediaForgeGuardedProgressiveSource,
     private val onStatus: (String) -> Unit
 ) {
     private val released = AtomicBoolean(false)
@@ -114,19 +119,24 @@ internal class ExtrasLibVlcSession(
         player.setAspectRatio(null)
         player.setScale(0f) // Natural fit rather than zoom/crop.
         if (!initialized) {
-            val vlcMedia = Media(libVlc, Uri.parse(media.stream.url))
+            // Native VLC sees a local seekable FD, not a remote URI.
+            // The FD's read callbacks perform all remote requests through
+            // MediaForge's guarded HTTP client, including range requests.
+            val vlcMedia = Media(libVlc, guarded.descriptor.fileDescriptor)
             try {
-                vlcMedia.addOption(":network-caching=500")
                 player.media = vlcMedia
                 initialized = true
             } finally {
                 vlcMedia.release()
             }
-            subtitle?.takeIf { MediaForgeUrlPolicy.safeHttpsUrl(it.url) != null }?.let {
+            guarded.localSubtitle?.let {
                 val accepted = runCatching {
-                    player.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(it.url), true)
+                    player.addSlave(IMedia.Slave.Type.Subtitle, Uri.fromFile(it), true)
                 }.getOrDefault(false)
-                if (!accepted) onStatus("External subtitles unavailable in LibVLC")
+                if (!accepted) onStatus("External subtitle is not supported by LibVLC")
+            }
+            if (subtitle != null && guarded.localSubtitle == null) {
+                onStatus("Subtitle unavailable through guarded LibVLC; use Media3")
             }
         }
         play()
@@ -184,6 +194,7 @@ internal class ExtrasLibVlcSession(
         attached = false
         runCatching { player.release() }
         runCatching { libVlc.release() }
+        guarded.close()
         releaseAudioFocus()
     }
 }
@@ -198,14 +209,40 @@ internal fun ExtrasLibVlcPlayer(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var status by remember(media.stream.url) { mutableStateOf("Preparing LibVLC…") }
-    // LibVLC initialization can fail on unsupported devices/ABIs: show recovery UI.
-    val sessionResult = remember(media.stream.url, caption?.url) {
-        runCatching {
-            check(com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED)
-            ExtrasLibVlcSession(context, media, caption) { status = it }
+    var source by remember(media.stream.url, caption?.url) {
+        mutableStateOf<MediaForgeGuardedProgressiveSource?>(null)
+    }
+    var initError by remember(media.stream.url, caption?.url) {
+        mutableStateOf<String?>(null)
+    }
+    LaunchedEffect(media.stream.url, caption?.url) {
+        if (!com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED ||
+            !MediaForgeGuardedProgressiveSource.supported(media.stream)
+        ) {
+            initError = "Guarded LibVLC supports debug MP4/WebM only."
+            return@LaunchedEffect
+        }
+        try {
+            val prepared = MediaForgeGuardedProgressiveSource.open(context, media.stream, caption)
+            if (isActive) source = prepared else prepared.close()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            initError = "This source does not support secure byte-range playback. Use Media3."
         }
     }
-    val session = sessionResult.getOrNull()
+    DisposableEffect(source) {
+        onDispose { source?.close() }
+    }
+    // LibVLC initialization can fail on devices without a compatible ABI.
+    val sessionResult = remember(source, media.stream.url, caption?.url) {
+        source?.let { guardedSource ->
+            runCatching {
+                ExtrasLibVlcSession(context, media, caption, guardedSource) { status = it }
+            }
+        }
+    }
+    val session = sessionResult?.getOrNull()
     DisposableEffect(session, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) session?.pause()
@@ -225,11 +262,16 @@ internal fun ExtrasLibVlcPlayer(
             Text(title, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1)
         }
         if (session == null) {
-            Text(
-                "LibVLC is unavailable on this device. Return to WebView or select Media3.",
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(16.dp)
-            )
+            if (initError == null && source == null) {
+                CircularProgressIndicator(Modifier.padding(16.dp))
+                Text("Preparing guarded range playback…", color = Color.White)
+            } else {
+                Text(
+                    initError ?: "LibVLC is unavailable on this device. Use Media3.",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
         } else {
             AndroidView(
                 factory = { ctx ->

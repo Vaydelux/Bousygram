@@ -144,3 +144,25 @@ ordinary WebView and HTML5 custom fullscreen view.
 This establishes Android emulator input behavior for the cursor component,
 not real third-party iframe click-to-play behavior, device-specific D-pad
 focus, or browser player compatibility. Continue physical ARM32/ARM64 QA.
+
+## Guarded LibVLC progressive file-descriptor experiment
+
+LibVLC now receives a **seekable, local Android ProxyFileDescriptor** rather than
+a third-party network URL when the user selects native LibVLC. All reads for
+eligible *progressive MP4/WebM* media use guarded MediaForge HTTPS range GETs
+with strict 206/Content-Range validation. The device callback maintains a
+bounded 256-KiB in-memory window; seeking reads a new protected range instead
+of downloading the entire file. Authenticated/CDN sources that reject Range
+requests are not supported and should use Media3 or WebView.
+
+Selected SRT/VTT files are downloaded through the same guarded client into a
+bounded private temporary cache file, attached to LibVLC as a local subtitle,
+and deleted when the source is disposed. Native VLC never receives the remote
+media or subtitle URL. No WebView cookies or Telegram tokens are forwarded.
+
+The implementation remains **debug-only and experimental**: Android's
+ProxyFileDescriptor FUSE behavior, HTTP request overhead, seeking performance,
+and ARM32/ARM64 codec/device compatibility need qualification. HLS and DASH
+are deliberately ineligible for LibVLC until a safe manifest/segment transport
+is implemented; those formats remain supported by Media3. This is not yet
+proof of production-safe LibVLC behavior for arbitrary untrusted content.

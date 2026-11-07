@@ -62,6 +62,7 @@ import com.vaydelux.mediaforge.core.MediaForgeDiscovery
 import com.vaydelux.mediaforge.core.MediaForgeResolver
 import com.vaydelux.mediaforge.core.MediaSnapshot
 import com.vaydelux.mediaforge.players.MediaForgeMedia3
+import com.vaydelux.mediaforge.players.MediaForgeGuardedProgressiveSource
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -377,13 +378,14 @@ internal fun ExtrasMediaForgeScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ExtrasNativeEngine.entries.forEach { engine ->
                         val available = engine != ExtrasNativeEngine.LIBVLC ||
-                            com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED
+                            (com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
+                                MediaForgeGuardedProgressiveSource.supported(media.stream))
                         FilterChip(
                             selected = nativeEngine == engine,
                             enabled = available,
                             onClick = { if (available) nativeEngine = engine },
                             label = {
-                                Text(if (available) engine.label else "LibVLC (debug only)")
+                                Text(if (available) engine.label else "LibVLC (MP4/WebM debug)")
                             },
                             modifier = Modifier.testTag("extras-player-" + engine.name.lowercase())
                         )
