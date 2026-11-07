@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -40,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -305,12 +307,15 @@ internal fun ExtrasMediaForgeScreen(
             if (cursorEnabled && isAndroidTv) {
                 ExtrasVirtualCursor(
                     target = webView,
-                    bridge = bridge,
                     widthPx = areaWidth,
                     heightPx = areaHeight,
                     xPx = pointerX,
                     yPx = pointerY,
-                    onMove = { x, y -> pointerX = x; pointerY = y },
+                    onDelta = { dx, dy ->
+                        pointerX = (pointerX + dx).coerceIn(0, areaWidth - 1)
+                        pointerY = (pointerY + dy).coerceIn(0, areaHeight - 1)
+                    },
+                    onConfirm = { webView?.let { bridge.click(it, pointerX.toFloat(), pointerY.toFloat()) } },
                     isActive = htmlFullscreenView == null,
                     tag = "extras-virtual-cursor"
                 )
@@ -452,12 +457,15 @@ internal fun ExtrasMediaForgeScreen(
             if (cursorEnabled && isAndroidTv) {
                 ExtrasVirtualCursor(
                     target = videoView,
-                    bridge = bridge,
                     widthPx = fullscreenWidth,
                     heightPx = fullscreenHeight,
                     xPx = pointerX,
                     yPx = pointerY,
-                    onMove = { x, y -> pointerX = x; pointerY = y },
+                    onDelta = { dx, dy ->
+                        pointerX = (pointerX + dx).coerceIn(0, fullscreenWidth - 1)
+                        pointerY = (pointerY + dy).coerceIn(0, fullscreenHeight - 1)
+                    },
+                    onConfirm = { bridge.click(videoView, pointerX.toFloat(), pointerY.toFloat()) },
                     isActive = true,
                     tag = "extras-fullscreen-virtual-cursor"
                 )
@@ -474,12 +482,12 @@ internal fun ExtrasMediaForgeScreen(
 @Composable
 internal fun ExtrasVirtualCursor(
     target: View?,
-    bridge: MediaForgeWebBridge,
     widthPx: Int,
     heightPx: Int,
     xPx: Int,
     yPx: Int,
-    onMove: (Int, Int) -> Unit,
+    onDelta: (Int, Int) -> Unit,
+    onConfirm: () -> Unit,
     isActive: Boolean,
     tag: String
 ) {
@@ -493,28 +501,27 @@ internal fun ExtrasVirtualCursor(
             .onPreviewKeyEvent { event ->
                 if (!isActive || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val repeat = event.nativeKeyEvent.repeatCount
-                val step = if (repeat > 4) 34 else 18
+                val baseStep = maxOf(18, minOf(widthPx, heightPx) / 55)
+                val step = if (repeat > 4) baseStep * 2 else baseStep
                 when (event.nativeKeyEvent.keyCode) {
                     AndroidKeyEvent.KEYCODE_DPAD_UP -> {
-                        onMove(xPx, (yPx - step).coerceAtLeast(0))
+                        onDelta(0, -step)
                         true
                     }
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
-                        onMove(xPx, (yPx + step).coerceAtMost(heightPx - 1))
+                        onDelta(0, step)
                         true
                     }
                     AndroidKeyEvent.KEYCODE_DPAD_LEFT -> {
-                        onMove((xPx - step).coerceAtLeast(0), yPx)
+                        onDelta(-step, 0)
                         true
                     }
                     AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        onMove((xPx + step).coerceAtMost(widthPx - 1), yPx)
+                        onDelta(step, 0)
                         true
                     }
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> {
-                        if (repeat == 0) target?.let {
-                            bridge.click(it, xPx.toFloat(), yPx.toFloat())
-                        }
+                        if (repeat == 0) onConfirm()
                         true
                     }
                     else -> false
@@ -524,14 +531,28 @@ internal fun ExtrasVirtualCursor(
             .focusable()
             .testTag(tag)
     ) {
-        Box(
+        Canvas(
             Modifier.offset {
                 IntOffset(
                     xPx.coerceIn(0, widthPx - 1),
                     yPx.coerceIn(0, heightPx - 1)
                 )
-            }.size(18.dp).background(Color.Cyan, CircleShape)
-        )
+            }.size(24.dp)
+        ) {
+            // Pointer tip is also the exact synthesized tap hotspot.
+            val arrow = Path().apply {
+                moveTo(0f, 0f)
+                lineTo(size.width * 0.20f, size.height * 0.92f)
+                lineTo(size.width * 0.43f, size.height * 0.66f)
+                lineTo(size.width * 0.62f, size.height * 0.97f)
+                lineTo(size.width * 0.82f, size.height * 0.86f)
+                lineTo(size.width * 0.64f, size.height * 0.58f)
+                lineTo(size.width * 0.96f, size.height * 0.52f)
+                close()
+            }
+            drawPath(arrow, Color.White)
+            drawPath(arrow, Color.Black, style = Stroke(width = 2.dp.toPx()))
+        }
     }
 }
 

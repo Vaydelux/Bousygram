@@ -50,12 +50,15 @@ class MediaForgeVirtualMouseInstrumentedTest {
                     Box(Modifier.fillMaxSize()) {
                         ExtrasVirtualCursor(
                             target = target,
-                            bridge = bridge,
                             widthPx = 360,
                             heightPx = 240,
                             xPx = x,
                             yPx = y,
-                            onMove = { nextX, nextY -> x = nextX; y = nextY },
+                            onDelta = { dx, dy ->
+                                x = (x + dx).coerceIn(0, 359)
+                                y = (y + dy).coerceIn(0, 239)
+                            },
+                            onConfirm = { bridge.click(target, x.toFloat(), y.toFloat()) },
                             isActive = true,
                             tag = "mediaforge-pointer-test"
                         )
@@ -96,12 +99,15 @@ class MediaForgeVirtualMouseInstrumentedTest {
                     Box(Modifier.fillMaxSize()) {
                         ExtrasVirtualCursor(
                             target = null,
-                            bridge = bridge,
                             widthPx = 360,
                             heightPx = 240,
                             xPx = x,
                             yPx = y,
-                            onMove = { nextX, nextY -> x = nextX; y = nextY },
+                            onDelta = { dx, dy ->
+                                x = (x + dx).coerceIn(0, 359)
+                                y = (y + dy).coerceIn(0, 239)
+                            },
+                            onConfirm = {},
                             isActive = true,
                             tag = "mediaforge-pointer-test"
                         )
