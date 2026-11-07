@@ -97,6 +97,7 @@ internal fun ExtrasMediaForgeScreen(
     var snapshot by remember(request.url) { mutableStateOf(MediaSnapshot(emptyList(), emptyList())) }
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
+    var immersiveWeb by remember(request.url) { mutableStateOf(false) }
     // The previous bridge is permanently closed when native playback disposes WebView.
     // A new generation must create a new bridge when the user returns to WebView.
     var webGeneration by remember(request.url) { mutableIntStateOf(0) }
@@ -136,6 +137,7 @@ internal fun ExtrasMediaForgeScreen(
     BackHandler {
         when {
             nativeMedia != null -> returnToWebView()
+            immersiveWeb -> immersiveWeb = false
             cursorEnabled -> cursorEnabled = false
             else -> onBack()
         }
@@ -169,6 +171,7 @@ internal fun ExtrasMediaForgeScreen(
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        if (!immersiveWeb) {
         Row(
             Modifier.fillMaxWidth().padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -178,6 +181,10 @@ internal fun ExtrasMediaForgeScreen(
                 Text("Back")
             }
             Text(request.title, modifier = Modifier.weight(1f), maxLines = 1)
+            OutlinedButton(
+                onClick = { immersiveWeb = true },
+                modifier = Modifier.testTag("extras-embed-fullscreen")
+            ) { Text("Fullscreen") }
             if (isAndroidTv) {
                 OutlinedButton(
                     onClick = { cursorEnabled = !cursorEnabled },
@@ -219,6 +226,8 @@ internal fun ExtrasMediaForgeScreen(
                 },
                 modifier = Modifier.testTag("extras-clear-sources")
             ) { Text("Clear sources") }
+        }
+
         }
 
         Box(
@@ -300,6 +309,7 @@ internal fun ExtrasMediaForgeScreen(
             }
         }
 
+        if (!immersiveWeb) {
         Column(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -379,6 +389,7 @@ internal fun ExtrasMediaForgeScreen(
                     }
                 ) { Text("Play natively") }
             }
+        }
         }
     }
 }
