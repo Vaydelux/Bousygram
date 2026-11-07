@@ -14,6 +14,7 @@ import com.vaydelux.mediaforge.core.MediaForgePlaybackTransport
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.core.StreamCandidate
 import com.vaydelux.mediaforge.core.StreamFormat
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -119,7 +120,18 @@ class MediaForgeGuardedProgressiveSource private constructor(
                     if (response.header("Content-Type").orEmpty().contains("text/html", true))
                         throw IOException("Unexpected subtitle content")
                     val input = response.body?.byteStream() ?: throw IOException("No subtitle body")
-                    input.use { it.readNBytes(512 * 1024 + 1) }
+                    input.use { stream ->
+                        val out = ByteArrayOutputStream()
+                        val buffer = ByteArray(8192)
+                        while (out.size() <= 512 * 1024) {
+                            val allowed = minOf(buffer.size, 512 * 1024 + 1 - out.size())
+                            if (allowed <= 0) break
+                            val count = stream.read(buffer, 0, allowed)
+                            if (count == -1) break
+                            out.write(buffer, 0, count)
+                        }
+                        out.toByteArray()
+                    }
                 }
                 if (bytes.isEmpty() || bytes.size > 512 * 1024)
                     throw IOException("Subtitle exceeds bounded limit")
