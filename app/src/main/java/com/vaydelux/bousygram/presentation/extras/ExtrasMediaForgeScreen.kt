@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,7 +51,6 @@ import com.vaydelux.mediaforge.core.InspectionResult
 import com.vaydelux.mediaforge.core.MediaForgeDiscovery
 import com.vaydelux.mediaforge.core.MediaForgeResolver
 import com.vaydelux.mediaforge.core.MediaSnapshot
-import com.vaydelux.mediaforge.core.StreamCandidate
 import com.vaydelux.mediaforge.players.MediaForgeMedia3
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
 import kotlinx.coroutines.CancellationException
