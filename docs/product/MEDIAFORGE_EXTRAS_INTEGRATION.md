@@ -103,3 +103,17 @@ arbitrary untrusted embed URLs.
 Security checks validate connection hosts, not whether a movie is licensed,
 DRM-free or otherwise authorized for redistribution. CineSrc compatibility
 remains unverified.
+
+## LibVLC experimental gate and stream sanity checks
+
+LibVLC is now **enabled only for debug builds**, through the `MEDIAFORGE_EXTRAS_LIBVLC_ENABLED`
+BuildConfig flag. Release and hardenedRelease keep it disabled; native VLC does not inherit
+the validated Media3 HTTP stack, and no secure VLC transport has been proven for arbitrary
+third-party stream hosts. The Extras picker displays the disabled state rather than silently
+relying on the native engine. This is a deliberate release safety boundary, not a claim that
+debug LibVLC has equivalent network protections.
+
+The core resolver now performs bounded container signature sanity checks on candidate MP4,
+WebM and direct MPEG-TS responses, rather than accepting any HTTP 2xx (including HTML/JSON
+error pages) as a native stream. This does not guarantee codec, subtitle or live-segment
+compatibility and does not bypass provider authorization or DRM.

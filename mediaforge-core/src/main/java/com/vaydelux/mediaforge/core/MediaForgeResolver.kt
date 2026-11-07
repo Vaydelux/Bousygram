@@ -109,9 +109,12 @@ class MediaForgeResolver {
                                 return@withContext InspectionResult.Unavailable("Invalid DASH manifest")
                             }
                             if (stream.format !in setOf(StreamFormat.HLS, StreamFormat.DASH) &&
-                                (text.trimStart().startsWith("<!DOCTYPE", true) ||
-                                    text.trimStart().startsWith("<html", true))
-                            ) return@withContext InspectionResult.Unavailable("Unexpected HTML response")
+                                !MediaForgeSignature.isPlausible(stream.format, body)
+                            ) {
+                                return@withContext InspectionResult.Unavailable(
+                                    "Media response did not match the expected container format"
+                                )
+                            }
 
                             val captions = observedCaptions
                                 .filter { MediaForgeUrlPolicy.safeHttpsUrl(it.url) != null }
@@ -147,6 +150,32 @@ class MediaForgeResolver {
             bytes.write(buffer, 0, count)
         }
         return bytes.toByteArray()
+    }
+}
+
+/**
+ * A successful HTTP 2xx is not sufficient proof of a direct media stream.
+ * Check container signatures without downloading the entire resource.
+ * This is a sanity check, not a guarantee that every frame can be decoded.
+ */
+internal object MediaForgeSignature {
+    fun isPlausible(format: StreamFormat, bytes: ByteArray): Boolean {
+        when (format) {
+            StreamFormat.MP4 -> {
+                if (bytes.size < 8) return false
+                val marker = bytes.copyOfRange(4, 8).toString(Charsets.US_ASCII)
+                return marker in setOf("ftyp", "styp", "moov", "mdat", "free", "wide")
+            }
+            StreamFormat.WEBM -> {
+                return bytes.size >= 4 && (bytes[0].toInt() and 0xff) == 0x1a &&
+                    (bytes[1].toInt() and 0xff) == 0x45 &&
+                    (bytes[2].toInt() and 0xff) == 0xdf &&
+                    (bytes[3].toInt() and 0xff) == 0xa3
+            }
+            StreamFormat.MPEG_TS -> return bytes.isNotEmpty() &&
+                (bytes[0].toInt() and 0xff) == 0x47
+            StreamFormat.HLS, StreamFormat.DASH -> return true
+        }
     }
 }
 

@@ -376,10 +376,15 @@ internal fun ExtrasMediaForgeScreen(
             approved?.let { media ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ExtrasNativeEngine.entries.forEach { engine ->
+                        val available = engine != ExtrasNativeEngine.LIBVLC ||
+                            com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED
                         FilterChip(
                             selected = nativeEngine == engine,
-                            onClick = { nativeEngine = engine },
-                            label = { Text(engine.label) },
+                            enabled = available,
+                            onClick = { if (available) nativeEngine = engine },
+                            label = {
+                                Text(if (available) engine.label else "LibVLC (debug only)")
+                            },
                             modifier = Modifier.testTag("extras-player-" + engine.name.lowercase())
                         )
                     }

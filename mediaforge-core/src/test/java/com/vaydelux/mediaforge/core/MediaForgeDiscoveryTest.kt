@@ -4,6 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MediaForgeDiscoveryTest {
+    @Test fun rejectNonMediaBodiesEvenWhenServerReturnsHttp200() {
+        assertFalse(MediaForgeSignature.isPlausible(
+            StreamFormat.MP4, "<html>video unavailable</html>".toByteArray()
+        ))
+        assertFalse(MediaForgeSignature.isPlausible(
+            StreamFormat.WEBM, "{\"error\":true}".toByteArray()
+        ))
+        assertFalse(MediaForgeSignature.isPlausible(
+            StreamFormat.MPEG_TS, byteArrayOf(0x00, 0x00)
+        ))
+        val mp4 = byteArrayOf(0, 0, 0, 24) + "ftyp".toByteArray()
+        assertTrue(MediaForgeSignature.isPlausible(StreamFormat.MP4, mp4))
+        assertTrue(MediaForgeSignature.isPlausible(
+            StreamFormat.WEBM, byteArrayOf(0x1a, 0x45, 0xdf.toByte(), 0xa3.toByte())
+        ))
+        assertTrue(MediaForgeSignature.isPlausible(
+            StreamFormat.MPEG_TS, byteArrayOf(0x47)
+        ))
+    }
+
     @Test fun classificationAndBounds() {
         val registry = MediaForgeDiscovery(maxStreams = 2)
         assertTrue(registry.observe("https://video.example.org/a/master.m3u8?token=secret"))

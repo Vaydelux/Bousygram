@@ -101,6 +101,10 @@ internal class ExtrasLibVlcSession(
     }
 
     fun attach(layout: VLCVideoLayout) {
+        // Native VLC redirects and subresources do not honor the Media3 DNS policy.
+        check(com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED) {
+            "Extras LibVLC is restricted to development builds"
+        }
         if (released.get() || attached) return
         require(MediaForgeUrlPolicy.safeHttpsUrl(media.stream.url) != null) {
             "Only validated HTTPS sources can enter the Extras player"
@@ -196,7 +200,10 @@ internal fun ExtrasLibVlcPlayer(
     var status by remember(media.stream.url) { mutableStateOf("Preparing LibVLC…") }
     // LibVLC initialization can fail on unsupported devices/ABIs: show recovery UI.
     val sessionResult = remember(media.stream.url, caption?.url) {
-        runCatching { ExtrasLibVlcSession(context, media, caption) { status = it } }
+        runCatching {
+            check(com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED)
+            ExtrasLibVlcSession(context, media, caption) { status = it }
+        }
     }
     val session = sessionResult.getOrNull()
     DisposableEffect(session, lifecycleOwner) {
