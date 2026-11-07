@@ -391,7 +391,7 @@ internal fun ExtrasMediaForgeScreen(
                         selectedCaption = if (selectedCaption?.url == caption.url) null else caption
                     }, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            "${if (selectedCaption?.url == caption.url) "✓ " else ""}Subtitles: ${caption.format} · ${caption.host}",
+                            "${if (selectedCaption?.url == caption.url) "✓ " else ""}Subtitles: ${caption.label ?: caption.language ?: caption.host} · ${caption.format}",
                             maxLines = 1
                         )
                     }

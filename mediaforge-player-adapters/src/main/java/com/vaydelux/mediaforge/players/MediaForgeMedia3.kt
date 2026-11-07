@@ -44,7 +44,8 @@ object MediaForgeMedia3 {
                 CaptionFormat.TTML -> MimeTypes.APPLICATION_TTML
             }
             listOf(MediaItem.SubtitleConfiguration.Builder(Uri.parse(it.url))
-                .setMimeType(format).setLanguage("und").setLabel(it.host).build())
+                .setMimeType(format).setLanguage(it.language ?: "und")
+                .setLabel(it.label ?: it.host).build())
         }.orEmpty()
         builder.setSubtitleConfigurations(captions)
         return builder.build()

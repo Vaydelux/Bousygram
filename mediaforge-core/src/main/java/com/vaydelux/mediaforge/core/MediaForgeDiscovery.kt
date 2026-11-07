@@ -8,7 +8,13 @@ enum class StreamFormat { MP4, HLS, DASH, WEBM, MPEG_TS }
 enum class CaptionFormat { SRT, VTT, TTML }
 
 data class StreamCandidate(val url: String, val format: StreamFormat, val host: String)
-data class CaptionCandidate(val url: String, val format: CaptionFormat, val host: String)
+data class CaptionCandidate(
+    val url: String,
+    val format: CaptionFormat,
+    val host: String,
+    val language: String? = null,
+    val label: String? = null
+)
 data class MediaSnapshot(
     val streams: List<StreamCandidate>,
     val captions: List<CaptionCandidate>

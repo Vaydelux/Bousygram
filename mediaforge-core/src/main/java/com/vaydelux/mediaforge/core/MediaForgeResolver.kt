@@ -149,15 +149,23 @@ object MediaForgeHlsCaptions {
         playlist.lineSequence().take(1500).mapNotNull { line ->
             if (!line.startsWith("#EXT-X-MEDIA:") || !line.contains("TYPE=SUBTITLES"))
                 return@mapNotNull null
-            val marker = "URI=\""
-            val start = line.indexOf(marker)
-            if (start < 0) return@mapNotNull null
-            val from = start + marker.length
-            val end = line.indexOf('"', from)
-            if (end <= from || end - from > 2048) return@mapNotNull null
+            val subtitleUri = quotedAttribute(line, "URI", 2048) ?: return@mapNotNull null
             val resolved = runCatching {
-                URI(base).resolve(line.substring(from, end)).toString()
+                URI(base).resolve(subtitleUri).toString()
             }.getOrNull() ?: return@mapNotNull null
-            MediaForgeClassifier.caption(resolved)
+            val language = quotedAttribute(line, "LANGUAGE", 35)
+                ?.takeIf { it.matches(Regex("[A-Za-z0-9-]{2,35}")) }
+            val label = quotedAttribute(line, "NAME", 80)
+            MediaForgeClassifier.caption(resolved)?.copy(language = language, label = label)
         }.distinctBy { it.url }.take(30).toList()
+
+    private fun quotedAttribute(line: String, attribute: String, maxLength: Int): String? {
+        val marker = "$attribute=\""
+        val start = line.indexOf(marker)
+        if (start < 0) return null
+        val from = start + marker.length
+        val end = line.indexOf('"', from)
+        if (end <= from || end - from > maxLength) return null
+        return line.substring(from, end)
+    }
 }

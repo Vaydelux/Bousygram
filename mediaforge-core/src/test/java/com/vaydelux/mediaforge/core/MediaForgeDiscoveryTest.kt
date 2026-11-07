@@ -39,6 +39,15 @@ class MediaForgeDiscoveryTest {
         assertFalse(collector.observe("https://cdn.example.org/5.srt"))
     }
 
+    @Test fun hlsCaptionsRetainTrackMetadata() {
+        val playlist = "#EXTM3U\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"English\",LANGUAGE=\"en\",URI=\"sub/en.vtt\""
+        val result = MediaForgeHlsCaptions.parse(playlist, "https://media.example.org/master.m3u8").single()
+        assertEquals(CaptionFormat.VTT, result.format)
+        assertEquals("English", result.label)
+        assertEquals("en", result.language)
+        assertEquals("https://media.example.org/sub/en.vtt", result.url)
+    }
+
     @Test fun hlsCaptionPlaylist() {
         val playlist = "#EXTM3U\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",URI=\"sub/en.vtt\""
         val results = MediaForgeHlsCaptions.parse(playlist, "https://media.example.org/master.m3u8")

@@ -71,3 +71,9 @@ The Extras WebView is paused/resumed on Activity `ON_STOP`/`ON_START` (best-effo
 ### TV cursor in HTML5 fullscreen
 
 A single reusable D-pad cursor component now targets both the normal WebView and the HTML5 fullscreen custom view. Entering HTML5 fullscreen automatically enables the TV pointer; OK synthesizes a user-initiated tap on the active video surface, and long-press directional keys accelerate pointer movement. This does not promise compatibility with all third-party players or cross-origin restrictions.
+
+## Track metadata and low-memory resource observation
+
+Explicit external HLS subtitle tracks now retain playlist LANGUAGE and NAME attributes (when present) in the MediaForge result. Media3's external subtitle configuration uses those values. WebVTT/SRT URLs without metadata still use a host fallback. HLS rendition playlists with their own .m3u8 tracks remain handled by the native player rather than being misidentified as standalone subtitle assets.
+
+WebBridge limits pending main-thread resource observation callbacks to 32; excess observations are dropped without affecting page playback. This keeps callback backlogs bounded on ARM32 devices. Discovery remains best-effort, not a full Chromium network inspector.

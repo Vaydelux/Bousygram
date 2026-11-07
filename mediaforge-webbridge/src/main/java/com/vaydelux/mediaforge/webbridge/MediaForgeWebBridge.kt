@@ -19,6 +19,7 @@ import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.core.MediaForgeClassifier
 import com.vaydelux.mediaforge.core.StreamFormat
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Observes ordinary WebView resource URLs AFTER the user loads a provider page.
@@ -33,6 +34,9 @@ class MediaForgeWebBridge(
 ) {
     private val open = AtomicBoolean(true)
     private val main = Handler(Looper.getMainLooper())
+    // Resource callbacks may come from WebView IO threads in bursts.
+    private val pendingObservations = AtomicInteger(0)
+    private val maxPendingObservations = 32
     private var fullscreenView: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
 
@@ -105,7 +109,18 @@ class MediaForgeWebBridge(
         // MPEG-TS segments inside HLS are not stand-alone video candidates.
         // Filter before posting callbacks to prevent source-picker floods.
         if ((stream == null || stream.format == StreamFormat.MPEG_TS) && caption == null) return
-        main.post { if (open.get()) onMediaResource(url) }
+        if (pendingObservations.incrementAndGet() > maxPendingObservations) {
+            pendingObservations.decrementAndGet()
+            return
+        }
+        val posted = main.post {
+            try {
+                if (open.get()) onMediaResource(url)
+            } finally {
+                pendingObservations.decrementAndGet()
+            }
+        }
+        if (!posted) pendingObservations.decrementAndGet()
     }
 
     /** Dispatch a D-pad-confirmed real touch event to the WebView at view-local coordinates. */
