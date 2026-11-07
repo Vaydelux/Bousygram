@@ -144,6 +144,7 @@ jobs:
             :app:verifySensitiveLogRedaction \
             :app:verifyTdlibBindingCompatibility \
             :app:compileDebugKotlin \
+            :mediaforge-core:testDebugUnitTest \
             :app:lintDebug \
             :app:testDebugUnitTest \
             :app:assembleDebug \
@@ -162,6 +163,8 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
           path: |
+            mediaforge-core/build/test-results/testDebugUnitTest/**/*.xml
+            mediaforge-core/build/reports/tests/testDebugUnitTest/**
             app/build/test-results/testDebugUnitTest/**/*.xml
             app/build/reports/tests/testDebugUnitTest/**
             app/build/reports/lint-results-debug.html
