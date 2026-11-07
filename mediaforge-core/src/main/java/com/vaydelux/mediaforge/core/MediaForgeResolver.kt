@@ -6,6 +6,7 @@ import java.io.InputStream
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.Proxy
 import java.net.URI
 import java.net.UnknownHostException
 import java.util.Locale
@@ -190,11 +191,43 @@ private object PublicMediaTransport {
                 return results
             }
         })
+        .proxy(Proxy.NO_PROXY)
         .followRedirects(false)
         .followSslRedirects(false)
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .callTimeout(25, TimeUnit.SECONDS)
+        .build()
+}
+
+/**
+ * A guarded HTTP client for **all** Media3 Extras resources: the first media
+ * URL, HLS/DASH manifests, segments, encryption key URLs and subtitles.
+ *
+ * Each HTTPS destination is checked immediately before network transmission.
+ * The underlying socket uses PublicMediaTransport's guarded DNS resolver,
+ * which rejects private and reserved addresses on every new lookup.
+ *
+ * Never transfer WebView cookies, Authorization headers or Telegram tokens.
+ * Do not use this client as a generic cross-origin credentialed HTTP client.
+ *
+ * LibVLC has its own native network stack and is NOT guarded by this client.
+ */
+object MediaForgePlaybackTransport {
+    val client: OkHttpClient = PublicMediaTransport.client.newBuilder()
+        // Avoid a device-supplied proxy that could skip DNS address checks.
+        .proxy(Proxy.NO_PROXY)
+        .followRedirects(true)
+        .followSslRedirects(false)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(0, TimeUnit.SECONDS)
+        .addNetworkInterceptor { chain ->
+            if (MediaForgeUrlPolicy.safeHttpsUrl(chain.request().url.toString()) == null) {
+                throw IOException("Unsafe media or redirect destination")
+            }
+            chain.proceed(chain.request())
+        }
         .build()
 }
 

@@ -27,6 +27,20 @@ class MediaForgeDiscoveryTest {
         assertTrue(PublicNetworkPolicy.isPublicAddress(address("2001:4860:4860::8888")))
     }
 
+    @Test fun playbackTransportHasGuardedDnsAndHttpsRedirects() {
+        val client = MediaForgePlaybackTransport.client
+        assertTrue(client.followRedirects())
+        assertFalse(client.followSslRedirects())
+        assertEquals(java.net.Proxy.NO_PROXY, client.proxy())
+        assertTrue(client.networkInterceptors.isNotEmpty())
+        try {
+            client.dns.lookup("127.0.0.1")
+            fail("Private loopback host must not resolve")
+        } catch (_: java.net.UnknownHostException) {
+            // Expected: network transport never connects to a private address.
+        }
+    }
+
     @Test fun unsafeUrlsRejected() {
         assertNull(MediaForgeClassifier.stream("http://example.org/master.m3u8"))
         assertNull(MediaForgeClassifier.stream("https://127.0.0.1/secret.mp4"))

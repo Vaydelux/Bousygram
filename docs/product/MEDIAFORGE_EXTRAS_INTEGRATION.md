@@ -81,3 +81,25 @@ WebBridge limits pending main-thread resource observation callbacks to 32; exces
 ## DNS rebinding defense for native preflight
 
 MediaForge's standalone native source probe now uses OkHttp 4.12.1 with a private/reserved-address-rejecting DNS implementation. The socket connects to the checked resolved addresses (not a separate unchecked DNS lookup); ordinary TLS host/certificate verification remains enabled. Redirects are handled manually and independently checked at each hop, with bounded reads, no forwarded WebView cookies, and coroutine cancellation propagated to the HTTP call. This protects the native preflight, not third-party WebView pages or every downstream media segment request. Authorized provider allowlists and device testing are still recommended before public release.
+
+## Guarded Media3 transport for downstream resources
+
+Media3 now uses its own `DefaultMediaSourceFactory` backed by the SDK's
+`MediaForgePlaybackTransport.client` through
+`androidx.media3:media3-datasource-okhttp`. The guarded client handles
+all Media3 HTTP reads, not just the initial source probe:
+
+- HTTPS-only request/redirect checks and no HTTPS-to-HTTP redirect following
+- DNS checks against private/reserved IPs for segment/CDN/subtitle destinations
+- Direct connections without a system proxy that could bypass DNS filtering
+- No inherited Telegram/TDLib data sources and no WebView cookies
+- Native Media3 timeouts and explicit audio focus
+
+The native LibVLC player uses VLC's own network transport and does **not**
+inherit these protections. Until an equivalent allowlisted transport/proxy is
+implemented for LibVLC, it remains experimental and is not qualified for
+arbitrary untrusted embed URLs.
+
+Security checks validate connection hosts, not whether a movie is licensed,
+DRM-free or otherwise authorized for redistribution. CineSrc compatibility
+remains unverified.

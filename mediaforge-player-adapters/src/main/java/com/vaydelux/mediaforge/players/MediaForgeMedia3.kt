@@ -7,6 +7,11 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.common.util.UnstableApi
+import androidx.annotation.OptIn
+import com.vaydelux.mediaforge.core.MediaForgePlaybackTransport
 import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.CaptionFormat
 import com.vaydelux.mediaforge.core.InspectedMedia
@@ -17,7 +22,15 @@ import com.vaydelux.mediaforge.core.StreamFormat
  * Hosting app owns the ExoPlayer lifecycle and audio focus.
  */
 object MediaForgeMedia3 {
-    fun newPlayer(context: Context): ExoPlayer = ExoPlayer.Builder(context.applicationContext)
+    @OptIn(UnstableApi::class)
+    fun newPlayer(context: Context): ExoPlayer {
+        // This guarded source factory is used by every nested manifest/segment
+        // and external subtitle fetch. No Telegram custom data sources are used.
+        val sourceFactory = DefaultMediaSourceFactory(
+            OkHttpDataSource.Factory(MediaForgePlaybackTransport.client)
+        )
+        return ExoPlayer.Builder(context.applicationContext)
+        .setMediaSourceFactory(sourceFactory)
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -27,6 +40,7 @@ object MediaForgeMedia3 {
         )
         .setHandleAudioBecomingNoisy(true)
         .build()
+    }
 
     fun mediaItem(media: InspectedMedia, selectedCaption: CaptionCandidate?): MediaItem {
         val mime = when (media.stream.format) {
