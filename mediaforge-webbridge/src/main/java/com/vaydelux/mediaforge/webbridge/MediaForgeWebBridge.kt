@@ -17,6 +17,8 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
+import com.vaydelux.mediaforge.core.MediaForgeClassifier
+import com.vaydelux.mediaforge.core.StreamFormat
 import java.net.URI
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -81,7 +83,12 @@ class MediaForgeWebBridge(
     }
 
     private fun publish(url: String) {
-        if (!open.get() || MediaForgeUrlPolicy.safeHttpsUrl(url) == null) return
+        if (!open.get()) return
+        val stream = MediaForgeClassifier.stream(url)
+        val caption = MediaForgeClassifier.caption(url)
+        // MPEG-TS segments inside HLS are not stand-alone video candidates.
+        // Filter before posting callbacks to prevent source-picker floods.
+        if ((stream == null || stream.format == StreamFormat.MPEG_TS) && caption == null) return
         main.post { if (open.get()) onMediaResource(url) }
     }
 
