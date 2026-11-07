@@ -11,10 +11,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -116,7 +116,13 @@ internal fun ExtrasMediaForgeScreen(
         )
     }
 
-    BackHandler { if (nativeMedia != null) nativeMedia = null else onBack() }
+    BackHandler {
+        when {
+            nativeMedia != null -> nativeMedia = null
+            cursorEnabled -> cursorEnabled = false
+            else -> onBack()
+        }
+    }
 
     if (nativeMedia != null) {
         ExtrasMediaForgeNativePlayer(
@@ -242,9 +248,10 @@ internal fun ExtrasMediaForgeScreen(
                     style = MaterialTheme.typography.labelSmall
                 )
             } else {
-                // Cap the on-screen list independently from the bounded registry.
-                snapshot.streams.takeLast(6).forEach { candidate ->
-                    OutlinedButton(
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(snapshot.streams.size) { index ->
+                        val candidate = snapshot.streams[index]
+                        OutlinedButton(
                         enabled = !busy,
                         onClick = {
                             inspectionJob?.cancel()
@@ -274,18 +281,22 @@ internal fun ExtrasMediaForgeScreen(
                     ) {
                         Text("${candidate.format} · ${candidate.host}", maxLines = 1)
                     }
+                    }
                 }
             }
             if (busy) CircularProgressIndicator(Modifier.size(22.dp))
             approved?.let { media ->
-                media.captions.take(6).forEach { caption ->
-                    OutlinedButton(onClick = {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(media.captions.size) { index ->
+                        val caption = media.captions[index]
+                        OutlinedButton(onClick = {
                         selectedCaption = if (selectedCaption?.url == caption.url) null else caption
                     }, modifier = Modifier.fillMaxWidth()) {
                         Text(
                             "${if (selectedCaption?.url == caption.url) "✓ " else ""}Subtitles: ${caption.format} · ${caption.host}",
                             maxLines = 1
                         )
+                    }
                     }
                 }
                 Button(
