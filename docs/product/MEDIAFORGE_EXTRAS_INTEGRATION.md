@@ -33,3 +33,10 @@ Inspect licensing/provider terms before distributing a public build.
 ## Validation
 Run `./gradlew :mediaforge-core:testDebugUnitTest :app:testDebugUnitTest :app:compileDebugKotlin`,
 then run the device emulator/TV tests and physical ARM32/ARM64 smoke suites.
+
+## Recovery refinements
+
+- Android lint now uses a localized string resource for WebView-unavailable fallback.
+- Returning from native playback creates a new WebBridge instance, because closed resource observers must not be reused.
+- Stale/canceled stream probes are generation-gated and cannot overwrite the latest source selection.
+- These changes do **not** establish third-party player compatibility; encrypted, blob: and session-restricted sources may remain WebView-only.

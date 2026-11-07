@@ -96,6 +96,9 @@ internal fun ExtrasMediaForgeScreen(
     var snapshot by remember(request.url) { mutableStateOf(MediaSnapshot(emptyList(), emptyList())) }
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
+    // The previous bridge is permanently closed when native playback disposes WebView.
+    // A new generation must create a new bridge when the user returns to WebView.
+    var webGeneration by remember(request.url) { mutableIntStateOf(0) }
     var pointerX by remember(request.url) { mutableIntStateOf(70) }
     var pointerY by remember(request.url) { mutableIntStateOf(70) }
     var areaWidth by remember { mutableIntStateOf(1) }
@@ -105,9 +108,10 @@ internal fun ExtrasMediaForgeScreen(
     var nativeMedia by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
     var inspectionJob by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var inspectionGeneration by remember { mutableIntStateOf(0) }
     var status by remember { mutableStateOf("Play the embedded media to discover available sources.") }
     val cursorFocus = remember { FocusRequester() }
-    val bridge = remember(request.url) {
+    val bridge = remember(request.url, webGeneration) {
         MediaForgeWebBridge(
             onMediaResource = { url ->
                 if (discovery.observe(url)) snapshot = discovery.snapshot()
@@ -118,9 +122,19 @@ internal fun ExtrasMediaForgeScreen(
         )
     }
 
+    fun returnToWebView() {
+        // Force a fresh bridge after the old observer was closed on native handoff.
+        inspectionGeneration += 1
+        inspectionJob?.cancel()
+        inspectionJob = null
+        busy = false
+        webGeneration += 1
+        nativeMedia = null
+    }
+
     BackHandler {
         when {
-            nativeMedia != null -> nativeMedia = null
+            nativeMedia != null -> returnToWebView()
             cursorEnabled -> cursorEnabled = false
             else -> onBack()
         }
@@ -131,7 +145,7 @@ internal fun ExtrasMediaForgeScreen(
             media = nativeMedia!!,
             caption = selectedCaption,
             title = request.title,
-            onBack = { nativeMedia = null }
+            onBack = { returnToWebView() }
         )
         return
     }
@@ -190,9 +204,9 @@ internal fun ExtrasMediaForgeScreen(
                     try {
                         bridge.create(ctx, request.url).also { webView = it }
                     } catch (_: RuntimeException) {
-                        status = "Android WebView is unavailable on this device."
+                        status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
                         android.widget.TextView(ctx).apply {
-                            text = "Unable to open the embedded player. Check Android System WebView."
+                            setText(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
                             setTextColor(android.graphics.Color.WHITE)
                             setBackgroundColor(android.graphics.Color.BLACK)
                         }
@@ -265,6 +279,8 @@ internal fun ExtrasMediaForgeScreen(
                         OutlinedButton(
                         enabled = !busy,
                         onClick = {
+                            inspectionGeneration += 1
+                            val generation = inspectionGeneration
                             inspectionJob?.cancel()
                             approved = null
                             selectedCaption = null
@@ -274,17 +290,19 @@ internal fun ExtrasMediaForgeScreen(
                                 try {
                                     when (val result = resolver.inspect(candidate, snapshot.captions)) {
                                         is InspectionResult.Playable -> {
-                                            approved = result.media
-                                            status = "Native playback may be available. Select Play natively."
+                                            if (generation == inspectionGeneration) {
+                                                approved = result.media
+                                                status = "Native playback may be available. Select Play natively."
+                                            }
                                         }
                                         is InspectionResult.Unavailable -> {
-                                            status = result.reason
+                                            if (generation == inspectionGeneration) status = result.reason
                                         }
                                     }
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } finally {
-                                    busy = false
+                                    if (generation == inspectionGeneration) busy = false
                                 }
                             }
                         },
@@ -312,7 +330,11 @@ internal fun ExtrasMediaForgeScreen(
                 }
                 Button(
                     modifier = Modifier.fillMaxWidth().testTag("extras-play-native"),
-                    onClick = { nativeMedia = media }
+                    onClick = {
+                        inspectionGeneration += 1
+                        inspectionJob?.cancel()
+                        nativeMedia = media
+                    }
                 ) { Text("Play natively") }
             }
         }

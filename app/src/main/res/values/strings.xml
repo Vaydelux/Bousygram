@@ -52,4 +52,5 @@
     <string name="managed_prefetch_description">Permit background media prefetch while the app is not visible.</string>
     <string name="managed_prefetch_title">Allow background prefetch</string>
 
+    <string name="extras_webview_unavailable">Unable to open the embedded player. Check Android System WebView.</string>
 </resources>
