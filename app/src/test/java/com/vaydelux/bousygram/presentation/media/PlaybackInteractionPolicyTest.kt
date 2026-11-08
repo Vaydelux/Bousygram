@@ -7,6 +7,27 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PlaybackInteractionPolicyTest {
+    @Test fun recoveryRetriesAreBoundedAndRespectQualityDecision() {
+        assertTrue(shouldRetryCurrentQuality(0,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.RetrySameQuality))
+        assertFalse(shouldRetryCurrentQuality(1,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.RetrySameQuality))
+        assertTrue(shouldRetryCurrentQuality(0,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.CacheFirstRetry))
+        assertTrue(shouldRetryCurrentQuality(1,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.CacheFirstRetry))
+        assertFalse(shouldRetryCurrentQuality(2,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.CacheFirstRetry))
+        assertFalse(shouldRetryCurrentQuality(50,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.CacheFirstRetry))
+        assertFalse(shouldRetryCurrentQuality(0,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.LowerQuality))
+        assertFalse(shouldRetryCurrentQuality(0,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.SkipOrReport))
+        assertFalse(shouldRetryCurrentQuality(-1,
+            com.vaydelux.bousygram.core.media.PlaybackRetryDecision.CacheFirstRetry))
+    }
+
     @Test fun newChatsAppendWithoutReorderingVisibleItems() {
         val previous = listOf(
             VideoChatItem(8L, "Zeta", false),

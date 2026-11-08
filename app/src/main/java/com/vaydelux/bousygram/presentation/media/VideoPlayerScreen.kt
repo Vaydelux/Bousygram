@@ -106,6 +106,11 @@ fun VideoPlayerScreen(
                 update = { playerView ->
                     playerView.player = viewModel.player
                 },
+                onRelease = { playerView ->
+                    // AndroidView may be disposed before the ViewModel. Detach
+                    // the native PlayerView surface and owner reference.
+                    playerView.player = null
+                },
                 modifier = Modifier.fillMaxSize()
             )
 

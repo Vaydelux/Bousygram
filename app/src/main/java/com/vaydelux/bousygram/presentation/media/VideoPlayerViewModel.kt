@@ -233,6 +233,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private fun fallbackToLowerQuality(): Boolean {
         if (activeOptionIndex >= activeOptions.lastIndex) return false
         val resumePosition = maxOf(player.currentPosition, lastGoodPositionMs).coerceAtLeast(0L)
+        val autoPlay = player.playWhenReady
         activeOptionIndex++
         val nextOption = activeOptions[activeOptionIndex]
         activeSession?.let {
@@ -244,18 +245,19 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             "Restarting adaptive playback at ${nextOption.quality}p fileId=${nextOption.fileId} " +
                 "position=$resumePosition"
         )
-        setState(VideoPlayerUiState.Buffering)
+        setState(if (autoPlay) VideoPlayerUiState.Buffering else VideoPlayerUiState.Paused)
         tdLibClient?.let { TelegramPreCacheEngine.primeVideoCache(it, nextOption.fileId) }
-        playOption(nextOption, resumePosition)
+        playOption(nextOption, resumePosition, autoPlay)
         return true
     }
 
     private fun retryCurrentQuality(decision: PlaybackRetryDecision): Boolean {
-        if (currentErrorRetryCount >= 1 && decision != PlaybackRetryDecision.CacheFirstRetry) return false
+        if (!shouldRetryCurrentQuality(currentErrorRetryCount, decision)) return false
         val option = activeOptions.getOrNull(activeOptionIndex) ?: return false
         val resumePosition = maxOf(player.currentPosition, lastGoodPositionMs).coerceAtLeast(0L)
+        val autoPlay = player.playWhenReady
         currentErrorRetryCount++
-        setState(VideoPlayerUiState.Buffering)
+        setState(if (autoPlay) VideoPlayerUiState.Buffering else VideoPlayerUiState.Paused)
         activeSession?.let { session ->
             if (decision == PlaybackRetryDecision.CacheFirstRetry) {
                 val size = LocalStreamingServer.resolveFileSize(option.fileId)
@@ -269,20 +271,27 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
         tdLibClient?.let { TelegramPreCacheEngine.primeVideoCache(it, option.fileId) }
-        playOption(option, resumePosition)
+        playOption(option, resumePosition, autoPlay)
         return true
     }
 
-    private fun playOption(option: VideoResolutionOption, resumePositionMs: Long) {
+    private fun playOption(
+        option: VideoResolutionOption,
+        resumePositionMs: Long,
+        autoPlay: Boolean = true
+    ) {
         player.stop()
         player.clearMediaItems()
         activeSession = PlaybackSessionController.start(option.fileId, resumePositionMs)
         player.setMediaItem(MediaItem.fromUri(TelegramProxyManager.baseStreamUrl(option.fileId)))
+        // An error/reconnect arriving after user Pause or Activity ON_STOP
+        // cannot silently re-arm playback during the new prepare.
+        player.playWhenReady = autoPlay
         player.prepare()
         if (resumePositionMs > 0L) {
             player.seekTo(resumePositionMs)
         }
-        player.play()
+        if (autoPlay) player.play() else player.pause()
     }
 
     private fun primeActiveOption() {
