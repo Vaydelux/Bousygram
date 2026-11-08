@@ -49,6 +49,20 @@ class MediaForgeGuardedProgressiveSourceTest {
         assertEquals("\"media-v1\"", identity.strongEtag)
     }
 
+    @Test fun byteRangeResponsesNeverMixMediaVersions() {
+        val identity = RemoteRangeIdentity(1024L, "\"stable-v1\"")
+        assertTrue(isConsistentRangeResponse(identity, 0L, 255L, "bytes 0-255/1024", "\"stable-v1\""))
+        // A 206 may omit its ETag while still respecting the If-Range request.
+        assertTrue(isConsistentRangeResponse(identity, 0L, 255L, "bytes 0-255/1024", null))
+        assertFalse(isConsistentRangeResponse(identity, 0L, 255L, "bytes 0-255/1024", "\"changed-v2\""))
+        assertFalse(isConsistentRangeResponse(identity, 0L, 255L, "bytes 1-256/1024", "\"stable-v1\""))
+        assertFalse(isConsistentRangeResponse(identity, 0L, 255L, "bytes 0-255/2048", "\"stable-v1\""))
+        assertFalse(isConsistentRangeResponse(identity, 0L, 255L, null, "\"stable-v1\""))
+        assertFalse(isConsistentRangeResponse(identity, 0L, 255L, "bytes 0-255/1024", "W/\"stable-v1\""))
+        val noTag = RemoteRangeIdentity(1024L, null)
+        assertTrue(isConsistentRangeResponse(noTag, 0L, 255L, "bytes 0-255/1024", null))
+    }
+
     @Test fun guardedLibVlcSourceOnlyAcceptsProgressiveFormats() {
         val url = "https://video.example.org/fixture"
         fun candidate(format: StreamFormat) = StreamCandidate(url, format, "video.example.org")
