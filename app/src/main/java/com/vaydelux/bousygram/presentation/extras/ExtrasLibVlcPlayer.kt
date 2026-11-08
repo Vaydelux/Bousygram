@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -28,6 +29,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -74,6 +76,7 @@ import org.videolan.libvlc.interfaces.IMedia
 import org.videolan.libvlc.util.VLCVideoLayout
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 /** Only Extras uses this decoder; Telegram's loopback-only LibVlcPlayerEngine is untouched. */
@@ -564,12 +567,47 @@ internal fun ExtrasLibVlcPlayer(
             }
         } else {
             val playFocus = remember(session) { FocusRequester() }
+            val videoFocus = remember(session) { FocusRequester() }
+            var controlsVisible by remember(session) { mutableStateOf(true) }
+            var headerFocused by remember(session) { mutableStateOf(false) }
+            var footerFocused by remember(session) { mutableStateOf(false) }
+            var requestControlFocus by remember(session) { mutableStateOf(false) }
             var scrubFraction by remember(session) { mutableStateOf<Float?>(null) }
+
             LaunchedEffect(session) {
-                // A newly added Android TV surface may need one layout frame
-                // before its Compose buttons can receive D-pad focus.
+                // Native player begins with video focused. D-pad select or
+                // down reveals controls rather than accidentally starting
+                // playback twice during buffering.
                 withFrameNanos { }
-                runCatching { playFocus.requestFocus() }
+                runCatching { videoFocus.requestFocus() }
+            }
+            LaunchedEffect(controlsVisible, requestControlFocus) {
+                if (controlsVisible && requestControlFocus) {
+                    withFrameNanos { }
+                    runCatching { playFocus.requestFocus() }
+                    requestControlFocus = false
+                }
+            }
+            LaunchedEffect(
+                controlsVisible, controls.playRequested, controls.playing,
+                headerFocused, footerFocused
+            ) {
+                // Do not hide focused controls or a paused/buffering video.
+                // The player keeps running; only chrome is removed.
+                if (controlsVisible && controls.playRequested && controls.playing &&
+                    !headerFocused && !footerFocused
+                ) {
+                    delay(5_000L)
+                    if (!headerFocused && !footerFocused) {
+                        controlsVisible = false
+                        runCatching { videoFocus.requestFocus() }
+                    }
+                }
+            }
+            LaunchedEffect(controls.failed, controls.ended, controls.playRequested, status) {
+                if (controls.failed || controls.ended || !controls.playRequested ||
+                    (controls.playRequested && status.startsWith("Buffering"))
+                ) controlsVisible = true
             }
 
             // Fullscreen, aspect-fit VLC video; the native decoder never sees
@@ -589,14 +627,27 @@ internal fun ExtrasLibVlcPlayer(
             // focused, not when the user is navigating buttons or the slider.
             Box(
                 Modifier.fillMaxSize()
+                    .focusRequester(videoFocus)
                     .testTag("extras-libvlc-video-dpad")
+                    .pointerInput(session) {
+                        detectTapGestures { controlsVisible = !controlsVisible }
+                    }
                     .onPreviewKeyEvent { key ->
                         if (key.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (key.key) {
-                            Key.DirectionLeft -> { session.skip(-10_000L); true }
-                            Key.DirectionRight -> { session.skip(10_000L); true }
+                            Key.DirectionLeft -> {
+                                session.skip(-10_000L)
+                                controlsVisible = true
+                                true
+                            }
+                            Key.DirectionRight -> {
+                                session.skip(10_000L)
+                                controlsVisible = true
+                                true
+                            }
                             Key.DirectionDown, Key.DirectionCenter, Key.Enter -> {
-                                runCatching { playFocus.requestFocus() }
+                                controlsVisible = true
+                                requestControlFocus = true
                                 true
                             }
                             else -> false
@@ -605,8 +656,10 @@ internal fun ExtrasLibVlcPlayer(
                     .focusable()
             )
 
+            if (controlsVisible) {
             Row(
                 Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .onFocusChanged { headerFocused = it.hasFocus }
                     .background(
                         Brush.verticalGradient(
                             listOf(Color(0xED07101B), Color(0x0007101B))
@@ -629,6 +682,7 @@ internal fun ExtrasLibVlcPlayer(
 
             Column(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .onFocusChanged { footerFocused = it.hasFocus }
                     .background(
                         Brush.verticalGradient(
                             listOf(Color.Transparent, Color(0xDA06111C), Color(0xF506111C))
@@ -708,11 +762,15 @@ internal fun ExtrasLibVlcPlayer(
                             modifier = Modifier.weight(1f).focusRequester(playFocus)
                                 .testTag("extras-libvlc-play-pause"),
                             onClick = {
+                                val starting = !controls.playRequested
                                 when {
                                     controls.failed -> session.retry()
                                     controls.playRequested -> session.pause()
                                     else -> session.play()
                                 }
+                                // After starting playback, let the video surface
+                                // hold focus so chrome can auto-hide on idle TV.
+                                if (starting) runCatching { videoFocus.requestFocus() }
                             }
                         )
                         ExtrasVlcAction(
@@ -750,11 +808,15 @@ internal fun ExtrasLibVlcPlayer(
                             modifier = Modifier.weight(1.15f).focusRequester(playFocus)
                                 .testTag("extras-libvlc-play-pause"),
                             onClick = {
+                                val starting = !controls.playRequested
                                 when {
                                     controls.failed -> session.retry()
                                     controls.playRequested -> session.pause()
                                     else -> session.play()
                                 }
+                                // After starting playback, let the video surface
+                                // hold focus so chrome can auto-hide on idle TV.
+                                if (starting) runCatching { videoFocus.requestFocus() }
                             }
                         )
                         ExtrasVlcAction(
@@ -783,6 +845,7 @@ internal fun ExtrasLibVlcPlayer(
                     )
                 }
             }
+            } // Keep both top and bottom chrome together.
         }
     }
 }
