@@ -565,9 +565,10 @@ internal fun ExtrasLibVlcPlayer(
         onDispose { source?.close() }
     }
     // Failed native initialization is shown as a recoverable Media3 fallback.
-    val sessionResult = remember(
-        source, media.stream.url, caption?.url, initialPositionMs, initiallyPlayRequested
-    ) {
+    // Handoff values are consumed when the selected source/caption actually changes.
+    // Opening (and possibly dismissing) the subtitle picker must NOT recreate
+    // the active decoder merely because the parent captured its current intent.
+    val sessionResult = remember(source, media.stream.url, caption?.url) {
         source?.let { guardedSource ->
             runCatching {
                 ExtrasLibVlcSession(
