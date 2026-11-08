@@ -3359,23 +3359,31 @@ private fun TrackPickerOverlay(
                 )
                 BousygramButton("Close", onClose)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BousygramButton(
-                    "CC · Subtitles",
-                    { selectedType = MediaTrackInfo.TrackType.SUBTITLE },
-                    selected = selectedType == MediaTrackInfo.TrackType.SUBTITLE
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)
+            ) {
+                TrackChoice(
+                    label = "CC  Subtitles",
+                    selected = selectedType == MediaTrackInfo.TrackType.SUBTITLE,
+                    isTv = isTv,
+                    modifier = Modifier.weight(1f),
+                    onSelect = { selectedType = MediaTrackInfo.TrackType.SUBTITLE }
                 )
-                BousygramButton(
-                    "♫ Audio",
-                    { selectedType = MediaTrackInfo.TrackType.AUDIO },
-                    selected = selectedType == MediaTrackInfo.TrackType.AUDIO
+                TrackChoice(
+                    label = "♫  Audio",
+                    selected = selectedType == MediaTrackInfo.TrackType.AUDIO,
+                    isTv = isTv,
+                    modifier = Modifier.weight(1f),
+                    onSelect = { selectedType = MediaTrackInfo.TrackType.AUDIO }
                 )
-                val videoTracks = tracks.filter { it.type == MediaTrackInfo.TrackType.VIDEO }
-                if (videoTracks.size > 1) {
-                    BousygramButton(
-                        "⚙ Streams",
-                        { selectedType = MediaTrackInfo.TrackType.VIDEO },
-                        selected = selectedType == MediaTrackInfo.TrackType.VIDEO
+                if (tracks.count { it.type == MediaTrackInfo.TrackType.VIDEO } > 1) {
+                    TrackChoice(
+                        label = "Video",
+                        selected = selectedType == MediaTrackInfo.TrackType.VIDEO,
+                        isTv = isTv,
+                        modifier = Modifier.weight(1f),
+                        onSelect = { selectedType = MediaTrackInfo.TrackType.VIDEO }
                     )
                 }
             }
@@ -3391,9 +3399,16 @@ private fun TrackPickerOverlay(
             }
 
             if (selectedType == MediaTrackInfo.TrackType.SUBTITLE) {
+                Text(
+                    "Select a subtitle track",
+                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                    fontSize = if (isTv) 20.sp else 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
                 TrackChoice(
-                    label = "Off",
+                    label = "Off · No subtitles",
                     selected = !hasSelectedTrack,
+                    isTv = isTv,
                     modifier = Modifier.focusRequester(firstChoiceFocus),
                     onSelect = {
                         playerEngine.deselectTrack(MediaTrackInfo.TrackType.SUBTITLE)
@@ -3409,32 +3424,47 @@ private fun TrackPickerOverlay(
                 )
             }
 
+            // Place actual track choices before appearance settings so TV
+            // users can read/select tracks without navigating offscreen.
+            visibleTracks.forEachIndexed { index, track ->
+                TrackChoice(
+                    label = track.name,
+                    selected = track.isSelected,
+                    isTv = isTv,
+                    modifier = if (index == 0 && selectedType != MediaTrackInfo.TrackType.SUBTITLE)
+                        Modifier.focusRequester(firstChoiceFocus) else Modifier,
+                    onSelect = { playerEngine.selectTrack(track) }
+                )
+            }
+
             if (selectedType == MediaTrackInfo.TrackType.SUBTITLE &&
                 playerEngine !is ExoPlayerEngine && playerEngine !is MpvPlayerEngine
             ) {
                 Text(
                     "LibVLC supports subtitle tracks. Custom caption colors and sizing currently use ExoPlayer/libmpv.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
+                    color = if (isTv) Color(0xFFD3DFEC) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = if (isTv) 17.sp else 13.sp
                 )
             }
             if (selectedType == MediaTrackInfo.TrackType.SUBTITLE &&
                 (playerEngine is ExoPlayerEngine || playerEngine is MpvPlayerEngine)
             ) {
                 Text(
-                    "Text subtitle appearance",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium
+                    "Subtitle appearance",
+                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                    fontSize = if (isTv) 20.sp else 16.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "Embedded image subtitles and video-burned captions cannot be recolored.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall
+                    "Bitmap and burned-in captions cannot change appearance.",
+                    color = if (isTv) Color(0xFFD3DFEC) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = if (isTv) 16.sp else 12.sp
                 )
                 SubtitleColorPreset.entries.forEach { preset ->
                     TrackChoice(
                         label = "${preset.title} subtitles",
                         selected = subtitleAppearance.preset == preset,
+                        isTv = isTv,
                         onSelect = {
                             onSubtitleAppearanceChange(subtitleAppearance.copy(preset = preset))
                         }
@@ -3452,9 +3482,9 @@ private fun TrackPickerOverlay(
                     })
                     Text(
                         "Size ${subtitleAppearance.safePercent}%",
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge
+                        fontSize = if (isTv) 20.sp else 15.sp
                     )
                     BousygramButton("A+", {
                         onSubtitleAppearanceChange(
@@ -3464,14 +3494,6 @@ private fun TrackPickerOverlay(
                 }
             }
 
-            visibleTracks.forEachIndexed { index, track ->
-                TrackChoice(
-                    label = track.name,
-                    selected = track.isSelected,
-                    modifier = Modifier,
-                    onSelect = { playerEngine.selectTrack(track) }
-                )
-            }
         }
     }
 }
