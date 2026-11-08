@@ -40,7 +40,7 @@ class MediaForgeGuardedProgressiveSourceTest {
         assertEquals("\"with spaces\"", parseStrongEtag(" \"with spaces\" "))
         assertNull(parseStrongEtag("W/\"media-v1\""))
         assertNull(parseStrongEtag("media-v1"))
-        assertNull(parseStrongEtag("\"bad\\r\\nheader\""))
+        assertNull(parseStrongEtag("\"bad\r\nheader\""))
         assertNull(parseStrongEtag(null))
         val identity = RemoteRangeIdentity(12_345L, parseStrongEtag("\"media-v1\""))
         assertEquals(12_345L, identity.length)
