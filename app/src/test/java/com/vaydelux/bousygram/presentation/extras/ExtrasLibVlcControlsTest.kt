@@ -129,6 +129,24 @@ class ExtrasLibVlcControlsTest {
         assertEquals(0, probe.snapshot().seekTimeouts)
     }
 
+    @Test fun seekAverageAndLongestUseOnlyAcknowledgedSamples() {
+        val probe = ExtrasVlcLatencyProbe()
+        assertEquals(null, probe.snapshot().averageSeekPositionMs)
+        probe.onSeekRequested(10_000L, 1_000L, previousPositionMs = 0L)
+        probe.observeNativePosition(10_000L, 1_100L)
+        probe.onSeekRequested(20_000L, 1_200L, previousPositionMs = 10_000L)
+        probe.observeNativePosition(20_000L, 1_500L)
+        probe.onSeekRejected()
+        probe.onSeekRequested(30_000L, 2_000L, previousPositionMs = 20_000L)
+        probe.observeNativePosition(0L, 17_001L) // This one times out.
+        val stats = probe.snapshot()
+        assertEquals(2, stats.seekSamples)
+        assertEquals(200L, stats.averageSeekPositionMs)
+        assertEquals(300L, stats.longestSeekPositionMs)
+        assertEquals(1, stats.seekTimeouts)
+        assertEquals(1, stats.seekRejectedCount)
+    }
+
     @Test fun timeLabelsStayReadableForTv() {
         assertEquals("0:00", extrasVlcTimeLabel(-1L))
         assertEquals("0:09", extrasVlcTimeLabel(9_000L))

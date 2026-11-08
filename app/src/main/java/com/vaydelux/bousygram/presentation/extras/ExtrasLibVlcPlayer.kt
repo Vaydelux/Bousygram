@@ -58,6 +58,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -79,7 +80,9 @@ import org.videolan.libvlc.interfaces.IMedia
 import org.videolan.libvlc.util.VLCVideoLayout
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 
 /** Only Extras uses this decoder; Telegram's loopback-only LibVlcPlayerEngine is untouched. */
@@ -617,6 +620,16 @@ internal fun ExtrasLibVlcPlayer(
             val videoFocus = remember(session) { FocusRequester() }
             var showDiagnostics by remember(session) { mutableStateOf(false) }
             var processPssKiB by remember(session) { mutableStateOf<Long?>(null) }
+            var pssSampleRequest by remember(session) { mutableIntStateOf(0) }
+            LaunchedEffect(session, showDiagnostics, pssSampleRequest) {
+                if (showDiagnostics) {
+                    // PSS collection can pause the caller while Android walks
+                    // process mappings. Keep it away from Compose's UI thread.
+                    processPssKiB = withContext(Dispatchers.Default) {
+                        runCatching { Debug.getPss() }.getOrNull()
+                    }
+                }
+            }
             var controlsVisible by remember(session) { mutableStateOf(true) }
             var headerFocused by remember(session) { mutableStateOf(false) }
             var footerFocused by remember(session) { mutableStateOf(false) }
@@ -730,12 +743,7 @@ internal fun ExtrasLibVlcPlayer(
                 ExtrasVlcAction(
                     if (showDiagnostics) "Hide stats" else "Stats",
                     modifier = Modifier.testTag("extras-libvlc-diagnostics-toggle"),
-                    onClick = {
-                        showDiagnostics = !showDiagnostics
-                        if (showDiagnostics) {
-                            processPssKiB = runCatching { Debug.getPss() }.getOrNull()
-                        }
-                    }
+                    onClick = { showDiagnostics = !showDiagnostics }
                 )
             }
 
@@ -917,8 +925,14 @@ internal fun ExtrasLibVlcPlayer(
                                 "  (${timing.seekSamples} samples)" +
                                 " · rejected: ${timing.seekRejectedCount}" +
                                 " · superseded: ${timing.seekSupersededCount}" +
-                                " · timed out: ${timing.seekTimeouts}",
+                                " · timed out: ${timing.seekTimeouts}" +
+                                " · unchanged: ${timing.seekNoChangeCount}",
                             color = Color.White, fontSize = 14.sp
+                        )
+                        Text(
+                            "Mean acknowledged seek: ${timing.averageSeekPositionMs?.let { "${it} ms" } ?: "no sample"}" +
+                                " · longest: ${timing.longestSeekPositionMs?.let { "${it} ms" } ?: "no sample"}",
+                            color = Color(0xFFD1E2F3), fontSize = 14.sp
                         )
                         Text(
                             if (range == null) "Range metrics unavailable"
@@ -941,7 +955,7 @@ internal fun ExtrasLibVlcPlayer(
                         ExtrasVlcAction(
                             "Sample PSS",
                             onClick = {
-                                processPssKiB = runCatching { Debug.getPss() }.getOrNull()
+                                pssSampleRequest += 1
                             },
                             modifier = Modifier.testTag("extras-libvlc-diagnostics-sample")
                         )

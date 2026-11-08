@@ -88,7 +88,9 @@ internal data class ExtrasVlcLatencySnapshot(
     val seekTimeouts: Int = 0,
     val seekRejectedCount: Int = 0,
     val seekSupersededCount: Int = 0,
-    val seekNoChangeCount: Int = 0
+    val seekNoChangeCount: Int = 0,
+    val averageSeekPositionMs: Long? = null,
+    val longestSeekPositionMs: Long? = null
 )
 
 internal class ExtrasVlcLatencyProbe {
@@ -98,6 +100,8 @@ internal class ExtrasVlcLatencyProbe {
     private var pendingSeekStartedMs: Long? = null
     private var pendingSeekPreviousPositionMs: Long? = null
     private var lastSeekAckMs: Long? = null
+    private var totalSeekAckMs = 0L
+    private var longestSeekAckMs: Long? = null
     private var seekSamples = 0
     private var seekTimeouts = 0
     private var seekRejectedCount = 0
@@ -167,6 +171,10 @@ internal class ExtrasVlcLatencyProbe {
         } else if (distance <= 1_500L && moved) {
             lastSeekAckMs = duration
             seekSamples++
+            // One aggregate record per successfully acknowledged seek;
+            // O(1) space even after thousands of seeks on a 32-bit TV.
+            totalSeekAckMs += duration
+            longestSeekAckMs = maxOf(longestSeekAckMs ?: 0L, duration)
             clearPending()
         }
     }
@@ -178,6 +186,8 @@ internal class ExtrasVlcLatencyProbe {
         seekTimeouts = seekTimeouts,
         seekRejectedCount = seekRejectedCount,
         seekSupersededCount = seekSupersededCount,
-        seekNoChangeCount = seekNoChangeCount
+        seekNoChangeCount = seekNoChangeCount,
+        averageSeekPositionMs = if (seekSamples > 0) totalSeekAckMs / seekSamples else null,
+        longestSeekPositionMs = longestSeekAckMs
     )
 }

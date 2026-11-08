@@ -9,7 +9,7 @@ Open an explicitly selected Extras title, choose **LibVLC (MP4/WebM debug)**, an
 | UI measurement | Exact source and meaning | Does **not** prove |
 | --- | --- | --- |
 | Startup → native Playing | Android monotonic elapsed time between LibVLC `play()` intent and first `MediaPlayer.Event.Playing` | First rendered frame; also excludes initial HTTPS byte-range probe and optional subtitle fetch |
-| Seek → reported position | Elapsed time until the player-reported timeline lies within 1.5 seconds of the last requested target | Rendered-video recovery, decoded-frame smoothness or audio synchronization |
+| Seek → reported position | Time from a successfully submitted native seek command until the reported timeline reaches the target after meaningful position movement; includes the last, mean and slowest acknowledged samples | Rendered-video recovery, decoded-frame smoothness or audio synchronization |
 | HTTP windows | Number of real HTTP 256-KiB range fetches attempted for the guarded FD | All network requests (preflight 0–0 range, subtitles, and other app traffic are excluded) |
 | Failed/canceled | Fetches ending in an `IOException`, including canceled operations | Permanent media failure; error status needs separate verification |
 | Cache hits / rate | Reused buffered windows compared with window requests | Cache effectiveness for all formats, or disk/image cache behavior |
@@ -18,7 +18,7 @@ Open an explicitly selected Extras title, choose **LibVLC (MP4/WebM debug)**, an
 | Longest HTTP fetch | Longest successful window request duration in milliseconds | Median seek time, WAN latency or frame delivery |
 | Process PSS snapshot | Android `Debug.getPss()`, captured when opening Stats or selecting **Sample PSS** | LibVLC-only memory, native-heap allocation, a leak, or memory impact of this PR alone |
 
-The seek timer expires after 15 seconds; unresolved seeks do not appear as successful samples. The panel is intentionally not a continuous raw telemetry export. PSS sampling is opt-in and does not run on each 750-ms playback-state tick.
+The seek timer expires after 15 seconds; rejected, no-change, superseded and timed-out seeks never inflate successful-sample averages. The panel uses O(1) counters and is intentionally not a continuous raw telemetry export. PSS sampling is opt-in, dispatched off the UI thread, and does not run on each 750-ms playback-state tick.
 
 ## Hardware qualification procedure
 
