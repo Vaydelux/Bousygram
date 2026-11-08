@@ -1,7 +1,9 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebSettings
+import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
@@ -40,6 +42,31 @@ class MediaForgeWebBridgeInstrumentedTest {
                 view.stopLoading()
                 view.loadUrl("about:blank")
                 view.destroy()
+            }
+        }
+    }
+
+    @Test fun simulatedRendererLossDiscardsWebViewAndSignalsManualRecovery() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            var signals = 0
+            val bridge = MediaForgeWebBridge(
+                onMediaResource = {},
+                onRendererGone = { signals++ }
+            )
+            val view = bridge.create(instrumentation.targetContext, offlineEmbed)
+            try {
+                // A simulated callback avoids destabilizing the shared
+                // instrumentation renderer with chrome://crash.
+                val detail = object : RenderProcessGoneDetail() {
+                    override fun didCrash(): Boolean = false
+                    override fun rendererPriorityAtExit(): Int = WebView.RENDERER_PRIORITY_BOUND
+                }
+                assertTrue(view.webViewClient.onRenderProcessGone(view, detail))
+                assertTrue(bridge.rendererGone(view))
+                assertEquals(1, signals)
+            } finally {
+                bridge.close()
             }
         }
     }

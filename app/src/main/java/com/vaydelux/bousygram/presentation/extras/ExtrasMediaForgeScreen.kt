@@ -149,7 +149,25 @@ internal fun ExtrasMediaForgeScreen(
                 htmlFullscreenView = view
                 if (isAndroidTv) cursorEnabled = true
             },
-            onFullscreenEnded = { htmlFullscreenView = null }
+            onFullscreenEnded = { htmlFullscreenView = null },
+            onRendererGone = {
+                // Android can kill Chromium on low-memory TV devices. Do not
+                // reuse the dead WebView or auto-loop a crashing embed.
+                inspectionGeneration += 1
+                inspectionJob?.cancel()
+                inspectionJob = null
+                busy = false
+                approved = null
+                selectedCaption = null
+                showSubtitlePicker = false
+                discovery.clear()
+                snapshot = discovery.snapshot()
+                webView = null
+                immersiveWeb = false
+                cursorEnabled = false
+                htmlFullscreenView = null
+                status = "Embedded browser stopped. Select Reload player to try again."
+            }
         )
     }
 
@@ -306,7 +324,7 @@ internal fun ExtrasMediaForgeScreen(
                     },
                     modifier = Modifier.fillMaxSize(),
                     onRelease = { view ->
-                        if (view is WebView) {
+                        if (view is WebView && !bridge.rendererGone(view)) {
                             runCatching { view.stopLoading() }
                             runCatching { view.loadUrl("about:blank") }
                             runCatching { view.onPause() }

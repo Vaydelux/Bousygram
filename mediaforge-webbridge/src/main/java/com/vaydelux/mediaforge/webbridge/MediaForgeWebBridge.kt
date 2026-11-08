@@ -6,7 +6,9 @@ import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.net.http.SslError
 import android.webkit.WebChromeClient
@@ -18,6 +20,8 @@ import android.webkit.WebViewClient
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.core.MediaForgeClassifier
 import com.vaydelux.mediaforge.core.StreamFormat
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -30,7 +34,8 @@ class MediaForgeWebBridge(
     private val onMediaResource: (String) -> Unit,
     private val onNavigationBlocked: (() -> Unit)? = null,
     private val onFullscreenRequested: ((View) -> Unit)? = null,
-    private val onFullscreenEnded: (() -> Unit)? = null
+    private val onFullscreenEnded: (() -> Unit)? = null,
+    private val onRendererGone: (() -> Unit)? = null
 ) {
     private val open = AtomicBoolean(true)
     private val main = Handler(Looper.getMainLooper())
@@ -39,6 +44,11 @@ class MediaForgeWebBridge(
     private val maxPendingObservations = 32
     private var fullscreenView: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
+    // Identity of WebViews destroyed after renderer loss, so Compose cleanup
+    // does not call WebView APIs on an already-destroyed instance.
+    private val rendererGoneViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
+
+    fun rendererGone(view: WebView): Boolean = rendererGoneViews.contains(view)
 
     @SuppressLint("SetJavaScriptEnabled")
     fun create(context: Context, embedUrl: String): WebView {
@@ -94,6 +104,20 @@ class MediaForgeWebBridge(
                 publish(url)
             }
 
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: RenderProcessGoneDetail
+            ): Boolean {
+                // API 26+: this WebView is permanently unusable. Remove/destroy
+                // the specific view before returning true; never retry invisibly.
+                rendererGoneViews.add(view)
+                runCatching { (view.parent as? ViewGroup)?.removeView(view) }
+                runCatching { view.destroy() }
+                close()
+                runCatching { onRendererGone?.invoke() }
+                return true
+            }
+
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
                 handler.cancel()
             }
@@ -143,8 +167,8 @@ class MediaForgeWebBridge(
         if (fullscreenView == null && callback == null) return
         fullscreenView = null
         fullscreenCallback = null
-        onFullscreenEnded?.invoke()
-        callback?.onCustomViewHidden()
+        runCatching { onFullscreenEnded?.invoke() }
+        runCatching { callback?.onCustomViewHidden() }
     }
 
     fun close() {
