@@ -31,3 +31,13 @@ internal fun extrasLibVlcHandoff(controls: ExtrasLibVlcControlState): ExtrasPlay
         positionMs = extrasVlcHandoffPosition(controls.positionMs, controls.seekable),
         playRequested = controls.playRequested && !controls.failed && !controls.ended
     )
+
+/** Never launch debug-only LibVLC for unsupported streams or production variants. */
+internal fun extrasAvailableNativeEngine(
+    requested: ExtrasNativeEngine,
+    guardedVlcEnabled: Boolean,
+    progressiveSupported: Boolean
+): ExtrasNativeEngine =
+    if (requested == ExtrasNativeEngine.LIBVLC &&
+        (!guardedVlcEnabled || !progressiveSupported)
+    ) ExtrasNativeEngine.MEDIA3 else requested
