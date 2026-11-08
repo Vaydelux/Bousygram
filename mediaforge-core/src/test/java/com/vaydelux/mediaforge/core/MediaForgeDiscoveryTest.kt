@@ -76,6 +76,23 @@ class MediaForgeDiscoveryTest {
         assertNull(MediaForgeClassifier.stream("https://example.org@localhost/file.mp4"))
     }
 
+    @Test fun rejectPrivateDnsAliasesAndTrailingDotHostnames() {
+        // A trailing DNS root dot must not bypass local-name restrictions.
+        // This also protects the WebView entry point, which does not use OkHttp's guarded DNS.
+        for (host in listOf(
+            "television.local.", "router.localdomain", "nas.lan",
+            "printer.home", "subdomain.internal.", "cdn.example.org."
+        )) {
+            val url = "https://$host/embed/movie/42"
+            assertNull("Unsafe embed host should be blocked: $host",
+                MediaForgeUrlPolicy.safeHttpsUrl(url))
+            assertNull("Unsafe source host should be blocked: $host",
+                MediaForgeClassifier.stream("https://$host/video.mp4"))
+        }
+        assertNotNull(MediaForgeUrlPolicy.safeHttpsUrl(
+            "https://cdn.example.org/embed/movie/42"))
+    }
+
     @Test fun mediaQueryStringsAndCaseInsensitiveExtensions() {
         val manifest = MediaForgeClassifier.stream("https://cdn.example.org/MOVIE.M3U8?token=123")
         assertEquals(StreamFormat.HLS, manifest?.format)
