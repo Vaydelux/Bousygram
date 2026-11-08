@@ -171,7 +171,9 @@ internal class ExtrasLibVlcSession(
         val seekable = runCatching { player.isSeekable }.getOrDefault(false)
         val duration = runCatching { player.length }.getOrDefault(0L)
         val requested = initialSeek.nextTarget(playing, seekable, duration) ?: return
-        runCatching { player.setTime(requested) }.onFailure {
+        val applied = runCatching { player.setTime(requested) }
+        initialSeek.onApplied(applied.isSuccess)
+        if (applied.isFailure && !initialSeek.isPending) {
             onStatus("Could not restore position after subtitle change")
         }
     }

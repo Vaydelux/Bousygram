@@ -59,16 +59,21 @@ internal class ExtrasVlcInitialSeek(
     private val initialPositionMs = positionMs.coerceAtLeast(0L)
     private var pending = initialPositionMs > 0L
     private var checks = 0
+    private var failedAttempts = 0
 
     fun nextTarget(playing: Boolean, seekable: Boolean, durationMs: Long): Long? {
         if (!pending || !playing) return null
-        if (seekable) {
-            pending = false
-            return extrasVlcSeekAbsolute(initialPositionMs, durationMs)
-        }
+        // Keep the handoff pending until LibVLC actually accepts setTime.
+        if (seekable) return extrasVlcSeekAbsolute(initialPositionMs, durationMs)
         checks++
         if (checks >= maxPlayingChecks) pending = false
         return null
+    }
+
+    fun onApplied(success: Boolean) {
+        if (!pending) return
+        if (success) pending = false
+        else if (++failedAttempts >= 2) pending = false
     }
 
     val isPending: Boolean get() = pending
@@ -217,3 +222,8 @@ internal fun extrasVlcChromeMayAutoHide(
     footerFocused: Boolean
 ): Boolean = !extrasVlcChromeMustRemainVisible(controls, status, diagnosticsVisible) &&
     !headerFocused && !footerFocused
+
+
+/** Preserve an engine handoff only when the current stream is seekable. */
+internal fun extrasVlcHandoffPosition(positionMs: Long, seekable: Boolean): Long =
+    if (seekable) positionMs.coerceAtLeast(0L) else 0L

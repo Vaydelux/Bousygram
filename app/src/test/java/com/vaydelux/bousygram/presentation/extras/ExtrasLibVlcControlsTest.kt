@@ -31,12 +31,15 @@ class ExtrasLibVlcControlsTest {
         assertEquals(null, seek.nextTarget(playing = true, seekable = false, durationMs = 90_000L))
         assertTrue(seek.isPending)
         assertEquals(45_000L, seek.nextTarget(playing = true, seekable = true, durationMs = 90_000L))
+        assertTrue(seek.isPending)
+        seek.onApplied(success = true)
         assertTrue(!seek.isPending)
         assertEquals(null, seek.nextTarget(playing = true, seekable = true, durationMs = 90_000L))
     }
     @Test fun resumePositionIsClampedAndRetryCountIsBounded() {
         val seek = ExtrasVlcInitialSeek(Long.MAX_VALUE, maxPlayingChecks = 2)
         assertEquals(500L, seek.nextTarget(playing = true, seekable = true, durationMs = 500L))
+        seek.onApplied(success = true)
         val nonseekable = ExtrasVlcInitialSeek(2_000L, maxPlayingChecks = 2)
         assertEquals(null, nonseekable.nextTarget(true, false, 10_000L))
         assertTrue(nonseekable.isPending)
@@ -203,6 +206,32 @@ class ExtrasLibVlcControlsTest {
         assertTrue(!extrasVlcChromeMayAutoHide(
             playing, "Playing", true, false, false
         ))
+    }
+
+    @Test fun subtitleResumeRetransmitsOneFailedNativeSeek() {
+        val seek = ExtrasVlcInitialSeek(38_000L)
+        assertEquals(38_000L, seek.nextTarget(true, true, 70_000L))
+        seek.onApplied(success = false)
+        assertTrue(seek.isPending)
+        assertEquals(38_000L, seek.nextTarget(true, true, 70_000L))
+        seek.onApplied(success = true)
+        assertTrue(!seek.isPending)
+    }
+
+    @Test fun subtitleResumeStopsAfterTwoFailedNativeSeeks() {
+        val seek = ExtrasVlcInitialSeek(38_000L)
+        repeat(2) {
+            assertEquals(38_000L, seek.nextTarget(true, true, 70_000L))
+            seek.onApplied(success = false)
+        }
+        assertTrue(!seek.isPending)
+        assertEquals(null, seek.nextTarget(true, true, 70_000L))
+    }
+
+    @Test fun engineHandoffClampsPositionAndRejectsUnseekableStreams() {
+        assertEquals(0L, extrasVlcHandoffPosition(53_000L, false))
+        assertEquals(0L, extrasVlcHandoffPosition(-100L, true))
+        assertEquals(53_000L, extrasVlcHandoffPosition(53_000L, true))
     }
 
     @Test fun timeLabelsStayReadableForTv() {
