@@ -96,13 +96,25 @@ Telegram account / chats / Saved Messages
 
 **Requirements:** Android SDK, a compatible JDK/Gradle environment, and the native TDLib binaries expected by the repository. The Gradle wrapper is the build entry point.
 
-Keep local credentials in ignored `local.properties` or protected environment variables — **never commit live API keys or keystores**.
+The project uses the **Secrets Gradle plugin** with a repository-root `.env` file
+(copy `.env.example`) for API credentials. `.env` is Git-ignored.
+`local.properties` should contain only your local Android SDK path.
+Do not commit live API keys or keystores.
 
 ```properties
-sdk.dir=C:\\path\\to\\Android\\Sdk
-TELEGRAM_API_ID=your_api_id
-TELEGRAM_API_HASH=your_api_hash
+# .env (in the repository root; never commit)
+TMDB_API_KEY=YOUR_TMDB_V3_API_KEY
 ```
+
+```properties
+# local.properties (in the repository root; never commit)
+sdk.dir=C:\\path\\to\\Android\\Sdk
+```
+
+Rebuild the debug APK after changing `TMDB_API_KEY`; this is read as
+`BuildConfig.TMDB_API_KEY` for the Extras catalog and Telegram title metadata.
+TMDB provides metadata, **not** video streams. API keys included in client APKs
+can be extracted; use a backend proxy for credentials that must remain private.
 
 ```powershell
 .\\gradlew.bat :app:verifyTdlibAbiCoverage :app:verifyTvHardeningContract
