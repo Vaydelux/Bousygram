@@ -222,8 +222,18 @@ internal class ExtrasLibVlcSession(
             // and serialize all processing on the main Handler.
             if (released.get()) return@setEventListener
             val type = event.type
-            handler.post {
-                if (!released.get()) handleNativeEvent(type)
+            // VLC also emits frequent TimeChanged/PositionChanged events.
+            // Their snapshots are sampled by the bounded ticker instead;
+            // posting every native event would flood Android TV's UI Looper.
+            when (type) {
+                MediaPlayer.Event.Playing,
+                MediaPlayer.Event.Buffering,
+                MediaPlayer.Event.Paused,
+                MediaPlayer.Event.EncounteredError,
+                MediaPlayer.Event.EndReached -> handler.post {
+                    if (!released.get()) handleNativeEvent(type)
+                }
+                else -> Unit
             }
         }
     }
