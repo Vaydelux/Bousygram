@@ -14,6 +14,15 @@ internal class ExtrasForegroundPlaybackIntent {
         resumePending = playRequested
     }
 
+    /**
+     * A newly mounted player can be prepared before its Activity reaches STARTED.
+     * Queue its initial Play request exactly once for the first foreground event.
+     * This is not a request to unpause a player that was explicitly paused.
+     */
+    fun onInitialAttach(playRequested: Boolean, inForeground: Boolean) {
+        if (!inForeground) onBackground(playRequested)
+    }
+
     /** Return the one-shot intent and immediately consume it. */
     fun onForeground(): Boolean {
         val resume = resumePending
