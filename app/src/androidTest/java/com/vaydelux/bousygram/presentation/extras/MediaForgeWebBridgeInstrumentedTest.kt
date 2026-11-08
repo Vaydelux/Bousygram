@@ -9,6 +9,7 @@ import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
+import com.vaydelux.mediaforge.webbridge.MediaForgeWebRequestPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -96,6 +97,36 @@ class MediaForgeWebBridgeInstrumentedTest {
             } catch (_: IllegalStateException) {
                 // Required: native playback and WebView renderer recovery own a new bridge.
             }
+        }
+    }
+
+    @Test fun webBridgeBlocksUnsafeNetworkSubresourcesButLeavesBrowserSchemesUntouched() {
+        for (url in listOf(
+            "http://example.org/insecure.mp4",
+            "https://127.0.0.1/private",
+            "https://nas.local/private",
+            "https://router.localdomain/private",
+            "https://nas.lan/private",
+            "https://gateway.home/private",
+            "https://printer.internal/private",
+            "https://local.example.org./private",
+            "https://[::1]/private",
+            "https://user:password@cdn.example.org/segment.mp4",
+            "https://cdn.example.org:8443/segment.mp4"
+        )) {
+            assertTrue("WebView must refuse network request: $url",
+                MediaForgeWebRequestPolicy.blockNetworkSubresource(url))
+        }
+        for (url in listOf(
+            "https://cdn.example.org/video.mp4?token=fixture",
+            "https://mediaforge.example.invalid/embed/movie/42",
+            "https://subtitles.example.org/en.vtt",
+            "blob:https://cdn.example.org/fixture",
+            "data:text/plain,fixture",
+            "about:blank"
+        )) {
+            assertFalse("WebView should not intercept permitted/browser URLs: $url",
+                MediaForgeWebRequestPolicy.blockNetworkSubresource(url))
         }
     }
 
