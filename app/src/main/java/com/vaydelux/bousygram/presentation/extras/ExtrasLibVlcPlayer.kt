@@ -590,7 +590,13 @@ internal fun ExtrasLibVlcPlayer(
     val session = sessionResult?.getOrNull()
     val foregroundIntent = remember(session) { ExtrasForegroundPlaybackIntent() }
     DisposableEffect(session, lifecycleOwner) {
-        session?.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        val initiallyForeground = lifecycleOwner.lifecycle.currentState
+            .isAtLeast(Lifecycle.State.STARTED)
+        session?.setForeground(initiallyForeground)
+        foregroundIntent.onInitialAttach(
+            playRequested = session != null && initiallyPlayRequested,
+            inForeground = initiallyForeground
+        )
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
