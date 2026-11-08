@@ -187,6 +187,7 @@ internal class ExtrasLibVlcSession(
         onControls(
             ExtrasLibVlcControlState(
                 positionMs = position,
+                pendingHandoffPositionMs = initialSeek.pendingPositionMs,
                 durationMs = duration,
                 seekable = runCatching { player.isSeekable }.getOrDefault(false),
                 playing = runCatching { player.isPlaying }.getOrDefault(false),
@@ -544,7 +545,14 @@ internal fun ExtrasLibVlcPlayer(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var status by remember(media.stream.url, caption?.url) { mutableStateOf("Preparing LibVLC…") }
-    var controls by remember(media.stream.url, caption?.url) { mutableStateOf(ExtrasLibVlcControlState()) }
+    var controls by remember(media.stream.url, caption?.url) {
+        // The user may switch straight back to Media3 before native VLC has
+        // even published its first status. Retain the seekable origin supplied
+        // by the previous engine instead of pretending the position is 0:00.
+        mutableStateOf(ExtrasLibVlcControlState(
+            pendingHandoffPositionMs = initialPositionMs.takeIf { it > 0L }
+        ))
+    }
     var source by remember(media.stream.url, caption?.url) {
         mutableStateOf<MediaForgeGuardedProgressiveSource?>(null)
     }
