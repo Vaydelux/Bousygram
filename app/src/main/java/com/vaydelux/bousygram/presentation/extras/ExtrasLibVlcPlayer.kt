@@ -371,9 +371,13 @@ internal fun ExtrasLibVlcPlayer(
             } else {
                 Text(
                     initError ?: "LibVLC is unavailable on this device. Use Media3.",
-                    color = MaterialTheme.colorScheme.error,
+                    color = Color(0xFFFFC7C7),
                     modifier = Modifier.padding(16.dp)
                 )
+                Button(
+                    onClick = onUseMedia3,
+                    modifier = Modifier.padding(horizontal = 16.dp).heightIn(min = 52.dp)
+                ) { Text("Continue with Media3") }
             }
         } else {
             AndroidView(
