@@ -297,3 +297,26 @@ and nonseekable handoff policy. **Required device test scenarios still NOT RUN:*
 This work changes only Extras and does **not** qualify third-party embed playback,
 native rendered frames, rights/DRM, or production Extras LibVLC. Keep the draft PR
 and release gates until exact-head CI and physical evidence are complete.
+
+## Provider URL and embedded-browser request guards — November 9
+
+The Extras watch-provider link handler now shares MediaForge's HTTPS URL
+syntax policy. This rejects local DNS aliases (`.lan`, `.home`,
+`.localdomain`, `.internal`, and `.local`), trailing-dot hostnames,
+loopback/IP literal forms, embedded credentials and nonstandard ports.
+
+The embedded WebView also returns a synthetic **HTTP 403** for *initial*
+network subresource requests whose URL fails the same policy. A public HTTPS
+resource remains untouched. Browser-managed non-network resources (such as
+`blob:`, `data:`, and `about:`) are not intercepted. These changes are
+exercised by the existing Extras WebView instrumentation class and provider
+policy JVM tests using offline/synthetic URLs; real providers are not required.
+
+**Security limitations (not release-certified):** Android WebView's resource
+interception does not reliably cover subsequent redirect hops, WebSockets,
+all in-page API transports or DNS rebinding. A public-looking hostname can
+later resolve to a private address. The WebView remains an untrusted
+third-party execution environment; these are defense-in-depth checks, not a
+complete network sandbox, and they do not bypass authentication, access
+controls or DRM. Do not treat a green build as a guarantee of provider
+safety or full playback compatibility.
