@@ -817,6 +817,9 @@ private fun ExtrasMediaForgeNativePlayer(
     // A changed caption/source creates a new player; stale errors must not bleed across it.
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
     DisposableEffect(player, lifecycleOwner) {
+        val initiallyForeground = lifecycleOwner.lifecycle.currentState
+            .isAtLeast(Lifecycle.State.STARTED)
+        foregroundIntent.onInitialAttach(initiallyPlayRequested, initiallyForeground)
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
