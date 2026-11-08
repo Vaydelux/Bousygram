@@ -1,9 +1,11 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import android.net.Uri
 import android.view.MotionEvent
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -127,6 +129,40 @@ class MediaForgeWebBridgeInstrumentedTest {
         )) {
             assertFalse("WebView should not intercept permitted/browser URLs: $url",
                 MediaForgeWebRequestPolicy.blockNetworkSubresource(url))
+        }
+    }
+
+    @Test fun webViewInterceptorReturnsForbiddenForLocalNetworkSubresources() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val bridge = MediaForgeWebBridge(onMediaResource = {})
+            val view = bridge.create(instrumentation.targetContext, offlineEmbed)
+            try {
+                fun fakeRequest(value: String) = object : WebResourceRequest {
+                    override fun getUrl(): Uri = Uri.parse(value)
+                    override fun isForMainFrame(): Boolean = false
+                    override fun isRedirect(): Boolean = false
+                    override fun hasGesture(): Boolean = false
+                    override fun getMethod(): String = "GET"
+                    override fun getRequestHeaders(): Map<String, String> = emptyMap()
+                }
+
+                val unsafe = view.webViewClient.shouldInterceptRequest(
+                    view, fakeRequest("https://router.localdomain/fixture.mp4")
+                )
+                assertEquals(403, unsafe?.statusCode)
+                // Keep the browser's normal HTTPS path intact; interception is
+                // only used for policy-denied initial network requests.
+                val public = view.webViewClient.shouldInterceptRequest(
+                    view, fakeRequest("https://cdn.example.org/fixture.mp4")
+                )
+                assertEquals(null, public)
+            } finally {
+                bridge.close()
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            }
         }
     }
 
