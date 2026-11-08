@@ -44,6 +44,56 @@ class ExtrasForegroundPlaybackIntentTest {
         assertEquals(35_000L, pausedVlc.positionMs)
     }
 
+    @Test fun pausedMedia3ToVlcToMedia3RoundTripPreservesUnappliedSeek() {
+        val enteredVlc = extrasMedia3Handoff(
+            positionMs = 42_000L, seekable = true, playWhenReady = false,
+            failed = false, ended = false
+        )
+        val leftVlc = extrasLibVlcHandoff(ExtrasLibVlcControlState(
+            positionMs = 0L,
+            pendingHandoffPositionMs = enteredVlc.positionMs,
+            seekable = false, // Native decoder has not prepared yet.
+            playing = false,
+            playRequested = enteredVlc.playRequested
+        ))
+        assertEquals(42_000L, leftVlc.positionMs)
+        assertFalse(leftVlc.playRequested)
+    }
+
+    @Test fun pendingResumeSurvivesEarlyVlcFailureForManualMedia3Fallback() {
+        val fallback = extrasLibVlcHandoff(ExtrasLibVlcControlState(
+            positionMs = 0L,
+            pendingHandoffPositionMs = 80_000L,
+            seekable = false, failed = true, playRequested = false
+        ))
+        assertEquals(80_000L, fallback.positionMs)
+        assertFalse(fallback.playRequested)
+    }
+
+    @Test fun completedManualSeekTakesPriorityOverEarlierHandoff() {
+        val seek = ExtrasVlcInitialSeek(50_000L)
+        seek.onExplicitSeekAccepted()
+        val outbound = extrasLibVlcHandoff(ExtrasLibVlcControlState(
+            positionMs = 86_000L,
+            pendingHandoffPositionMs = seek.pendingPositionMs,
+            seekable = true,
+            playRequested = true
+        ))
+        assertEquals(null, seek.pendingPositionMs)
+        assertEquals(86_000L, outbound.positionMs)
+        assertTrue(outbound.playRequested)
+    }
+
+    @Test fun naturalEndDoesNotResurrectPendingSeekOrPlayback() {
+        val result = extrasLibVlcHandoff(ExtrasLibVlcControlState(
+            positionMs = 100_000L,
+            pendingHandoffPositionMs = 42_000L,
+            seekable = true, ended = true, playRequested = false
+        ))
+        assertEquals(100_000L, result.positionMs)
+        assertFalse(result.playRequested)
+    }
+
     @Test fun bufferingPlayIntentSurvivesEngineHandoff() {
         // isPlaying is intentionally absent: buffering must not be mistaken for Pause.
         val media3 = extrasMedia3Handoff(
