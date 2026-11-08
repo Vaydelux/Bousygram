@@ -49,11 +49,8 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
         // A stale Settings/Compose observer must not republish effect status after release.
         if (released.get()) return false
-        if (profile.preset == AudioEqualizerPreset.CUSTOM &&
-            audioProfile.sanitizedGains != profile.sanitizedGains
-        ) activeEqPreset = AudioEqualizerPreset.ORIGINAL
-        audioProfile = profile.copy(customGainsDb = profile.sanitizedGains)
-        val eqApplied = applyAudioEqualizer(profile.preset)
+        audioProfile = AudioProcessingProfile(smartVolume = profile.smartVolume)
+        val eqApplied = applyAudioEqualizer(AudioEqualizerPreset.ORIGINAL)
         // LibVLC 3.6 MediaPlayer has a graphic EQ API, but no comparable native
         // compressor/limiter control. Do not mislabel its EQ as volume leveling.
         val smartSupported = profile.smartVolume == SmartVolumeMode.OFF
