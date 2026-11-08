@@ -25,7 +25,13 @@ unzip -tq "$JAR" >/dev/null
 actual_jar_sha="$(sha256sum "$JAR" | awk '{print tolower($1)}')"
 [[ "$actual_jar_sha" == "$EXPECTED_JAR_SHA" ]] || { echo "Gradle wrapper JAR hash mismatch: $actual_jar_sha" >&2; exit 1; }
 if (( SKIP_RUNTIME == 0 )); then
-  version="$("$WRAPPER" --version 2>&1)"
+  # Keep verifying the pin, but do not silently swallow runtime failures
+  # under set -e (command substitution captures stderr as well as stdout).
+  if ! version="$("$WRAPPER" --version 2>&1)"; then
+    echo 'Gradle wrapper runtime failed under the configured JDK or while loading the pinned distribution' >&2
+    printf '%s\n' "$version" | tail -n 24 >&2
+    exit 1
+  fi
   grep -Fq 'Gradle 9.4.1' <<<"$version" || { echo 'Gradle wrapper did not execute the pinned distribution' >&2; exit 1; }
 fi
 printf 'Gradle wrapper verified: URL=%s distributionSha256=%s wrapperJarSha256=%s\n' "$url" "$sha" "$actual_jar_sha"
