@@ -524,7 +524,7 @@ internal fun ExtrasLibVlcPlayer(
     isTv: Boolean,
     initialPositionMs: Long,
     onBack: () -> Unit,
-    onUseMedia3: () -> Unit,
+    onUseMedia3: (Long) -> Unit,
     onChooseSubtitles: (Long) -> Unit
 ) {
     val context = LocalContext.current
@@ -618,7 +618,7 @@ internal fun ExtrasLibVlcPlayer(
                     ExtrasVlcAction(
                         "Continue with Media3",
                         emphasized = true,
-                        onClick = onUseMedia3
+                        onClick = { onUseMedia3(0L) }
                     )
                 }
             }
@@ -873,7 +873,11 @@ internal fun ExtrasLibVlcPlayer(
                         ExtrasVlcAction(
                             "Use Media3",
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-use-media3"),
-                            onClick = onUseMedia3
+                            onClick = {
+                                onUseMedia3(extrasVlcHandoffPosition(
+                                    controls.positionMs, controls.seekable
+                                ))
+                            }
                         )
                     }
                 } else {
@@ -918,7 +922,11 @@ internal fun ExtrasLibVlcPlayer(
                         ExtrasVlcAction(
                             "Use Media3",
                             modifier = Modifier.weight(1.2f).testTag("extras-libvlc-use-media3"),
-                            onClick = onUseMedia3
+                            onClick = {
+                                onUseMedia3(extrasVlcHandoffPosition(
+                                    controls.positionMs, controls.seekable
+                                ))
+                            }
                         )
                     }
                 }
