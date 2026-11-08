@@ -22,8 +22,26 @@ import com.vaydelux.mediaforge.core.MediaForgeClassifier
 import com.vaydelux.mediaforge.core.StreamFormat
 import java.util.Collections
 import java.util.WeakHashMap
+import java.io.ByteArrayInputStream
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * This is a URL-level defense for network subresources, not DNS pinning.
+ * Android WebView may handle non-network schemes (blob/data/javascript) that
+ * should remain owned by the browser rather than intercepted here.
+ */
+object MediaForgeWebRequestPolicy {
+    fun blockNetworkSubresource(url: String): Boolean {
+        val scheme = url.substringBefore(':', missingDelimiterValue = "").lowercase(Locale.ROOT)
+        return when (scheme) {
+            "http" -> true
+            "https" -> MediaForgeUrlPolicy.safeHttpsUrl(url) == null
+            else -> false
+        }
+    }
+}
 
 /**
  * Observes ordinary WebView resource URLs AFTER the user loads a provider page.
@@ -97,8 +115,17 @@ class MediaForgeWebBridge(
             }
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-                if (request.method.equals("GET", true)) publish(request.url.toString())
-                return null // Do not modify responses, headers, or remote media requests.
+                val url = request.url.toString()
+                if (MediaForgeWebRequestPolicy.blockNetworkSubresource(url)) {
+                    // Do not let a third-party embed access common local aliases,
+                    // loopback addresses, or insecure HTTP via WebView resources.
+                    // Never fetch the URL ourselves or follow provider redirects.
+                    return WebResourceResponse(
+                        "text/plain", "utf-8", ByteArrayInputStream(ByteArray(0))
+                    ).apply { setStatusCodeAndReasonPhrase(403, "Blocked") }
+                }
+                if (request.method.equals("GET", true)) publish(url)
+                return null // Allow permitted subresources to load normally.
             }
 
             override fun onLoadResource(view: WebView, url: String) {
