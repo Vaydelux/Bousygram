@@ -1,5 +1,26 @@
 package com.vaydelux.bousygram.presentation.extras
 
+/** Pure tab state: independent queries/filters with independently bounded results. */
+internal data class TabState(
+    val query: String = "",
+    val filters: ExtrasFilters = ExtrasFilters(),
+    val results: List<ExtrasItem> = emptyList(),
+    val page: Int = 0,
+    val hasMore: Boolean = true,
+    /** Number of earlier unique posters discarded to keep paging state bounded. */
+    val droppedResults: Int = 0,
+    val loading: Boolean = false,
+    val error: String? = null
+)
+
+/** Reclaim dormant poster metadata without losing the tab's filters or query.
+ * Page zero rehydrates when the tab becomes active; a stale page cursor must
+ * never render an empty grid permanently after a memory trim.
+ */
+internal fun TabState.releaseDormantPosters(): TabState =
+    copy(results = emptyList(), page = 0, hasMore = true,
+        droppedResults = 0, loading = false, error = null)
+
 /**
  * A bounded in-memory viewport for infinite-style catalog paging.
  *
