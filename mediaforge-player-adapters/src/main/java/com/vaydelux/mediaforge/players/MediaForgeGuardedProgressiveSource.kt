@@ -181,7 +181,10 @@ internal data class RemoteRangeIdentity(val length: Long, val strongEtag: String
 internal fun parseStrongEtag(header: String?): String? {
     val value = header?.trim() ?: return null
     if (value.length !in 2..512 || !value.startsWith('"') || !value.endsWith('"')) return null
-    if (value.any { it.code < 32 || it.code == 127 }) return null
+    // RFC entity-tag opaque bytes exclude ASCII whitespace, controls and quotes.
+    if (value.substring(1, value.length - 1).any {
+            it.code != 33 && it.code !in 35..126 && it.code !in 128..255
+        }) return null
     return value
 }
 
