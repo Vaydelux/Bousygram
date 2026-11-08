@@ -58,7 +58,8 @@ internal class ExtrasLibVlcSession(
     private val media: InspectedMedia,
     private val subtitle: CaptionCandidate?,
     private val guarded: MediaForgeGuardedProgressiveSource,
-    private val onStatus: (String) -> Unit
+    private val onStatus: (String) -> Unit,
+    private val onControls: (ExtrasLibVlcControlState) -> Unit
 ) {
     private val released = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
@@ -115,12 +116,49 @@ internal class ExtrasLibVlcSession(
     private var hasAudioFocus = false
     @Volatile private var playbackRequested = false
     private val unexpectedPauseRetries = AtomicInteger(0)
+    private var hasPlaybackError = false
+    private var reachedEnd = false
+    private val progressTicker = object : Runnable {
+        override fun run() {
+            if (released.get() || !attached || !inForeground) return
+            publishControls()
+            if (playbackRequested) handler.postDelayed(this, 750L)
+        }
+    }
+
+    private fun publishControls() {
+        if (released.get()) return
+        val position = runCatching { player.time }.getOrDefault(0L).coerceAtLeast(0L)
+        val duration = runCatching { player.length }.getOrDefault(0L).coerceAtLeast(0L)
+        onControls(
+            ExtrasLibVlcControlState(
+                positionMs = position,
+                durationMs = duration,
+                seekable = runCatching { player.isSeekable }.getOrDefault(false),
+                playing = runCatching { player.isPlaying }.getOrDefault(false),
+                playRequested = playbackRequested,
+                failed = hasPlaybackError,
+                ended = reachedEnd
+            )
+        )
+    }
+
+    private fun postControls() {
+        handler.post { publishControls() }
+    }
+
+    private fun scheduleProgress() {
+        handler.removeCallbacks(progressTicker)
+        if (!released.get() && attached && inForeground) handler.post(progressTicker)
+    }
 
     val wantsPlayback: Boolean get() = playbackRequested
     val wantsResumeAfterFocus: Boolean get() = focusRecovery.hasPendingResume
 
     fun setForeground(active: Boolean) {
         inForeground = active
+        if (active) scheduleProgress()
+        else handler.removeCallbacks(progressTicker)
     }
 
     init {
@@ -128,7 +166,10 @@ internal class ExtrasLibVlcSession(
             if (released.get()) return@setEventListener
             when (event.type) {
                 MediaPlayer.Event.Playing -> {
-                    if (playbackRequested) postStatus("Playing in LibVLC")
+                    if (playbackRequested) {
+                        postStatus("Playing")
+                        postControls()
+                    }
                     else {
                         // Native Playing can arrive AFTER a user Pause while the
                         // file was buffering. Do not resurrect playback.
@@ -136,7 +177,10 @@ internal class ExtrasLibVlcSession(
                     }
                 }
                 MediaPlayer.Event.Buffering -> {
-                    if (playbackRequested) postStatus("Buffering")
+                    if (playbackRequested) {
+                        postStatus("Buffering…")
+                        postControls()
+                    }
                     else enforceNativePauseAfterDelayedStart()
                 }
                 MediaPlayer.Event.Paused -> {
@@ -146,25 +190,32 @@ internal class ExtrasLibVlcSession(
                         stoppedByOwner = released.get(),
                         alreadyRetried = unexpectedPauseRetries.get()
                     )) {
-                        LibVlcUnexpectedPauseAction.IGNORE -> postStatus("Paused")
+                        LibVlcUnexpectedPauseAction.IGNORE -> {
+                            postStatus("Paused")
+                            postControls()
+                        }
                         LibVlcUnexpectedPauseAction.RETRY -> {
                             unexpectedPauseRetries.incrementAndGet()
                             handler.post {
                                 if (!released.get() && initialized && playbackRequested) {
                                     runCatching { player.play() }.onFailure {
                                         playbackRequested = false
+                                        hasPlaybackError = true
                                         releaseAudioFocus()
-                                        onStatus("LibVLC could not resume; return to WebView")
+                                        onStatus("LibVLC could not resume; try Retry or Media3")
+                                        publishControls()
                                     }
                                 }
                             }
                         }
                         LibVlcUnexpectedPauseAction.FAIL -> {
                             playbackRequested = false
+                            hasPlaybackError = true
                             handler.post {
                                 if (!released.get()) {
                                     releaseAudioFocus()
-                                    onStatus("LibVLC paused repeatedly; return to WebView")
+                                    onStatus("LibVLC paused repeatedly; try Retry or Media3")
+                                    publishControls()
                                 }
                             }
                         }
@@ -172,21 +223,27 @@ internal class ExtrasLibVlcSession(
                 }
                 MediaPlayer.Event.EncounteredError -> {
                     playbackRequested = false
+                    hasPlaybackError = true
+                    reachedEnd = false
                     handler.post { focusRecovery.cancel() }
                     handler.post {
                         if (!released.get()) {
                             releaseAudioFocus()
-                            onStatus("LibVLC cannot open this stream; return to WebView")
+                            onStatus("LibVLC cannot open this stream; use Retry or Media3")
+                            publishControls()
                         }
                     }
                 }
                 MediaPlayer.Event.EndReached -> {
                     playbackRequested = false
+                    reachedEnd = true
+                    hasPlaybackError = false
                     handler.post { focusRecovery.cancel() }
                     handler.post {
                         if (!released.get()) {
                             releaseAudioFocus()
                             onStatus("Playback finished")
+                            publishControls()
                         }
                     }
                 }
@@ -244,6 +301,7 @@ internal class ExtrasLibVlcSession(
             }
         }
         play()
+        scheduleProgress()
     }
 
     fun play() {
@@ -258,13 +316,31 @@ internal class ExtrasLibVlcSession(
         }
         // Arm user intent BEFORE calling native play: some LibVLC callbacks
         // can race with the caller. Never mark Playing as an unsolicited start.
+        val restartEndedMedia = reachedEnd
+        hasPlaybackError = false
+        reachedEnd = false
         unexpectedPauseRetries.set(0)
         playbackRequested = true
-        runCatching { player.play() }.onFailure {
+        onStatus("Starting playback…")
+        runCatching {
+            if (restartEndedMedia && player.isSeekable) player.setTime(0L)
+            player.play()
+        }.onFailure {
             playbackRequested = false
+            hasPlaybackError = true
             releaseAudioFocus()
-            onStatus("LibVLC could not start playback")
+            onStatus("LibVLC could not start playback; use Retry or Media3")
         }
+        scheduleProgress()
+        publishControls()
+    }
+
+    fun retry() {
+        if (released.get() || !initialized || !inForeground) return
+        hasPlaybackError = false
+        reachedEnd = false
+        runCatching { player.stop() }
+        play()
     }
 
     /**
@@ -274,16 +350,19 @@ internal class ExtrasLibVlcSession(
     private fun pauseForAudioFocus() {
         playbackRequested = false
         unexpectedPauseRetries.set(0)
+        handler.removeCallbacks(progressTicker)
         if (released.get()) return
         if (runCatching { player.isPlaying }.getOrDefault(false)) {
             runCatching { player.pause() }
         }
         onStatus("Paused for audio focus")
+        publishControls()
     }
 
     fun pause() {
         focusRecovery.cancel()
         pauseForAudioFocus()
+        if (!released.get()) onStatus("Paused")
         releaseAudioFocus()
     }
 
@@ -297,17 +376,29 @@ internal class ExtrasLibVlcSession(
         if (released.get()) return
         runCatching {
             if (player.isSeekable) {
-                val position = (player.time + deltaMs).coerceAtLeast(0L)
-                val duration = player.length
-                player.setTime(if (duration > 0L) position.coerceAtMost(duration) else position)
-            }
+                val target = extrasVlcSeekTarget(player.time, deltaMs, player.length)
+                player.setTime(target)
+            } else onStatus("Seeking is not available for this stream")
         }
+        publishControls()
+    }
+
+    fun seekTo(positionMs: Long) {
+        if (released.get()) return
+        runCatching {
+            if (player.isSeekable) {
+                val duration = player.length
+                player.setTime(extrasVlcSeekAbsolute(positionMs, duration))
+            } else onStatus("Seeking is not available for this stream")
+        }
+        publishControls()
     }
 
     fun detach() {
         if (released.get() || !attached) return
         runCatching { player.detachViews() }
         attached = false
+        handler.removeCallbacks(progressTicker)
     }
 
     fun release() {
