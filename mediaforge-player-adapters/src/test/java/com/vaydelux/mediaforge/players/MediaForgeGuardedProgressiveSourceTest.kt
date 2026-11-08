@@ -23,6 +23,52 @@ class MediaForgeGuardedProgressiveSourceTest {
         assertNull(parseContentRange("bytes 1-1/99999999999999999999999"))
     }
 
+    @Test fun headerAndTailWindowsAreReusedWithoutAnotherDownload() {
+        val cache = MediaForgeRangeWindowCache()
+        val head = ByteArray(MEDIAFORGE_RANGE_WINDOW_BYTES.toInt()) { 1 }
+        val tail = ByteArray(MEDIAFORGE_RANGE_WINDOW_BYTES.toInt()) { 2 }
+        val tailStart = MEDIAFORGE_RANGE_WINDOW_BYTES * 50
+        cache.put(0L, head)
+        cache.put(tailStart, tail)
+        assertTrue(cache.get(0L) === head)
+        assertTrue(cache.get(tailStart) === tail)
+        assertEquals(2, cache.retainedWindows)
+        assertEquals(512 * 1024, cache.retainedBytes)
+    }
+
+    @Test fun thirdWindowEvictsLeastRecentlyUsedRatherThanRecentHead() {
+        val cache = MediaForgeRangeWindowCache()
+        val size = MEDIAFORGE_RANGE_WINDOW_BYTES
+        cache.put(0L, byteArrayOf(1))
+        cache.put(size, byteArrayOf(2))
+        assertEquals(1.toByte(), cache.get(0L)!![0]) // Head is most recent.
+        cache.put(size * 2, byteArrayOf(3))
+        assertNull(cache.get(size))
+        assertEquals(1.toByte(), cache.get(0L)!![0])
+        assertEquals(3.toByte(), cache.get(size * 2)!![0])
+        assertEquals(2, cache.retainedWindows)
+        assertEquals(2, cache.retainedBytes)
+    }
+
+    @Test fun manySeekWindowsRemainBoundedTo512Kib() {
+        val cache = MediaForgeRangeWindowCache()
+        val windowBytes = MEDIAFORGE_RANGE_WINDOW_BYTES
+        repeat(100) { i ->
+            cache.put(i * windowBytes, ByteArray(windowBytes.toInt()))
+            assertTrue(cache.retainedWindows <= MEDIAFORGE_MAX_CACHED_WINDOWS)
+            assertTrue(cache.retainedBytes <= 512 * 1024)
+        }
+        assertNull(cache.get(0L))
+        assertTrue(cache.get(99 * windowBytes) != null)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun cacheRejectsOversizedUnboundedResponse() {
+        MediaForgeRangeWindowCache().put(
+            0L, ByteArray(MEDIAFORGE_RANGE_WINDOW_BYTES.toInt() + 1)
+        )
+    }
+
     @Test fun alignedWindowsAvoidOverlappingRequestsAcrossSmallSeeks() {
         val size = MEDIAFORGE_RANGE_WINDOW_BYTES
         assertEquals(0L, alignedRangeWindowStart(0L))

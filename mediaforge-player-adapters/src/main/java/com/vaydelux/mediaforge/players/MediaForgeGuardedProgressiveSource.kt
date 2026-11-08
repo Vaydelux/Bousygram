@@ -238,6 +238,37 @@ internal fun isConsistentRangeResponse(
 }
 
 internal const val MEDIAFORGE_RANGE_WINDOW_BYTES = 256L * 1024L
+internal const val MEDIAFORGE_MAX_CACHED_WINDOWS = 2
+
+/**
+ * A tiny LRU of decoded byte-range responses, intentionally owned by the
+ * StorageManager callback thread (no shared mutable cache across VLC threads).
+ * Container parsers often alternate between the MP4 head and tail index;
+ * keeping both windows avoids repeat network fetches with a 512-KiB ceiling.
+ */
+internal class MediaForgeRangeWindowCache {
+    private val windows = LinkedHashMap<Long, ByteArray>(
+        MEDIAFORGE_MAX_CACHED_WINDOWS, 0.75f, true
+    )
+
+    fun get(start: Long): ByteArray? = windows[start]
+
+    fun put(start: Long, bytes: ByteArray) {
+        require(start >= 0L && bytes.isNotEmpty() &&
+            bytes.size <= MEDIAFORGE_RANGE_WINDOW_BYTES.toInt()
+        )
+        windows[start] = bytes
+        while (windows.size > MEDIAFORGE_MAX_CACHED_WINDOWS) {
+            val eldest = windows.entries.iterator()
+            if (!eldest.hasNext()) break
+            val key = eldest.next().key
+            windows.remove(key)
+        }
+    }
+
+    val retainedWindows: Int get() = windows.size
+    val retainedBytes: Int get() = windows.values.sumOf { it.size }
+}
 
 internal fun alignedRangeWindowStart(position: Long, windowBytes: Long = MEDIAFORGE_RANGE_WINDOW_BYTES): Long {
     require(position >= 0L && windowBytes > 0L)
@@ -256,8 +287,7 @@ private class GuardedRangeCallback(
     private val total = identity.length
     private val stopped = AtomicBoolean(false)
     @Volatile private var call: Call? = null
-    private var windowStart = -1L
-    private var window = ByteArray(0)
+    private val rangeCache = MediaForgeRangeWindowCache()
 
     fun stop() {
         stopped.set(true)
@@ -277,10 +307,9 @@ private class GuardedRangeCallback(
             while (copied < count) {
                 if (stopped.get()) throw IOException("File source closed")
                 val position = offset + copied
-                if (position < windowStart || position >= windowStart + window.size) {
-                    loadWindow(position)
-                }
-                val from = (position - windowStart).toInt()
+                val start = alignedRangeWindowStart(position)
+                val window = rangeCache.get(start) ?: loadWindow(start)
+                val from = (position - start).toInt()
                 val available = minOf(window.size - from, count - copied)
                 if (available <= 0) throw IOException("Short byte-range response")
                 System.arraycopy(window, from, data, copied, available)
@@ -292,9 +321,9 @@ private class GuardedRangeCallback(
         return copied
     }
 
-    private fun loadWindow(position: Long) {
-        // Align windows to reduce overlapping downloads on small reads and seeks.
-        val start = alignedRangeWindowStart(position)
+    private fun loadWindow(start: Long): ByteArray {
+        // The callback thread owns this cache. Only publish fully verified
+        // 206 payloads, never partially downloaded or failed windows.
         val expected = minOf(MEDIAFORGE_RANGE_WINDOW_BYTES, total - start).toInt()
         if (expected <= 0) throw IOException("End of stream")
         val end = start + expected - 1L
@@ -328,8 +357,8 @@ private class GuardedRangeCallback(
                         read += n
                     }
                 }
-                windowStart = start
-                window = fresh
+                rangeCache.put(start, fresh)
+                return fresh
             }
         } finally {
             call = null
