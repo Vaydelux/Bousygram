@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -134,6 +135,7 @@ internal fun ExtrasMediaForgeScreen(
     var approved by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
     var nativeMedia by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
     var nativeEngine by remember(request.url) { mutableStateOf(ExtrasNativeEngine.MEDIA3) }
+    var vlcResumePositionMs by remember(request.url) { mutableLongStateOf(0L) }
     var inspectionJob by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
     var inspectionGeneration by remember { mutableIntStateOf(0) }
@@ -180,6 +182,7 @@ internal fun ExtrasMediaForgeScreen(
         busy = false
         webGeneration += 1
         nativeMedia = null
+        vlcResumePositionMs = 0L
     }
 
     BackHandler {
@@ -205,9 +208,16 @@ internal fun ExtrasMediaForgeScreen(
                 caption = selectedCaption,
                 title = request.title,
                 isTv = isAndroidTv,
+                initialPositionMs = vlcResumePositionMs,
                 onBack = { returnToWebView() },
-                onUseMedia3 = { nativeEngine = ExtrasNativeEngine.MEDIA3 },
-                onChooseSubtitles = { showSubtitlePicker = true }
+                onUseMedia3 = {
+                    vlcResumePositionMs = 0L
+                    nativeEngine = ExtrasNativeEngine.MEDIA3
+                },
+                onChooseSubtitles = { positionMs ->
+                    vlcResumePositionMs = positionMs
+                    showSubtitlePicker = true
+                }
             )
         }
         // Keep the existing high-contrast TV subtitle dialog available while
@@ -480,6 +490,7 @@ internal fun ExtrasMediaForgeScreen(
                     onClick = {
                         inspectionGeneration += 1
                         inspectionJob?.cancel()
+                        vlcResumePositionMs = 0L
                         nativeMedia = media
                     }
                 ) { Text("Play with " + nativeEngine.label) }

@@ -25,6 +25,25 @@ class ExtrasLibVlcControlsTest {
         assertEquals(1f, extrasVlcProgress(200L, 100L), 0f)
         assertTrue(extrasVlcProgress(Long.MAX_VALUE, Long.MAX_VALUE).isFinite())
     }
+    @Test fun subtitleChangeResumesOnlyAfterNativePlaybackIsSeekable() {
+        val seek = ExtrasVlcInitialSeek(45_000L)
+        assertEquals(null, seek.nextTarget(playing = false, seekable = true, durationMs = 90_000L))
+        assertEquals(null, seek.nextTarget(playing = true, seekable = false, durationMs = 90_000L))
+        assertTrue(seek.isPending)
+        assertEquals(45_000L, seek.nextTarget(playing = true, seekable = true, durationMs = 90_000L))
+        assertTrue(!seek.isPending)
+        assertEquals(null, seek.nextTarget(playing = true, seekable = true, durationMs = 90_000L))
+    }
+    @Test fun resumePositionIsClampedAndRetryCountIsBounded() {
+        val seek = ExtrasVlcInitialSeek(Long.MAX_VALUE, maxPlayingChecks = 2)
+        assertEquals(500L, seek.nextTarget(playing = true, seekable = true, durationMs = 500L))
+        val nonseekable = ExtrasVlcInitialSeek(2_000L, maxPlayingChecks = 2)
+        assertEquals(null, nonseekable.nextTarget(true, false, 10_000L))
+        assertTrue(nonseekable.isPending)
+        assertEquals(null, nonseekable.nextTarget(true, false, 10_000L))
+        assertTrue(!nonseekable.isPending)
+    }
+
     @Test fun timeLabelsStayReadableForTv() {
         assertEquals("0:00", extrasVlcTimeLabel(-1L))
         assertEquals("0:09", extrasVlcTimeLabel(9_000L))

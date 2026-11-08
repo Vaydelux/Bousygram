@@ -42,3 +42,30 @@ internal fun extrasVlcTimeLabel(milliseconds: Long): String {
     val hours = seconds / 3600
     return if (hours > 0L) "$hours:$minute:$second" else "${seconds / 60}:$second"
 }
+
+/**
+ * One-time position handoff after external subtitle changes re-create the FD
+ * and native decoder. Never seek before native playback has actually started.
+ * Give nonseekable streams a bounded chance; do not force infinite retries.
+ */
+internal class ExtrasVlcInitialSeek(
+    positionMs: Long,
+    private val maxPlayingChecks: Int = 32
+) {
+    private val initialPositionMs = positionMs.coerceAtLeast(0L)
+    private var pending = initialPositionMs > 0L
+    private var checks = 0
+
+    fun nextTarget(playing: Boolean, seekable: Boolean, durationMs: Long): Long? {
+        if (!pending || !playing) return null
+        if (seekable) {
+            pending = false
+            return extrasVlcSeekAbsolute(initialPositionMs, durationMs)
+        }
+        checks++
+        if (checks >= maxPlayingChecks) pending = false
+        return null
+    }
+
+    val isPending: Boolean get() = pending
+}

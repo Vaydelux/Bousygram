@@ -82,6 +82,7 @@ internal class ExtrasLibVlcSession(
     private val media: InspectedMedia,
     private val subtitle: CaptionCandidate?,
     private val guarded: MediaForgeGuardedProgressiveSource,
+    initialPositionMs: Long,
     private val onStatus: (String) -> Unit,
     private val onControls: (ExtrasLibVlcControlState) -> Unit
 ) {
@@ -142,11 +143,24 @@ internal class ExtrasLibVlcSession(
     private val unexpectedPauseRetries = AtomicInteger(0)
     private var hasPlaybackError = false
     private var reachedEnd = false
+    private val initialSeek = ExtrasVlcInitialSeek(initialPositionMs)
     private val progressTicker = object : Runnable {
         override fun run() {
             if (released.get() || !attached || !inForeground) return
+            restoreSubtitleChangePosition()
             publishControls()
             if (playbackRequested) handler.postDelayed(this, 750L)
+        }
+    }
+
+    private fun restoreSubtitleChangePosition() {
+        if (released.get() || !attached || !playbackRequested || hasPlaybackError) return
+        val playing = runCatching { player.isPlaying }.getOrDefault(false)
+        val seekable = runCatching { player.isSeekable }.getOrDefault(false)
+        val duration = runCatching { player.length }.getOrDefault(0L)
+        val requested = initialSeek.nextTarget(playing, seekable, duration) ?: return
+        runCatching { player.setTime(requested) }.onFailure {
+            onStatus("Could not restore position after subtitle change")
         }
     }
 
@@ -215,7 +229,7 @@ internal class ExtrasLibVlcSession(
                         alreadyRetried = unexpectedPauseRetries.get()
                     )) {
                         LibVlcUnexpectedPauseAction.IGNORE -> {
-                            postStatus("Paused")
+                            if (!hasPlaybackError && !reachedEnd) postStatus("Paused")
                             postControls()
                         }
                         LibVlcUnexpectedPauseAction.RETRY -> {
@@ -379,14 +393,14 @@ internal class ExtrasLibVlcSession(
         if (runCatching { player.isPlaying }.getOrDefault(false)) {
             runCatching { player.pause() }
         }
-        onStatus("Paused for audio focus")
+        if (!hasPlaybackError && !reachedEnd) onStatus("Paused for audio focus")
         publishControls()
     }
 
     fun pause() {
         focusRecovery.cancel()
         pauseForAudioFocus()
-        if (!released.get()) onStatus("Paused")
+        if (!released.get() && !hasPlaybackError && !reachedEnd) onStatus("Paused")
         releaseAudioFocus()
     }
 
@@ -448,9 +462,10 @@ internal fun ExtrasLibVlcPlayer(
     caption: CaptionCandidate?,
     title: String,
     isTv: Boolean,
+    initialPositionMs: Long,
     onBack: () -> Unit,
     onUseMedia3: () -> Unit,
-    onChooseSubtitles: () -> Unit
+    onChooseSubtitles: (Long) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -487,6 +502,7 @@ internal fun ExtrasLibVlcPlayer(
             runCatching {
                 ExtrasLibVlcSession(
                     context, media, caption, guardedSource,
+                    initialPositionMs = initialPositionMs,
                     onStatus = { status = it },
                     onControls = { controls = it }
                 )
@@ -709,7 +725,7 @@ internal fun ExtrasLibVlcPlayer(
                         ExtrasVlcAction(
                             "Subtitles", enabled = media.captions.isNotEmpty(),
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-subtitles"),
-                            onClick = onChooseSubtitles
+                            onClick = { onChooseSubtitles(controls.positionMs) }
                         )
                         ExtrasVlcAction(
                             "Use Media3",
@@ -750,7 +766,7 @@ internal fun ExtrasLibVlcPlayer(
                             if (caption == null) "Subtitles" else "Captions ✓",
                             enabled = media.captions.isNotEmpty(),
                             modifier = Modifier.weight(1.2f).testTag("extras-libvlc-subtitles"),
-                            onClick = onChooseSubtitles
+                            onClick = { onChooseSubtitles(controls.positionMs) }
                         )
                         ExtrasVlcAction(
                             "Use Media3",
