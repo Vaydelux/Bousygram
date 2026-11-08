@@ -8,11 +8,14 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -292,7 +295,8 @@ internal fun ExtrasLibVlcPlayer(
     media: InspectedMedia,
     caption: CaptionCandidate?,
     title: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onUseMedia3: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -385,13 +389,28 @@ internal fun ExtrasLibVlcPlayer(
             )
             Text(status, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp))
             Row(
-                Modifier.fillMaxWidth().padding(8.dp),
+                Modifier.fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(onClick = session::play) { Text("Play") }
-                OutlinedButton(onClick = session::pause) { Text("Pause") }
-                OutlinedButton(onClick = { session.skip(-10_000) }) { Text("-10s") }
-                Button(onClick = { session.skip(10_000) }) { Text("+10s") }
+                OutlinedButton(
+                    onClick = session::play, modifier = Modifier.heightIn(min = 52.dp)
+                ) { Text("Play") }
+                OutlinedButton(
+                    onClick = session::pause, modifier = Modifier.heightIn(min = 52.dp)
+                ) { Text("Pause") }
+                OutlinedButton(
+                    onClick = { session.skip(-10_000) }, modifier = Modifier.heightIn(min = 52.dp)
+                ) { Text("-10s") }
+                OutlinedButton(
+                    onClick = { session.skip(10_000) }, modifier = Modifier.heightIn(min = 52.dp)
+                ) { Text("+10s") }
+                // Release the current native surface before opening Media3.
+                // The app disposes this LibVLC composition and its guarded FD.
+                Button(
+                    onClick = onUseMedia3, modifier = Modifier.heightIn(min = 52.dp)
+                ) { Text("Try Media3") }
             }
         }
     }
