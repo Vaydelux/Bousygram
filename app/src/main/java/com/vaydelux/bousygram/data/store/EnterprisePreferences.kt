@@ -210,43 +210,29 @@ object EnterprisePreferences {
         get() = audioEqState.asStateFlow()
     private val audioEqState by lazy { MutableStateFlow(audioEqualizerPreset()) }
 
-    fun audioEqualizerPreset(): AudioEqualizerPreset =
-        AudioEqualizerPreset.fromStored(prefs.getString(KEY_AUDIO_EQ_PRESET, null))
+    /** Deprecated EQ preferences are never restored or activated. */
+    fun audioEqualizerPreset(): AudioEqualizerPreset = AudioEqualizerPreset.ORIGINAL
 
-    fun audioProcessingProfile(): AudioProcessingProfile {
-        val raw = prefs.getString(KEY_AUDIO_CUSTOM_GAINS, null)
-        val values = runCatching {
-            val a = JSONArray(raw ?: "[]")
-            List(10) { idx ->
-                if (idx >= a.length()) 0f
-                else a.getDouble(idx).toFloat().takeIf(Float::isFinite)?.coerceIn(-6f, 6f) ?: 0f
-            }
-        }.getOrDefault(List(10) { 0f })
-        val layout = runCatching {
-            CustomEqualizerLayout.valueOf(prefs.getString(KEY_AUDIO_CUSTOM_LAYOUT, "FIVE") ?: "FIVE")
-        }.getOrDefault(CustomEqualizerLayout.FIVE)
-        return AudioProcessingProfile(
-            preset = audioEqualizerPreset(),
-            customGainsDb = values,
-            customLayout = layout,
-            smartVolume = SmartVolumeMode.fromStored(prefs.getString(KEY_AUDIO_SMART_VOLUME, null))
-        )
-    }
+    fun audioProcessingProfile(): AudioProcessingProfile = AudioProcessingProfile(
+        preset = AudioEqualizerPreset.ORIGINAL,
+        smartVolume = SmartVolumeMode.fromStored(prefs.getString(KEY_AUDIO_SMART_VOLUME, null))
+    )
 
     fun setAudioProcessingProfile(profile: AudioProcessingProfile) {
-        val clean = profile.copy(customGainsDb = profile.sanitizedGains)
+        val clean = AudioProcessingProfile(smartVolume = profile.smartVolume)
         prefs.edit {
-            putString(KEY_AUDIO_EQ_PRESET, clean.preset.name)
-            putString(KEY_AUDIO_CUSTOM_GAINS, JSONArray(clean.sanitizedGains).toString())
-            putString(KEY_AUDIO_CUSTOM_LAYOUT, clean.customLayout.name)
+            remove(KEY_AUDIO_EQ_PRESET)
+            remove(KEY_AUDIO_CUSTOM_GAINS)
+            remove(KEY_AUDIO_CUSTOM_LAYOUT)
             putString(KEY_AUDIO_SMART_VOLUME, clean.smartVolume.name)
         }
         audioProfileState.value = clean
-        audioEqState.value = clean.preset
+        audioEqState.value = AudioEqualizerPreset.ORIGINAL
     }
 
+    @Deprecated("Tonal EQ has been retired.")
     fun setAudioEqualizerPreset(preset: AudioEqualizerPreset) {
-        setAudioProcessingProfile(audioProfileState.value.copy(preset = preset))
+        setAudioProcessingProfile(audioProfileState.value)
     }
 
     fun supportedPlayerEngines(): List<SelectedPlayerEngine> = availablePlaybackEngines()
@@ -294,7 +280,6 @@ object EnterprisePreferences {
         appendLine("Buffer mode: ${bufferMode().label}")
         appendLine("Playback: TDLib local")
         appendLine("Preferred speed: ${preferredSpeed()}x")
-        appendLine("Audio EQ: ${audioEqualizerPreset().title}")
         appendLine("Smart Volume: ${audioProcessingProfile().smartVolume.title}")
         appendLine("Auto-play next: ${autoPlayNext()}")
         appendLine("Subtitles default: ${subtitlesDefault()}")
@@ -324,9 +309,6 @@ object EnterprisePreferences {
         .put("autoPlayNext", autoPlayNext())
         .put("subtitlesDefault", subtitlesDefault())
         .put("preferredSpeed", preferredSpeed().toDouble())
-        .put("audioEqPreset", audioEqualizerPreset().name)
-        .put("audioCustomBands", JSONArray(audioProcessingProfile().sanitizedGains))
-        .put("audioCustomLayout", audioProcessingProfile().customLayout.name)
         .put("audioSmartVolume", audioProcessingProfile().smartVolume.name)
         .put("bufferMode", bufferMode().name)
         .put("cacheLimit", cacheLimitOption().name)
@@ -354,26 +336,16 @@ object EnterprisePreferences {
                 settings.speed?.let { putFloat(KEY_SPEED, it) }
                 settings.bufferMode?.let { putString(KEY_BUFFER_MODE, it.name) }
                 settings.visualTheme?.let { putString(KEY_VISUAL_THEME, it) }
-                settings.audioEqualizer?.let { putString(KEY_AUDIO_EQ_PRESET, it.name) }
-                settings.audioCustomGains?.let {
-                    putString(KEY_AUDIO_CUSTOM_GAINS, JSONArray(it).toString())
-                }
-                settings.audioCustomLayout?.let { putString(KEY_AUDIO_CUSTOM_LAYOUT, it.name) }
+                // Legacy EQ fields from old settings files are ignored.
+                remove(KEY_AUDIO_EQ_PRESET)
+                remove(KEY_AUDIO_CUSTOM_GAINS)
+                remove(KEY_AUDIO_CUSTOM_LAYOUT)
                 settings.audioSmartVolume?.let { putString(KEY_AUDIO_SMART_VOLUME, it.name) }
             }
-            if (settings.audioEqualizer != null || settings.audioCustomGains != null ||
-                settings.audioCustomLayout != null || settings.audioSmartVolume != null
-            ) {
-                val current = audioProfileState.value
-                val updated = current.copy(
-                    preset = settings.audioEqualizer ?: current.preset,
-                    customGainsDb = settings.audioCustomGains ?: current.customGainsDb,
-                    customLayout = settings.audioCustomLayout ?: current.customLayout,
-                    smartVolume = settings.audioSmartVolume ?: current.smartVolume
-                )
-                audioProfileState.value = updated
-                audioEqState.value = updated.preset
+            if (settings.audioSmartVolume != null) {
+                audioProfileState.value = AudioProcessingProfile(smartVolume = settings.audioSmartVolume)
             }
+            audioEqState.value = AudioEqualizerPreset.ORIGINAL
             Unit // Keep settings-import callback strictly () -> Unit.
         }
         if (owner == null) applySettings() else check(AccountSession.runIfCurrent(owner, applySettings)) {
