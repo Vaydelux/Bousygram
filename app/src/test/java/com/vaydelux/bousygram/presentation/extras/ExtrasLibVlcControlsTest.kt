@@ -19,10 +19,10 @@ class ExtrasLibVlcControlsTest {
         assertEquals(0L, extrasVlcSeekTarget(0L, Long.MIN_VALUE, -1L))
     }
     @Test fun progressHandlesUnknownDurationAndInvalidNativePositions() {
-        assertEquals(0f, extrasVlcProgress(500L, 0L))
-        assertEquals(0f, extrasVlcProgress(-10L, 100L))
-        assertEquals(0.5f, extrasVlcProgress(50L, 100L))
-        assertEquals(1f, extrasVlcProgress(200L, 100L))
+        assertEquals(0f, extrasVlcProgress(500L, 0L), 0f)
+        assertEquals(0f, extrasVlcProgress(-10L, 100L), 0f)
+        assertEquals(0.5f, extrasVlcProgress(50L, 100L), 0f)
+        assertEquals(1f, extrasVlcProgress(200L, 100L), 0f)
         assertTrue(extrasVlcProgress(Long.MAX_VALUE, Long.MAX_VALUE).isFinite())
     }
     @Test fun timeLabelsStayReadableForTv() {
