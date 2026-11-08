@@ -3503,33 +3503,60 @@ private fun TrackChoice(
     label: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    isTv: Boolean = false,
     onSelect: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val fill = if (isTv) {
+        when {
+            focused -> Color(0xFF175481)
+            selected -> Color(0xFF174061)
+            else -> Color(0xFF17273B)
+        }
+    } else when {
+        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+        focused -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.surface
+    }
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .heightIn(min = if (isTv) 60.dp else 44.dp)
             .border(
-                if (focused) 3.dp else 0.dp,
-                if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                RoundedCornerShape(16.dp)
+                if (focused) 3.dp else if (isTv) 1.dp else 0.dp,
+                if (focused && isTv) Color(0xFF78D8FF)
+                else if (focused) MaterialTheme.colorScheme.primary
+                else if (isTv) Color(0xFF40566E) else Color.Transparent,
+                RoundedCornerShape(if (isTv) 12.dp else 16.dp)
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onSelect),
-        color = when {
-            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
-            focused -> MaterialTheme.colorScheme.surfaceVariant
-            else -> MaterialTheme.colorScheme.surface
-        },
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(16.dp)
+        color = fill,
+        contentColor = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(if (isTv) 12.dp else 16.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            modifier = Modifier.padding(
+                horizontal = if (isTv) 20.dp else 16.dp,
+                vertical = if (isTv) 16.dp else 13.dp
+            ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (selected) Text("✓", style = MaterialTheme.typography.titleMedium)
+            Text(
+                label,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                fontSize = if (isTv) 19.sp else 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            )
+            if (selected) Text(
+                "✓",
+                color = if (isTv) Color(0xFF9EF4C9) else MaterialTheme.colorScheme.primary,
+                fontSize = if (isTv) 23.sp else 18.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
