@@ -162,17 +162,14 @@ object ExtrasProviderPolicy {
     fun youtubeId(id: String?): String? =
         id?.takeIf { it.length in 6..24 && it.matches(Regex("[A-Za-z0-9_-]+")) }
 
-    /** Never open untrusted schemes from provider-returned external links. */
+    /**
+     * External episode links must respect the same local/private-hostname
+     * rejection as MediaForge streams. This is a URL syntax guard, not DNS
+     * verification or a guarantee about third-party redirects.
+     */
     fun safeExternalHttps(raw: String?): String? {
         if (raw.isNullOrBlank() || raw.length > 2048) return null
-        val uri = runCatching { java.net.URI(raw) }.getOrNull() ?: return null
-        val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return null
-        if (!uri.scheme.equals("https", ignoreCase = true) ||
-            uri.userInfo != null || uri.port !in listOf(-1, 443) ||
-            host == "localhost" || host.endsWith(".local") ||
-            host.matches(Regex("[0-9.]+")) || host.contains(":") ||
-            !host.contains(".")) return null
-        return uri.toString()
+        return com.vaydelux.mediaforge.core.MediaForgeUrlPolicy.safeHttpsUrl(raw)?.toString()
     }
 
     fun genres(type: ExtrasType): List<Pair<String, String>> = when (type) {
