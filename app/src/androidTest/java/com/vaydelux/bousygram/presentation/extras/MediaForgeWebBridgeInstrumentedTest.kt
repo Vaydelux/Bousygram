@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import android.view.MotionEvent
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebSettings
