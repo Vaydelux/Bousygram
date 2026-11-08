@@ -1,10 +1,62 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExtrasForegroundPlaybackIntentTest {
+    @Test fun engineHandoffKeepsExplicitPauseInsteadOfAutoplaying() {
+        val pausedMedia3 = extrasMedia3Handoff(
+            positionMs = 42_000L, seekable = true, playWhenReady = false,
+            failed = false, ended = false
+        )
+        assertFalse(pausedMedia3.playRequested)
+        assertEquals(42_000L, pausedMedia3.positionMs)
+
+        val pausedVlc = extrasLibVlcHandoff(ExtrasLibVlcControlState(
+            positionMs = 35_000L, seekable = true, playRequested = false
+        ))
+        assertFalse(pausedVlc.playRequested)
+        assertEquals(35_000L, pausedVlc.positionMs)
+    }
+
+    @Test fun bufferingPlayIntentSurvivesEngineHandoff() {
+        // isPlaying is intentionally absent: buffering must not be mistaken for Pause.
+        val media3 = extrasMedia3Handoff(
+            positionMs = 20_000L, seekable = true, playWhenReady = true,
+            failed = false, ended = false
+        )
+        assertTrue(media3.playRequested)
+        val vlc = extrasLibVlcHandoff(ExtrasLibVlcControlState(
+            positionMs = 21_000L, seekable = true,
+            playing = false, playRequested = true
+        ))
+        assertTrue(vlc.playRequested)
+        assertEquals(21_000L, vlc.positionMs)
+    }
+
+    @Test fun failedEndedAndNonseekableHandoffsFailSafe() {
+        val failed = extrasMedia3Handoff(
+            positionMs = 8_000L, seekable = true, playWhenReady = true,
+            failed = true, ended = false
+        )
+        val ended = extrasMedia3Handoff(
+            positionMs = 9_000L, seekable = true, playWhenReady = true,
+            failed = false, ended = true
+        )
+        val nonseekable = extrasLibVlcHandoff(ExtrasLibVlcControlState(
+            positionMs = 123_000L, seekable = false, playRequested = true
+        ))
+        assertFalse(failed.playRequested)
+        assertFalse(ended.playRequested)
+        assertEquals(0L, nonseekable.positionMs)
+        assertTrue(nonseekable.playRequested)
+        assertFalse(extrasLibVlcHandoff(ExtrasLibVlcControlState(
+            playRequested = true, failed = true
+        )).playRequested)
+    }
+
     @Test fun activePlaybackRestoresOnlyOnceAfterActivityStops() {
         val intent = ExtrasForegroundPlaybackIntent()
         assertFalse(intent.onForeground())
