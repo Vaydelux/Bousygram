@@ -22,6 +22,40 @@ class ExtrasPagingWindowTest {
         }
     }
 
+    @Test fun memoryTrimAlwaysProtectsTheCurrentlyVisibleTab() {
+        for (savedActive in listOf(-1, 0, 1, 2, 99, Int.MAX_VALUE)) {
+            val active = ExtrasPagingWindow.activeTabIndex(savedActive)
+            for (tab in ExtrasType.entries) {
+                val shouldTrim = ExtrasPagingWindow.shouldReleaseDormantPosters(
+                    savedActive, tab
+                )
+                assertEquals(
+                    "Incorrect trim target for active $savedActive and candidate $tab",
+                    tab.ordinal != active, shouldTrim
+                )
+            }
+        }
+    }
+
+    @Test fun repeatedDormantTrimIsIdentityNoOpAfterReleasingPosters() {
+        val original = TabState(
+            query = "Remember my search",
+            results = listOf(item(1), item(2)),
+            page = 3,
+            droppedResults = 21
+        )
+        val first = original.releaseDormantPosters()
+        assertTrue(first.results.isEmpty())
+        assertEquals("Remember my search", first.query)
+        assertTrue(
+            "Repeated OS pressure events should not allocate a redundant tab snapshot",
+            first === first.releaseDormantPosters()
+        )
+        val empty = TabState()
+        assertTrue("Fresh default tab requires no trim allocation",
+            empty === empty.releaseDormantPosters())
+    }
+
     @Test fun arm32WindowNeverRetainsMoreThan120UniquePostersDuringLongSession() {
         val limit = ExtrasPagingWindow.itemLimit(lowMemory = true)
         assertEquals(120, limit)
