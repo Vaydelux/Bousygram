@@ -256,3 +256,44 @@ These changes are not proof of third-party provider compatibility, subtitle
 rendering correctness on a real TV, or qualified long-session memory PSS.
 The Extras LibVLC release gate remains disabled, and the MediaForge PR must
 remain draft until hardware/authorization checks are completed.
+
+## Playback-intent and source-refresh hardening — November 8
+
+Engine changes and LibVLC subtitle re-creation now transfer both a seek position and
+**the user's Play/Pause request**. A manual Pause remains paused; buffering with
+Play requested still permits playback to continue. Failed/ended sessions do not
+silently autoplay the next native engine. An unseekable source starts at position 0
+instead of presenting an unverified seek as successful.
+
+- Media3: initial `playWhenReady` respects the transferred request, not merely
+  whether the Activity is STARTED.
+- LibVLC: fresh sessions do not call native `play()` on attachment when the
+  transferred intent is Pause. A later user Play starts the decoder and processes
+  the pending bounded initial seek.
+- Subtitle dialogs capture the native state without recreating the active LibVLC
+  session until a different caption is actually selected.
+- Previously chosen LibVLC cannot be launched for HLS/DASH/MPEG-TS or production-
+  disabled native playback. The source picker resolves to guarded Media3 instead.
+- Returning to the WebView invalidates approved provider URLs and discovered
+  captions; sources must be observed and preflighted again after browser restart.
+  This avoids exposing stale, expired or session-scoped signed URLs as playable.
+
+The JVM unit tests cover paused, buffering, failed, ended, unsupported-engine
+and nonseekable handoff policy. **Required device test scenarios still NOT RUN:**
+
+1. Pause in Media3 at a known timestamp, switch to LibVLC, confirm no automatic
+   audio/video starts, then press Play and verify the seek is restored.
+2. Pause in LibVLC, switch to Media3 and verify it is paused at the saved position;
+   repeat while buffering with Play requested and verify playback eventually resumes.
+3. Change subtitles while LibVLC is paused and again while playing. Verify the
+   active decoder is not torn down merely from opening/canceling the dialog.
+4. Switch from a selected debug LibVLC MP4 to an HLS/DASH source and verify the
+   picker changes to Media3, without entering an unsupported LibVLC failure screen.
+5. Return from native playback to WebView. Confirm the source picker requires
+   discovery/preflight again, and no old signed stream is reused.
+6. Perform these checks on a physical armeabi-v7a Android TV and arm64-v8a TV;
+   repeat a short phone/tablet lifecycle and keyboard/touch smoke test.
+
+This work changes only Extras and does **not** qualify third-party embed playback,
+native rendered frames, rights/DRM, or production Extras LibVLC. Keep the draft PR
+and release gates until exact-head CI and physical evidence are complete.
