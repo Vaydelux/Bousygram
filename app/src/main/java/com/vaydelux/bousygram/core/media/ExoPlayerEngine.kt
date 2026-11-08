@@ -126,15 +126,15 @@ class ExoPlayerEngine(
 
     override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
         if (isReleased.get()) return false
-        activeAudioProfile = profile.copy(customGainsDb = profile.sanitizedGains)
+        activeAudioProfile = AudioProcessingProfile(smartVolume = profile.smartVolume)
         if (player.mediaItemCount == 0) {
             // A retained Media3 session ID does not indicate audible output.
             releaseAudioFx()
             releaseSmartVolume()
             markEffectsWaitingForOutput()
-            return !profile.preset.isEnabled && profile.smartVolume == SmartVolumeMode.OFF
+            return profile.smartVolume == SmartVolumeMode.OFF
         }
-        val equalizerApplied = applyAudioEqualizer(profile.preset)
+        val equalizerApplied = applyAudioEqualizer(AudioEqualizerPreset.ORIGINAL)
         val volumeApplied = applySmartVolume(profile.smartVolume)
         return equalizerApplied && volumeApplied
     }

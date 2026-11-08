@@ -13,6 +13,8 @@ import com.vaydelux.bousygram.core.media.PlaybackRetryDecision
 import com.vaydelux.bousygram.core.media.PlaybackSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.TelegramProxyPlayerFactory
+import com.vaydelux.bousygram.core.media.PlaybackPresentationState
+import com.vaydelux.bousygram.core.media.playbackPresentationState
 import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.StructuredPlaybackLogger
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
@@ -58,14 +60,14 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             PlaybackSessionController.setVideoPlaying(
                 isPlaying || (playRequested && player.playbackState == Player.STATE_BUFFERING)
             )
-            if (!playRequested && player.playbackState == Player.STATE_READY) {
-                setState(VideoPlayerUiState.Paused)
+            if (player.playbackState == Player.STATE_READY) {
+                reportReadyDecoderState()
             }
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (!playWhenReady && player.playbackState == Player.STATE_READY) {
-                setState(VideoPlayerUiState.Paused)
+            if (player.playbackState == Player.STATE_READY) {
+                reportReadyDecoderState()
             }
         }
 
@@ -79,7 +81,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     if (player.currentPosition > 0L) {
                         lastGoodPositionMs = player.currentPosition
                     }
-                    setState(if (player.playWhenReady) VideoPlayerUiState.Playing else VideoPlayerUiState.Paused)
+                    reportReadyDecoderState()
                 }
                 Player.STATE_ENDED -> setState(VideoPlayerUiState.Ended)
                 Player.STATE_IDLE -> {
@@ -190,11 +192,34 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         super.onCleared()
     }
 
+    /**
+     * Media3 STATE_READY means the decoder is prepared, not necessarily
+     * producing output (for example after a seek or audio-focus suppression).
+     * A late Ready event must not revive playback after an explicit Pause.
+     */
+    private fun reportReadyDecoderState() {
+        when (playbackPresentationState(
+            ready = true,
+            playWhenReady = player.playWhenReady,
+            isPlaying = player.isPlaying
+        )) {
+            PlaybackPresentationState.PAUSED -> setState(VideoPlayerUiState.Paused)
+            PlaybackPresentationState.PLAYING -> setState(VideoPlayerUiState.Playing)
+            PlaybackPresentationState.BUFFERING -> showBufferingDebounced()
+        }
+    }
+
     private fun showBufferingDebounced() {
         bufferingJob?.cancel()
         bufferingJob = viewModelScope.launch {
             delay(BUFFERING_DEBOUNCE_MS)
-            if (player.playbackState == Player.STATE_BUFFERING && player.playWhenReady) {
+            // READY without a decoded output is also waiting, not Playing.
+            // A user Pause before the debounce expires must always win.
+            if (player.playWhenReady && (
+                    player.playbackState == Player.STATE_BUFFERING ||
+                    (player.playbackState == Player.STATE_READY && !player.isPlaying)
+                )
+            ) {
                 _uiState.value = VideoPlayerUiState.Buffering
             }
         }
@@ -208,6 +233,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private fun fallbackToLowerQuality(): Boolean {
         if (activeOptionIndex >= activeOptions.lastIndex) return false
         val resumePosition = maxOf(player.currentPosition, lastGoodPositionMs).coerceAtLeast(0L)
+        val autoPlay = player.playWhenReady
         activeOptionIndex++
         val nextOption = activeOptions[activeOptionIndex]
         activeSession?.let {
@@ -219,18 +245,19 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             "Restarting adaptive playback at ${nextOption.quality}p fileId=${nextOption.fileId} " +
                 "position=$resumePosition"
         )
-        setState(VideoPlayerUiState.Buffering)
+        setState(if (autoPlay) VideoPlayerUiState.Buffering else VideoPlayerUiState.Paused)
         tdLibClient?.let { TelegramPreCacheEngine.primeVideoCache(it, nextOption.fileId) }
-        playOption(nextOption, resumePosition)
+        playOption(nextOption, resumePosition, autoPlay)
         return true
     }
 
     private fun retryCurrentQuality(decision: PlaybackRetryDecision): Boolean {
-        if (currentErrorRetryCount >= 1 && decision != PlaybackRetryDecision.CacheFirstRetry) return false
+        if (!shouldRetryCurrentQuality(currentErrorRetryCount, decision)) return false
         val option = activeOptions.getOrNull(activeOptionIndex) ?: return false
         val resumePosition = maxOf(player.currentPosition, lastGoodPositionMs).coerceAtLeast(0L)
+        val autoPlay = player.playWhenReady
         currentErrorRetryCount++
-        setState(VideoPlayerUiState.Buffering)
+        setState(if (autoPlay) VideoPlayerUiState.Buffering else VideoPlayerUiState.Paused)
         activeSession?.let { session ->
             if (decision == PlaybackRetryDecision.CacheFirstRetry) {
                 val size = LocalStreamingServer.resolveFileSize(option.fileId)
@@ -244,20 +271,27 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
         tdLibClient?.let { TelegramPreCacheEngine.primeVideoCache(it, option.fileId) }
-        playOption(option, resumePosition)
+        playOption(option, resumePosition, autoPlay)
         return true
     }
 
-    private fun playOption(option: VideoResolutionOption, resumePositionMs: Long) {
+    private fun playOption(
+        option: VideoResolutionOption,
+        resumePositionMs: Long,
+        autoPlay: Boolean = true
+    ) {
         player.stop()
         player.clearMediaItems()
         activeSession = PlaybackSessionController.start(option.fileId, resumePositionMs)
         player.setMediaItem(MediaItem.fromUri(TelegramProxyManager.baseStreamUrl(option.fileId)))
+        // An error/reconnect arriving after user Pause or Activity ON_STOP
+        // cannot silently re-arm playback during the new prepare.
+        player.playWhenReady = autoPlay
         player.prepare()
         if (resumePositionMs > 0L) {
             player.seekTo(resumePositionMs)
         }
-        player.play()
+        if (autoPlay) player.play() else player.pause()
     }
 
     private fun primeActiveOption() {

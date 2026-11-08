@@ -4,7 +4,9 @@ Updated: 2026-11-04
 
 ## Product boundary
 
-Extras is **native, metadata-only discovery** on Android TV, phone and tablet.
+Extras catalog remains **native metadata discovery** on Android TV, phone and tablet.
+
+An opt-in, separately scoped MediaForge WebBridge feature now offers a third-party embedded page for Movies or individual TV episodes. It is separate from TMDB/AniList metadata, and never uses Telegram playback credentials, session objects or media gateways. See [MediaForge integration](MEDIAFORGE_EXTRAS_INTEGRATION.md). Provider content rights and availability must be verified before public distribution.
 Telegram Media (TDLib, Media3/ExoPlayer, private account state, chat IDs,
 streaming gateway, playback queue) is not queried or modified by Extras.
 
@@ -263,3 +265,8 @@ during a long browsing session even though the grid itself is lazily composed.
   chat/message key has left the bounded active catalog. Neither action fabricates
   catalog data or requires provider credentials.
 - Offline JVM and Compose D-pad regression cases cover fallback identity and page action.
+
+
+## Supplement (MediaForge opt-in feature)
+
+This file describes pre-MediaForge metadata behavior; the new opt-in embedded source UX is documented separately in MEDIAFORGE_EXTRAS_INTEGRATION.md.

@@ -133,6 +133,33 @@ class ExtrasProviderPolicyTest {
         assertNull(ExtrasProviderPolicy.safeExternalHttps("https://internal.local/video"))
     }
 
+    @Test fun providerExternalLinksRejectPrivateDnsAliasAndTrailingDotBypass() {
+        for (url in listOf(
+            "https://tv.localdomain/watch/123",
+            "https://nas.lan/watch/123",
+            "https://router.home/watch/123",
+            "https://router.internal/watch/123",
+            "https://tv.home.arpa/watch/123",
+            "https://cdn.example.org./watch/123",
+            "https://television.local./watch/123",
+            "https://example.test/watch/123",
+            "https://2130706433/watch/123",
+            "https://[::1]/watch/123",
+            "https://example.org:8443/watch/123"
+        )) {
+            assertNull("Private/local provider URL should be rejected: $url",
+                ExtrasProviderPolicy.safeExternalHttps(url))
+        }
+        assertEquals("https://www.crunchyroll.com/watch/123?s=1",
+            ExtrasProviderPolicy.safeExternalHttps(
+                "https://www.crunchyroll.com/watch/123?s=1"
+            ))
+        assertEquals("https://example.org:443/watch/123",
+            ExtrasProviderPolicy.safeExternalHttps(
+                "https://example.org:443/watch/123"
+            ))
+    }
+
     @Test fun anilistNativeFiltersRemainProviderSpecific() {
         assertTrue(ExtrasProviderPolicy.animeFormats().contains("TV" to "TV"))
         assertTrue(ExtrasProviderPolicy.animeFormats().contains("Movie" to "MOVIE"))

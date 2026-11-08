@@ -35,11 +35,133 @@ class PlaybackCoreLifecycleTest {
     }
 
     @Test
+    fun startupTimeoutCountsOnlyActiveForegroundPlaybackTime() {
+        val budget = PlaybackStartupActiveBudget(20_000L)
+        assertFalse(budget.tick(1_000L, eligible = true))
+        assertFalse(budget.tick(9_000L, eligible = true))
+        assertFalse(budget.tick(9_500L, eligible = false)) // user paused
+        assertFalse(budget.tick(360_000L, eligible = false)) // backgrounded
+        assertFalse(budget.tick(361_000L, eligible = true)) // resume boundary
+        assertFalse(budget.tick(371_000L, eligible = true)) // 18s eligible
+        assertTrue(budget.tick(373_000L, eligible = true)) // 20s eligible
+        assertTrue(budget.tick(374_000L, eligible = false)) // exhausted stays exhausted
+    }
+
+    @Test
+    fun startupTimeoutIgnoresClockRollbackAndNeverOverflows() {
+        val budget = PlaybackStartupActiveBudget(45_000L)
+        assertFalse(budget.tick(5_000L, eligible = true))
+        assertFalse(budget.tick(4_000L, eligible = true))
+        assertFalse(budget.tick(10_000L, eligible = true))
+        assertFalse(budget.tick(10_000L, eligible = false))
+        assertFalse(budget.tick(Long.MAX_VALUE - 2L, eligible = false))
+        assertFalse(budget.tick(Long.MAX_VALUE - 1L, eligible = true))
+        assertFalse(budget.tick(Long.MAX_VALUE, eligible = true))
+        val saturated = PlaybackStartupActiveBudget(45_000L)
+        assertFalse(saturated.tick(0L, eligible = true))
+        assertTrue(saturated.tick(Long.MAX_VALUE, eligible = true))
+    }
+
+    @Test
     fun readyEngineRetriesOnlyWhileUserWantsPlayback() {
         assertTrue(shouldReassertPlaybackOnReady(ready = true, playWhenReady = true, isPlaying = false))
         assertFalse(shouldReassertPlaybackOnReady(ready = false, playWhenReady = true, isPlaying = false))
         assertFalse(shouldReassertPlaybackOnReady(ready = true, playWhenReady = false, isPlaying = false))
         assertFalse(shouldReassertPlaybackOnReady(ready = true, playWhenReady = true, isPlaying = true))
+    }
+
+    @Test
+    fun transportUiOnlyClaimsPlayingAfterOutputAndNeverOverridesManualPause() {
+        // Shared intent-first policy for ExoPlayer, libmpv and LibVLC.
+        assertEquals(
+            PlaybackPresentationState.BUFFERING,
+            playbackPresentationState(ready = false, playWhenReady = true, isPlaying = false)
+        )
+        assertEquals(
+            PlaybackPresentationState.BUFFERING,
+            playbackPresentationState(ready = true, playWhenReady = true, isPlaying = false)
+        )
+        assertEquals(
+            PlaybackPresentationState.BUFFERING,
+            playbackPresentationState(ready = false, playWhenReady = true, isPlaying = true)
+        )
+        assertEquals(
+            PlaybackPresentationState.PLAYING,
+            playbackPresentationState(ready = true, playWhenReady = true, isPlaying = true)
+        )
+        // Native output flags can stay stale briefly after a user or lifecycle Pause.
+        for (ready in listOf(false, true)) {
+            for (nativePlaying in listOf(false, true)) {
+                assertEquals(
+                    PlaybackPresentationState.PAUSED,
+                    playbackPresentationState(
+                        ready = ready, playWhenReady = false, isPlaying = nativePlaying
+                    )
+                )
+            }
+        }
+    }
+
+    @Test
+    fun nativeOutputReconciliationWorksWithoutASecondReadyEmission() {
+        val session = PlaybackSession(sampleQueue(1))
+        val machine = PlaybackStateMachine()
+        assertTrue(machine.onPreparing(session, session.currentItem))
+        assertTrue(machine.onBuffering(session, 0L, 60_000L))
+
+        // Ready has already fired, but isPlaying is not true yet.
+        assertFalse(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = true, isPlaying = false
+        ))
+        assertTrue(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = true, isPlaying = true
+        ))
+        assertTrue(machine.onPlaying(session, 500L, 60_000L))
+        assertFalse(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = true, isPlaying = true
+        ))
+
+        // A native rebuffer that never re-emits READY must not stay Playing.
+        assertTrue(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = true, isPlaying = false
+        ))
+        assertTrue(machine.onBuffering(session, 500L, 60_000L))
+        assertTrue(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = false, isPlaying = false
+        ))
+        assertTrue(machine.onPaused(session, 500L, 60_000L))
+        assertFalse(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = false, isPlaying = true
+        ))
+        assertFalse(needsPlaybackPresentationReconciliation(
+            PlaybackCoreState.Idle, ready = true, playWhenReady = true, isPlaying = true
+        ))
+        assertFalse(needsPlaybackPresentationReconciliation(
+            PlaybackCoreState.Ending(session, session.currentItem),
+            ready = true, playWhenReady = true, isPlaying = true
+        ))
+    }
+
+    @Test
+    fun pausedPresentationSurvivesLateBufferingEventAndExplicitResume() {
+        val machine = PlaybackStateMachine()
+        val item = sampleQueue(1).single()
+        val session = PlaybackSession(listOf(item))
+        assertTrue(machine.onPreparing(session, item))
+        assertTrue(machine.onPaused(session, 12_000L, 60_000L))
+        val latePhase = playbackPresentationState(
+            ready = false, playWhenReady = false, isPlaying = false
+        )
+        if (latePhase == PlaybackPresentationState.PAUSED) {
+            machine.onPaused(session, 12_000L, 60_000L)
+        } else {
+            machine.onBuffering(session, 12_000L, 60_000L)
+        }
+        assertTrue(machine.isPaused)
+        assertTrue(machine.onBuffering(session, 12_000L, 60_000L))
+        assertTrue(machine.isBuffering)
+        assertTrue(machine.onPlaying(session, 12_200L, 60_000L))
+        assertTrue(machine.isPlaying)
     }
 
     @Test

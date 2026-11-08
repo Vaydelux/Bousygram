@@ -106,6 +106,16 @@ jobs:
         shell: bash
         run: bash tools/ci/test_debug_prerelease_tag.sh
 
+      # The pinned wrapper's runtime verification invokes Java. Provision the
+      # explicit supported JDK first; ubuntu-latest may change default Java.
+      # Wrapper file/hash integrity and negative fixtures are still required.
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
       - name: Validate Gradle wrapper
         shell: bash
         run: bash tools/ci/verify_gradle_wrapper.sh
@@ -113,13 +123,6 @@ jobs:
       - name: Run Gradle wrapper negative fixtures
         shell: bash
         run: bash tools/ci/test_gradle_wrapper_validation.sh
-
-      - name: Set up Java
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
@@ -131,6 +134,23 @@ jobs:
       - name: Run Android SDK resolver negative fixtures
         shell: bash
         run: bash tools/ci/test_android_sdk_setup.sh
+
+      # API keys are never exposed to pull_request builds. Only trusted manual
+      # workflow dispatches and pushes to main may bake TMDB v3 into debug APKs.
+      # APK contents are publicly inspectable: this protects CI storage, not the key.
+      - name: Configure TMDB v3 API key for trusted debug builds
+        if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+        shell: bash
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
+            chmod 600 .env
+          else
+            echo "::notice::TMDB_API_KEY repository secret is not configured. This debug APK will use the placeholder key."
+          fi
 
       - name: Run required Gradle verification
         shell: bash
@@ -144,6 +164,8 @@ jobs:
             :app:verifySensitiveLogRedaction \
             :app:verifyTdlibBindingCompatibility \
             :app:compileDebugKotlin \
+            :mediaforge-core:testDebugUnitTest \
+            :mediaforge-player-adapters:testDebugUnitTest \
             :app:lintDebug \
             :app:testDebugUnitTest \
             :app:assembleDebug \
@@ -162,6 +184,9 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
           path: |
+            mediaforge-core/build/test-results/testDebugUnitTest/**/*.xml
+            mediaforge-player-adapters/build/test-results/testDebugUnitTest/**/*.xml
+            mediaforge-core/build/reports/tests/testDebugUnitTest/**
             app/build/test-results/testDebugUnitTest/**/*.xml
             app/build/reports/tests/testDebugUnitTest/**
             app/build/reports/lint-results-debug.html
@@ -202,6 +227,23 @@ jobs:
       - name: Install Android SDK dependencies
         shell: bash
         run: bash tools/ci/setup_android_sdk.sh
+
+      # API keys are never exposed to pull_request builds. Only trusted manual
+      # workflow dispatches and pushes to main may bake TMDB v3 into debug APKs.
+      # APK contents are publicly inspectable: this protects CI storage, not the key.
+      - name: Configure TMDB v3 API key for trusted debug builds
+        if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+        shell: bash
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
+            chmod 600 .env
+          else
+            echo "::notice::TMDB_API_KEY repository secret is not configured. This debug APK will use the placeholder key."
+          fi
 
       - name: Build all supported debug APK architectures
         shell: bash

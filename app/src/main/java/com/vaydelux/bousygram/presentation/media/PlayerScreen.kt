@@ -150,6 +150,7 @@ import com.vaydelux.bousygram.core.media.hasConfirmedVideoProgress
 import com.vaydelux.bousygram.core.media.ExoPlayerEngine
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.shouldFailPlaybackStartup
+import com.vaydelux.bousygram.core.media.PlaybackStartupActiveBudget
 import com.vaydelux.bousygram.core.media.ContainerHeaderParser
 import com.vaydelux.bousygram.core.media.MpegTsDurationParser
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
@@ -199,6 +200,7 @@ import kotlinx.coroutines.withContext
 private const val SEEK_INCREMENT_MS = 10_000L
 private const val BUFFERING_STALL_MS = 22_000L
 private const val MAX_AUTO_RETRIES = 5
+private const val MAX_PREMATURE_EOF_RETRIES = 2
 private const val CACHE_AHEAD_REFRESH_MS = 10_000L
 
 @OptIn(UnstableApi::class)
@@ -321,6 +323,9 @@ fun PlayerScreen(
     var playbackError by remember { mutableStateOf<String?>(null) }
     var reloadNonce by remember { mutableIntStateOf(0) }
     var retryCount by remember { mutableIntStateOf(0) }
+    // Separate from IO/decoder retry budget. New media resets it; reprepare
+    // must not reset it or malformed EOF can loop forever.
+    var prematureEofRetryCount by remember(request, queueIndex) { mutableIntStateOf(0) }
     var rebufferCount by remember { mutableIntStateOf(0) }
     val progressCheckpoint = remember(playbackSession) { PlaybackProgressCheckpoint() }
     var lastGoodPosition by remember { mutableLongStateOf(0L) }
@@ -864,6 +869,7 @@ fun PlayerScreen(
         onResetAndStop = {
             reloadNonce = 0
             retryCount = 0
+            prematureEofRetryCount = 0
             pendingResumeMs = 0L
             lastGoodPosition = 0L
             lastAheadPrefetchPosition = 0L
@@ -1130,10 +1136,68 @@ fun PlayerScreen(
                             exitPlayback()
                         }
                     } else {
-                        Log.w("PlayerScreen", "Premature EOF detected at ${playerEngine.currentPositionMs}ms of ${duration}ms; guarding against premature track skip")
-                        isReconnecting = true
-                        isBuffering = true
-                        reloadNonce++
+                        Log.w(
+                            "PlayerScreen",
+                            "Premature EOF at ${playerEngine.currentPositionMs}ms / ${duration}ms; " +
+                                "recovery attempt ${prematureEofRetryCount + 1}"
+                        )
+                        val eligible = shouldRetryPrematurePlaybackEnd(
+                            retriesSoFar = prematureEofRetryCount,
+                            maximumRetries = MAX_PREMATURE_EOF_RETRIES,
+                            inForeground = lifecycleOwner.lifecycle.currentState
+                                .isAtLeast(Lifecycle.State.RESUMED),
+                            explicitlyPaused = explicitlyPaused,
+                            castConnected = castState.connected
+                        )
+                        if (eligible) {
+                            prematureEofRetryCount++
+                            isReconnecting = true
+                            isBuffering = true
+                            val expectedIndex = queueIndex
+                            val expectedNonce = reloadNonce
+                            val fileIdAtEof = current.fileId
+                            val recoveryDelayMs = autoRetryDelayMs(prematureEofRetryCount)
+                            scope.launch {
+                                delay(recoveryDelayMs)
+                                // An old EOF retry must never restart a newer
+                                // episode, a manual Pause, or a Cast session.
+                                if (queueIndex == expectedIndex &&
+                                    reloadNonce == expectedNonce &&
+                                    queue.getOrNull(expectedIndex)?.fileId == fileIdAtEof &&
+                                    playbackError == null
+                                ) {
+                                    if (shouldRetryPrematurePlaybackEnd(
+                                            retriesSoFar = prematureEofRetryCount - 1,
+                                            maximumRetries = MAX_PREMATURE_EOF_RETRIES,
+                                            inForeground = lifecycleOwner.lifecycle.currentState
+                                                .isAtLeast(Lifecycle.State.RESUMED),
+                                            explicitlyPaused = explicitlyPaused,
+                                            castConnected = castState.connected
+                                        )
+                                    ) {
+                                        reloadNonce++
+                                    } else {
+                                        isReconnecting = false
+                                        isBuffering = false
+                                        playbackError = "Playback stopped unexpectedly. Select Retry when ready."
+                                        hudVisible = true
+                                    }
+                                }
+                            }
+                        } else {
+                            isReconnecting = false
+                            isBuffering = false
+                            val message = if (prematureEofRetryCount >= MAX_PREMATURE_EOF_RETRIES) {
+                                "Video ended before reaching its expected position after recovery attempts. Try Retry or another player."
+                            } else {
+                                "Playback stopped unexpectedly. Select Retry when ready."
+                            }
+                            playbackError = message
+                            PlaybackDiagnostics.recordStreamError("PrematureEndOfFile")
+                            hudVisible = true
+                            playbackSession.onError(message, null, current)
+                            commitPlaybackTelemetry(fatalError = message)
+                        }
                     }
                 }
                 is EnginePlaybackState.Error -> {
@@ -1640,12 +1704,22 @@ fun PlayerScreen(
     LaunchedEffect(request, queueIndex, reloadNonce) {
         while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
         if (playerStartedAtMs <= 0L || playbackError != null) return@LaunchedEffect
-        val startedAt = playerStartedAtMs
         val trackedEngine = playerEngine
+        val budget = PlaybackStartupActiveBudget(20_000L)
+        fun eligibleForStartup(): Boolean = !explicitlyPaused &&
+            playerEngine.playWhenReady && !castState.connected &&
+            !audioFocusController.isSuppressed &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        budget.tick(android.os.SystemClock.elapsedRealtime(), eligibleForStartup())
         while (playbackError == null && playerEngine === trackedEngine &&
-            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) &&
-            System.currentTimeMillis() - startedAt < 20_000L
-        ) delay(500L)
+            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)
+        ) {
+            delay(500L)
+            if (budget.tick(
+                    android.os.SystemClock.elapsedRealtime(), eligibleForStartup()
+                )
+            ) break
+        }
         val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
         val container = VideoFormatSupport.resolveContainer(
             current.fileName, current.mimeType, current.title
@@ -1654,6 +1728,7 @@ fun PlayerScreen(
             VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
         if (needsCompatibility && playerEngine === trackedEngine &&
             playerEngine is ExoPlayerEngine && !hasFallenBackToMpv &&
+            eligibleForStartup() &&
             !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) && playbackError == null
         ) {
             hasFallenBackToMpv = true
@@ -1676,11 +1751,22 @@ fun PlayerScreen(
         while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
         val trackedEngine = playerEngine
         val trackedStartMs = playerStartedAtMs
+        val budget = PlaybackStartupActiveBudget(45_000L)
+        fun eligibleForStartup(): Boolean = !explicitlyPaused &&
+            playerEngine.playWhenReady && !castState.connected &&
+            !audioFocusController.isSuppressed &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        budget.tick(android.os.SystemClock.elapsedRealtime(), eligibleForStartup())
         while (playerEngine === trackedEngine && playerStartedAtMs == trackedStartMs &&
-            playbackError == null && !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) &&
-            System.currentTimeMillis() - trackedStartMs < 45_000L
-        ) delay(500L)
-        if (shouldFailPlaybackStartup(
+            playbackError == null && !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)
+        ) {
+            delay(500L)
+            if (budget.tick(
+                    android.os.SystemClock.elapsedRealtime(), eligibleForStartup()
+                )
+            ) break
+        }
+        if (eligibleForStartup() && shouldFailPlaybackStartup(
                 sameEngine = playerEngine === trackedEngine,
                 sameStartTimestamp = playerStartedAtMs == trackedStartMs,
                 hasInitialOutput = hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs),
@@ -2450,6 +2536,7 @@ fun PlayerScreen(
                 onRetry = {
                     hudInteractionTick++
                     retryCount = 0
+                    prematureEofRetryCount = 0
                     isReconnecting = true
                     lastGoodPosition = recoveryPositionMs(
                         pendingSeekTargetMs, playerEngine.currentPositionMs, lastGoodPosition
@@ -2558,6 +2645,7 @@ fun PlayerScreen(
             TrackPickerOverlay(
                 playerEngine = playerEngine,
                 compact = compactHud,
+                isTv = tvChrome,
                 subtitleAppearance = subtitleAppearance,
                 audioProfile = audioProfile,
                 castAudioActive = castState.connected,
@@ -3307,6 +3395,7 @@ private fun VideoDebugHud(
 private fun TrackPickerOverlay(
     playerEngine: PlayerEngine,
     compact: Boolean,
+    isTv: Boolean,
     subtitleAppearance: SubtitleAppearance,
     audioProfile: AudioProcessingProfile,
     castAudioActive: Boolean,
@@ -3327,20 +3416,21 @@ private fun TrackPickerOverlay(
 
     Surface(
         modifier = modifier
-            .padding(if (compact) 12.dp else 28.dp)
-            .widthIn(max = 420.dp)
-            .fillMaxWidth(if (compact) 0.94f else 0.42f)
+            .padding(if (isTv) 24.dp else if (compact) 12.dp else 28.dp)
+            .widthIn(max = if (isTv) 760.dp else 420.dp)
+            .fillMaxWidth(if (isTv) 0.72f else if (compact) 0.94f else 0.42f)
             .focusGroup(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        shape = RoundedCornerShape(24.dp),
-        shadowElevation = 20.dp
+        color = if (isTv) Color(0xFF0C1727) else MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+        contentColor = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(if (isTv) 20.dp else 24.dp),
+        shadowElevation = if (isTv) 28.dp else 20.dp
     ) {
         Column(
             Modifier
-                .heightIn(max = if (compact) 420.dp else 620.dp)
+                .heightIn(max = if (isTv) 700.dp else if (compact) 420.dp else 620.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(if (isTv) 24.dp else 18.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 16.dp else 10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -3350,28 +3440,37 @@ private fun TrackPickerOverlay(
                         MediaTrackInfo.TrackType.VIDEO -> "Video Streams"
                     },
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    fontSize = if (isTv) 28.sp else 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface
                 )
                 BousygramButton("Close", onClose)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BousygramButton(
-                    "CC · Subtitles",
-                    { selectedType = MediaTrackInfo.TrackType.SUBTITLE },
-                    selected = selectedType == MediaTrackInfo.TrackType.SUBTITLE
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)
+            ) {
+                TrackChoice(
+                    label = "CC  Subtitles",
+                    selected = selectedType == MediaTrackInfo.TrackType.SUBTITLE,
+                    isTv = isTv,
+                    modifier = Modifier.weight(1f),
+                    onSelect = { selectedType = MediaTrackInfo.TrackType.SUBTITLE }
                 )
-                BousygramButton(
-                    "♫ Audio",
-                    { selectedType = MediaTrackInfo.TrackType.AUDIO },
-                    selected = selectedType == MediaTrackInfo.TrackType.AUDIO
+                TrackChoice(
+                    label = "♫  Audio",
+                    selected = selectedType == MediaTrackInfo.TrackType.AUDIO,
+                    isTv = isTv,
+                    modifier = Modifier.weight(1f),
+                    onSelect = { selectedType = MediaTrackInfo.TrackType.AUDIO }
                 )
-                val videoTracks = tracks.filter { it.type == MediaTrackInfo.TrackType.VIDEO }
-                if (videoTracks.size > 1) {
-                    BousygramButton(
-                        "⚙ Streams",
-                        { selectedType = MediaTrackInfo.TrackType.VIDEO },
-                        selected = selectedType == MediaTrackInfo.TrackType.VIDEO
+                if (tracks.count { it.type == MediaTrackInfo.TrackType.VIDEO } > 1) {
+                    TrackChoice(
+                        label = "Video",
+                        selected = selectedType == MediaTrackInfo.TrackType.VIDEO,
+                        isTv = isTv,
+                        modifier = Modifier.weight(1f),
+                        onSelect = { selectedType = MediaTrackInfo.TrackType.VIDEO }
                     )
                 }
             }
@@ -3387,9 +3486,16 @@ private fun TrackPickerOverlay(
             }
 
             if (selectedType == MediaTrackInfo.TrackType.SUBTITLE) {
+                Text(
+                    "Select a subtitle track",
+                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                    fontSize = if (isTv) 20.sp else 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
                 TrackChoice(
-                    label = "Off",
+                    label = "Off · No subtitles",
                     selected = !hasSelectedTrack,
+                    isTv = isTv,
                     modifier = Modifier.focusRequester(firstChoiceFocus),
                     onSelect = {
                         playerEngine.deselectTrack(MediaTrackInfo.TrackType.SUBTITLE)
@@ -3405,32 +3511,47 @@ private fun TrackPickerOverlay(
                 )
             }
 
+            // Place actual track choices before appearance settings so TV
+            // users can read/select tracks without navigating offscreen.
+            visibleTracks.forEachIndexed { index, track ->
+                TrackChoice(
+                    label = track.name,
+                    selected = track.isSelected,
+                    isTv = isTv,
+                    modifier = if (index == 0 && selectedType != MediaTrackInfo.TrackType.SUBTITLE)
+                        Modifier.focusRequester(firstChoiceFocus) else Modifier,
+                    onSelect = { playerEngine.selectTrack(track) }
+                )
+            }
+
             if (selectedType == MediaTrackInfo.TrackType.SUBTITLE &&
                 playerEngine !is ExoPlayerEngine && playerEngine !is MpvPlayerEngine
             ) {
                 Text(
                     "LibVLC supports subtitle tracks. Custom caption colors and sizing currently use ExoPlayer/libmpv.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
+                    color = if (isTv) Color(0xFFD3DFEC) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = if (isTv) 17.sp else 13.sp
                 )
             }
             if (selectedType == MediaTrackInfo.TrackType.SUBTITLE &&
                 (playerEngine is ExoPlayerEngine || playerEngine is MpvPlayerEngine)
             ) {
                 Text(
-                    "Text subtitle appearance",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium
+                    "Subtitle appearance",
+                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                    fontSize = if (isTv) 20.sp else 16.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "Embedded image subtitles and video-burned captions cannot be recolored.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall
+                    "Bitmap and burned-in captions cannot change appearance.",
+                    color = if (isTv) Color(0xFFD3DFEC) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = if (isTv) 16.sp else 12.sp
                 )
                 SubtitleColorPreset.entries.forEach { preset ->
                     TrackChoice(
                         label = "${preset.title} subtitles",
                         selected = subtitleAppearance.preset == preset,
+                        isTv = isTv,
                         onSelect = {
                             onSubtitleAppearanceChange(subtitleAppearance.copy(preset = preset))
                         }
@@ -3448,9 +3569,9 @@ private fun TrackPickerOverlay(
                     })
                     Text(
                         "Size ${subtitleAppearance.safePercent}%",
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge
+                        fontSize = if (isTv) 20.sp else 15.sp
                     )
                     BousygramButton("A+", {
                         onSubtitleAppearanceChange(
@@ -3460,14 +3581,6 @@ private fun TrackPickerOverlay(
                 }
             }
 
-            visibleTracks.forEachIndexed { index, track ->
-                TrackChoice(
-                    label = track.name,
-                    selected = track.isSelected,
-                    modifier = Modifier,
-                    onSelect = { playerEngine.selectTrack(track) }
-                )
-            }
         }
     }
 }
@@ -3477,33 +3590,60 @@ private fun TrackChoice(
     label: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    isTv: Boolean = false,
     onSelect: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val fill = if (isTv) {
+        when {
+            focused -> Color(0xFF175481)
+            selected -> Color(0xFF174061)
+            else -> Color(0xFF17273B)
+        }
+    } else when {
+        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+        focused -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.surface
+    }
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .heightIn(min = if (isTv) 60.dp else 44.dp)
             .border(
-                if (focused) 3.dp else 0.dp,
-                if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                RoundedCornerShape(16.dp)
+                if (focused) 3.dp else if (isTv) 1.dp else 0.dp,
+                if (focused && isTv) Color(0xFF78D8FF)
+                else if (focused) MaterialTheme.colorScheme.primary
+                else if (isTv) Color(0xFF40566E) else Color.Transparent,
+                RoundedCornerShape(if (isTv) 12.dp else 16.dp)
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onSelect),
-        color = when {
-            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
-            focused -> MaterialTheme.colorScheme.surfaceVariant
-            else -> MaterialTheme.colorScheme.surface
-        },
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(16.dp)
+        color = fill,
+        contentColor = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(if (isTv) 12.dp else 16.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            modifier = Modifier.padding(
+                horizontal = if (isTv) 20.dp else 16.dp,
+                vertical = if (isTv) 16.dp else 13.dp
+            ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (selected) Text("✓", style = MaterialTheme.typography.titleMedium)
+            Text(
+                label,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                fontSize = if (isTv) 19.sp else 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            )
+            if (selected) Text(
+                "✓",
+                color = if (isTv) Color(0xFF9EF4C9) else MaterialTheme.colorScheme.primary,
+                fontSize = if (isTv) 23.sp else 18.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

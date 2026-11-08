@@ -9,6 +9,53 @@ class ExtrasPagingWindowTest {
     private fun item(id: Int, type: ExtrasType = ExtrasType.ANIME): ExtrasItem =
         ExtrasItem(id = id, type = type, title = "Fixture $id")
 
+    @Test fun restoredTabIndicesAlwaysResolveToOneVisibleCatalog() {
+        assertEquals(ExtrasType.MOVIES.ordinal, ExtrasPagingWindow.activeTabIndex(-42))
+        assertEquals(ExtrasType.TV.ordinal, ExtrasPagingWindow.activeTabIndex(ExtrasType.TV.ordinal))
+        assertEquals(ExtrasType.ANIME.ordinal, ExtrasPagingWindow.activeTabIndex(Int.MAX_VALUE))
+        assertEquals(ExtrasType.MOVIES.ordinal, ExtrasPagingWindow.activeTabIndex(Int.MIN_VALUE))
+        // At all times exactly one current catalog is protected from dormant trimming.
+        for (saved in listOf(-100, 0, 1, 2, 42, Int.MAX_VALUE)) {
+            val current = ExtrasPagingWindow.activeTabIndex(saved)
+            assertEquals(1, ExtrasType.entries.count { it.ordinal == current })
+            assertEquals(2, ExtrasType.entries.count { it.ordinal != current })
+        }
+    }
+
+    @Test fun memoryTrimAlwaysProtectsTheCurrentlyVisibleTab() {
+        for (savedActive in listOf(-1, 0, 1, 2, 99, Int.MAX_VALUE)) {
+            val active = ExtrasPagingWindow.activeTabIndex(savedActive)
+            for (tab in ExtrasType.entries) {
+                val shouldTrim = ExtrasPagingWindow.shouldReleaseDormantPosters(
+                    savedActive, tab
+                )
+                assertEquals(
+                    "Incorrect trim target for active $savedActive and candidate $tab",
+                    tab.ordinal != active, shouldTrim
+                )
+            }
+        }
+    }
+
+    @Test fun repeatedDormantTrimIsIdentityNoOpAfterReleasingPosters() {
+        val original = TabState(
+            query = "Remember my search",
+            results = listOf(item(1), item(2)),
+            page = 3,
+            droppedResults = 21
+        )
+        val first = original.releaseDormantPosters()
+        assertTrue(first.results.isEmpty())
+        assertEquals("Remember my search", first.query)
+        assertTrue(
+            "Repeated OS pressure events should not allocate a redundant tab snapshot",
+            first === first.releaseDormantPosters()
+        )
+        val empty = TabState()
+        assertTrue("Fresh default tab requires no trim allocation",
+            empty === empty.releaseDormantPosters())
+    }
+
     @Test fun arm32WindowNeverRetainsMoreThan120UniquePostersDuringLongSession() {
         val limit = ExtrasPagingWindow.itemLimit(lowMemory = true)
         assertEquals(120, limit)
@@ -95,6 +142,27 @@ class ExtrasPagingWindowTest {
         assertEquals(listOf(6, 7), result.items.map { it.id })
         assertEquals("Updated", result.items.last().title)
         assertFalse(result.items.size > 10)
+    }
+
+    @Test fun dormantArm32TabReleasesCachedPostersWithoutLosingSearchSettings() {
+        val old = TabState(
+            query = "favorite series",
+            results = (1..120).map(::item),
+            page = 9,
+            droppedResults = 75,
+            loading = true,
+            error = "Previous fetch failed"
+        )
+        val trimmed = old.releaseDormantPosters()
+        assertEquals("favorite series", trimmed.query)
+        assertEquals(old.filters, trimmed.filters)
+        assertTrue(trimmed.results.isEmpty())
+        assertEquals(0, trimmed.page)
+        assertEquals(0, trimmed.droppedResults)
+        assertTrue(trimmed.hasMore)
+        assertFalse(trimmed.loading)
+        assertEquals(null, trimmed.error)
+        assertEquals(120, old.results.size) // Existing snapshot is immutable.
     }
 
     @Test(expected = IllegalArgumentException::class)

@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.presentation.media
 
+import com.vaydelux.bousygram.core.media.PlaybackRetryDecision
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 import com.vaydelux.bousygram.domain.model.MediaUiState
@@ -13,6 +14,23 @@ import com.vaydelux.bousygram.domain.model.MediaUiState
  * This changes only UI/maintenance sampling; the TDLib streaming scheduler,
  * native player clock and Media3 playback callbacks continue independently.
  */
+/**
+ * A recoverable streaming error may retry the same quality only a bounded
+ * number of times. Cache-first retries get two attempts, ordinary reconnects
+ * one; a lower-quality or stop decision is never a same-quality retry.
+ *
+ * No backoff loop or pending playback intent is created here.
+ */
+internal fun shouldRetryCurrentQuality(
+    retryCount: Int,
+    decision: PlaybackRetryDecision
+): Boolean = retryCount >= 0 && when (decision) {
+    PlaybackRetryDecision.RetrySameQuality -> retryCount < 1
+    PlaybackRetryDecision.CacheFirstRetry -> retryCount < 2
+    PlaybackRetryDecision.LowerQuality,
+    PlaybackRetryDecision.SkipOrReport -> false
+}
+
 internal fun playbackUiPollingDelayMs(
     isHudVisible: Boolean,
     isSeeking: Boolean,
@@ -127,6 +145,24 @@ internal fun measuredRebufferDurationMs(
  * an immediate EOF as a transient stream failure and retry instead of
  * unexpectedly skipping to the next episode.
  */
+/**
+ * Premature EOF is not a real episode completion. A damaged/short Telegram
+ * response can emit Ended repeatedly without any decoded progress.
+ *
+ * Never allow an unbounded reopen loop. Only a foreground, non-casting
+ * playback attempt that the user has not paused may auto-retry.
+ * Explicit Retry starts a separate new budget in the UI.
+ */
+internal fun shouldRetryPrematurePlaybackEnd(
+    retriesSoFar: Int,
+    maximumRetries: Int,
+    inForeground: Boolean,
+    explicitlyPaused: Boolean,
+    castConnected: Boolean
+): Boolean = retriesSoFar >= 0 && maximumRetries > 0 &&
+    retriesSoFar < maximumRetries && inForeground &&
+    !explicitlyPaused && !castConnected
+
 internal fun isCredibleNaturalPlaybackEnd(
     durationMs: Long,
     positionMs: Long,

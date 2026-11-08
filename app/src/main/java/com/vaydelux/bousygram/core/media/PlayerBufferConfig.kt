@@ -36,6 +36,12 @@ object PlayerBufferConfig {
     const val EXO_LOW_RAM_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5_000
     const val EXO_LOW_RAM_BACK_BUFFER_MS = 10_000
 
+    // ARM32 TV native decoder allocations are constrained by 32-bit virtual
+    // address space even when Android reports a 512+ MB Java heap.
+    const val EXO_ARM32_TV_MIN_BUFFER_MS = 20_000
+    const val EXO_ARM32_TV_MAX_BUFFER_MS = 60_000
+    const val EXO_ARM32_TV_BACK_BUFFER_MS = 12_000
+
     // Higher-memory devices get a larger back buffer for cache-first rewinds without unbounded growth.
     const val EXO_HIGH_MEMORY_MIN_BUFFER_MS = 35_000
     const val EXO_HIGH_MEMORY_MAX_BUFFER_MS = 120_000
@@ -136,9 +142,23 @@ object PlayerBufferConfig {
         isTv: Boolean = false
     ): ExoBufferConfig {
         if (isLowRam(isLowRamDevice, memoryClass)) return resolveExoConfig(isLowRam = true)
-        // A 32-bit TV has a smaller native address space even if Android reports
-        // a generous Java heap. Do not assign the high-memory back buffer to it.
-        if (memoryClass < HIGH_MEMORY_CLASS_MB || (is32BitProcess && isTv)) {
+        if (is32BitProcess && isTv) {
+            // Keep a moderate startup/rebuffer runway without retaining the
+            // standard 120s forward buffer plus 30s of decoded back history.
+            // This is a memory budget, not a guarantee against network stalls.
+            return ExoBufferConfig(
+                minBufferMs = EXO_ARM32_TV_MIN_BUFFER_MS,
+                maxBufferMs = EXO_ARM32_TV_MAX_BUFFER_MS,
+                bufferForPlaybackMs = EXO_DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                bufferForPlaybackAfterRebufferMs = EXO_DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                backBufferMs = EXO_ARM32_TV_BACK_BUFFER_MS,
+                retainBackBufferFromKeyframe = EXO_RETAIN_BACK_BUFFER_FROM_KEYFRAME,
+                isLowRam = false,
+                profile = ExoMemoryProfile.Standard,
+                description = "exo:arm32_tv(min=${EXO_ARM32_TV_MIN_BUFFER_MS}ms,max=${EXO_ARM32_TV_MAX_BUFFER_MS}ms,back=${EXO_ARM32_TV_BACK_BUFFER_MS}ms)"
+            )
+        }
+        if (memoryClass < HIGH_MEMORY_CLASS_MB) {
             return resolveExoConfig(isLowRam = false)
         }
         return ExoBufferConfig(

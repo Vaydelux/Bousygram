@@ -22,6 +22,47 @@ sealed interface PlaybackCoreState {
     data object Released : PlaybackCoreState
 }
 
+/**
+ * User intent owns the visible transport state across ExoPlayer, libmpv and LibVLC.
+ * A Play request is not proof that a decoder produced a frame, and native
+ * buffering notifications cannot turn an explicit Pause into Buffering.
+ */
+internal enum class PlaybackPresentationState { PAUSED, BUFFERING, PLAYING }
+
+internal fun playbackPresentationState(
+    ready: Boolean,
+    playWhenReady: Boolean,
+    isPlaying: Boolean
+): PlaybackPresentationState = when {
+    !playWhenReady -> PlaybackPresentationState.PAUSED
+    ready && isPlaying -> PlaybackPresentationState.PLAYING
+    else -> PlaybackPresentationState.BUFFERING
+}
+
+/**
+ * StateFlow conflates repeated Ready values. A decoder can become Playing
+ * (or lose output) while its EnginePlaybackState stays Ready, especially after
+ * seek/rebuffer and asynchronous LibVLC demux. Reconcile only active transport
+ * states and only when the *presentation* category actually changes.
+ */
+internal fun needsPlaybackPresentationReconciliation(
+    current: PlaybackCoreState,
+    ready: Boolean,
+    playWhenReady: Boolean,
+    isPlaying: Boolean
+): Boolean {
+    if (current !is PlaybackCoreState.Preparing &&
+        current !is PlaybackCoreState.Buffering &&
+        current !is PlaybackCoreState.Playing &&
+        current !is PlaybackCoreState.Paused
+    ) return false
+    return when (playbackPresentationState(ready, playWhenReady, isPlaying)) {
+        PlaybackPresentationState.PAUSED -> current !is PlaybackCoreState.Paused
+        PlaybackPresentationState.BUFFERING -> current !is PlaybackCoreState.Buffering
+        PlaybackPresentationState.PLAYING -> current !is PlaybackCoreState.Playing
+    }
+}
+
 class PlaybackStateMachine {
     private val _state = MutableStateFlow<PlaybackCoreState>(PlaybackCoreState.Idle)
     val state: StateFlow<PlaybackCoreState> = _state.asStateFlow()

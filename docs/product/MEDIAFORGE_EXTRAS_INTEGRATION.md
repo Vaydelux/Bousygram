@@ -1,0 +1,322 @@
+# MediaForge Extras integration (initial implementation)
+
+MediaForge is split into three Android library modules:
+
+- `mediaforge-core`: bounded URL discovery and guarded stream preflight, HLS subtitle list parsing.
+- `mediaforge-webbridge`: opt-in WebView resource observation and D-pad touch dispatch.
+- `mediaforge-player-adapters`: standalone Media3 player item creation and native adapter extension point.
+
+## Scope
+Only Extras catalog details may launch this feature. Telegram PlaybackRequest, TDLib, PlaybackCore,
+Telegram networking and account state must not be used or changed.
+
+TMDB identifies a title, but **TMDB does not supply the media**. Third-party embeds can be unavailable,
+geo-restricted, rights-restricted, non-playable or DRM-protected. No blanket provider compatibility claim.
+The configured CineSrc example is a user-selected external embed, not an official TMDB integration.
+Inspect licensing/provider terms before distributing a public build.
+
+## Flow
+1. User chooses movie or a TV episode on Extras details.
+2. A scoped WebView opens the generated HTTPS embed URL. TV users toggle a D-pad cursor; touch users interact normally.
+3. Resource URLs are observed on a best-effort basis. No JavaScript injection or hidden autoplay is attempted.
+4. Discovered media candidates are shown. Selection explicitly triggers a bounded HTTPS probe.
+5. On accepted preflight, the user enters a separate Media3 player. WebView navigates to about:blank to stop remote audio.
+6. Back from native reopens the embed. If no direct URL is exposed, the user continues using WebView.
+
+## Unsupported behavior
+- No claim that CineSrc exposes a direct playable URL or SRT.
+- Not a full Chromium network inspector: blob:/MSE, service worker or internal redirects can be invisible.
+- No DRM bypass, cookie/token theft, rate-limit evasion, or circumventing provider access controls.
+- No automatic media extraction from TMDB/AniList metadata alone.
+- No LibVLC integration yet; the adapters module exposes a host-extensible contract.
+
+## Validation
+Run `./gradlew :mediaforge-core:testDebugUnitTest :app:testDebugUnitTest :app:compileDebugKotlin`,
+then run the device emulator/TV tests and physical ARM32/ARM64 smoke suites.
+
+## Recovery refinements
+
+- Android lint now uses a localized string resource for WebView-unavailable fallback.
+- Returning from native playback creates a new WebBridge instance, because closed resource observers must not be reused.
+- Stale/canceled stream probes are generation-gated and cannot overwrite the latest source selection.
+- These changes do **not** establish third-party player compatibility; encrypted, blob: and session-restricted sources may remain WebView-only.
+
+- Added explicit **Reload player** and **Clear sources** controls in Extras; these invalidate pending source checks and clear stale candidates.
+- D-pad center key-repeat is filtered to avoid duplicate pointer clicks during long presses.
+
+- On rotation/layout changes, D-pad pointer coordinates are clamped to the current WebView bounds.
+- WebView disposal is owned by the actual AndroidView instance and tolerates renderer failure.
+
+## Native LibVLC option
+
+The Extras picker now offers either Media3 or LibVLC. LibVLC is backed by
+`ExtrasLibVlcSession` and never calls Telegram's loopback-only LibVLC engine.
+It owns native resources and Android audio focus within the selected Extras
+player's lifecycle, uses FIT aspect ratio, provides basic transport controls,
+and attempts user-selected external subtitle attachment.
+
+The previously planned generic `MediaForgeNativeAdapter` extension interface
+remains available to other hosts; no LibVLC native dependency has been added
+to `mediaforge-core`. Real-device verification is still required for LibVLC
+stream playback, SRT loading, subtitle renderer, seek and engine behavior.
+
+- Both Extras-only native engines pause upon Activity ON_STOP. They do not resume automatically when returning from background; the user can explicitly resume with the player controls.
+
+## Embedded-player fullscreen and lifecycle
+
+The WebBridge now supports HTML5 `WebChromeClient.onShowCustomView` / `onHideCustomView`: the browser's fullscreen video surface is displayed on top of the existing WebView, not in a new iframe. Android Back dismisses that surface before navigating away; disposal notifies Chromium. The host explicitly owns the fullscreen overlay, while the reusable WebBridge exposes callbacks.
+
+The Extras WebView is paused/resumed on Activity `ON_STOP`/`ON_START` (best-effort only: untrusted cross-origin players may not honor WebView pause for all audio). Native engines retain their independent background-pause behavior. Neither implementation touches Telegram's media lifecycle.
+
+### TV cursor in HTML5 fullscreen
+
+A single reusable D-pad cursor component now targets both the normal WebView and the HTML5 fullscreen custom view. Entering HTML5 fullscreen automatically enables the TV pointer; OK synthesizes a user-initiated tap on the active video surface, and long-press directional keys accelerate pointer movement. This does not promise compatibility with all third-party players or cross-origin restrictions.
+
+## Track metadata and low-memory resource observation
+
+Explicit external HLS subtitle tracks now retain playlist LANGUAGE and NAME attributes (when present) in the MediaForge result. Media3's external subtitle configuration uses those values. WebVTT/SRT URLs without metadata still use a host fallback. HLS rendition playlists with their own .m3u8 tracks remain handled by the native player rather than being misidentified as standalone subtitle assets.
+
+WebBridge limits pending main-thread resource observation callbacks to 32; excess observations are dropped without affecting page playback. This keeps callback backlogs bounded on ARM32 devices. Discovery remains best-effort, not a full Chromium network inspector.
+
+## DNS rebinding defense for native preflight
+
+MediaForge's standalone native source probe now uses OkHttp 4.12.1 with a private/reserved-address-rejecting DNS implementation. The socket connects to the checked resolved addresses (not a separate unchecked DNS lookup); ordinary TLS host/certificate verification remains enabled. Redirects are handled manually and independently checked at each hop, with bounded reads, no forwarded WebView cookies, and coroutine cancellation propagated to the HTTP call. This protects the native preflight, not third-party WebView pages or every downstream media segment request. Authorized provider allowlists and device testing are still recommended before public release.
+
+## Guarded Media3 transport for downstream resources
+
+Media3 now uses its own `DefaultMediaSourceFactory` backed by the SDK's
+`MediaForgePlaybackTransport.client` through
+`androidx.media3:media3-datasource-okhttp`. The guarded client handles
+all Media3 HTTP reads, not just the initial source probe:
+
+- HTTPS-only request/redirect checks and no HTTPS-to-HTTP redirect following
+- DNS checks against private/reserved IPs for segment/CDN/subtitle destinations
+- Direct connections without a system proxy that could bypass DNS filtering
+- No inherited Telegram/TDLib data sources and no WebView cookies
+- Native Media3 timeouts and explicit audio focus
+
+The native LibVLC player uses VLC's own network transport and does **not**
+inherit these protections. Until an equivalent allowlisted transport/proxy is
+implemented for LibVLC, it remains experimental and is not qualified for
+arbitrary untrusted embed URLs.
+
+Security checks validate connection hosts, not whether a movie is licensed,
+DRM-free or otherwise authorized for redistribution. CineSrc compatibility
+remains unverified.
+
+## LibVLC experimental gate and stream sanity checks
+
+LibVLC is now **enabled only for debug builds**, through the `MEDIAFORGE_EXTRAS_LIBVLC_ENABLED`
+BuildConfig flag. Release and hardenedRelease keep it disabled; native VLC does not inherit
+the validated Media3 HTTP stack, and no secure VLC transport has been proven for arbitrary
+third-party stream hosts. The Extras picker displays the disabled state rather than silently
+relying on the native engine. This is a deliberate release safety boundary, not a claim that
+debug LibVLC has equivalent network protections.
+
+The core resolver now performs bounded container signature sanity checks on candidate MP4,
+WebM and direct MPEG-TS responses, rather than accepting any HTTP 2xx (including HTML/JSON
+error pages) as a native stream. This does not guarantee codec, subtitle or live-segment
+compatibility and does not bypass provider authorization or DRM.
+
+## Android emulator WebBridge tests
+
+The existing `Android Emulator Cast Smoke` workflow now includes
+`MediaForgeWebBridgeInstrumentedTest`. It runs real Android WebView initialization
+against a reserved, non-routable `.invalid` URL and verifies JavaScript/domStorage
+are enabled only alongside strict mixed-content rejection, file/content access
+denial, disabled automatic popups, user-gesture-required media playback, and
+third-party cookie rejection. It also checks that invalid HTTP, loopback, file,
+and credential-bearing embed URLs are rejected before loading.
+
+This tests Android WebView configuration and basic security only. It does
+**not** qualify CineSrc, production streams, LibVLC on ARM32/ARM64, DRM, or
+device-specific playback behavior.
+
+## TV virtual mouse qualification (offline emulator)
+
+`MediaForgeVirtualMouseInstrumentedTest` is now part of the Android emulator
+smoke class list. It uses an actual Android `View` that records
+`dispatchTouchEvent` invocations and confirms D-pad Right/Down movement,
+one DOWN/UP tap pair on OK/Center, and bounds clamping.
+The test exercises the **same `ExtrasVirtualCursor` composable** used by the
+ordinary WebView and HTML5 custom fullscreen view.
+
+This establishes Android emulator input behavior for the cursor component,
+not real third-party iframe click-to-play behavior, device-specific D-pad
+focus, or browser player compatibility. Continue physical ARM32/ARM64 QA.
+
+## Guarded LibVLC progressive file-descriptor experiment
+
+LibVLC now receives a **seekable, local Android ProxyFileDescriptor** rather than
+a third-party network URL when the user selects native LibVLC. All reads for
+eligible *progressive MP4/WebM* media use guarded MediaForge HTTPS range GETs
+with strict 206/Content-Range validation. The device callback maintains a
+bounded 256-KiB in-memory window; seeking reads a new protected range instead
+of downloading the entire file. Authenticated/CDN sources that reject Range
+requests are not supported and should use Media3 or WebView.
+
+Selected SRT/VTT files are downloaded through the same guarded client into a
+bounded private temporary cache file, attached to LibVLC as a local subtitle,
+and deleted when the source is disposed. Native VLC never receives the remote
+media or subtitle URL. No WebView cookies or Telegram tokens are forwarded.
+
+The implementation remains **debug-only and experimental**: Android's
+ProxyFileDescriptor FUSE behavior, HTTP request overhead, seeking performance,
+and ARM32/ARM64 codec/device compatibility need qualification. HLS and DASH
+are deliberately ineligible for LibVLC until a safe manifest/segment transport
+is implemented; those formats remain supported by Media3. This is not yet
+proof of production-safe LibVLC behavior for arbitrary untrusted content.
+
+The guarded progressive source now sets a 30-second absolute HTTP call timeout, closes its Android proxy FD on setup exceptions, and has dedicated pure-JVM tests for Content-Range parsing and eligible formats. Enterprise CI runs the player-adapter JVM test task.
+
+## Virtual pointer precision and key-event correctness
+The Extras virtual mouse now applies D-pad movement as deltas against live Compose state to prevent rapid key events from overwriting each other before recomposition. OK/Center reads the latest coordinates; larger TV viewports get appropriately scaled movement and held directions accelerate. The cursor is a high-contrast white arrow with a dark outline and a hotspot at its exact pointer tip. The emulator interaction tests cover two immediate D-pad movements followed by OK and edge clamping.
+
+## November 2026 TV accessibility and audio cleanup
+
+The tonal audio equalizer has been retired from Settings and the player Audio/CC
+panel. Existing equalizer presets are ignored, forced to the flat Original
+mode and are removed from local preferences on the next audio-profile update.
+Smart Volume/Dialogue Boost remains a separate optional feature. The legacy
+EQ models remain temporarily for backwards compatibility with diagnostics and
+stored settings, but cannot be enabled from the UI.
+
+The main TV subtitle/track panel now expands to a maximum 760dp width, uses
+large, high-contrast light-on-dark text and a bright D-pad focus outline, and
+lists available tracks **before** caption appearance controls. Native caption
+style/size controls retain existing Media3/libmpv support.
+
+The MediaForge Extras playback screen now opens a dedicated TV-friendly subtitle
+dialog rather than squeezing tiny subtitle chips beneath the video. It includes
+an explicit Off option, up to two lines of track names, a scrollable list,
+64dp TV touch/focus rows and clear selected/focused states.
+
+TMDB configuration: copy `.env.example` to the repository root `.env`,
+set `TMDB_API_KEY=YOUR_TMDB_V3_API_KEY` and rebuild. Never commit `.env`.
+
+## Subtitle dialog accessibility regression
+
+The MediaForge Extras subtitle dialog now exposes explicit selectable state to TalkBack and Compose UI testing. The initial TV focus request runs inside the popup composition rather than racing with attachment of its focusable children. Emulator tests cover visible subtitle track names, default Off selection, selecting an available subtitle and turning subtitles Off without accessing private or third-party media.
+
+## Foreground playback intent and native player ownership
+
+The Extras Media3 and experimental LibVLC players now remember **Play intent** when the Android Activity stops and restore that intent exactly once on a later foreground event. A user pause (no Play intent) remains paused; buffering does not get misclassified as a pause. Error/disposal paths cancel any pending restart. Media3 now keys its player instance by the chosen inspected media and subtitle URL: a subtitle/source change cannot release a player and accidentally reuse that released instance. The Android PlayerView clears its player reference when disposed. This is an Extras-only fix and does not alter Telegram media playback.
+
+The new pure JVM test `ExtrasForegroundPlaybackIntentTest` covers the one-shot resume contract, manual pause, buffering, cancellation and superseded stop events. Physical TV seek/buffer/autoplay behavior still requires device evidence.
+
+## Embedded WebView renderer-loss recovery
+
+MediaForge's WebViewClient handles Android API 26+ renderer termination (including system low-memory kills). The dead WebView is removed, destroyed, and tracked to avoid repeated disposal calls; the bridge closes pending observations and fullscreen callbacks, and the UI cancels any outstanding inspection, clears stale sources and shows a manual **Reload player** recovery action. This intentionally does not retry automatically, to avoid repeating crashes on ARM32 TVs. A non-network Android emulator test invokes the renderer-loss callback with simulated termination data and confirms it is handled. A simulated callback is not a substitute for physical low-memory renderer-crash qualification.
+
+## LibVLC Play/Pause protection during buffering
+
+The Extras-specific LibVLC session now treats its Play flag as the authority, including while the native decoder buffers. A late native Playing notification after a user or lifecycle Pause forces a native Pause on the UI handler rather than continuing unexpectedly. Native Paused notifications with still-active Play intent use the existing **maximum two retries per explicit Play** policy before surfacing a recoverable error. EOF/errors release audio focus, and the native Play flag is set before calling player.play() so synchronous callbacks cannot misclassify a legitimate start. These changes remain debug-only for the guarded MP4/WebM LibVLC experiment; physical device qualification is still required.
+
+
+## Guarded progressive range consistency (November 8, 2026)
+
+The **Extras-only debug LibVLC** local file-descriptor reader now aligns its
+256-KiB cache windows to deterministic offsets. This reduces overlapping
+HTTPS range downloads when VLC makes small neighboring reads or seeks.
+
+A successful initial 206 byte-range probe retains the file's **strong ETag**
+when the origin provides one. Later requests send `If-Range` and reject
+non-206 responses, changed ETags, or inconsistent `Content-Range` totals.
+Weak or malformed ETags are deliberately ignored. Servers without strong
+ETags remain eligible but only receive Content-Range length validation; they
+cannot offer full representation-consistency guarantees.
+
+These checks do not validate media decoding, rights to access remote content,
+or the performance of Android FUSE on real ARM32/ARM64 hardware. Extras
+LibVLC remains unavailable in production builds pending device qualification.
+
+
+## Playback intent, low-memory catalog, and TV recovery follow-up
+
+The shared Telegram playback controller (outside the MediaForge SDK) now
+projects engine state consistently across Media3, libmpv and LibVLC: an
+explicit Pause remains Paused even if native Buffering arrives later, and
+a Play command does not show Playing until the engine confirms output.
+This controller change is independently tested and does **not** route
+Telegram media into Extras or the external WebBridge.
+
+ARM32/low-RAM Extras browsing now releases inactive tab poster-result
+snapshots when switching tabs while preserving each tab's search query and
+filters. Android memory-pressure events also reclaim inactive tab lists on
+other devices. Reopening a reclaimed tab fetches page one; this is a deliberate
+memory/performance tradeoff and should be verified on physical ARM32 TVs.
+
+The TV subtitle dialog focuses its currently selected track when reopened
+rather than always defaulting focus to Off. Media3 exposes an explicit
+user-triggered retry after failure; the debug-only guarded LibVLC screen
+has larger horizontally scrollable D-pad transport buttons and a direct
+**Try Media3** fallback, including when LibVLC preparation fails.
+
+These changes are not proof of third-party provider compatibility, subtitle
+rendering correctness on a real TV, or qualified long-session memory PSS.
+The Extras LibVLC release gate remains disabled, and the MediaForge PR must
+remain draft until hardware/authorization checks are completed.
+
+## Playback-intent and source-refresh hardening — November 8
+
+Engine changes and LibVLC subtitle re-creation now transfer both a seek position and
+**the user's Play/Pause request**. A manual Pause remains paused; buffering with
+Play requested still permits playback to continue. Failed/ended sessions do not
+silently autoplay the next native engine. An unseekable source starts at position 0
+instead of presenting an unverified seek as successful.
+
+- Media3: initial `playWhenReady` respects the transferred request, not merely
+  whether the Activity is STARTED.
+- LibVLC: fresh sessions do not call native `play()` on attachment when the
+  transferred intent is Pause. A later user Play starts the decoder and processes
+  the pending bounded initial seek.
+- Subtitle dialogs capture the native state without recreating the active LibVLC
+  session until a different caption is actually selected.
+- Previously chosen LibVLC cannot be launched for HLS/DASH/MPEG-TS or production-
+  disabled native playback. The source picker resolves to guarded Media3 instead.
+- Returning to the WebView invalidates approved provider URLs and discovered
+  captions; sources must be observed and preflighted again after browser restart.
+  This avoids exposing stale, expired or session-scoped signed URLs as playable.
+
+The JVM unit tests cover paused, buffering, failed, ended, unsupported-engine
+and nonseekable handoff policy. **Required device test scenarios still NOT RUN:**
+
+1. Pause in Media3 at a known timestamp, switch to LibVLC, confirm no automatic
+   audio/video starts, then press Play and verify the seek is restored.
+2. Pause in LibVLC, switch to Media3 and verify it is paused at the saved position;
+   repeat while buffering with Play requested and verify playback eventually resumes.
+3. Change subtitles while LibVLC is paused and again while playing. Verify the
+   active decoder is not torn down merely from opening/canceling the dialog.
+4. Switch from a selected debug LibVLC MP4 to an HLS/DASH source and verify the
+   picker changes to Media3, without entering an unsupported LibVLC failure screen.
+5. Return from native playback to WebView. Confirm the source picker requires
+   discovery/preflight again, and no old signed stream is reused.
+6. Perform these checks on a physical armeabi-v7a Android TV and arm64-v8a TV;
+   repeat a short phone/tablet lifecycle and keyboard/touch smoke test.
+
+This work changes only Extras and does **not** qualify third-party embed playback,
+native rendered frames, rights/DRM, or production Extras LibVLC. Keep the draft PR
+and release gates until exact-head CI and physical evidence are complete.
+
+## Provider URL and embedded-browser request guards — November 9
+
+The Extras watch-provider link handler now shares MediaForge's HTTPS URL
+syntax policy. This rejects local DNS aliases (`.lan`, `.home`,
+`.localdomain`, `.internal`, and `.local`), trailing-dot hostnames,
+loopback/IP literal forms, embedded credentials and nonstandard ports.
+
+The embedded WebView also returns a synthetic **HTTP 403** for *initial*
+network subresource requests whose URL fails the same policy. A public HTTPS
+resource remains untouched. Browser-managed non-network resources (such as
+`blob:`, `data:`, and `about:`) are not intercepted. These changes are
+exercised by the existing Extras WebView instrumentation class and provider
+policy JVM tests using offline/synthetic URLs; real providers are not required.
+
+**Security limitations (not release-certified):** Android WebView's resource
+interception does not reliably cover subsequent redirect hops, WebSockets,
+all in-page API transports or DNS rebinding. A public-looking hostname can
+later resolve to a private address. The WebView remains an untrusted
+third-party execution environment; these are defense-in-depth checks, not a
+complete network sandbox, and they do not bypass authentication, access
+controls or DRM. Do not treat a green build as a guarantee of provider
+safety or full playback compatibility.

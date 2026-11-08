@@ -137,6 +137,9 @@ android {
         // Keep it available for development only; production variants stay fail-closed.
         buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
         buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "false")
+        // Native LibVLC does not use MediaForge's guarded Media3 HTTP client.
+        // No arbitrary third-party LibVLC playback in production builds.
+        buildConfigField("boolean", "MEDIAFORGE_EXTRAS_LIBVLC_ENABLED", "false")
     }
 
     androidResources {
@@ -166,6 +169,7 @@ android {
             // Use the Android Gradle Plugin's generated debug keystore. A clean
             // checkout must not depend on a repository-root debug.keystore.
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "true")
+            buildConfigField("boolean", "MEDIAFORGE_EXTRAS_LIBVLC_ENABLED", "true")
             manifestPlaceholders["engineLabEnabled"] = "true"
         }
         release {
@@ -711,6 +715,8 @@ tasks.register<Copy>("copyApksToDist") {
 }
 
 dependencies {
+    implementation(project(":mediaforge-webbridge"))
+    implementation(project(":mediaforge-player-adapters"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)

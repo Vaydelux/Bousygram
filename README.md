@@ -21,7 +21,7 @@
 
 ## A media player built for the living room
 
-**Bousygram** lets you browse Telegram chats, channels, groups, topics, and Saved Messages and play media directly on your Android device. Videos are fetched via **TDLib** and served to **Media3 ExoPlayer** through a local, byte-range-capable stream. **libmpv** is available as a fallback when a container or decoder needs a different playback engine. **VideoLAN LibVLC** is included in standard debug/release builds as a third manually selectable option for MKV, MPEG-TS, and alternate audio/subtitle tracks.
+**Bousygram** lets you browse Telegram chats, channels, groups, topics, and Saved Messages and play media directly on your Android device. Videos are fetched via **TDLib** and served through a local, byte-range-capable stream to the selected playback engine. **VideoLAN LibVLC is the default on new installations**, while existing saved engine choices are preserved. **Media3 ExoPlayer** and **libmpv** remain available for manual selection and supported fallback paths. Compatibility with MKV, MPEG-TS, alternate tracks, and seeking depends on the actual file and device.
 
 The app is **local-first**: ordinary playback does not require a Bousygram cloud backend or a server that receives your videos. It is not an official Telegram client and is not affiliated with Telegram.
 
@@ -79,9 +79,9 @@ Telegram account / chats / Saved Messages
                  ▼
     Local range-capable stream gateway
                  │
-                 ├──► Media3 ExoPlayer (primary)
+                 ├──► Media3 ExoPlayer (manual / Auto)
                  ├──► libmpv (fallback or manual)
-                 └──► LibVLC (user-selected compatibility engine)
+                 └──► LibVLC (fresh-install default / manual)
                  │
                  ▼
       Android TV / phone / tablet
@@ -96,13 +96,42 @@ Telegram account / chats / Saved Messages
 
 **Requirements:** Android SDK, a compatible JDK/Gradle environment, and the native TDLib binaries expected by the repository. The Gradle wrapper is the build entry point.
 
-Keep local credentials in ignored `local.properties` or protected environment variables — **never commit live API keys or keystores**.
+The project uses the **Secrets Gradle plugin** with a repository-root `.env` file
+(copy `.env.example`) for API credentials. `.env` is Git-ignored.
+`local.properties` should contain only your local Android SDK path.
+Do not commit live API keys or keystores.
 
 ```properties
-sdk.dir=C:\\path\\to\\Android\\Sdk
-TELEGRAM_API_ID=your_api_id
-TELEGRAM_API_HASH=your_api_hash
+# .env (in the repository root; never commit)
+TMDB_API_KEY=YOUR_TMDB_V3_API_KEY
 ```
+
+```properties
+# local.properties (in the repository root; never commit)
+sdk.dir=C:\\path\\to\\Android\\Sdk
+```
+
+Rebuild the debug APK after changing `TMDB_API_KEY`; this is read as
+`BuildConfig.TMDB_API_KEY` for the Extras catalog and Telegram title metadata.
+TMDB provides metadata, **not** video streams. API keys included in client APKs
+can be extracted; use a backend proxy for credentials that must remain private.
+
+**GitHub Actions debug APKs with TMDB:** Go to this repository's
+**Settings → Secrets and variables → Actions → New repository secret**.
+Set the secret name to `TMDB_API_KEY` and paste the **TMDB API Key (v3)**,
+not the API Read Access Token (v4). Never add real credentials to
+`.env.example` or commit them. For a debug APK with this key, manually run
+**Actions → Android Enterprise Checks → Run workflow** and select the branch
+you want to build. The workflow writes an ignored `.env` file inside the
+trusted runner before Gradle builds the APK. Trusted main-branch pushes also
+use the secret.
+
+The workflows **never** pass the secret to `pull_request` builds;
+those intentionally contain the placeholder. If you download an APK from
+an automatic PR validation run, TMDB Movies/TV will still require a
+credentialed rebuild. If the repository secret is missing, the manual
+workflow also uses the placeholder and emits a notice.
+
 
 ```powershell
 .\\gradlew.bat :app:verifyTdlibAbiCoverage :app:verifyTvHardeningContract
@@ -112,7 +141,7 @@ TELEGRAM_API_HASH=your_api_hash
 
 On macOS/Linux use `./gradlew` with the same task names.
 
-**Choose a player:** Settings → Playback engine → ExoPlayer, libmpv or **LibVLC**. The media player's engine control can cycle between all three. Auto remains ExoPlayer/libmpv and does not silently enable LibVLC on low-memory TVs. Native MPEG-TS seeking still requires a usable index and verified byte-range behavior. See [LibVLC integration](docs/experiments/LIBVLC_DEBUG_COMPATIBILITY.md) and [third-party notices](docs/THIRD_PARTY_NOTICES.md).
+**Choose a player:** New installs select **LibVLC** by default; saved selections remain unchanged. Settings → Playback engine allows ExoPlayer, libmpv, LibVLC or Auto. The media player's engine control can cycle between the manual engines. **Auto** remains ExoPlayer/libmpv and does not silently enable LibVLC on low-memory TVs. Native MPEG-TS seeking still requires a usable index and verified byte-range behavior. See [LibVLC integration](docs/experiments/LIBVLC_DEBUG_COMPATIBILITY.md) and [third-party notices](docs/THIRD_PARTY_NOTICES.md).
 
 **Production signing:** use the protected GitHub environments and the [Release Signing Setup](RELEASE_SIGNING_SETUP.md). `assembleHardenedRelease` fails closed without production signing and certificate verification. Do not use debug APKs as proof of production signing.
 

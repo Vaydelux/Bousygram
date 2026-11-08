@@ -10,6 +10,15 @@ on:
       - 'app/src/main/java/com/vaydelux/bousygram/core/media/PlayerEngineFactory.kt'
       - 'app/src/main/java/com/vaydelux/bousygram/core/media/ExperimentalStreamUrlPolicy.kt'
       - 'app/src/main/java/com/vaydelux/bousygram/data/store/EnterprisePreferences.kt'
+  pull_request:
+    paths:
+      - '.github/workflows/libvlc-experimental-debug.yml'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/extras/**'
+      - 'app/src/androidTest/java/com/vaydelux/bousygram/presentation/extras/**'
+      - 'mediaforge-core/**'
+      - 'mediaforge-webbridge/**'
+      - 'mediaforge-player-adapters/**'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +38,7 @@ jobs:
       matrix:
         abi: [armeabi-v7a, arm64-v8a]
     steps:
-      - name: Check out exact main commit
+      - name: Check out exact branch/PR commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Java 21
@@ -44,6 +53,22 @@ jobs:
 
       - name: Install Android SDK dependencies
         run: bash tools/ci/setup_android_sdk.sh
+
+      # Never expose the TMDB secret to PR-triggered builds; Android APKs
+      # contain any BuildConfig API key in extractable form.
+      - name: Configure TMDB v3 API key for trusted debug builds
+        if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+        shell: bash
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
+            chmod 600 .env
+          else
+            echo "::notice::TMDB_API_KEY repository secret is not configured. This debug APK will use the placeholder key."
+          fi
 
       - name: Verify standard debug APK with LibVLC
         shell: bash

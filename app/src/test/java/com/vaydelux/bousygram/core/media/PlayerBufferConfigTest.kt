@@ -199,7 +199,17 @@ class PlayerBufferConfigTest {
             isLowRamDevice = false, memoryClass = 512, is32BitProcess = true, isTv = true
         )
         assertEquals(PlayerBufferConfig.ExoMemoryProfile.Standard, arm32Tv.profile)
-        assertEquals(PlayerBufferConfig.EXO_DEFAULT_BACK_BUFFER_MS, arm32Tv.backBufferMs)
+        assertEquals(PlayerBufferConfig.EXO_ARM32_TV_MIN_BUFFER_MS, arm32Tv.minBufferMs)
+        assertEquals(PlayerBufferConfig.EXO_ARM32_TV_MAX_BUFFER_MS, arm32Tv.maxBufferMs)
+        assertEquals(PlayerBufferConfig.EXO_ARM32_TV_BACK_BUFFER_MS, arm32Tv.backBufferMs)
+        assertTrue(arm32Tv.description.startsWith("exo:arm32_tv"))
+        assertTrue(arm32Tv.backBufferMs < PlayerBufferConfig.EXO_DEFAULT_BACK_BUFFER_MS)
+        assertTrue(arm32Tv.maxBufferMs < PlayerBufferConfig.EXO_DEFAULT_MAX_BUFFER_MS)
+        val arm32MediumHeap = PlayerBufferConfig.resolveExoConfig(
+            isLowRamDevice = false, memoryClass = 256, is32BitProcess = true, isTv = true
+        )
+        assertEquals(PlayerBufferConfig.EXO_ARM32_TV_MAX_BUFFER_MS, arm32MediumHeap.maxBufferMs)
+        assertEquals(PlayerBufferConfig.EXO_ARM32_TV_BACK_BUFFER_MS, arm32MediumHeap.backBufferMs)
         val arm64Tv = PlayerBufferConfig.resolveExoConfig(
             isLowRamDevice = false, memoryClass = 512, is32BitProcess = false, isTv = true
         )
