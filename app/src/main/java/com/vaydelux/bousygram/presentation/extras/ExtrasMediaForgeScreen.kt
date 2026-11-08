@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -675,10 +676,18 @@ internal fun ExtrasSubtitlePicker(
                 }
             }
         }
-        // Request focus in the dialog's composition, after the remote-friendly
-        // choices have been attached to the popup's own focus tree.
-        LaunchedEffect(selectedFocus, selected?.url, captions) {
-            selectedFocus.requestFocus()
+        // Dialog content lives in a *separate Android window*. On initial
+        // composition its focus targets may exist before that window has been
+        // measured/attached; an immediate requestFocus() can return false
+        // (or lose focus to the window's initial focus search).
+        // Request after the next frame and retry once if attachment is late.
+        // No timers and no unbounded focus loop on slow ARM32 TVs.
+        LaunchedEffect(selected?.url, focusOff, captions.map { it.url }) {
+            withFrameNanos { }
+            if (!selectedFocus.requestFocus()) {
+                withFrameNanos { }
+                selectedFocus.requestFocus()
+            }
         }
     }
 }
