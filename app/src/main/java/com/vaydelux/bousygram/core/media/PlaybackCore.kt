@@ -188,28 +188,32 @@ object PlaybackCore {
                     is EnginePlaybackState.Idle -> {
                         // Engine idle
                     }
-                    is EnginePlaybackState.Buffering -> {
-                        preparingWatchdogJob?.cancel()
-                        stateMachine.onBuffering(session, engine.currentPositionMs, engine.durationMs)
-                    }
+                    is EnginePlaybackState.Buffering,
                     is EnginePlaybackState.Ready -> {
                         preparingWatchdogJob?.cancel()
-                        if (engine.isPlaying) {
-                            stateMachine.onPlaying(session, engine.currentPositionMs, engine.durationMs)
-                        } else if (engine.playWhenReady) {
-                            // READY without output is not a user pause. Some native engines
-                            // clear their internal pause after a stalled range completes.
-                            // Reassert Play only while the user's intent remains armed.
-                            if (shouldReassertPlaybackOnReady(
-                                    ready = true,
-                                    playWhenReady = engine.playWhenReady,
-                                    isPlaying = engine.isPlaying
-                                )) {
-                                engine.play()
-                            }
-                            stateMachine.onBuffering(session, engine.currentPositionMs, engine.durationMs)
-                        } else {
-                            stateMachine.onPaused(session, engine.currentPositionMs, engine.durationMs)
+                        // A delayed native buffering or Ready callback must not
+                        // override an explicit user Pause. Conversely, Play is
+                        // not visually Playing until the decoder reports output.
+                        val ready = engineState is EnginePlaybackState.Ready
+                        if (ready && shouldReassertPlaybackOnReady(
+                                ready = true,
+                                playWhenReady = engine.playWhenReady,
+                                isPlaying = engine.isPlaying
+                            )
+                        ) {
+                            engine.play()
+                        }
+                        when (playbackPresentationState(
+                            ready = ready,
+                            playWhenReady = engine.playWhenReady,
+                            isPlaying = engine.isPlaying
+                        )) {
+                            PlaybackPresentationState.PAUSED ->
+                                stateMachine.onPaused(session, engine.currentPositionMs, engine.durationMs)
+                            PlaybackPresentationState.BUFFERING ->
+                                stateMachine.onBuffering(session, engine.currentPositionMs, engine.durationMs)
+                            PlaybackPresentationState.PLAYING ->
+                                stateMachine.onPlaying(session, engine.currentPositionMs, engine.durationMs)
                         }
                     }
                     is EnginePlaybackState.Ended -> {
@@ -400,11 +404,23 @@ object PlaybackCore {
 
     // Transport controls
     fun play() {
-        _currentEngine.value?.play()
-        _currentSession.value?.let { session ->
-            _currentEngine.value?.let { eng ->
-                stateMachine.onPlaying(session, eng.currentPositionMs, eng.durationMs)
-            }
+        val engine = _currentEngine.value ?: return
+        engine.play()
+        val session = _currentSession.value ?: return
+        if (session.isStopped() || _currentEngine.value !== engine) return
+        // A successful play() command only arms the intent. Display Buffering
+        // until the selected engine confirms decoded output.
+        when (playbackPresentationState(
+            ready = engine.playbackState.value is EnginePlaybackState.Ready,
+            playWhenReady = engine.playWhenReady,
+            isPlaying = engine.isPlaying
+        )) {
+            PlaybackPresentationState.PAUSED ->
+                stateMachine.onPaused(session, engine.currentPositionMs, engine.durationMs)
+            PlaybackPresentationState.BUFFERING ->
+                stateMachine.onBuffering(session, engine.currentPositionMs, engine.durationMs)
+            PlaybackPresentationState.PLAYING ->
+                stateMachine.onPlaying(session, engine.currentPositionMs, engine.durationMs)
         }
     }
 
