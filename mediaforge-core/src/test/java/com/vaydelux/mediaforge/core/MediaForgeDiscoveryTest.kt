@@ -39,12 +39,20 @@ class MediaForgeDiscoveryTest {
 
     @Test fun networkPolicyRejectsPrivateAndReservedAddresses() {
         fun address(value: String) = java.net.InetAddress.getByName(value)
-        for (ip in listOf("127.0.0.1", "10.0.0.1", "192.168.1.1", "172.16.0.1",
-            "100.64.0.1", "169.254.1.1", "fc00::1", "fe80::1", "::1")) {
+        for (ip in listOf(
+            "127.0.0.1", "10.0.0.1", "192.168.1.1", "172.16.0.1",
+            "100.64.0.1", "169.254.1.1", "fc00::1", "fe80::1", "::1",
+            "2001:db8::1", // Documentation-only IPv6 range.
+            "2002:c0a8:0101::1", // 6to4 encapsulates 192.168.1.1.
+            "2001:0:c0a8:101::1", // Teredo transition prefix.
+            "64:ff9b::a00:1", // NAT64 translates to 10.0.0.1.
+            "64:ff9b:1::1" // Local-use IPv4 translation prefix.
+        )) {
             assertFalse("Should block $ip", PublicNetworkPolicy.isPublicAddress(address(ip)))
         }
         assertTrue(PublicNetworkPolicy.isPublicAddress(address("8.8.8.8")))
         assertTrue(PublicNetworkPolicy.isPublicAddress(address("2001:4860:4860::8888")))
+        assertTrue(PublicNetworkPolicy.isPublicAddress(address("2606:4700:4700::1111")))
     }
 
     @Test fun playbackTransportHasGuardedDnsAndHttpsRedirects() {

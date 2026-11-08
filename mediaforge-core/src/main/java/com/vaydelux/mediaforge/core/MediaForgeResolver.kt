@@ -201,9 +201,24 @@ internal object PublicNetworkPolicy {
                 (a == 203 && b == 0 && c == 113))
         }
         if (address is Inet6Address) {
-            val first = address.address[0].toInt() and 255
-            // ULA fc00::/7 is not covered by Java's deprecated "site local" check.
-            if (first and 0xfe == 0xfc) return false
+            val bytes = address.address
+            val first = bytes[0].toInt() and 255
+            val second = bytes[1].toInt() and 255
+            val third = bytes[2].toInt() and 255
+            val fourth = bytes[3].toInt() and 255
+
+            // Allow normal global IPv6 unicast (2000::/3) only. This also
+            // rules out IPv4-embedded translation prefixes (64:ff9b::/96),
+            // ULA, link-local and other special-use destinations.
+            if (first and 0xe0 != 0x20) return false
+            // 6to4 (2002::/16) and Teredo (2001:0000::/32) carry an IPv4
+            // address inside IPv6; don't allow a private IPv4 bypass via
+            // a tunnel endpoint. 2001:db8::/32 is documentation-only.
+            if (first == 0x20 && second == 0x02) return false
+            if (first == 0x20 && second == 0x01 &&
+                ((third == 0x00 && fourth == 0x00) ||
+                 (third == 0x0d && fourth == 0xb8))
+            ) return false
         }
         return true
     }
