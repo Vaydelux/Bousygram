@@ -27,7 +27,9 @@ object MediaForgeUrlPolicy {
         val uri = runCatching { URI(value) }.getOrNull() ?: return null
         if (!uri.scheme.equals("https", true) || uri.userInfo != null) return null
         val host = uri.host?.lowercase(Locale.ROOT) ?: return null
-        if (host.length > 253 || !host.contains('.') || host.endsWith(".local") ||
+        if (host.length > 253 || !host.contains('.') || host.endsWith('.') ||
+            host.endsWith(".local") || host.endsWith(".localdomain") ||
+            host.endsWith(".lan") || host.endsWith(".home") ||
             host.endsWith(".internal") || host.endsWith(".localhost") ||
             host.endsWith(".test") || host.endsWith(".home.arpa") ||
             host == "localhost" || host.startsWith("127.") ||
