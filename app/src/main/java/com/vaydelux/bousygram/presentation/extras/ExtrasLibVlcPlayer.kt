@@ -428,27 +428,50 @@ internal class ExtrasLibVlcSession(
 
     fun skip(deltaMs: Long) {
         if (released.get()) return
-        runCatching {
-            if (player.isSeekable) {
-                val target = extrasVlcSeekTarget(player.time, deltaMs, player.length)
-                latencyProbe.onSeekRequested(target, SystemClock.elapsedRealtime())
-                player.setTime(target)
-            } else onStatus("Seeking is not available for this stream")
+        val seek = runCatching {
+            if (!player.isSeekable) null
+            else {
+                val previous = player.time.coerceAtLeast(0L)
+                Pair(extrasVlcSeekTarget(previous, deltaMs, player.length), previous)
+            }
+        }
+        if (seek.isFailure || seek.getOrNull() == null) {
+            latencyProbe.onSeekRejected()
+            onStatus("Seeking is not available for this stream")
+        } else {
+            val (target, previous) = seek.getOrThrow()
+            issueSeek(target, previous)
         }
         publishControls()
     }
 
     fun seekTo(positionMs: Long) {
         if (released.get()) return
-        runCatching {
-            if (player.isSeekable) {
-                val duration = player.length
-                val target = extrasVlcSeekAbsolute(positionMs, duration)
-                latencyProbe.onSeekRequested(target, SystemClock.elapsedRealtime())
-                player.setTime(target)
-            } else onStatus("Seeking is not available for this stream")
+        val seek = runCatching {
+            if (!player.isSeekable) null
+            else {
+                val previous = player.time.coerceAtLeast(0L)
+                Pair(extrasVlcSeekAbsolute(positionMs, player.length), previous)
+            }
+        }
+        if (seek.isFailure || seek.getOrNull() == null) {
+            latencyProbe.onSeekRejected()
+            onStatus("Seeking is not available for this stream")
+        } else {
+            val (target, previous) = seek.getOrThrow()
+            issueSeek(target, previous)
         }
         publishControls()
+    }
+
+    private fun issueSeek(targetMs: Long, previousPositionMs: Long) {
+        val startedMs = SystemClock.elapsedRealtime()
+        if (runCatching { player.setTime(targetMs) }.isSuccess) {
+            latencyProbe.onSeekRequested(targetMs, startedMs, previousPositionMs)
+        } else {
+            latencyProbe.onSeekRejected()
+            onStatus("Seek failed in LibVLC; try another position or Media3")
+        }
     }
 
     fun detach() {
@@ -883,7 +906,10 @@ internal fun ExtrasLibVlcPlayer(
                         Text(
                             "Startup → native Playing: ${timing.startupToNativePlayingMs?.let { "${it} ms" } ?: "pending"}" +
                                 "  ·  Seek → reported position: ${timing.lastSeekPositionMs?.let { "${it} ms" } ?: "no sample"}" +
-                                "  (${timing.seekSamples} samples)",
+                                "  (${timing.seekSamples} samples)" +
+                                " · rejected: ${timing.seekRejectedCount}" +
+                                " · superseded: ${timing.seekSupersededCount}" +
+                                " · timed out: ${timing.seekTimeouts}",
                             color = Color.White, fontSize = 14.sp
                         )
                         Text(

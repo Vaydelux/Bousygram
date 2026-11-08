@@ -86,6 +86,49 @@ class ExtrasLibVlcControlsTest {
         assertEquals(0, probe.snapshot().seekSamples)
     }
 
+    @Test fun rejectedAndSupersededSeeksCannotInflateSuccessCount() {
+        val probe = ExtrasVlcLatencyProbe()
+        probe.onSeekRejected() // native method rejected or stream unseekable
+        probe.onSeekRequested(30_000L, 1_000L, previousPositionMs = 2_000L)
+        probe.onSeekRequested(60_000L, 1_100L, previousPositionMs = 2_000L)
+        probe.observeNativePosition(30_000L, 1_500L)
+        assertEquals(0, probe.snapshot().seekSamples)
+        assertEquals(1, probe.snapshot().seekRejectedCount)
+        assertEquals(1, probe.snapshot().seekSupersededCount)
+        probe.observeNativePosition(59_700L, 1_900L)
+        assertEquals(1, probe.snapshot().seekSamples)
+        assertEquals(800L, probe.snapshot().lastSeekPositionMs)
+    }
+
+    @Test fun stalePositionInsideToleranceDoesNotCountAsSeekAck() {
+        val probe = ExtrasVlcLatencyProbe()
+        probe.onSeekRequested(41_000L, 1_000L, previousPositionMs = 40_000L)
+        // 40s is within the normal 1.5s tolerance but has not moved.
+        probe.observeNativePosition(40_000L, 1_100L)
+        assertEquals(0, probe.snapshot().seekSamples)
+        probe.observeNativePosition(40_600L, 1_200L)
+        assertEquals(1, probe.snapshot().seekSamples)
+        assertEquals(200L, probe.snapshot().lastSeekPositionMs)
+    }
+
+    @Test fun seekAckAfterDeadlineIsTimeoutNotSuccess() {
+        val probe = ExtrasVlcLatencyProbe()
+        probe.onSeekRequested(50_000L, 1_000L, previousPositionMs = 5_000L)
+        probe.observeNativePosition(49_900L, 16_001L)
+        assertEquals(0, probe.snapshot().seekSamples)
+        assertEquals(1, probe.snapshot().seekTimeouts)
+        assertEquals(null, probe.snapshot().lastSeekPositionMs)
+    }
+
+    @Test fun requestingCurrentPositionIsNotMiscountedAsSeek() {
+        val probe = ExtrasVlcLatencyProbe()
+        probe.onSeekRequested(12_000L, 1_000L, previousPositionMs = 12_000L)
+        probe.observeNativePosition(12_000L, 1_010L)
+        assertEquals(1, probe.snapshot().seekNoChangeCount)
+        assertEquals(0, probe.snapshot().seekSamples)
+        assertEquals(0, probe.snapshot().seekTimeouts)
+    }
+
     @Test fun timeLabelsStayReadableForTv() {
         assertEquals("0:00", extrasVlcTimeLabel(-1L))
         assertEquals("0:09", extrasVlcTimeLabel(9_000L))

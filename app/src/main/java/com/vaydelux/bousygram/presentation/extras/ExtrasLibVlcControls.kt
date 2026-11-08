@@ -85,7 +85,10 @@ internal data class ExtrasVlcLatencySnapshot(
     val startupToNativePlayingMs: Long? = null,
     val lastSeekPositionMs: Long? = null,
     val seekSamples: Int = 0,
-    val seekTimeouts: Int = 0
+    val seekTimeouts: Int = 0,
+    val seekRejectedCount: Int = 0,
+    val seekSupersededCount: Int = 0,
+    val seekNoChangeCount: Int = 0
 )
 
 internal class ExtrasVlcLatencyProbe {
@@ -93,9 +96,13 @@ internal class ExtrasVlcLatencyProbe {
     private var firstPlayingMs: Long? = null
     private var pendingSeekTarget: Long? = null
     private var pendingSeekStartedMs: Long? = null
+    private var pendingSeekPreviousPositionMs: Long? = null
     private var lastSeekAckMs: Long? = null
     private var seekSamples = 0
     private var seekTimeouts = 0
+    private var seekRejectedCount = 0
+    private var seekSupersededCount = 0
+    private var seekNoChangeCount = 0
 
     fun onPlayRequested(nowMs: Long) {
         if (firstPlayingMs == null) firstPlayStartedMs = nowMs.coerceAtLeast(0L)
@@ -110,9 +117,33 @@ internal class ExtrasVlcLatencyProbe {
         }
     }
 
-    fun onSeekRequested(targetMs: Long, nowMs: Long) {
-        pendingSeekTarget = targetMs.coerceAtLeast(0L)
+    /**
+     * Only call this after setTime returned without throwing. A successful
+     * native method call still does not prove a frame was decoded or rendered.
+     * Previous position rejects stale near-target samples as seek evidence.
+     */
+    fun onSeekRequested(targetMs: Long, nowMs: Long, previousPositionMs: Long? = null) {
+        val target = targetMs.coerceAtLeast(0L)
+        val previous = previousPositionMs?.coerceAtLeast(0L)
+        if (previous != null && previous == target) {
+            seekNoChangeCount++
+            return
+        }
+        if (pendingSeekTarget != null) seekSupersededCount++
+        pendingSeekTarget = target
         pendingSeekStartedMs = nowMs.coerceAtLeast(0L)
+        pendingSeekPreviousPositionMs = previous
+    }
+
+    /** Unseekable streams or a native setTime exception aren't successes. */
+    fun onSeekRejected() {
+        seekRejectedCount++
+    }
+
+    private fun clearPending() {
+        pendingSeekTarget = null
+        pendingSeekStartedMs = null
+        pendingSeekPreviousPositionMs = null
     }
 
     fun observeNativePosition(positionMs: Long, nowMs: Long) {
@@ -120,16 +151,23 @@ internal class ExtrasVlcLatencyProbe {
         val started = pendingSeekStartedMs ?: return
         if (nowMs < started) return
         val duration = nowMs - started
-        val distance = if (positionMs >= target) positionMs - target else target - positionMs
-        if (distance <= 1_500L) {
+        val actual = positionMs.coerceAtLeast(0L)
+        val distance = if (actual >= target) actual - target else target - actual
+        val prior = pendingSeekPreviousPositionMs
+        val moved = if (prior == null) true else {
+            val requestedChange = if (target >= prior) target - prior else prior - target
+            val observedChange = if (actual >= prior) actual - prior else prior - actual
+            observedChange >= minOf(500L, requestedChange)
+        }
+        // Expire BEFORE acknowledging to avoid crediting a late position sample
+        // as a successful fast seek after the defined 15-second window.
+        if (duration >= 15_000L) {
+            seekTimeouts++
+            clearPending()
+        } else if (distance <= 1_500L && moved) {
             lastSeekAckMs = duration
             seekSamples++
-            pendingSeekTarget = null
-            pendingSeekStartedMs = null
-        } else if (duration >= 15_000L) {
-            seekTimeouts++
-            pendingSeekTarget = null
-            pendingSeekStartedMs = null
+            clearPending()
         }
     }
 
@@ -137,6 +175,9 @@ internal class ExtrasVlcLatencyProbe {
         startupToNativePlayingMs = firstPlayingMs,
         lastSeekPositionMs = lastSeekAckMs,
         seekSamples = seekSamples,
-        seekTimeouts = seekTimeouts
+        seekTimeouts = seekTimeouts,
+        seekRejectedCount = seekRejectedCount,
+        seekSupersededCount = seekSupersededCount,
+        seekNoChangeCount = seekNoChangeCount
     )
 }
