@@ -229,3 +229,30 @@ cannot offer full representation-consistency guarantees.
 These checks do not validate media decoding, rights to access remote content,
 or the performance of Android FUSE on real ARM32/ARM64 hardware. Extras
 LibVLC remains unavailable in production builds pending device qualification.
+
+
+## Playback intent, low-memory catalog, and TV recovery follow-up
+
+The shared Telegram playback controller (outside the MediaForge SDK) now
+projects engine state consistently across Media3, libmpv and LibVLC: an
+explicit Pause remains Paused even if native Buffering arrives later, and
+a Play command does not show Playing until the engine confirms output.
+This controller change is independently tested and does **not** route
+Telegram media into Extras or the external WebBridge.
+
+ARM32/low-RAM Extras browsing now releases inactive tab poster-result
+snapshots when switching tabs while preserving each tab's search query and
+filters. Android memory-pressure events also reclaim inactive tab lists on
+other devices. Reopening a reclaimed tab fetches page one; this is a deliberate
+memory/performance tradeoff and should be verified on physical ARM32 TVs.
+
+The TV subtitle dialog focuses its currently selected track when reopened
+rather than always defaulting focus to Off. Media3 exposes an explicit
+user-triggered retry after failure; the debug-only guarded LibVLC screen
+has larger horizontally scrollable D-pad transport buttons and a direct
+**Try Media3** fallback, including when LibVLC preparation fails.
+
+These changes are not proof of third-party provider compatibility, subtitle
+rendering correctness on a real TV, or qualified long-session memory PSS.
+The Extras LibVLC release gate remains disabled, and the MediaForge PR must
+remain draft until hardware/authorization checks are completed.
