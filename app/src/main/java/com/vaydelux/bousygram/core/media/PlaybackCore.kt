@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -49,6 +50,8 @@ object PlaybackCore {
     private const val TAG = "PlaybackCore"
     private const val TEARDOWN_AWAIT_TIMEOUT_MS = 5_000L
     private const val PREPARING_WATCHDOG_TIMEOUT_MS = 15_000L
+    private const val ACTIVE_PRESENTATION_POLL_MS = 350L
+    private const val PAUSED_PRESENTATION_POLL_MS = 1_500L
 
     private val playbackExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "Bousygram-PlaybackCore").apply { isDaemon = true }
@@ -177,6 +180,38 @@ object PlaybackCore {
     private fun observeEngineState(session: PlaybackSession, engine: PlayerEngine, context: Context) {
         engineObserverJob?.cancel()
         engineObserverJob = scope.launch {
+            // Engine StateFlow reports decoder readiness, not every output
+            // transition. Reconcile independent output/intent flags at a low
+            // cadence. The polling child is canceled with this observer on
+            // engine handoff or teardown, so stale sessions cannot restart.
+            launch {
+                while (isActive) {
+                    delay(if (stateMachine.isPaused) PAUSED_PRESENTATION_POLL_MS
+                        else ACTIVE_PRESENTATION_POLL_MS)
+                    if (_currentSession.value !== session || _currentEngine.value !== engine ||
+                        session.isStopped()
+                    ) continue
+                    val decoderState = engine.playbackState.value
+                    if (decoderState !is EnginePlaybackState.Ready &&
+                        decoderState !is EnginePlaybackState.Buffering
+                    ) continue
+                    val ready = decoderState is EnginePlaybackState.Ready
+                    val requested = engine.playWhenReady
+                    val output = engine.isPlaying
+                    if (!needsPlaybackPresentationReconciliation(
+                            stateMachine.currentState, ready, requested, output
+                        )
+                    ) continue
+                    when (playbackPresentationState(ready, requested, output)) {
+                        PlaybackPresentationState.PAUSED ->
+                            stateMachine.onPaused(session, engine.currentPositionMs, engine.durationMs)
+                        PlaybackPresentationState.BUFFERING ->
+                            stateMachine.onBuffering(session, engine.currentPositionMs, engine.durationMs)
+                        PlaybackPresentationState.PLAYING ->
+                            stateMachine.onPlaying(session, engine.currentPositionMs, engine.durationMs)
+                    }
+                }
+            }
             engine.playbackState.collect { engineState ->
                 // Cancellation alone cannot prevent an already-delivered native
                 // callback after an engine fallback or a rapid session switch.

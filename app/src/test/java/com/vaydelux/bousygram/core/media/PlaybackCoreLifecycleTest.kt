@@ -103,6 +103,46 @@ class PlaybackCoreLifecycleTest {
     }
 
     @Test
+    fun nativeOutputReconciliationWorksWithoutASecondReadyEmission() {
+        val session = PlaybackSession(sampleQueue(1))
+        val machine = PlaybackStateMachine()
+        assertTrue(machine.onPreparing(session, session.currentItem))
+        assertTrue(machine.onBuffering(session, 0L, 60_000L))
+
+        // Ready has already fired, but isPlaying is not true yet.
+        assertFalse(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = true, isPlaying = false
+        ))
+        assertTrue(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = true, isPlaying = true
+        ))
+        assertTrue(machine.onPlaying(session, 500L, 60_000L))
+        assertFalse(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = true, isPlaying = true
+        ))
+
+        // A native rebuffer that never re-emits READY must not stay Playing.
+        assertTrue(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = true, isPlaying = false
+        ))
+        assertTrue(machine.onBuffering(session, 500L, 60_000L))
+        assertTrue(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = false, isPlaying = false
+        ))
+        assertTrue(machine.onPaused(session, 500L, 60_000L))
+        assertFalse(needsPlaybackPresentationReconciliation(
+            machine.currentState, ready = true, playWhenReady = false, isPlaying = true
+        ))
+        assertFalse(needsPlaybackPresentationReconciliation(
+            PlaybackCoreState.Idle, ready = true, playWhenReady = true, isPlaying = true
+        ))
+        assertFalse(needsPlaybackPresentationReconciliation(
+            PlaybackCoreState.Ending(session, session.currentItem),
+            ready = true, playWhenReady = true, isPlaying = true
+        ))
+    }
+
+    @Test
     fun pausedPresentationSurvivesLateBufferingEventAndExplicitResume() {
         val machine = PlaybackStateMachine()
         val item = sampleQueue(1).single()
