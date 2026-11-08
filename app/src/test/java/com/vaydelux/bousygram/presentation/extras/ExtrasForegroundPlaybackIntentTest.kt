@@ -6,6 +6,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExtrasForegroundPlaybackIntentTest {
+    @Test fun unsupportedVlcChoiceAlwaysResolvesToMedia3() {
+        assertEquals(ExtrasNativeEngine.MEDIA3, extrasAvailableNativeEngine(
+            ExtrasNativeEngine.LIBVLC,
+            guardedVlcEnabled = true,
+            progressiveSupported = false // HLS, DASH or TS.
+        ))
+        assertEquals(ExtrasNativeEngine.MEDIA3, extrasAvailableNativeEngine(
+            ExtrasNativeEngine.LIBVLC,
+            guardedVlcEnabled = false, // All release and hardened builds.
+            progressiveSupported = true
+        ))
+        assertEquals(ExtrasNativeEngine.LIBVLC, extrasAvailableNativeEngine(
+            ExtrasNativeEngine.LIBVLC,
+            guardedVlcEnabled = true,
+            progressiveSupported = true
+        ))
+        assertEquals(ExtrasNativeEngine.MEDIA3, extrasAvailableNativeEngine(
+            ExtrasNativeEngine.MEDIA3,
+            guardedVlcEnabled = false,
+            progressiveSupported = false
+        ))
+    }
+
     @Test fun engineHandoffKeepsExplicitPauseInsteadOfAutoplaying() {
         val pausedMedia3 = extrasMedia3Handoff(
             positionMs = 42_000L, seekable = true, playWhenReady = false,
