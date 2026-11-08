@@ -80,6 +80,35 @@ class ExtrasForegroundPlaybackIntentTest {
         )).playRequested)
     }
 
+    @Test fun firstForegroundResumesInitiallyRequestedPlaybackExactlyOnce() {
+        val intent = ExtrasForegroundPlaybackIntent()
+        intent.onInitialAttach(playRequested = true, inForeground = false)
+        assertTrue(intent.onForeground())
+        assertFalse(intent.onForeground()) // A second START must not replay it.
+    }
+
+    @Test fun initiallyPausedPlaybackStaysPausedWhenActivityStarts() {
+        val intent = ExtrasForegroundPlaybackIntent()
+        intent.onInitialAttach(playRequested = false, inForeground = false)
+        assertFalse(intent.onForeground())
+    }
+
+    @Test fun alreadyForegroundPlayerCannotQueueAnExtraAutoplay() {
+        val intent = ExtrasForegroundPlaybackIntent()
+        intent.onInitialAttach(playRequested = true, inForeground = true)
+        assertFalse(intent.onForeground())
+    }
+
+    @Test fun lifecycleStopOrDisposeOverridesInitialAutoResume() {
+        val intent = ExtrasForegroundPlaybackIntent()
+        intent.onInitialAttach(playRequested = true, inForeground = false)
+        intent.onBackground(playRequested = false) // Explicitly paused while stopped.
+        assertFalse(intent.onForeground())
+        intent.onInitialAttach(playRequested = true, inForeground = false)
+        intent.cancel() // Player was disposed before START.
+        assertFalse(intent.onForeground())
+    }
+
     @Test fun activePlaybackRestoresOnlyOnceAfterActivityStops() {
         val intent = ExtrasForegroundPlaybackIntent()
         assertFalse(intent.onForeground())
