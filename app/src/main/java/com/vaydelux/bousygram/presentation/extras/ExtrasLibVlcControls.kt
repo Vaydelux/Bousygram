@@ -5,6 +5,8 @@ import com.vaydelux.mediaforge.players.MediaForgeRangeMetricsSnapshot
 /** Read-only LibVLC state published on the main thread for Compose controls. */
 internal data class ExtrasLibVlcControlState(
     val positionMs: Long = 0L,
+    /** Trusted seek position handed over by the previous engine, not yet applied. */
+    val pendingHandoffPositionMs: Long? = null,
     val durationMs: Long = 0L,
     val seekable: Boolean = false,
     val playing: Boolean = false,
