@@ -618,7 +618,9 @@ internal fun ExtrasLibVlcPlayer(
                     ExtrasVlcAction(
                         "Continue with Media3",
                         emphasized = true,
-                        onClick = { onUseMedia3(0L) }
+                        // A failed guarded-LibVLC probe must not erase the
+                        // seekable position handed off by the Media3 player.
+                        onClick = { onUseMedia3(initialPositionMs) }
                     )
                 }
             }
