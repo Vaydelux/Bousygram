@@ -150,6 +150,7 @@ class MediaForgeWebBridge(
 
     /** Dispatch a D-pad-confirmed real touch event to the WebView at view-local coordinates. */
     fun click(target: View, x: Float, y: Float) {
+        if (!open.get()) return // Ignore late TV remote input after native handoff or renderer death.
         val time = android.os.SystemClock.uptimeMillis()
         for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
             val event = MotionEvent.obtain(time, time + if (action == MotionEvent.ACTION_UP) 70 else 0,
