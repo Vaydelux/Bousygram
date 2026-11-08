@@ -22,6 +22,23 @@ sealed interface PlaybackCoreState {
     data object Released : PlaybackCoreState
 }
 
+/**
+ * User intent owns the visible transport state across ExoPlayer, libmpv and LibVLC.
+ * A Play request is not proof that a decoder produced a frame, and native
+ * buffering notifications cannot turn an explicit Pause into Buffering.
+ */
+internal enum class PlaybackPresentationState { PAUSED, BUFFERING, PLAYING }
+
+internal fun playbackPresentationState(
+    ready: Boolean,
+    playWhenReady: Boolean,
+    isPlaying: Boolean
+): PlaybackPresentationState = when {
+    !playWhenReady -> PlaybackPresentationState.PAUSED
+    ready && isPlaying -> PlaybackPresentationState.PLAYING
+    else -> PlaybackPresentationState.BUFFERING
+}
+
 class PlaybackStateMachine {
     private val _state = MutableStateFlow<PlaybackCoreState>(PlaybackCoreState.Idle)
     val state: StateFlow<PlaybackCoreState> = _state.asStateFlow()
