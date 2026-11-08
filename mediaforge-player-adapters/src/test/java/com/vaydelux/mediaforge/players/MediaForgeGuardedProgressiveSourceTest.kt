@@ -2,6 +2,16 @@ package com.vaydelux.mediaforge.players
 
 import com.vaydelux.mediaforge.core.StreamCandidate
 import com.vaydelux.mediaforge.core.StreamFormat
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Request
+import okhttp3.Response
+import okio.Timeout
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -21,6 +31,33 @@ class MediaForgeGuardedProgressiveSourceTest {
         assertNull(parseContentRange("unexpected"))
         assertNull(parseContentRange(null))
         assertNull(parseContentRange("bytes 1-1/99999999999999999999999"))
+    }
+
+    @Test fun cancellationDuringOpeningStopsPendingNetworkProbe() = runBlocking {
+        val call = PendingStartupCall()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            readCancellableMediaResponse(call) { it.code }
+        }
+        assertTrue(call.wasEnqueued)
+        assertFalse(call.isCanceled())
+        job.cancelAndJoin()
+        assertTrue(call.isCanceled())
+    }
+
+    private class PendingStartupCall : Call {
+        private val req = Request.Builder().url("https://example.org/probe").build()
+        private val cancelled = AtomicBoolean(false)
+        var wasEnqueued = false
+            private set
+
+        override fun request(): Request = req
+        override fun execute(): Response = throw AssertionError("Must not execute synchronously")
+        override fun enqueue(responseCallback: Callback) { wasEnqueued = true }
+        override fun cancel() { cancelled.set(true) }
+        override fun isExecuted(): Boolean = wasEnqueued
+        override fun isCanceled(): Boolean = cancelled.get()
+        override fun timeout(): Timeout = Timeout()
+        public override fun clone(): Call = PendingStartupCall()
     }
 
     @Test fun stopCancelsRegisteredReadExactlyOnce() {

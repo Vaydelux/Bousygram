@@ -23,8 +23,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -98,14 +104,11 @@ class MediaForgeGuardedProgressiveSource private constructor(
             }
         }
 
-        private fun inspectLength(client: OkHttpClient, url: String): RemoteRangeIdentity {
-            client.newCall(
-                Request.Builder().url(url)
-                    // A ranged FD maps raw bytes at exact offsets. Disallow
-                    // HTTP transparent gzip/br transformations at the wire.
-                    .header("Accept-Encoding", "identity")
-                    .header("Range", "bytes=0-0").get().build()
-            ).execute().use { response ->
+        private suspend fun inspectLength(client: OkHttpClient, url: String): RemoteRangeIdentity {
+            val request = Request.Builder().url(url)
+                .header("Accept-Encoding", "identity")
+                .header("Range", "bytes=0-0").get().build()
+            return readCancellableMediaResponse(client.newCall(request)) { response ->
                 if (response.code != 206) throw IOException("Server does not support byte ranges")
                 if (!isIdentityByteRangeResponse(
                         response.header("Content-Encoding"), response.header("Content-Length"), 1
@@ -115,14 +118,14 @@ class MediaForgeGuardedProgressiveSource private constructor(
                     ?: throw IOException("Missing stable content range")
                 if (range.first != 0L || range.second != 0L || range.third <= 0L)
                     throw IOException("Invalid initial content range")
-                return RemoteRangeIdentity(
+                RemoteRangeIdentity(
                     length = range.third,
                     strongEtag = parseStrongEtag(response.header("ETag"))
                 )
             }
         }
 
-        private fun fetchSubtitle(
+        private suspend fun fetchSubtitle(
             context: Context,
             client: OkHttpClient,
             subtitle: CaptionCandidate
@@ -130,10 +133,11 @@ class MediaForgeGuardedProgressiveSource private constructor(
             if (subtitle.format !in setOf(CaptionFormat.SRT, CaptionFormat.VTT) ||
                 MediaForgeUrlPolicy.safeHttpsUrl(subtitle.url) == null
             ) return null
-            return runCatching {
-                val bytes = client.newCall(
-                    Request.Builder().url(subtitle.url).get().build()
-                ).execute().use { response ->
+            return try {
+                // Keep OkHttp cancellation active throughout bounded body reads.
+                val bytes = readCancellableMediaResponse(
+                    client.newCall(Request.Builder().url(subtitle.url).get().build())
+                ) { response ->
                     if (!response.isSuccessful) throw IOException("Subtitle unavailable")
                     if (response.header("Content-Type").orEmpty().contains("text/html", true))
                         throw IOException("Unexpected subtitle content")
@@ -151,18 +155,25 @@ class MediaForgeGuardedProgressiveSource private constructor(
                         out.toByteArray()
                     }
                 }
+                coroutineContext.ensureActive()
                 if (bytes.isEmpty() || bytes.size > 512 * 1024)
                     throw IOException("Subtitle exceeds bounded limit")
                 val ext = if (subtitle.format == CaptionFormat.SRT) ".srt" else ".vtt"
                 File.createTempFile("mediaforge-subtitle-", ext, context.cacheDir).also {
                     try {
                         it.writeBytes(bytes)
+                        coroutineContext.ensureActive()
                     } catch (error: Exception) {
                         it.delete()
                         throw error
                     }
                 }
-            }.getOrNull()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Bad captions are optional and must not block the video.
+                null
+            }
         }
     }
 }
@@ -175,6 +186,31 @@ class MediaForgeGuardedProgressiveSource private constructor(
  * Missing Content-Length is allowed for HTTP chunked transfer. The reader
  * independently enforces the exact expected byte count and its memory cap.
  */
+/**
+ * A startup probe may receive headers and then stall during a subtitle body.
+ * Own the response inside the async OkHttp callback, keeping the suspend
+ * continuation's cancellation hook active until its bounded read finishes.
+ */
+internal suspend fun <T> readCancellableMediaResponse(
+    call: Call,
+    read: (Response) -> T
+): T = suspendCancellableCoroutine { continuation ->
+    continuation.invokeOnCancellation { call.cancel() }
+    call.enqueue(object : Callback {
+        override fun onFailure(call: Call, error: IOException) {
+            if (continuation.isActive) continuation.resumeWithException(error)
+        }
+        override fun onResponse(call: Call, response: Response) {
+            try {
+                val result = response.use(read)
+                if (continuation.isActive) continuation.resume(result)
+            } catch (error: Exception) {
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+        }
+    })
+}
+
 internal fun isIdentityByteRangeResponse(
     contentEncoding: String?,
     contentLength: String?,
