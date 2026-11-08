@@ -106,10 +106,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     val maxRetainedPosters = ExtrasPagingWindow.itemLimit(lowMemoryDevice)
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    // The memory-pressure collector is long-lived; read the latest tab rather
-    // than retaining a potentially stale composition-time selection.
-    val currentTabForTrim by rememberUpdatedState(selectedTab)
-    val type = ExtrasType.entries[selectedTab.coerceIn(0, ExtrasType.entries.lastIndex)]
+    val activeTabIndex = ExtrasPagingWindow.activeTabIndex(selectedTab)
+    // The memory-pressure collector is long-lived; read the latest VALID tab
+    // rather than retaining a stale or out-of-range saved selection.
+    val currentTabForTrim by rememberUpdatedState(activeTabIndex)
+    val type = ExtrasType.entries[activeTabIndex]
     var movies by remember { mutableStateOf(TabState()) }
     var tv by remember { mutableStateOf(TabState()) }
     var anime by remember { mutableStateOf(TabState()) }
