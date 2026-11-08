@@ -176,14 +176,23 @@ internal fun ExtrasMediaForgeScreen(
     }
 
     fun returnToWebView() {
-        // Force a fresh bridge after the old observer was closed on native handoff.
+        // Native handoff destroyed the old WebView and invalidated its observed
+        // resource URLs. Signed provider URLs may expire or be session-scoped;
+        // never keep an old native approval when the browser is recreated.
         inspectionGeneration += 1
         inspectionJob?.cancel()
         inspectionJob = null
         busy = false
+        approved = null
+        selectedCaption = null
+        showSubtitlePicker = false
+        discovery.clear()
+        snapshot = discovery.snapshot()
+        status = "Play the embedded media to discover fresh sources."
         webGeneration += 1
         nativeMedia = null
         nativeResumePositionMs = 0L
+        nativePlayRequested = true
     }
 
     BackHandler {
