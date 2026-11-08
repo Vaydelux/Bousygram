@@ -70,6 +70,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import com.vaydelux.bousygram.R
+import com.vaydelux.bousygram.core.media.PlayerBufferConfig
+import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
+import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -84,8 +87,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 
-private data class TabState(
+internal data class TabState(
     val query: String = "",
     val filters: ExtrasFilters = ExtrasFilters(),
     val results: List<ExtrasItem> = emptyList(),
@@ -96,6 +100,14 @@ private data class TabState(
     val loading: Boolean = false,
     val error: String? = null
 )
+
+/** Reclaim dormant poster metadata without losing the tab's filters or query.
+ * Page zero rehydrates when the tab becomes active; a stale page cursor must
+ * never render an empty grid permanently after a memory trim.
+ */
+internal fun TabState.releaseDormantPosters(): TabState =
+    copy(results = emptyList(), page = 0, hasMore = true,
+        droppedResults = 0, loading = false, error = null)
 
 @Composable
 fun ExtrasCatalogScreen(onExit: () -> Unit) {
@@ -109,8 +121,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     val isAndroidTv = metrics.isTv || supportsLeanback
     val lowMemoryDevice = remember(context) {
-        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        manager?.isLowRamDevice == true || !android.os.Process.is64Bit()
+        PlayerBufferConfig.isLowRamDevice(context) || !android.os.Process.is64Bit()
     }
     val maxRetainedPosters = ExtrasPagingWindow.itemLimit(lowMemoryDevice)
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -118,6 +129,31 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var movies by remember { mutableStateOf(TabState()) }
     var tv by remember { mutableStateOf(TabState()) }
     var anime by remember { mutableStateOf(TabState()) }
+
+    // A 32-bit/low-RAM TV should not keep three full catalog windows alive
+    // throughout a long browsing session. Only the current tab retains
+    // posters; dormant tabs keep query/filter settings and re-fetch on entry.
+    LaunchedEffect(selectedTab, lowMemoryDevice) {
+        if (lowMemoryDevice) {
+            if (selectedTab != ExtrasType.MOVIES.ordinal) movies = movies.releaseDormantPosters()
+            if (selectedTab != ExtrasType.TV.ordinal) tv = tv.releaseDormantPosters()
+            if (selectedTab != ExtrasType.ANIME.ordinal) anime = anime.releaseDormantPosters()
+        }
+    }
+    // Respond to actual Android memory trim callbacks even on high-memory
+    // hardware. Never drop the currently displayed poster list or active player.
+    LaunchedEffect(Unit) {
+        MediaMemoryPressure.events.collect { severity ->
+            if (severity == MediaMemoryTrim.MODERATE ||
+                severity == MediaMemoryTrim.CRITICAL
+            ) {
+                if (selectedTab != ExtrasType.MOVIES.ordinal) movies = movies.releaseDormantPosters()
+                if (selectedTab != ExtrasType.TV.ordinal) tv = tv.releaseDormantPosters()
+                if (selectedTab != ExtrasType.ANIME.ordinal) anime = anime.releaseDormantPosters()
+            }
+        }
+    }
+
     val state = when (type) {
         ExtrasType.MOVIES -> movies
         ExtrasType.TV -> tv
