@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -59,6 +60,22 @@ class MediaForgeSubtitlePickerInstrumentedTest {
         compose.onNodeWithText("English  ·  VTT").performClick()
         compose.runOnIdle { assertEquals(english, chosen) }
         compose.onNodeWithText("English  ·  VTT").assertIsSelected()
+    }
+
+    @Test fun reopeningTvPickerFocusesCurrentSubtitleInsteadOfResettingToOff() {
+        compose.setContent {
+            BousygramTheme {
+                ExtrasSubtitlePicker(
+                    captions = listOf(english, filipino),
+                    selected = filipino,
+                    isTv = true,
+                    onSelected = {},
+                    onDismiss = {}
+                )
+            }
+        }
+        compose.onNodeWithText("Filipino  ·  SRT").assertIsSelected()
+        compose.onNodeWithText("Filipino  ·  SRT").assertIsFocused()
     }
 
     @Test fun tvPickerAllowsTurningCaptionsOff() {
