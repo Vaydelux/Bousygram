@@ -80,3 +80,42 @@ sharing. File reproducible failures as GitHub issues.
 Do not mark the build production-qualified until the complete target-device
 matrix is signed off, all P0/P1 failures are resolved, and the protected release
 workflow verifies signing identity and device-qualification evidence.
+
+
+## November 8 follow-up: playback intent and ARM32 memory acceptance
+
+This checklist is **not** evidence of a successful device run. Use the exact
+commit and APK SHA-256 from a successful Enterprise / ABI CI run.
+
+1. **Pause while buffering (all three Telegram engines):** select Media3,
+   libmpv and LibVLC individually. Pause during first-load buffer, seek buffer
+   and a Wi-Fi stall. Confirm the UI remains **Paused**, no late native
+   Playing event starts video, and only a deliberate Play restarts decoding.
+2. **Play while buffering:** press Play once before the first frame. The UI may
+   show Preparing/Buffering but must not falsely show Playing. Verify that
+   initial playback, a subsequent seek and recovery from a brief network
+   interruption resume without a second Play command.
+3. **ARM32 memory and sustained playback:** on a real armeabi-v7a TV, record
+   p50/p95 startup, rebuffer time, ANRs and Java/native/PSS memory during 30–60
+   minutes of repeated MP4/MKV/TS playback. Media3 now caps this profile at
+   a 60-second forward buffer and 12-second back buffer; compare against
+   prior exact-build memory and buffering baselines, not inferred MB savings.
+4. **Extras tab retention:** on ARM32, browse multiple pages across Movies,
+   TV and Anime, then switch repeatedly; confirm each inactive tab discards
+   posters, restores its query/filters and successfully re-fetches page one.
+   Exercise Android moderate/critical memory trim events. Verify D-pad focus,
+   no empty-grid dead ends and no crashes after WebView renderer termination.
+5. **Extras player:** reopen the subtitle picker after choosing a subtitle;
+   D-pad focus must land on that selected track (or Off when none is selected).
+   Simulate a Media3 source failure and use **Retry playback**. From the
+   debug-only guarded LibVLC source, exercise **Try Media3** both after
+   preparation failure and during playback. Verify single audio-focus owner,
+   bounded retry attempts, and no leaked WebView or native file descriptor.
+
+Keep the draft MediaForge PR unmerged until its exact-head Enterprise tests,
+emulator instrumentation, LibVLC ARM32/ARM64 packaging, and TDLib generation
+checks pass. These checks are necessary but **not sufficient**: a real ARM32 TV,
+ARM64 TV, phone and tablet must still be tested with authorized media sources
+and sanitized evidence. Any regressions require a fresh commit and retest of
+the new APK hash. No debug artifact may be substituted for the signed
+production candidate during final release qualification.
