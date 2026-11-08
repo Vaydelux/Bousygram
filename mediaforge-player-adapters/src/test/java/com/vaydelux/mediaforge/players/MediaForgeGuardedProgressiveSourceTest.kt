@@ -35,6 +35,22 @@ class MediaForgeGuardedProgressiveSourceTest {
         assertTrue(alignedRangeWindowStart(Long.MAX_VALUE) <= Long.MAX_VALUE)
     }
 
+    @Test fun rangeFileDescriptorRejectsEncodingAndIncorrectDeclaredLengths() {
+        assertTrue(isIdentityByteRangeResponse(null, null, 262_144))
+        assertTrue(isIdentityByteRangeResponse("identity", "262144", 262_144))
+        assertTrue(isIdentityByteRangeResponse("IDENTITY", " 1 ", 1))
+        assertFalse(isIdentityByteRangeResponse("gzip", "262144", 262_144))
+        assertFalse(isIdentityByteRangeResponse("br", null, 262_144))
+        assertFalse(isIdentityByteRangeResponse("zstd", null, 262_144))
+        assertFalse(isIdentityByteRangeResponse("identity, gzip", null, 262_144))
+        assertFalse(isIdentityByteRangeResponse("", null, 262_144))
+        assertFalse(isIdentityByteRangeResponse("identity", "262143", 262_144))
+        assertFalse(isIdentityByteRangeResponse(null, "262145", 262_144))
+        assertFalse(isIdentityByteRangeResponse(null, "invalid", 1))
+        assertFalse(isIdentityByteRangeResponse(null, "-1", 1))
+        assertFalse(isIdentityByteRangeResponse(null, null, 0))
+    }
+
     @Test fun strongEtagsOnlyAndRangeIdentity() {
         assertEquals("\"media-v1\"", parseStrongEtag("\"media-v1\""))
         assertNull(parseStrongEtag("\"with spaces\""))

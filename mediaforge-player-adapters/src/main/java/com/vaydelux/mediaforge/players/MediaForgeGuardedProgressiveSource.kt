@@ -100,9 +100,17 @@ class MediaForgeGuardedProgressiveSource private constructor(
 
         private fun inspectLength(client: OkHttpClient, url: String): RemoteRangeIdentity {
             client.newCall(
-                Request.Builder().url(url).header("Range", "bytes=0-0").get().build()
+                Request.Builder().url(url)
+                    // A ranged FD maps raw bytes at exact offsets. Disallow
+                    // HTTP transparent gzip/br transformations at the wire.
+                    .header("Accept-Encoding", "identity")
+                    .header("Range", "bytes=0-0").get().build()
             ).execute().use { response ->
                 if (response.code != 206) throw IOException("Server does not support byte ranges")
+                if (!isIdentityByteRangeResponse(
+                        response.header("Content-Encoding"), response.header("Content-Length"), 1
+                    )
+                ) throw IOException("Byte-range response is encoded or has an incorrect length")
                 val range = parseContentRange(response.header("Content-Range"))
                     ?: throw IOException("Missing stable content range")
                 if (range.first != 0L || range.second != 0L || range.third <= 0L)
@@ -157,6 +165,30 @@ class MediaForgeGuardedProgressiveSource private constructor(
             }.getOrNull()
         }
     }
+}
+
+/**
+ * An Android ProxyFileDescriptor requires a byte-for-byte, seekable remote
+ * representation. Compressed HTTP entity content or a mismatched declared
+ * range length must fail closed, even on otherwise valid HTTP 206 responses.
+ *
+ * Missing Content-Length is allowed for HTTP chunked transfer. The reader
+ * independently enforces the exact expected byte count and its memory cap.
+ */
+internal fun isIdentityByteRangeResponse(
+    contentEncoding: String?,
+    contentLength: String?,
+    expectedBytes: Int
+): Boolean {
+    if (expectedBytes <= 0) return false
+    if (contentEncoding != null &&
+        !contentEncoding.trim().equals("identity", ignoreCase = true)
+    ) return false
+    if (contentLength != null) {
+        val declared = contentLength.trim().toLongOrNull() ?: return false
+        if (declared != expectedBytes.toLong()) return false
+    }
+    return true
 }
 
 internal fun parseContentRange(value: String?): Triple<Long, Long, Long>? {
@@ -267,6 +299,7 @@ private class GuardedRangeCallback(
         if (expected <= 0) throw IOException("End of stream")
         val end = start + expected - 1L
         val requestBuilder = Request.Builder().url(url)
+            .header("Accept-Encoding", "identity")
             .header("Range", "bytes=$start-$end")
         identity.strongEtag?.let { requestBuilder.header("If-Range", it) }
         val request = requestBuilder.get().build()
@@ -275,6 +308,10 @@ private class GuardedRangeCallback(
         try {
             activeCall.execute().use { response ->
                 if (response.code != 206) throw IOException("Server ignored byte-range request")
+                if (!isIdentityByteRangeResponse(
+                        response.header("Content-Encoding"), response.header("Content-Length"), expected
+                    )
+                ) throw IOException("Byte-range response is encoded or has an incorrect length")
                 if (!isConsistentRangeResponse(
                         identity, start, end,
                         response.header("Content-Range"), response.header("ETag")
