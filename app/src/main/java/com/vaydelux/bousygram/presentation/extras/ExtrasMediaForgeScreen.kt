@@ -204,8 +204,25 @@ internal fun ExtrasMediaForgeScreen(
                 media = media,
                 caption = selectedCaption,
                 title = request.title,
+                isTv = isAndroidTv,
                 onBack = { returnToWebView() },
-                onUseMedia3 = { nativeEngine = ExtrasNativeEngine.MEDIA3 }
+                onUseMedia3 = { nativeEngine = ExtrasNativeEngine.MEDIA3 },
+                onChooseSubtitles = { showSubtitlePicker = true }
+            )
+        }
+        // Keep the existing high-contrast TV subtitle dialog available while
+        // LibVLC owns the player. Choosing another external caption creates a
+        // fresh guarded FD and decoder; never reuse a released native surface.
+        if (showSubtitlePicker) {
+            ExtrasSubtitlePicker(
+                captions = media.captions,
+                selected = selectedCaption,
+                isTv = isAndroidTv,
+                onSelected = { picked ->
+                    selectedCaption = picked
+                    showSubtitlePicker = false
+                },
+                onDismiss = { showSubtitlePicker = false }
             )
         }
         return

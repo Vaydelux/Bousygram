@@ -8,6 +8,29 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -423,12 +446,15 @@ internal fun ExtrasLibVlcPlayer(
     media: InspectedMedia,
     caption: CaptionCandidate?,
     title: String,
+    isTv: Boolean,
     onBack: () -> Unit,
-    onUseMedia3: () -> Unit
+    onUseMedia3: () -> Unit,
+    onChooseSubtitles: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var status by remember(media.stream.url) { mutableStateOf("Preparing LibVLC…") }
+    var status by remember(media.stream.url, caption?.url) { mutableStateOf("Preparing LibVLC…") }
+    var controls by remember(media.stream.url, caption?.url) { mutableStateOf(ExtrasLibVlcControlState()) }
     var source by remember(media.stream.url, caption?.url) {
         mutableStateOf<MediaForgeGuardedProgressiveSource?>(null)
     }
@@ -454,11 +480,15 @@ internal fun ExtrasLibVlcPlayer(
     DisposableEffect(source) {
         onDispose { source?.close() }
     }
-    // LibVLC initialization can fail on devices without a compatible ABI.
+    // Failed native initialization is shown as a recoverable Media3 fallback.
     val sessionResult = remember(source, media.stream.url, caption?.url) {
         source?.let { guardedSource ->
             runCatching {
-                ExtrasLibVlcSession(context, media, caption, guardedSource) { status = it }
+                ExtrasLibVlcSession(
+                    context, media, caption, guardedSource,
+                    onStatus = { status = it },
+                    onControls = { controls = it }
+                )
             }
         }
     }
@@ -489,66 +519,296 @@ internal fun ExtrasLibVlcPlayer(
             session?.release()
         }
     }
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(
-            Modifier.fillMaxWidth().padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(onClick = onBack) { Text("Back to WebView") }
-            Text(title, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1)
-        }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val compact = maxWidth < 620.dp
         if (session == null) {
-            if (initError == null && source == null) {
-                CircularProgressIndicator(Modifier.padding(16.dp))
-                Text("Preparing guarded range playback…", color = Color.White)
-            } else {
-                Text(
-                    initError ?: "LibVLC is unavailable on this device. Use Media3.",
-                    color = Color(0xFFFFC7C7),
-                    modifier = Modifier.padding(16.dp)
-                )
-                Button(
-                    onClick = onUseMedia3,
-                    modifier = Modifier.padding(horizontal = 16.dp).heightIn(min = 52.dp)
-                ) { Text("Continue with Media3") }
+            Column(
+                Modifier.fillMaxSize().padding(if (isTv) 24.dp else 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                ExtrasVlcAction("Back to WebView", onClick = onBack)
+                Text(title, color = Color.White, fontSize = if (isTv) 22.sp else 18.sp)
+                if (initError == null && source == null) {
+                    CircularProgressIndicator(Modifier.padding(16.dp), color = Color(0xFF84DEFF))
+                    Text("Preparing guarded playback…", color = Color.White)
+                } else {
+                    Text(
+                        initError ?: "LibVLC is unavailable on this device. Use Media3.",
+                        color = Color(0xFFFFD5CF),
+                        fontSize = if (isTv) 20.sp else 16.sp
+                    )
+                    ExtrasVlcAction(
+                        "Continue with Media3",
+                        emphasized = true,
+                        onClick = onUseMedia3
+                    )
+                }
             }
         } else {
+            val playFocus = remember(session) { FocusRequester() }
+            var scrubFraction by remember(session) { mutableStateOf<Float?>(null) }
+            LaunchedEffect(session) {
+                // A newly added Android TV surface may need one layout frame
+                // before its Compose buttons can receive D-pad focus.
+                withFrameNanos { }
+                runCatching { playFocus.requestFocus() }
+            }
+
+            // Fullscreen, aspect-fit VLC video; the native decoder never sees
+            // the third-party network URL, only MediaForge's guarded local FD.
             AndroidView(
                 factory = { ctx ->
-                    VLCVideoLayout(ctx).also {
-                        runCatching { session.attach(it) }.onFailure {
-                            status = "LibVLC could not prepare this source."
+                    VLCVideoLayout(ctx).also { layout ->
+                        runCatching { session.attach(layout) }.onFailure {
+                            status = "LibVLC could not prepare this source; use Media3"
                         }
                     }
                 },
                 onRelease = { session.detach() },
-                modifier = Modifier.fillMaxWidth().weight(1f)
+                modifier = Modifier.fillMaxSize()
             )
-            Text(status, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp))
+            // Video-only D-pad surface: arrows seek when THIS surface is
+            // focused, not when the user is navigating buttons or the slider.
+            Box(
+                Modifier.fillMaxSize()
+                    .testTag("extras-libvlc-video-dpad")
+                    .onPreviewKeyEvent { key ->
+                        if (key.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (key.key) {
+                            Key.DirectionLeft -> { session.skip(-10_000L); true }
+                            Key.DirectionRight -> { session.skip(10_000L); true }
+                            Key.DirectionDown, Key.DirectionCenter, Key.Enter -> {
+                                runCatching { playFocus.requestFocus() }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    .focusable()
+            )
+
             Row(
-                Modifier.fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xED07101B), Color(0x0007101B))
+                        )
+                    )
+                    .padding(horizontal = if (isTv) 22.dp else 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                OutlinedButton(
-                    onClick = session::play, modifier = Modifier.heightIn(min = 52.dp)
-                ) { Text("Play") }
-                OutlinedButton(
-                    onClick = session::pause, modifier = Modifier.heightIn(min = 52.dp)
-                ) { Text("Pause") }
-                OutlinedButton(
-                    onClick = { session.skip(-10_000) }, modifier = Modifier.heightIn(min = 52.dp)
-                ) { Text("-10s") }
-                OutlinedButton(
-                    onClick = { session.skip(10_000) }, modifier = Modifier.heightIn(min = 52.dp)
-                ) { Text("+10s") }
-                // Release the current native surface before opening Media3.
-                // The app disposes this LibVLC composition and its guarded FD.
-                Button(
-                    onClick = onUseMedia3, modifier = Modifier.heightIn(min = 52.dp)
-                ) { Text("Try Media3") }
+                ExtrasVlcAction("Back", onClick = onBack)
+                Text(
+                    title, color = Color.White, modifier = Modifier.weight(1f),
+                    maxLines = 1, fontSize = if (isTv) 20.sp else 16.sp
+                )
+                Text(
+                    "FIT", color = Color(0xFFB5EAFB), fontSize = 13.sp,
+                    modifier = Modifier.testTag("extras-libvlc-aspect-fit")
+                )
             }
+
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0xDA06111C), Color(0xF506111C))
+                        )
+                    )
+                    .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (controls.playRequested && status.startsWith("Buffering")) {
+                        CircularProgressIndicator(
+                            Modifier.size(20.dp), color = Color(0xFF88DFFC),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                    Text(
+                        status, color = if (controls.failed) Color(0xFFFFD5CF) else Color.White,
+                        fontSize = if (isTv) 18.sp else 14.sp,
+                        maxLines = 2,
+                        modifier = Modifier.testTag("extras-libvlc-playback-status")
+                    )
+                }
+
+                val validDuration = controls.durationMs > 0L
+                val currentFraction = scrubFraction ?: extrasVlcProgress(
+                    controls.positionMs, controls.durationMs
+                )
+                Slider(
+                    value = currentFraction.coerceIn(0f, 1f),
+                    enabled = validDuration && controls.seekable && !controls.failed,
+                    onValueChange = { scrubFraction = it },
+                    onValueChangeFinished = {
+                        val chosen = scrubFraction
+                        scrubFraction = null
+                        if (chosen != null && controls.durationMs > 0L) {
+                            session.seekTo(
+                                (chosen.toDouble() * controls.durationMs.toDouble()).toLong()
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                        .testTag("extras-libvlc-seek-bar")
+                        .semantics { contentDescription = "Seek in video" }
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val displayedPosition = if (scrubFraction != null && validDuration) {
+                        (scrubFraction!!.toDouble() * controls.durationMs.toDouble()).toLong()
+                    } else controls.positionMs
+                    Text(
+                        extrasVlcTimeLabel(displayedPosition), color = Color.White,
+                        fontSize = if (isTv) 17.sp else 14.sp
+                    )
+                    Text(
+                        if (validDuration) extrasVlcTimeLabel(controls.durationMs) else "Time unavailable",
+                        color = Color(0xFFD1E2F3),
+                        fontSize = if (isTv) 17.sp else 14.sp
+                    )
+                }
+
+                if (compact) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ExtrasVlcAction(
+                            "-10s", enabled = controls.seekable,
+                            modifier = Modifier.weight(1f).testTag("extras-libvlc-rewind"),
+                            onClick = { session.skip(-10_000L) }
+                        )
+                        ExtrasVlcAction(
+                            if (controls.failed) "Retry" else if (controls.ended) "Replay"
+                            else if (controls.playRequested) "Pause" else "Play",
+                            emphasized = true,
+                            modifier = Modifier.weight(1f).focusRequester(playFocus)
+                                .testTag("extras-libvlc-play-pause"),
+                            onClick = {
+                                when {
+                                    controls.failed -> session.retry()
+                                    controls.playRequested -> session.pause()
+                                    else -> session.play()
+                                }
+                            }
+                        )
+                        ExtrasVlcAction(
+                            "+10s", enabled = controls.seekable,
+                            modifier = Modifier.weight(1f).testTag("extras-libvlc-forward"),
+                            onClick = { session.skip(10_000L) }
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ExtrasVlcAction(
+                            "Subtitles", enabled = media.captions.isNotEmpty(),
+                            modifier = Modifier.weight(1f).testTag("extras-libvlc-subtitles"),
+                            onClick = onChooseSubtitles
+                        )
+                        ExtrasVlcAction(
+                            "Use Media3",
+                            modifier = Modifier.weight(1f).testTag("extras-libvlc-use-media3"),
+                            onClick = onUseMedia3
+                        )
+                    }
+                } else {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ExtrasVlcAction(
+                            "-10s", enabled = controls.seekable,
+                            modifier = Modifier.weight(1f).testTag("extras-libvlc-rewind"),
+                            onClick = { session.skip(-10_000L) }
+                        )
+                        ExtrasVlcAction(
+                            if (controls.failed) "Retry" else if (controls.ended) "Replay"
+                            else if (controls.playRequested) "Pause" else "Play",
+                            emphasized = true,
+                            modifier = Modifier.weight(1.15f).focusRequester(playFocus)
+                                .testTag("extras-libvlc-play-pause"),
+                            onClick = {
+                                when {
+                                    controls.failed -> session.retry()
+                                    controls.playRequested -> session.pause()
+                                    else -> session.play()
+                                }
+                            }
+                        )
+                        ExtrasVlcAction(
+                            "+10s", enabled = controls.seekable,
+                            modifier = Modifier.weight(1f).testTag("extras-libvlc-forward"),
+                            onClick = { session.skip(10_000L) }
+                        )
+                        ExtrasVlcAction(
+                            if (caption == null) "Subtitles" else "Captions ✓",
+                            enabled = media.captions.isNotEmpty(),
+                            modifier = Modifier.weight(1.2f).testTag("extras-libvlc-subtitles"),
+                            onClick = onChooseSubtitles
+                        )
+                        ExtrasVlcAction(
+                            "Use Media3",
+                            modifier = Modifier.weight(1.2f).testTag("extras-libvlc-use-media3"),
+                            onClick = onUseMedia3
+                        )
+                    }
+                }
+                if (isTv) {
+                    Text(
+                        "D-pad: select a control, or focus video and press Left/Right to seek 10 seconds",
+                        color = Color(0xFFC7D6E4), fontSize = 13.sp,
+                        maxLines = 2
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** High-contrast controls with visible TV focus, independent of light/dark theme. */
+@Composable
+private fun ExtrasVlcAction(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    emphasized: Boolean = false
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    val focusColor = if (focused) Color(0xFF95E8FF) else Color.Transparent
+    val surface = modifier.onFocusChanged { focused = it.isFocused }
+        .border(if (focused) 3.dp else 1.dp, focusColor, shape)
+        .heightIn(min = 52.dp)
+    if (emphasized) {
+        Button(
+            onClick = onClick, enabled = enabled, modifier = surface,
+            shape = shape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF8EDFFF),
+                contentColor = Color(0xFF082333),
+                disabledContainerColor = Color(0xFF34505F),
+                disabledContentColor = Color(0xFFC4D0DA)
+            )
+        ) {
+            Text(label, maxLines = 1, fontSize = 15.sp)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick, enabled = enabled, modifier = surface,
+            shape = shape,
+            border = BorderStroke(1.dp, Color(0xFF8EA9BA)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = Color.White,
+                disabledContentColor = Color(0xFF93A3B0)
+            )
+        ) {
+            Text(label, maxLines = 1, fontSize = 15.sp)
         }
     }
 }
