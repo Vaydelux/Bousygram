@@ -52,6 +52,7 @@ class MediaForgeWebBridge(
 
     @SuppressLint("SetJavaScriptEnabled")
     fun create(context: Context, embedUrl: String): WebView {
+        check(open.get()) { "A closed MediaForge WebBridge cannot create a new WebView" }
         val approved = MediaForgeUrlPolicy.safeHttpsUrl(embedUrl)
             ?: throw IllegalArgumentException("Invalid external embed URL")
         val embedHost = approved.host
