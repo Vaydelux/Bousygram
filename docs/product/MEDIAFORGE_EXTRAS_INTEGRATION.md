@@ -193,3 +193,7 @@ an explicit Off option, up to two lines of track names, a scrollable list,
 
 TMDB configuration: copy `.env.example` to the repository root `.env`,
 set `TMDB_API_KEY=YOUR_TMDB_V3_API_KEY` and rebuild. Never commit `.env`.
+
+## Subtitle dialog accessibility regression
+
+The MediaForge Extras subtitle dialog now exposes explicit selectable state to TalkBack and Compose UI testing. The initial TV focus request runs inside the popup composition rather than racing with attachment of its focusable children. Emulator tests cover visible subtitle track names, default Off selection, selecting an available subtitle and turning subtitles Off without accessing private or third-party media.

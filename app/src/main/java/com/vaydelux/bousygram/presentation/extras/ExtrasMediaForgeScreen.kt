@@ -9,7 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.focusable
@@ -590,7 +590,7 @@ internal fun ExtrasVirtualCursor(
 }
 
 @Composable
-private fun ExtrasSubtitlePicker(
+internal fun ExtrasSubtitlePicker(
     captions: List<CaptionCandidate>,
     selected: CaptionCandidate?,
     isTv: Boolean,
@@ -604,7 +604,8 @@ private fun ExtrasSubtitlePicker(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(if (isTv) 0.78f else 0.94f)
-                .widthIn(max = if (isTv) 780.dp else 480.dp),
+                .widthIn(max = if (isTv) 780.dp else 480.dp)
+                .testTag("extras-subtitle-dialog"),
             color = Color(0xFF0D1929),
             contentColor = Color.White,
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
@@ -652,8 +653,10 @@ private fun ExtrasSubtitlePicker(
                 }
             }
         }
+        // Request focus in the dialog's composition, after the remote-friendly
+        // choices have been attached to the popup's own focus tree.
+        LaunchedEffect(firstFocus) { firstFocus.requestFocus() }
     }
-    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 }
 
 @Composable
@@ -675,7 +678,7 @@ private fun SubtitlePickerChoice(
                 shape
             )
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick),
+            .selectable(selected = selected, onClick = onClick),
         color = if (focused) Color(0xFF175481)
             else if (selected) Color(0xFF174061) else Color(0xFF17273B),
         shape = shape
