@@ -71,10 +71,10 @@ class MediaForgeGuardedProgressiveSource private constructor(
             val client = MediaForgePlaybackTransport.client.newBuilder()
                 .callTimeout(30, TimeUnit.SECONDS)
                 .build()
-            val length = inspectLength(client, stream.url)
+            val identity = inspectLength(client, stream.url)
             coroutineContext.ensureActive()
             val subtitle = if (caption != null) fetchSubtitle(context, client, caption) else null
-            val callback = GuardedRangeCallback(client, stream.url, length)
+            val callback = GuardedRangeCallback(client, stream.url, identity)
             val thread = HandlerThread("mediaforge-vlc-range-io")
             var descriptor: ParcelFileDescriptor? = null
             try {
@@ -98,7 +98,7 @@ class MediaForgeGuardedProgressiveSource private constructor(
             }
         }
 
-        private fun inspectLength(client: OkHttpClient, url: String): Long {
+        private fun inspectLength(client: OkHttpClient, url: String): RemoteRangeIdentity {
             client.newCall(
                 Request.Builder().url(url).header("Range", "bytes=0-0").get().build()
             ).execute().use { response ->
@@ -107,7 +107,10 @@ class MediaForgeGuardedProgressiveSource private constructor(
                     ?: throw IOException("Missing stable content range")
                 if (range.first != 0L || range.second != 0L || range.third <= 0L)
                     throw IOException("Invalid initial content range")
-                return range.third
+                return RemoteRangeIdentity(
+                    length = range.third,
+                    strongEtag = parseStrongEtag(response.header("ETag"))
+                )
             }
         }
 
@@ -169,14 +172,36 @@ internal fun parseContentRange(value: String?): Triple<Long, Long, Long>? {
 }
 
 /**
+ * A strong ETag gives every subsequent 206 range read a stable representation.
+ * Weak ETags cannot be used with If-Range. Sources without an ETag still require
+ * identical Content-Range totals but cannot prove byte-level version identity.
+ */
+internal data class RemoteRangeIdentity(val length: Long, val strongEtag: String?)
+
+internal fun parseStrongEtag(header: String?): String? {
+    val value = header?.trim() ?: return null
+    if (value.length !in 2..512 || !value.startsWith('"') || !value.endsWith('"')) return null
+    if (value.any { it.code < 32 || it.code == 127 }) return null
+    return value
+}
+
+internal const val MEDIAFORGE_RANGE_WINDOW_BYTES = 256L * 1024L
+
+internal fun alignedRangeWindowStart(position: Long, windowBytes: Long = MEDIAFORGE_RANGE_WINDOW_BYTES): Long {
+    require(position >= 0L && windowBytes > 0L)
+    return position - position % windowBytes
+}
+
+/**
  * All file reads happen on the Android StorageManager callback thread.
  * A single bounded 256-KiB window avoids dozens of GETs for tiny VLC reads.
  */
 private class GuardedRangeCallback(
     private val client: OkHttpClient,
     private val url: String,
-    private val total: Long
+    private val identity: RemoteRangeIdentity
 ) : ProxyFileDescriptorCallback() {
+    private val total = identity.length
     private val stopped = AtomicBoolean(false)
     @Volatile private var call: Call? = null
     private var windowStart = -1L
@@ -216,12 +241,15 @@ private class GuardedRangeCallback(
     }
 
     private fun loadWindow(position: Long) {
-        val expected = minOf(256L * 1024L, total - position).toInt()
+        // Align windows to reduce overlapping downloads on small reads and seeks.
+        val start = alignedRangeWindowStart(position)
+        val expected = minOf(MEDIAFORGE_RANGE_WINDOW_BYTES, total - start).toInt()
         if (expected <= 0) throw IOException("End of stream")
-        val end = position + expected - 1L
-        val request = Request.Builder().url(url)
-            .header("Range", "bytes=$position-$end")
-            .get().build()
+        val end = start + expected - 1L
+        val requestBuilder = Request.Builder().url(url)
+            .header("Range", "bytes=$start-$end")
+        identity.strongEtag?.let { requestBuilder.header("If-Range", it) }
+        val request = requestBuilder.get().build()
         val activeCall = client.newCall(request)
         call = activeCall
         try {
@@ -229,8 +257,15 @@ private class GuardedRangeCallback(
                 if (response.code != 206) throw IOException("Server ignored byte-range request")
                 val range = parseContentRange(response.header("Content-Range"))
                     ?: throw IOException("Invalid content range")
-                if (range.first != position || range.second != end || range.third != total) {
+                if (range.first != start || range.second != end || range.third != total) {
                     throw IOException("Unexpected or changed byte range")
+                }
+                // A changed representation must never mix old and new cached bytes.
+                val returnedEtag = response.header("ETag")
+                if (identity.strongEtag != null && returnedEtag != null &&
+                    parseStrongEtag(returnedEtag) != identity.strongEtag
+                ) {
+                    throw IOException("Media changed while reading byte ranges")
                 }
                 val fresh = ByteArray(expected)
                 val input = response.body?.byteStream() ?: throw IOException("No range body")
@@ -243,7 +278,7 @@ private class GuardedRangeCallback(
                         read += n
                     }
                 }
-                windowStart = position
+                windowStart = start
                 window = fresh
             }
         } finally {
