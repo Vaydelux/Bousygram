@@ -120,9 +120,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // posters; dormant tabs keep query/filter settings and re-fetch on entry.
     LaunchedEffect(activeTabIndex, lowMemoryDevice) {
         if (lowMemoryDevice) {
-            if (activeTabIndex != ExtrasType.MOVIES.ordinal) movies = movies.releaseDormantPosters()
-            if (activeTabIndex != ExtrasType.TV.ordinal) tv = tv.releaseDormantPosters()
-            if (activeTabIndex != ExtrasType.ANIME.ordinal) anime = anime.releaseDormantPosters()
+            if (ExtrasPagingWindow.shouldReleaseDormantPosters(activeTabIndex, ExtrasType.MOVIES)) movies = movies.releaseDormantPosters()
+            if (ExtrasPagingWindow.shouldReleaseDormantPosters(activeTabIndex, ExtrasType.TV)) tv = tv.releaseDormantPosters()
+            if (ExtrasPagingWindow.shouldReleaseDormantPosters(activeTabIndex, ExtrasType.ANIME)) anime = anime.releaseDormantPosters()
         }
     }
     // Respond to actual Android memory trim callbacks even on high-memory
@@ -135,9 +135,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 // Trim only dormant catalogs. Switching tabs must not make a
                 // later OS memory callback drop the now-visible poster grid.
                 val activeTab = currentTabForTrim
-                if (activeTab != ExtrasType.MOVIES.ordinal) movies = movies.releaseDormantPosters()
-                if (activeTab != ExtrasType.TV.ordinal) tv = tv.releaseDormantPosters()
-                if (activeTab != ExtrasType.ANIME.ordinal) anime = anime.releaseDormantPosters()
+                if (ExtrasPagingWindow.shouldReleaseDormantPosters(activeTab, ExtrasType.MOVIES)) movies = movies.releaseDormantPosters()
+                if (ExtrasPagingWindow.shouldReleaseDormantPosters(activeTab, ExtrasType.TV)) tv = tv.releaseDormantPosters()
+                if (ExtrasPagingWindow.shouldReleaseDormantPosters(activeTab, ExtrasType.ANIME)) anime = anime.releaseDormantPosters()
             }
         }
     }
@@ -217,7 +217,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
 
     // Restore the poster *and* grid position after leaving the details route.
-    LaunchedEffect(restorePosterFocus, detailItem, selectedTab, state.results.size) {
+    LaunchedEffect(restorePosterFocus, detailItem, activeTabIndex, state.results.size) {
         if (restorePosterFocus <= restoredPosterFocus || detailItem != null) return@LaunchedEffect
         val id = selectedPoster[type] ?: return@LaunchedEffect
         val index = state.results.indexOfFirst { it.id == id }
@@ -375,7 +375,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 if (detailItem == null) {
                     Spacer(Modifier.height(8.dp))
                     // Keep every tab reachable on smaller phones and large font scales.
-                    ExtrasCatalogTabs(selectedTab, onSelect = { selectedTab = it })
+                    ExtrasCatalogTabs(activeTabIndex, onSelect = { selectedTab = it })
                 }
             }
         }
