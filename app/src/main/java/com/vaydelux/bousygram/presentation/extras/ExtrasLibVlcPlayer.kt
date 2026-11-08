@@ -647,24 +647,31 @@ internal fun ExtrasLibVlcPlayer(
             }
             LaunchedEffect(
                 controlsVisible, controls.playRequested, controls.playing,
+                controls.failed, controls.ended, status, showDiagnostics,
                 headerFocused, footerFocused
             ) {
-                // Do not hide focused controls or a paused/buffering video.
-                // The player keeps running; only chrome is removed.
-                if (controlsVisible && controls.playRequested && controls.playing &&
-                    !headerFocused && !footerFocused
-                ) {
+                // Buffering, errors, Pause, diagnostics, and focused buttons
+                // must never disappear, even if native isPlaying stays true
+                // throughout a network stall.
+                if (controlsVisible && extrasVlcChromeMayAutoHide(
+                    controls, status, showDiagnostics, headerFocused, footerFocused
+                )) {
                     delay(5_000L)
-                    if (!headerFocused && !footerFocused) {
+                    if (extrasVlcChromeMayAutoHide(
+                        controls, status, showDiagnostics, headerFocused, footerFocused
+                    )) {
                         controlsVisible = false
                         runCatching { videoFocus.requestFocus() }
                     }
                 }
             }
-            LaunchedEffect(controls.failed, controls.ended, controls.playRequested, status) {
-                if (controls.failed || controls.ended || !controls.playRequested ||
-                    (controls.playRequested && status.startsWith("Buffering"))
-                ) controlsVisible = true
+            LaunchedEffect(
+                controlsVisible, controls.playRequested, controls.playing,
+                controls.failed, controls.ended, showDiagnostics, status
+            ) {
+                if (!controlsVisible && extrasVlcChromeMustRemainVisible(
+                    controls, status, showDiagnostics
+                )) controlsVisible = true
             }
 
             // Fullscreen, aspect-fit VLC video; the native decoder never sees
@@ -687,7 +694,11 @@ internal fun ExtrasLibVlcPlayer(
                     .focusRequester(videoFocus)
                     .testTag("extras-libvlc-video-dpad")
                     .pointerInput(session) {
-                        detectTapGestures { controlsVisible = !controlsVisible }
+                        detectTapGestures {
+                            controlsVisible = if (extrasVlcChromeMustRemainVisible(
+                                controls, status, showDiagnostics
+                            )) true else !controlsVisible
+                        }
                     }
                     .onPreviewKeyEvent { key ->
                         if (key.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false

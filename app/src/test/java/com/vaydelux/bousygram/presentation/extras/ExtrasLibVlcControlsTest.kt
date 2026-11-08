@@ -172,6 +172,39 @@ class ExtrasLibVlcControlsTest {
         assertEquals(1, probe.snapshot().seekNoChangeCount)
     }
 
+    @Test fun bufferingAndPausedChromeNeverAutoHide() {
+        val playing = ExtrasLibVlcControlState(playRequested = true, playing = true)
+        val paused = playing.copy(playRequested = false, playing = false)
+        assertTrue(extrasVlcChromeMustRemainVisible(playing, "Buffering…", false))
+        assertTrue(extrasVlcChromeMustRemainVisible(paused, "Paused", false))
+        assertTrue(extrasVlcChromeMustRemainVisible(
+            playing.copy(failed = true), "Playback failed", false
+        ))
+        assertTrue(extrasVlcChromeMustRemainVisible(
+            playing.copy(ended = true), "Playback finished", false
+        ))
+        assertTrue(extrasVlcChromeMustRemainVisible(playing, "Playing", true))
+    }
+
+    @Test fun healthyPlayingChromeHidesOnlyWithNoFocusedControls() {
+        val playing = ExtrasLibVlcControlState(playRequested = true, playing = true)
+        assertTrue(extrasVlcChromeMayAutoHide(
+            playing, "Playing", false, false, false
+        ))
+        assertTrue(!extrasVlcChromeMayAutoHide(
+            playing, "Playing", false, true, false
+        ))
+        assertTrue(!extrasVlcChromeMayAutoHide(
+            playing, "Playing", false, false, true
+        ))
+        assertTrue(!extrasVlcChromeMayAutoHide(
+            playing, "Buffering", false, false, false
+        ))
+        assertTrue(!extrasVlcChromeMayAutoHide(
+            playing, "Playing", true, false, false
+        ))
+    }
+
     @Test fun timeLabelsStayReadableForTv() {
         assertEquals("0:00", extrasVlcTimeLabel(-1L))
         assertEquals("0:09", extrasVlcTimeLabel(9_000L))

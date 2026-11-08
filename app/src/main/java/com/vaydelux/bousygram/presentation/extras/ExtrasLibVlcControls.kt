@@ -194,3 +194,26 @@ internal class ExtrasVlcLatencyProbe {
         longestSeekPositionMs = longestSeekAckMs
     )
 }
+
+/**
+ * TV chrome can hide only for healthy, actively playing output.
+ * A native decoder can report isPlaying=true while it is buffering; always
+ * consider status, not just playbackRequested and native play state.
+ */
+internal fun extrasVlcChromeMustRemainVisible(
+    controls: ExtrasLibVlcControlState,
+    status: String,
+    diagnosticsVisible: Boolean
+): Boolean = diagnosticsVisible || !controls.playRequested || !controls.playing ||
+    controls.failed || controls.ended ||
+    status.startsWith("Buffering", ignoreCase = true) ||
+    status.startsWith("Preparing", ignoreCase = true)
+
+internal fun extrasVlcChromeMayAutoHide(
+    controls: ExtrasLibVlcControlState,
+    status: String,
+    diagnosticsVisible: Boolean,
+    headerFocused: Boolean,
+    footerFocused: Boolean
+): Boolean = !extrasVlcChromeMustRemainVisible(controls, status, diagnosticsVisible) &&
+    !headerFocused && !footerFocused
