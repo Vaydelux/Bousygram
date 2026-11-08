@@ -276,8 +276,47 @@ internal fun alignedRangeWindowStart(position: Long, windowBytes: Long = MEDIAFO
 }
 
 /**
+ * Serializes source shutdown with in-flight HTTP call installation.
+ *
+ * Without this gate, stop() can run after the callback's stopped check but
+ * before it publishes its newly created OkHttp Call. The stop then misses
+ * cancellation and a released native FD can leave network work running.
+ *
+ * Cancellation callbacks execute outside the lock, avoiding any deadlock with
+ * OkHttp completion callbacks or HandlerThread teardown.
+ */
+internal class MediaForgeReadCancellationGate {
+    private val lock = Any()
+    @Volatile private var stopped = false
+    private var activeCancel: (() -> Unit)? = null
+
+    val isStopped: Boolean get() = stopped
+
+    fun register(cancel: () -> Unit): Boolean = synchronized(lock) {
+        if (stopped) false else {
+            activeCancel = cancel
+            true
+        }
+    }
+
+    fun finish() {
+        synchronized(lock) { activeCancel = null }
+    }
+
+    fun stop() {
+        val cancel = synchronized(lock) {
+            if (stopped) null else {
+                stopped = true
+                activeCancel.also { activeCancel = null }
+            }
+        }
+        cancel?.invoke()
+    }
+}
+
+/**
  * All file reads happen on the Android StorageManager callback thread.
- * A single bounded 256-KiB window avoids dozens of GETs for tiny VLC reads.
+ * Two bounded 256-KiB windows avoid repeated head/tail range fetches.
  */
 private class GuardedRangeCallback(
     private val client: OkHttpClient,
@@ -285,19 +324,15 @@ private class GuardedRangeCallback(
     private val identity: RemoteRangeIdentity
 ) : ProxyFileDescriptorCallback() {
     private val total = identity.length
-    private val stopped = AtomicBoolean(false)
-    @Volatile private var call: Call? = null
+    private val callGate = MediaForgeReadCancellationGate()
     private val rangeCache = MediaForgeRangeWindowCache()
 
-    fun stop() {
-        stopped.set(true)
-        call?.cancel()
-    }
+    fun stop() { callGate.stop() }
 
     override fun onGetSize(): Long = total
 
     override fun onRead(offset: Long, size: Int, data: ByteArray): Int {
-        if (stopped.get()) throw ErrnoException("read", OsConstants.EBADF)
+        if (callGate.isStopped) throw ErrnoException("read", OsConstants.EBADF)
         if (offset < 0L || size < 0 || size > data.size)
             throw ErrnoException("read", OsConstants.EINVAL)
         if (offset >= total || size == 0) return 0
@@ -305,7 +340,7 @@ private class GuardedRangeCallback(
         var copied = 0
         try {
             while (copied < count) {
-                if (stopped.get()) throw IOException("File source closed")
+                if (callGate.isStopped) throw IOException("File source closed")
                 val position = offset + copied
                 val start = alignedRangeWindowStart(position)
                 val window = rangeCache.get(start) ?: loadWindow(start)
@@ -333,7 +368,10 @@ private class GuardedRangeCallback(
         identity.strongEtag?.let { requestBuilder.header("If-Range", it) }
         val request = requestBuilder.get().build()
         val activeCall = client.newCall(request)
-        call = activeCall
+        if (!callGate.register { activeCall.cancel() }) {
+            activeCall.cancel()
+            throw IOException("File source closed")
+        }
         try {
             activeCall.execute().use { response ->
                 if (response.code != 206) throw IOException("Server ignored byte-range request")
@@ -351,7 +389,7 @@ private class GuardedRangeCallback(
                 input.use { stream ->
                     var read = 0
                     while (read < expected) {
-                        if (stopped.get()) throw IOException("File source closed")
+                        if (callGate.isStopped) throw IOException("File source closed")
                         val n = stream.read(fresh, read, expected - read)
                         if (n == -1) throw IOException("Truncated range body")
                         read += n
@@ -361,7 +399,7 @@ private class GuardedRangeCallback(
                 return fresh
             }
         } finally {
-            call = null
+            callGate.finish()
         }
     }
 

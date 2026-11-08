@@ -23,6 +23,46 @@ class MediaForgeGuardedProgressiveSourceTest {
         assertNull(parseContentRange("bytes 1-1/99999999999999999999999"))
     }
 
+    @Test fun stopCancelsRegisteredReadExactlyOnce() {
+        val gate = MediaForgeReadCancellationGate()
+        var cancels = 0
+        assertTrue(gate.register { cancels++ })
+        assertFalse(gate.isStopped)
+        gate.stop()
+        gate.stop()
+        assertEquals(1, cancels)
+        assertTrue(gate.isStopped)
+    }
+
+    @Test fun closeBeforeRegistrationPreventsNewNetworkRequest() {
+        val gate = MediaForgeReadCancellationGate()
+        gate.stop() // close races with a scheduled request
+        var cancels = 0
+        assertFalse(gate.register { cancels++ })
+        assertEquals(0, cancels)
+        assertTrue(gate.isStopped)
+    }
+
+    @Test fun finishedReadDoesNotCancelAndCannotRearmAfterClose() {
+        val gate = MediaForgeReadCancellationGate()
+        var cancels = 0
+        assertTrue(gate.register { cancels++ })
+        gate.finish()
+        gate.stop()
+        assertEquals(0, cancels)
+        assertFalse(gate.register { cancels++ })
+    }
+
+    @Test fun cancellationGateAcceptsSequentialRequestsBeforeStopOnly() {
+        val gate = MediaForgeReadCancellationGate()
+        var cancels = 0
+        assertTrue(gate.register { cancels++ })
+        gate.finish()
+        assertTrue(gate.register { cancels += 10 })
+        gate.stop()
+        assertEquals(10, cancels) // only the latest pending read
+    }
+
     @Test fun headerAndTailWindowsAreReusedWithoutAnotherDownload() {
         val cache = MediaForgeRangeWindowCache()
         val head = ByteArray(MEDIAFORGE_RANGE_WINDOW_BYTES.toInt()) { 1 }
