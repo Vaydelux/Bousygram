@@ -171,3 +171,25 @@ The guarded progressive source now sets a 30-second absolute HTTP call timeout, 
 
 ## Virtual pointer precision and key-event correctness
 The Extras virtual mouse now applies D-pad movement as deltas against live Compose state to prevent rapid key events from overwriting each other before recomposition. OK/Center reads the latest coordinates; larger TV viewports get appropriately scaled movement and held directions accelerate. The cursor is a high-contrast white arrow with a dark outline and a hotspot at its exact pointer tip. The emulator interaction tests cover two immediate D-pad movements followed by OK and edge clamping.
+
+## November 2026 TV accessibility and audio cleanup
+
+The tonal audio equalizer has been retired from Settings and the player Audio/CC
+panel. Existing equalizer presets are ignored, forced to the flat Original
+mode and are removed from local preferences on the next audio-profile update.
+Smart Volume/Dialogue Boost remains a separate optional feature. The legacy
+EQ models remain temporarily for backwards compatibility with diagnostics and
+stored settings, but cannot be enabled from the UI.
+
+The main TV subtitle/track panel now expands to a maximum 760dp width, uses
+large, high-contrast light-on-dark text and a bright D-pad focus outline, and
+lists available tracks **before** caption appearance controls. Native caption
+style/size controls retain existing Media3/libmpv support.
+
+The MediaForge Extras playback screen now opens a dedicated TV-friendly subtitle
+dialog rather than squeezing tiny subtitle chips beneath the video. It includes
+an explicit Off option, up to two lines of track names, a scrollable list,
+64dp TV touch/focus rows and clear selected/focused states.
+
+TMDB configuration: copy `.env.example` to the repository root `.env`,
+set `TMDB_API_KEY=YOUR_TMDB_V3_API_KEY` and rebuild. Never commit `.env`.
