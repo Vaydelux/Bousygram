@@ -132,6 +132,23 @@ jobs:
         shell: bash
         run: bash tools/ci/test_android_sdk_setup.sh
 
+      # API keys are never exposed to pull_request builds. Only trusted manual
+      # workflow dispatches and pushes to main may bake TMDB v3 into debug APKs.
+      # APK contents are publicly inspectable: this protects CI storage, not the key.
+      - name: Configure TMDB v3 API key for trusted debug builds
+        if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+        shell: bash
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
+            chmod 600 .env
+          else
+            echo "::notice::TMDB_API_KEY repository secret is not configured. This debug APK will use the placeholder key."
+          fi
+
       - name: Run required Gradle verification
         shell: bash
         run: |
@@ -207,6 +224,23 @@ jobs:
       - name: Install Android SDK dependencies
         shell: bash
         run: bash tools/ci/setup_android_sdk.sh
+
+      # API keys are never exposed to pull_request builds. Only trusted manual
+      # workflow dispatches and pushes to main may bake TMDB v3 into debug APKs.
+      # APK contents are publicly inspectable: this protects CI storage, not the key.
+      - name: Configure TMDB v3 API key for trusted debug builds
+        if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+        shell: bash
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
+            chmod 600 .env
+          else
+            echo "::notice::TMDB_API_KEY repository secret is not configured. This debug APK will use the placeholder key."
+          fi
 
       - name: Build all supported debug APK architectures
         shell: bash
