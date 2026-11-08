@@ -35,6 +35,10 @@ internal object ExtrasPagingWindow {
     const val LOW_RAM_MAX_ITEMS = 120
     const val STANDARD_MAX_ITEMS = 240
 
+    /** Saved tab selections may outlive tabs added/removed in a newer build. */
+    fun activeTabIndex(saved: Int): Int =
+        saved.coerceIn(0, ExtrasType.entries.lastIndex)
+
     data class Merge(
         val items: List<ExtrasItem>,
         val removedFromFront: Int
