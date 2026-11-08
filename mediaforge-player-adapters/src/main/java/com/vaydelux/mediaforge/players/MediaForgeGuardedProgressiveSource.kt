@@ -48,6 +48,8 @@ class MediaForgeGuardedProgressiveSource private constructor(
     private val worker: HandlerThread
 ) : AutoCloseable {
     private val closed = AtomicBoolean(false)
+    /** Fixed-size URL-free counters, safe to inspect from the UI thread. */
+    val metrics: MediaForgeRangeMetrics get() = callback.metrics
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
@@ -362,6 +364,7 @@ private class GuardedRangeCallback(
     private val total = identity.length
     private val callGate = MediaForgeReadCancellationGate()
     private val rangeCache = MediaForgeRangeWindowCache()
+    val metrics = MediaForgeRangeMetrics()
 
     fun stop() { callGate.stop() }
 
@@ -379,7 +382,11 @@ private class GuardedRangeCallback(
                 if (callGate.isStopped) throw IOException("File source closed")
                 val position = offset + copied
                 val start = alignedRangeWindowStart(position)
-                val window = rangeCache.get(start) ?: loadWindow(start)
+                val cached = rangeCache.get(start)
+                val window = if (cached != null) {
+                    metrics.recordCacheHit()
+                    cached
+                } else loadWindow(start)
                 val from = (position - start).toInt()
                 val available = minOf(window.size - from, count - copied)
                 if (available <= 0) throw IOException("Short byte-range response")
@@ -389,6 +396,7 @@ private class GuardedRangeCallback(
         } catch (_: IOException) {
             throw ErrnoException("read", OsConstants.EIO)
         }
+        metrics.recordRead(copied)
         return copied
     }
 
@@ -408,6 +416,8 @@ private class GuardedRangeCallback(
             activeCall.cancel()
             throw IOException("File source closed")
         }
+        metrics.recordFetchStarted()
+        val startedNs = System.nanoTime()
         try {
             activeCall.execute().use { response ->
                 if (response.code != 206) throw IOException("Server ignored byte-range request")
@@ -432,8 +442,16 @@ private class GuardedRangeCallback(
                     }
                 }
                 rangeCache.put(start, fresh)
+                metrics.recordFetchCompleted(
+                    byteCount = fresh.size,
+                    elapsedNanos = System.nanoTime() - startedNs,
+                    retainedCacheBytes = rangeCache.retainedBytes
+                )
                 return fresh
             }
+        } catch (error: IOException) {
+            metrics.recordFetchFailure()
+            throw error
         } finally {
             callGate.finish()
         }
