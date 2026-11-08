@@ -11,23 +11,26 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AudioOutputLifecycleInstrumentedTest {
     @Test
-    fun stoppingExoPlayerPreservesIntentButDoesNotClaimActiveEffects() {
+    fun stoppingExoPlayerPreservesSmartVolumeButNeverRestoresRetiredEq() {
         // Media3 enforces access from its application Looper (main by default).
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val context = InstrumentationRegistry.getInstrumentation().targetContext
             val engine = ExoPlayerEngine.create(context)
+            // The deliberately stale DIALOGUE preset must never enable a
+            // native equalizer. Smart Volume is a separate supported feature.
             val profile = AudioProcessingProfile(
                 preset = AudioEqualizerPreset.DIALOGUE,
                 smartVolume = SmartVolumeMode.NIGHT
             )
             try {
                 engine.applyAudioProcessing(profile)
+                assertEquals(AudioEffectStatus.BYPASSED, engine.audioEqualizerStatus.value)
                 engine.stop()
-                assertEquals(AudioEffectStatus.PENDING, engine.audioEqualizerStatus.value)
+                assertEquals(AudioEffectStatus.BYPASSED, engine.audioEqualizerStatus.value)
                 assertEquals(AudioEffectStatus.PENDING, engine.smartVolumeStatus.value)
                 // Repeated stop/release must not create or retain a stale effect.
                 engine.stop()
-                assertEquals(AudioEffectStatus.PENDING, engine.audioEqualizerStatus.value)
+                assertEquals(AudioEffectStatus.BYPASSED, engine.audioEqualizerStatus.value)
             } finally {
                 engine.release()
             }
