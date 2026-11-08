@@ -453,7 +453,10 @@ internal class ExtrasLibVlcSession(
         val seek = runCatching {
             if (!player.isSeekable) null
             else {
-                val previous = player.time.coerceAtLeast(0L)
+                // Relative seeks immediately after engine handoff are relative
+                // to the requested resume point, not an uninitialized 0:00.
+                val previous = initialSeek.pendingPositionMs
+                    ?: player.time.coerceAtLeast(0L)
                 Pair(extrasVlcSeekTarget(previous, deltaMs, player.length), previous)
             }
         }
@@ -491,6 +494,9 @@ internal class ExtrasLibVlcSession(
     private fun issueSeek(targetMs: Long, previousPositionMs: Long) {
         val startedMs = SystemClock.elapsedRealtime()
         if (runCatching { player.setTime(targetMs) }.isSuccess) {
+            // A later explicit seek takes precedence over a pending engine
+            // handoff/subtitle restore; never jump back on the next native tick.
+            initialSeek.onExplicitSeekAccepted()
             latencyProbe.onSeekRequested(targetMs, startedMs, previousPositionMs)
             if (latencyProbe.hasPendingSeek) scheduleProgress()
         } else {
