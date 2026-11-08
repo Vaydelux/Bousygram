@@ -166,6 +166,41 @@ class MediaForgeWebBridgeInstrumentedTest {
         }
     }
 
+    @Test fun alternateProviderNavigationCannotLeaveTheSelectedTitle() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val bridge = MediaForgeWebBridge(onMediaResource = {})
+            val view = bridge.create(
+                instrumentation.targetContext,
+                "https://mediaforge.example.invalid/movie/42"
+            )
+            try {
+                fun request(url: String) = object : WebResourceRequest {
+                    override fun getUrl(): android.net.Uri = android.net.Uri.parse(url)
+                    override fun isForMainFrame(): Boolean = true
+                    override fun isRedirect(): Boolean = false
+                    override fun hasGesture(): Boolean = true
+                    override fun getMethod(): String = "GET"
+                    override fun getRequestHeaders(): Map<String, String> = emptyMap()
+                }
+                assertFalse(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://mediaforge.example.invalid/movie/42?server=2")
+                ))
+                assertTrue(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://mediaforge.example.invalid/movie/43")
+                ))
+                assertTrue(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://outside.example.invalid/movie/42")
+                ))
+            } finally {
+                bridge.close()
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            }
+        }
+    }
+
     @Test fun webBridgeRejectsUnsafeTopLevelEmbed() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {

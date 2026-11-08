@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -45,6 +48,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -88,19 +94,31 @@ import kotlinx.coroutines.launch
  * A title-specific embed chosen explicitly by the Extras user. This is not a
  * TMDB stream and is never used by Telegram Media.
  */
-internal data class ExtrasEmbedRequest(val url: String, val title: String) {
+internal data class ExtrasEmbedRequest(
+    val url: String,
+    val title: String,
+    val tmdbId: Int = 0,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val server: ExtrasEmbedServer = ExtrasEmbedServer.CINESRC
+) {
+    fun forServer(next: ExtrasEmbedServer): ExtrasEmbedRequest {
+        require(tmdbId > 0) { "Server switching requires a TMDB title ID" }
+        return copy(url = next.urlFor(tmdbId, season, episode), server = next)
+    }
+
     companion object {
         fun movie(tmdbId: Int, title: String): ExtrasEmbedRequest {
-            require(tmdbId > 0)
-            return ExtrasEmbedRequest("https://cinesrc.st/embed/movie/$tmdbId", title)
+            return ExtrasEmbedRequest(
+                url = ExtrasEmbedServer.CINESRC.urlFor(tmdbId),
+                title = title,
+                tmdbId = tmdbId
+            )
         }
 
         fun episode(tmdbId: Int, season: Int, episode: Int, title: String): ExtrasEmbedRequest {
-            require(tmdbId > 0 && season >= 0 && episode > 0)
-            return ExtrasEmbedRequest(
-                "https://cinesrc.st/embed/tv/$tmdbId?s=$season&e=$episode",
-                "$title · S$season E$episode"
-            )
+            val url = ExtrasEmbedServer.CINESRC.urlFor(tmdbId, season, episode)
+            return ExtrasEmbedRequest(url, "$title · S$season E$episode", tmdbId, season, episode)
         }
     }
 }
@@ -114,6 +132,34 @@ internal fun ExtrasMediaForgeScreen(
     request: ExtrasEmbedRequest,
     onBack: () -> Unit,
     isAndroidTv: Boolean
+) {
+    var selectedServer by remember(request.tmdbId, request.season, request.episode) {
+        mutableStateOf(ExtrasEmbedServer.CINESRC)
+    }
+    val selectedRequest = remember(request, selectedServer) {
+        if (request.tmdbId > 0) request.forServer(selectedServer) else request
+    }
+    // Each provider owns a distinct untrusted browsing session. Disposing the
+    // keyed subtree destroys the old WebView, native engine, detected URLs,
+    // pending inspections, and TV pointer before a replacement can be loaded.
+    key(selectedRequest.url) {
+        ExtrasMediaForgePlayerScreen(
+            request = selectedRequest,
+            onBack = onBack,
+            isAndroidTv = isAndroidTv,
+            selectedServer = selectedServer,
+            onServerSelected = { selectedServer = it }
+        )
+    }
+}
+
+@Composable
+private fun ExtrasMediaForgePlayerScreen(
+    request: ExtrasEmbedRequest,
+    onBack: () -> Unit,
+    isAndroidTv: Boolean,
+    selectedServer: ExtrasEmbedServer,
+    onServerSelected: (ExtrasEmbedServer) -> Unit
 ) {
     val discovery = remember(request.url) { MediaForgeDiscovery() }
     val resolver = remember { MediaForgeResolver() }
@@ -290,62 +336,120 @@ internal fun ExtrasMediaForgeScreen(
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (!immersiveWeb) {
-        Row(
-            Modifier.fillMaxWidth().padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.testTag("extras-embed-back")) {
-                Text("Back")
-            }
-            Text(request.title, modifier = Modifier.weight(1f), maxLines = 1)
-            OutlinedButton(
-                onClick = { immersiveWeb = true },
-                modifier = Modifier.testTag("extras-embed-fullscreen")
-            ) { Text("Fullscreen") }
-            if (isAndroidTv) {
-                OutlinedButton(
-                    onClick = { cursorEnabled = !cursorEnabled },
-                    modifier = Modifier.testTag("extras-virtual-mouse")
-                ) { Text(if (cursorEnabled) "Cursor ON" else "Cursor OFF") }
-            }
-        }
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onBack,
+                        modifier = Modifier.testTag("extras-embed-back")
+                    ) { Text("Back") }
+                    Text(
+                        request.title,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(
-                onClick = {
-                    inspectionGeneration += 1
-                    inspectionJob?.cancel()
-                    inspectionJob = null
-                    busy = false
-                    approved = null
-                    selectedCaption = null
-                    discovery.clear()
-                    snapshot = discovery.snapshot()
-                    status = "Reloading embedded player…"
-                    if (webView != null) webView?.reload() else webGeneration += 1
-                },
-                modifier = Modifier.testTag("extras-embed-reload")
-            ) { Text("Reload player") }
-            OutlinedButton(
-                onClick = {
-                    inspectionGeneration += 1
-                    inspectionJob?.cancel()
-                    inspectionJob = null
-                    busy = false
-                    approved = null
-                    selectedCaption = null
-                    discovery.clear()
-                    snapshot = discovery.snapshot()
-                    status = "Detected sources cleared."
-                },
-                modifier = Modifier.testTag("extras-clear-sources")
-            ) { Text("Clear sources") }
-        }
+                // Small phones receive a full-width source picker; TV/desktop
+                // keep the picker and large D-pad targets on one row.
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    if (maxWidth < 520.dp) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ExtrasEmbedServerDropdown(
+                                server = selectedServer,
+                                onSelected = onServerSelected,
+                                isTv = isAndroidTv,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { immersiveWeb = true },
+                                    modifier = Modifier.weight(1f).testTag("extras-embed-fullscreen")
+                                ) { Text("Fullscreen") }
+                                if (isAndroidTv) {
+                                    OutlinedButton(
+                                        onClick = { cursorEnabled = !cursorEnabled },
+                                        modifier = Modifier.weight(1f).testTag("extras-virtual-mouse")
+                                    ) { Text(if (cursorEnabled) "Cursor ON" else "Cursor OFF") }
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ExtrasEmbedServerDropdown(
+                                server = selectedServer,
+                                onSelected = onServerSelected,
+                                isTv = isAndroidTv,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedButton(
+                                onClick = { immersiveWeb = true },
+                                modifier = Modifier.testTag("extras-embed-fullscreen")
+                            ) { Text("Fullscreen") }
+                            if (isAndroidTv) {
+                                OutlinedButton(
+                                    onClick = { cursorEnabled = !cursorEnabled },
+                                    modifier = Modifier.testTag("extras-virtual-mouse")
+                                ) { Text(if (cursorEnabled) "Cursor ON" else "Cursor OFF") }
+                            }
+                        }
+                    }
+                }
 
+                Text(
+                    "TMDB #${request.tmdbId} · ${selectedServer.description} · Availability varies by provider.",
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            inspectionGeneration += 1
+                            inspectionJob?.cancel()
+                            inspectionJob = null
+                            busy = false
+                            approved = null
+                            selectedCaption = null
+                            discovery.clear()
+                            snapshot = discovery.snapshot()
+                            status = "Reloading embedded player…"
+                            if (webView != null) webView?.reload() else webGeneration += 1
+                        },
+                        modifier = Modifier.testTag("extras-embed-reload")
+                    ) { Text("Reload player") }
+                    OutlinedButton(
+                        onClick = {
+                            inspectionGeneration += 1
+                            inspectionJob?.cancel()
+                            inspectionJob = null
+                            busy = false
+                            approved = null
+                            selectedCaption = null
+                            discovery.clear()
+                            snapshot = discovery.snapshot()
+                            status = "Detected sources cleared."
+                        },
+                        modifier = Modifier.testTag("extras-clear-sources")
+                    ) { Text("Clear sources") }
+                }
+            }
         }
 
         Box(
@@ -357,7 +461,7 @@ internal fun ExtrasMediaForgeScreen(
                     pointerY = pointerY.coerceIn(0, areaHeight - 1)
                 }
         ) {
-            key(webGeneration) {
+            key(request.url, webGeneration) {
                 AndroidView(
                     factory = { ctx ->
                         try {
@@ -589,6 +693,66 @@ internal fun ExtrasMediaForgeScreen(
             }
         }
     }
+    }
+}
+
+/**
+ * Compact, D-pad reachable provider menu. Source selection is explicit;
+ * the provider changes the entire isolated browsing session, not just a URL
+ * in an already-running WebView.
+ */
+@Composable
+internal fun ExtrasEmbedServerDropdown(
+    server: ExtrasEmbedServer,
+    onSelected: (ExtrasEmbedServer) -> Unit,
+    isTv: Boolean,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth()
+                .heightIn(min = if (isTv) 56.dp else 48.dp)
+                .testTag("extras-server-dropdown")
+        ) {
+            Text(
+                "Server: ${server.label}  ▾",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.widthIn(min = 220.dp, max = if (isTv) 420.dp else 340.dp)
+        ) {
+            ExtrasEmbedServer.entries.forEach { candidate ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(
+                                (if (candidate == server) "✓  " else "") + candidate.label,
+                                fontSize = if (isTv) 19.sp else 16.sp
+                            )
+                            Text(
+                                candidate.description,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 2
+                            )
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        if (candidate != server) onSelected(candidate)
+                    },
+                    modifier = Modifier
+                        .heightIn(min = if (isTv) 64.dp else 48.dp)
+                        .semantics { selected = candidate == server }
+                        .testTag("extras-server-" + candidate.name.lowercase())
+                )
+            }
+        }
     }
 }
 

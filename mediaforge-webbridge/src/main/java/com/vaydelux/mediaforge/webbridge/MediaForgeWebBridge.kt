@@ -108,8 +108,16 @@ class MediaForgeWebBridge(
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (!request.isForMainFrame) return false
                 val target = MediaForgeUrlPolicy.safeHttpsUrl(request.url.toString())
+                // CineSrc/XXIKU use /embed/ routes; EmbedHeaven uses
+                // /movie/{id} or /tv/{id}/{season}/{episode}. Keep navigation
+                // on the selected provider and title, including query changes
+                // that the embedded player may make for its own server picker.
+                val sourcePath = approved.path.orEmpty()
+                val targetPath = target?.path.orEmpty()
+                val allowedPath = targetPath == sourcePath ||
+                    (sourcePath.startsWith("/embed/") && targetPath.startsWith("/embed/"))
                 val allowed = target != null && target.host.equals(embedHost, true) &&
-                    target.path.orEmpty().startsWith("/embed/")
+                    allowedPath
                 if (!allowed) onNavigationBlocked?.invoke()
                 return !allowed
             }

@@ -320,3 +320,44 @@ third-party execution environment; these are defense-in-depth checks, not a
 complete network sandbox, and they do not bypass authentication, access
 controls or DRM. Do not treat a green build as a guarantee of provider
 safety or full playback compatibility.
+
+## External server selector — TMDB-ID routing
+
+Extras playback now offers an explicit **Server** dropdown in the browser
+header with three independently hosted third-party embeds:
+
+| Dropdown option | Movie route | TV episode route |
+| --- | --- | --- |
+| CineSrc (original/default) | `https://cinesrc.st/embed/movie/{tmdb_id}` | `https://cinesrc.st/embed/tv/{tmdb_id}?s={season}&e={episode}` |
+| XXIKU | `https://player.xxiku.com/embed/movie/{tmdb_id}?best=1&auto=1&style=compact` | `https://player.xxiku.com/embed/tv/{tmdb_id}/{season}/{episode}?best=1&auto=1&style=compact` |
+| EmbedHeaven | `https://player.embedheaven.st/movie/{tmdb_id}?autoplay=0` | `https://player.embedheaven.st/tv/{tmdb_id}/{season}/{episode}?autoplay=0` |
+
+**How to use:** Open Extras → Movies or TV Shows → a title (and a season
+and episode for TV) → Play. Use **Server: CineSrc ▾** to choose another
+external player. The TMDB title ID comes from catalog metadata, not from a
+secret; the configured `TMDB_API_KEY` remains solely for fetching TMDB
+catalog metadata. Changing the dropdown destroys the old WebView, its
+discovered URLs, outstanding network inspections, player state, and D-pad
+pointer before a new provider is opened. It never silently autoplays an
+external provider or bypasses its internal controls.
+
+On narrow mobile widths, server selection is full-width and the fullscreen
+control moves to its own row. On TV, the picker uses large touch/focus
+targets and is operated with the remote. Native player choice, the subtitle
+dialog, and the separately guarded media source probe are unchanged.
+
+**Scope and limits:** These are independently operated *external embeds*, not
+verified native streams and not video supplied by TMDB. Their own internal
+server lists may be inaccessible to Bousygram due to browser isolation,
+authentication, DRM, provider changes, or absent media. Bousygram does not
+simulate hidden clicks, reverse engineer player challenges, use account
+cookies, bypass access controls, or guarantee playback. Users should select
+only providers and media they are authorized to access; review provider terms
+before public distribution. The WebView URL-level request guard is not DNS
+pinning or a complete third-party sandbox. Physical Android TV playback
+and server-specific responsiveness are unqualified.
+
+Reference documentation (retrieved 2026-11-09):
+- https://cinesrc.st/docs
+- https://player.xxiku.com/docs
+- https://www.embedheaven.st/docs/
