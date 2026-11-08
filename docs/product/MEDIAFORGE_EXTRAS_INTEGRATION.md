@@ -211,3 +211,21 @@ MediaForge's WebViewClient handles Android API 26+ renderer termination (includi
 ## LibVLC Play/Pause protection during buffering
 
 The Extras-specific LibVLC session now treats its Play flag as the authority, including while the native decoder buffers. A late native Playing notification after a user or lifecycle Pause forces a native Pause on the UI handler rather than continuing unexpectedly. Native Paused notifications with still-active Play intent use the existing **maximum two retries per explicit Play** policy before surfacing a recoverable error. EOF/errors release audio focus, and the native Play flag is set before calling player.play() so synchronous callbacks cannot misclassify a legitimate start. These changes remain debug-only for the guarded MP4/WebM LibVLC experiment; physical device qualification is still required.
+
+
+## Guarded progressive range consistency (November 8, 2026)
+
+The **Extras-only debug LibVLC** local file-descriptor reader now aligns its
+256-KiB cache windows to deterministic offsets. This reduces overlapping
+HTTPS range downloads when VLC makes small neighboring reads or seeks.
+
+A successful initial 206 byte-range probe retains the file's **strong ETag**
+when the origin provides one. Later requests send `If-Range` and reject
+non-206 responses, changed ETags, or inconsistent `Content-Range` totals.
+Weak or malformed ETags are deliberately ignored. Servers without strong
+ETags remain eligible but only receive Content-Range length validation; they
+cannot offer full representation-consistency guarantees.
+
+These checks do not validate media decoding, rights to access remote content,
+or the performance of Android FUSE on real ARM32/ARM64 hardware. Extras
+LibVLC remains unavailable in production builds pending device qualification.
