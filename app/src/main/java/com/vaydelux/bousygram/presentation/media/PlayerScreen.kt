@@ -200,6 +200,7 @@ import kotlinx.coroutines.withContext
 private const val SEEK_INCREMENT_MS = 10_000L
 private const val BUFFERING_STALL_MS = 22_000L
 private const val MAX_AUTO_RETRIES = 5
+private const val MAX_PREMATURE_EOF_RETRIES = 2
 private const val CACHE_AHEAD_REFRESH_MS = 10_000L
 
 @OptIn(UnstableApi::class)
@@ -322,6 +323,9 @@ fun PlayerScreen(
     var playbackError by remember { mutableStateOf<String?>(null) }
     var reloadNonce by remember { mutableIntStateOf(0) }
     var retryCount by remember { mutableIntStateOf(0) }
+    // Separate from IO/decoder retry budget. New media resets it; reprepare
+    // must not reset it or malformed EOF can loop forever.
+    var prematureEofRetryCount by remember(request, queueIndex) { mutableIntStateOf(0) }
     var rebufferCount by remember { mutableIntStateOf(0) }
     val progressCheckpoint = remember(playbackSession) { PlaybackProgressCheckpoint() }
     var lastGoodPosition by remember { mutableLongStateOf(0L) }
@@ -865,6 +869,7 @@ fun PlayerScreen(
         onResetAndStop = {
             reloadNonce = 0
             retryCount = 0
+            prematureEofRetryCount = 0
             pendingResumeMs = 0L
             lastGoodPosition = 0L
             lastAheadPrefetchPosition = 0L
@@ -1131,10 +1136,68 @@ fun PlayerScreen(
                             exitPlayback()
                         }
                     } else {
-                        Log.w("PlayerScreen", "Premature EOF detected at ${playerEngine.currentPositionMs}ms of ${duration}ms; guarding against premature track skip")
-                        isReconnecting = true
-                        isBuffering = true
-                        reloadNonce++
+                        Log.w(
+                            "PlayerScreen",
+                            "Premature EOF at ${playerEngine.currentPositionMs}ms / ${duration}ms; " +
+                                "recovery attempt ${prematureEofRetryCount + 1}"
+                        )
+                        val eligible = shouldRetryPrematurePlaybackEnd(
+                            retriesSoFar = prematureEofRetryCount,
+                            maximumRetries = MAX_PREMATURE_EOF_RETRIES,
+                            inForeground = lifecycleOwner.lifecycle.currentState
+                                .isAtLeast(Lifecycle.State.RESUMED),
+                            explicitlyPaused = explicitlyPaused,
+                            castConnected = castState.connected
+                        )
+                        if (eligible) {
+                            prematureEofRetryCount++
+                            isReconnecting = true
+                            isBuffering = true
+                            val expectedIndex = queueIndex
+                            val expectedNonce = reloadNonce
+                            val fileIdAtEof = current.fileId
+                            val recoveryDelayMs = autoRetryDelayMs(prematureEofRetryCount)
+                            scope.launch {
+                                delay(recoveryDelayMs)
+                                // An old EOF retry must never restart a newer
+                                // episode, a manual Pause, or a Cast session.
+                                if (queueIndex == expectedIndex &&
+                                    reloadNonce == expectedNonce &&
+                                    queue.getOrNull(expectedIndex)?.fileId == fileIdAtEof &&
+                                    playbackError == null
+                                ) {
+                                    if (shouldRetryPrematurePlaybackEnd(
+                                            retriesSoFar = prematureEofRetryCount - 1,
+                                            maximumRetries = MAX_PREMATURE_EOF_RETRIES,
+                                            inForeground = lifecycleOwner.lifecycle.currentState
+                                                .isAtLeast(Lifecycle.State.RESUMED),
+                                            explicitlyPaused = explicitlyPaused,
+                                            castConnected = castState.connected
+                                        )
+                                    ) {
+                                        reloadNonce++
+                                    } else {
+                                        isReconnecting = false
+                                        isBuffering = false
+                                        playbackError = "Playback stopped unexpectedly. Select Retry when ready."
+                                        hudVisible = true
+                                    }
+                                }
+                            }
+                        } else {
+                            isReconnecting = false
+                            isBuffering = false
+                            val message = if (prematureEofRetryCount >= MAX_PREMATURE_EOF_RETRIES) {
+                                "Video ended before reaching its expected position after recovery attempts. Try Retry or another player."
+                            } else {
+                                "Playback stopped unexpectedly. Select Retry when ready."
+                            }
+                            playbackError = message
+                            PlaybackDiagnostics.recordStreamError("PrematureEndOfFile")
+                            hudVisible = true
+                            playbackSession.onError(message, null, current)
+                            commitPlaybackTelemetry(fatalError = message)
+                        }
                     }
                 }
                 is EnginePlaybackState.Error -> {
@@ -2473,6 +2536,7 @@ fun PlayerScreen(
                 onRetry = {
                     hudInteractionTick++
                     retryCount = 0
+                    prematureEofRetryCount = 0
                     isReconnecting = true
                     lastGoodPosition = recoveryPositionMs(
                         pendingSeekTargetMs, playerEngine.currentPositionMs, lastGoodPosition

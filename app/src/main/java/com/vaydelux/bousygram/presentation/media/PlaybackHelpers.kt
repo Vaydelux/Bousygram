@@ -145,6 +145,24 @@ internal fun measuredRebufferDurationMs(
  * an immediate EOF as a transient stream failure and retry instead of
  * unexpectedly skipping to the next episode.
  */
+/**
+ * Premature EOF is not a real episode completion. A damaged/short Telegram
+ * response can emit Ended repeatedly without any decoded progress.
+ *
+ * Never allow an unbounded reopen loop. Only a foreground, non-casting
+ * playback attempt that the user has not paused may auto-retry.
+ * Explicit Retry starts a separate new budget in the UI.
+ */
+internal fun shouldRetryPrematurePlaybackEnd(
+    retriesSoFar: Int,
+    maximumRetries: Int,
+    inForeground: Boolean,
+    explicitlyPaused: Boolean,
+    castConnected: Boolean
+): Boolean = retriesSoFar >= 0 && maximumRetries > 0 &&
+    retriesSoFar < maximumRetries && inForeground &&
+    !explicitlyPaused && !castConnected
+
 internal fun isCredibleNaturalPlaybackEnd(
     durationMs: Long,
     positionMs: Long,

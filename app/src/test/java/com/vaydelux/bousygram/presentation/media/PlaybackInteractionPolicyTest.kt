@@ -28,6 +28,30 @@ class PlaybackInteractionPolicyTest {
             com.vaydelux.bousygram.core.media.PlaybackRetryDecision.CacheFirstRetry))
     }
 
+    @Test fun prematureEofRecoveryIsBoundedAndNeverReplaysOverPauseOrCast() {
+        val eligible = { count: Int, foreground: Boolean, paused: Boolean, cast: Boolean ->
+            shouldRetryPrematurePlaybackEnd(
+                retriesSoFar = count, maximumRetries = 2,
+                inForeground = foreground, explicitlyPaused = paused,
+                castConnected = cast
+            )
+        }
+        assertTrue(eligible(0, true, false, false))
+        assertTrue(eligible(1, true, false, false))
+        assertFalse(eligible(2, true, false, false))
+        assertFalse(eligible(100, true, false, false))
+        assertFalse(eligible(-1, true, false, false))
+        assertFalse(eligible(0, false, false, false))
+        assertFalse(eligible(0, true, true, false))
+        assertFalse(eligible(0, true, false, true))
+        assertFalse(shouldRetryPrematurePlaybackEnd(
+            retriesSoFar = 0, maximumRetries = 0, inForeground = true,
+            explicitlyPaused = false, castConnected = false
+        ))
+        // Reinitializing the count (explicit Retry/new media) restores budget.
+        assertTrue(eligible(0, true, false, false))
+    }
+
     @Test fun newChatsAppendWithoutReorderingVisibleItems() {
         val previous = listOf(
             VideoChatItem(8L, "Zeta", false),
