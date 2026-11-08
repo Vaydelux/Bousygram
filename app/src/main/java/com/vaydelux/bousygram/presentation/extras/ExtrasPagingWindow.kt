@@ -17,9 +17,15 @@ internal data class TabState(
  * Page zero rehydrates when the tab becomes active; a stale page cursor must
  * never render an empty grid permanently after a memory trim.
  */
-internal fun TabState.releaseDormantPosters(): TabState =
-    copy(results = emptyList(), page = 0, hasMore = true,
+internal fun TabState.releaseDormantPosters(): TabState {
+    // OS trim events can arrive repeatedly while the tab stays inactive.
+    // Preserve identity and avoid allocating a new snapshot if already empty.
+    if (results.isEmpty() && page == 0 && hasMore &&
+        droppedResults == 0 && !loading && error == null
+    ) return this
+    return copy(results = emptyList(), page = 0, hasMore = true,
         droppedResults = 0, loading = false, error = null)
+}
 
 /**
  * A bounded in-memory viewport for infinite-style catalog paging.
@@ -38,6 +44,10 @@ internal object ExtrasPagingWindow {
     /** Saved tab selections may outlive tabs added/removed in a newer build. */
     fun activeTabIndex(saved: Int): Int =
         saved.coerceIn(0, ExtrasType.entries.lastIndex)
+
+    /** Match the visible tab before releasing any dormant catalog window. */
+    fun shouldReleaseDormantPosters(activeTab: Int, candidate: ExtrasType): Boolean =
+        activeTabIndex(activeTab) != candidate.ordinal
 
     data class Merge(
         val items: List<ExtrasItem>,
