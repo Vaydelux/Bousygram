@@ -43,6 +43,60 @@ class PlaybackCoreLifecycleTest {
     }
 
     @Test
+    fun transportUiOnlyClaimsPlayingAfterOutputAndNeverOverridesManualPause() {
+        // Shared intent-first policy for ExoPlayer, libmpv and LibVLC.
+        assertEquals(
+            PlaybackPresentationState.BUFFERING,
+            playbackPresentationState(ready = false, playWhenReady = true, isPlaying = false)
+        )
+        assertEquals(
+            PlaybackPresentationState.BUFFERING,
+            playbackPresentationState(ready = true, playWhenReady = true, isPlaying = false)
+        )
+        assertEquals(
+            PlaybackPresentationState.BUFFERING,
+            playbackPresentationState(ready = false, playWhenReady = true, isPlaying = true)
+        )
+        assertEquals(
+            PlaybackPresentationState.PLAYING,
+            playbackPresentationState(ready = true, playWhenReady = true, isPlaying = true)
+        )
+        // Native output flags can stay stale briefly after a user or lifecycle Pause.
+        for (ready in listOf(false, true)) {
+            for (nativePlaying in listOf(false, true)) {
+                assertEquals(
+                    PlaybackPresentationState.PAUSED,
+                    playbackPresentationState(
+                        ready = ready, playWhenReady = false, isPlaying = nativePlaying
+                    )
+                )
+            }
+        }
+    }
+
+    @Test
+    fun pausedPresentationSurvivesLateBufferingEventAndExplicitResume() {
+        val machine = PlaybackStateMachine()
+        val item = sampleQueue(1).single()
+        val session = PlaybackSession(listOf(item))
+        assertTrue(machine.onPreparing(session, item))
+        assertTrue(machine.onPaused(session, 12_000L, 60_000L))
+        val latePhase = playbackPresentationState(
+            ready = false, playWhenReady = false, isPlaying = false
+        )
+        if (latePhase == PlaybackPresentationState.PAUSED) {
+            machine.onPaused(session, 12_000L, 60_000L)
+        } else {
+            machine.onBuffering(session, 12_000L, 60_000L)
+        }
+        assertTrue(machine.isPaused)
+        assertTrue(machine.onBuffering(session, 12_000L, 60_000L))
+        assertTrue(machine.isBuffering)
+        assertTrue(machine.onPlaying(session, 12_200L, 60_000L))
+        assertTrue(machine.isPlaying)
+    }
+
+    @Test
     fun playbackStateMachineTransitionsCorrectly() {
         val stateMachine = PlaybackStateMachine()
         val queue = sampleQueue(2)
