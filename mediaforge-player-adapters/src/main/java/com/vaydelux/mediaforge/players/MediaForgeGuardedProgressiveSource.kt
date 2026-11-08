@@ -188,6 +188,23 @@ internal fun parseStrongEtag(header: String?): String? {
     return value
 }
 
+internal fun isConsistentRangeResponse(
+    identity: RemoteRangeIdentity,
+    start: Long,
+    end: Long,
+    contentRange: String?,
+    returnedEtag: String?
+): Boolean {
+    val range = parseContentRange(contentRange) ?: return false
+    if (range.first != start || range.second != end || range.third != identity.length) return false
+    // Some servers omit ETag from 206 responses; If-Range is sent when available.
+    // A conflicting returned tag is nevertheless always a hard failure.
+    if (identity.strongEtag != null && returnedEtag != null &&
+        parseStrongEtag(returnedEtag) != identity.strongEtag
+    ) return false
+    return true
+}
+
 internal const val MEDIAFORGE_RANGE_WINDOW_BYTES = 256L * 1024L
 
 internal fun alignedRangeWindowStart(position: Long, windowBytes: Long = MEDIAFORGE_RANGE_WINDOW_BYTES): Long {
@@ -258,18 +275,11 @@ private class GuardedRangeCallback(
         try {
             activeCall.execute().use { response ->
                 if (response.code != 206) throw IOException("Server ignored byte-range request")
-                val range = parseContentRange(response.header("Content-Range"))
-                    ?: throw IOException("Invalid content range")
-                if (range.first != start || range.second != end || range.third != total) {
-                    throw IOException("Unexpected or changed byte range")
-                }
-                // A changed representation must never mix old and new cached bytes.
-                val returnedEtag = response.header("ETag")
-                if (identity.strongEtag != null && returnedEtag != null &&
-                    parseStrongEtag(returnedEtag) != identity.strongEtag
-                ) {
-                    throw IOException("Media changed while reading byte ranges")
-                }
+                if (!isConsistentRangeResponse(
+                        identity, start, end,
+                        response.header("Content-Range"), response.header("ETag")
+                    )
+                ) throw IOException("Media version or byte range changed")
                 val fresh = ByteArray(expected)
                 val input = response.body?.byteStream() ?: throw IOException("No range body")
                 input.use { stream ->
