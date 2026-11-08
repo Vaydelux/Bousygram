@@ -73,6 +73,32 @@ class MediaForgeWebBridgeInstrumentedTest {
         }
     }
 
+    @Test fun closedBridgeCannotRecreateBrowserOrDispatchLateRemoteClicks() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val bridge = MediaForgeWebBridge(onMediaResource = {})
+            var touchEvents = 0
+            val target = object : View(instrumentation.targetContext) {
+                override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                    touchEvents++
+                    return true
+                }
+            }
+            bridge.click(target, 10f, 10f)
+            assertEquals(2, touchEvents) // ACTION_DOWN followed by ACTION_UP.
+            bridge.close()
+            bridge.click(target, 10f, 10f)
+            assertEquals(2, touchEvents)
+            try {
+                val unexpected = bridge.create(instrumentation.targetContext, offlineEmbed)
+                unexpected.destroy()
+                fail("Disposed browser bridge must not allocate a new WebView")
+            } catch (_: IllegalStateException) {
+                // Required: native playback and WebView renderer recovery own a new bridge.
+            }
+        }
+    }
+
     @Test fun webBridgeRejectsUnsafeTopLevelEmbed() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
