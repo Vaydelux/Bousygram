@@ -35,6 +35,34 @@ class PlaybackCoreLifecycleTest {
     }
 
     @Test
+    fun startupTimeoutCountsOnlyActiveForegroundPlaybackTime() {
+        val budget = PlaybackStartupActiveBudget(20_000L)
+        assertFalse(budget.tick(1_000L, eligible = true))
+        assertFalse(budget.tick(9_000L, eligible = true))
+        assertFalse(budget.tick(9_500L, eligible = false)) // user paused
+        assertFalse(budget.tick(360_000L, eligible = false)) // backgrounded
+        assertFalse(budget.tick(361_000L, eligible = true)) // resume boundary
+        assertFalse(budget.tick(371_000L, eligible = true)) // 18s eligible
+        assertTrue(budget.tick(373_000L, eligible = true)) // 20s eligible
+        assertTrue(budget.tick(374_000L, eligible = false)) // exhausted stays exhausted
+    }
+
+    @Test
+    fun startupTimeoutIgnoresClockRollbackAndNeverOverflows() {
+        val budget = PlaybackStartupActiveBudget(45_000L)
+        assertFalse(budget.tick(5_000L, eligible = true))
+        assertFalse(budget.tick(4_000L, eligible = true))
+        assertFalse(budget.tick(10_000L, eligible = true))
+        assertFalse(budget.tick(10_000L, eligible = false))
+        assertFalse(budget.tick(Long.MAX_VALUE - 2L, eligible = false))
+        assertFalse(budget.tick(Long.MAX_VALUE - 1L, eligible = true))
+        assertFalse(budget.tick(Long.MAX_VALUE, eligible = true))
+        val saturated = PlaybackStartupActiveBudget(45_000L)
+        assertFalse(saturated.tick(0L, eligible = true))
+        assertTrue(saturated.tick(Long.MAX_VALUE, eligible = true))
+    }
+
+    @Test
     fun readyEngineRetriesOnlyWhileUserWantsPlayback() {
         assertTrue(shouldReassertPlaybackOnReady(ready = true, playWhenReady = true, isPlaying = false))
         assertFalse(shouldReassertPlaybackOnReady(ready = false, playWhenReady = true, isPlaying = false))

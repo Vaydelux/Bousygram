@@ -150,6 +150,7 @@ import com.vaydelux.bousygram.core.media.hasConfirmedVideoProgress
 import com.vaydelux.bousygram.core.media.ExoPlayerEngine
 import com.vaydelux.bousygram.core.media.MediaDurationResolver
 import com.vaydelux.bousygram.core.media.shouldFailPlaybackStartup
+import com.vaydelux.bousygram.core.media.PlaybackStartupActiveBudget
 import com.vaydelux.bousygram.core.media.ContainerHeaderParser
 import com.vaydelux.bousygram.core.media.MpegTsDurationParser
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
@@ -1640,12 +1641,22 @@ fun PlayerScreen(
     LaunchedEffect(request, queueIndex, reloadNonce) {
         while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
         if (playerStartedAtMs <= 0L || playbackError != null) return@LaunchedEffect
-        val startedAt = playerStartedAtMs
         val trackedEngine = playerEngine
+        val budget = PlaybackStartupActiveBudget(20_000L)
+        fun eligibleForStartup(): Boolean = !explicitlyPaused &&
+            playerEngine.playWhenReady && !castState.connected &&
+            !audioFocusController.isSuppressed &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        budget.tick(android.os.SystemClock.elapsedRealtime(), eligibleForStartup())
         while (playbackError == null && playerEngine === trackedEngine &&
-            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) &&
-            System.currentTimeMillis() - startedAt < 20_000L
-        ) delay(500L)
+            !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)
+        ) {
+            delay(500L)
+            if (budget.tick(
+                    android.os.SystemClock.elapsedRealtime(), eligibleForStartup()
+                )
+            ) break
+        }
         val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
         val container = VideoFormatSupport.resolveContainer(
             current.fileName, current.mimeType, current.title
@@ -1654,6 +1665,7 @@ fun PlayerScreen(
             VideoFormatSupport.isTransportStream(current.fileName, current.mimeType)
         if (needsCompatibility && playerEngine === trackedEngine &&
             playerEngine is ExoPlayerEngine && !hasFallenBackToMpv &&
+            eligibleForStartup() &&
             !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) && playbackError == null
         ) {
             hasFallenBackToMpv = true
@@ -1676,11 +1688,22 @@ fun PlayerScreen(
         while (playerStartedAtMs <= 0L && playbackError == null) delay(250L)
         val trackedEngine = playerEngine
         val trackedStartMs = playerStartedAtMs
+        val budget = PlaybackStartupActiveBudget(45_000L)
+        fun eligibleForStartup(): Boolean = !explicitlyPaused &&
+            playerEngine.playWhenReady && !castState.connected &&
+            !audioFocusController.isSuppressed &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        budget.tick(android.os.SystemClock.elapsedRealtime(), eligibleForStartup())
         while (playerEngine === trackedEngine && playerStartedAtMs == trackedStartMs &&
-            playbackError == null && !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs) &&
-            System.currentTimeMillis() - trackedStartMs < 45_000L
-        ) delay(500L)
-        if (shouldFailPlaybackStartup(
+            playbackError == null && !hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs)
+        ) {
+            delay(500L)
+            if (budget.tick(
+                    android.os.SystemClock.elapsedRealtime(), eligibleForStartup()
+                )
+            ) break
+        }
+        if (eligibleForStartup() && shouldFailPlaybackStartup(
                 sameEngine = playerEngine === trackedEngine,
                 sameStartTimestamp = playerStartedAtMs == trackedStartMs,
                 hasInitialOutput = hasInitialMediaOutput(firstFrameMs, firstAudioReadyMs, firstProgressReadyMs),
