@@ -48,7 +48,6 @@ import androidx.compose.ui.unit.sp
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCacheStorageStats
-import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
@@ -295,7 +294,7 @@ fun SettingsScreen(
                     }
                 }
 
-                // Integrated custom EQ, Smart Volume and TV-friendly controls.
+                // Smart Volume remains; tonal equalizer controls have been retired.
                 item { AudioSettingsPanel(isTv = adaptive.isTv) }
 
                 // 3. Subtitle Language
