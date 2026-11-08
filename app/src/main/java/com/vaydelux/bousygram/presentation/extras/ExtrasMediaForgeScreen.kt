@@ -460,13 +460,18 @@ internal fun ExtrasMediaForgeScreen(
             }
             if (busy) CircularProgressIndicator(Modifier.size(22.dp))
             approved?.let { media ->
+                val vlcAvailable = com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
+                    MediaForgeGuardedProgressiveSource.supported(media.stream)
+                val launchEngine = extrasAvailableNativeEngine(
+                    nativeEngine,
+                    guardedVlcEnabled = com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED,
+                    progressiveSupported = MediaForgeGuardedProgressiveSource.supported(media.stream)
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ExtrasNativeEngine.entries.forEach { engine ->
-                        val available = engine != ExtrasNativeEngine.LIBVLC ||
-                            (com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
-                                MediaForgeGuardedProgressiveSource.supported(media.stream))
+                        val available = engine != ExtrasNativeEngine.LIBVLC || vlcAvailable
                         FilterChip(
-                            selected = nativeEngine == engine,
+                            selected = launchEngine == engine,
                             enabled = available,
                             onClick = { if (available) nativeEngine = engine },
                             label = {
@@ -503,9 +508,10 @@ internal fun ExtrasMediaForgeScreen(
                         inspectionJob?.cancel()
                         nativeResumePositionMs = 0L
                         nativePlayRequested = true // An explicit launch is a new Play action.
+                        nativeEngine = launchEngine // A previous LibVLC choice may not support this format.
                         nativeMedia = media
                     }
-                ) { Text("Play with " + nativeEngine.label) }
+                ) { Text("Play with " + launchEngine.label) }
             }
         }
         }
