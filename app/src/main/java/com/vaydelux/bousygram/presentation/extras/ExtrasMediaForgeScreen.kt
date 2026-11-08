@@ -857,8 +857,7 @@ private fun ExtrasMediaForgeNativePlayer(
         player.setMediaItem(MediaForgeMedia3.mediaItem(media, caption))
         if (initialPositionMs > 0L) player.seekTo(initialPositionMs)
         player.prepare()
-        player.playWhenReady = initiallyPlayRequested &&
-            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        player.playWhenReady = initiallyPlayRequested && initiallyForeground
         onDispose {
             foregroundIntent.cancel()
             lifecycleOwner.lifecycle.removeObserver(observer)
