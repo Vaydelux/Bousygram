@@ -708,23 +708,42 @@ private fun ExtrasMediaForgeNativePlayer(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember(media.stream.url) { MediaForgeMedia3.newPlayer(context) }
+    // A new source or subtitle selection needs a NEW player; releasing the
+    // previous DisposableEffect must never leave a released ExoPlayer in remember.
+    val player = remember(media, caption?.url, context) { MediaForgeMedia3.newPlayer(context) }
+    val foregroundIntent = remember(player) { ExtrasForegroundPlaybackIntent() }
     var playbackError by remember(media.stream.url) { mutableStateOf<String?>(null) }
-    DisposableEffect(player, media, caption, lifecycleOwner) {
+    DisposableEffect(player, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) player.pause()
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    // Capture playWhenReady, not isPlaying: a buffering decoder
+                    // still owns an active Play intent.
+                    foregroundIntent.onBackground(player.playWhenReady)
+                    player.pause()
+                }
+                Lifecycle.Event.ON_START -> {
+                    if (foregroundIntent.onForeground() &&
+                        player.playbackState != Player.STATE_ENDED
+                    ) player.play()
+                }
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                foregroundIntent.cancel()
                 playbackError = "Native playback failed. Return to WebView or try another source."
             }
         }
         player.addListener(listener)
         player.setMediaItem(MediaForgeMedia3.mediaItem(media, caption))
         player.prepare()
-        player.playWhenReady = true
+        player.playWhenReady = lifecycleOwner.lifecycle.currentState
+            .isAtLeast(Lifecycle.State.STARTED)
         onDispose {
+            foregroundIntent.cancel()
             lifecycleOwner.lifecycle.removeObserver(observer)
             player.removeListener(listener)
             player.stop()
@@ -751,6 +770,7 @@ private fun ExtrasMediaForgeNativePlayer(
                 }
             },
             update = { it.player = player },
+            onRelease = { it.player = null },
             modifier = Modifier.fillMaxWidth().weight(1f)
         )
     }

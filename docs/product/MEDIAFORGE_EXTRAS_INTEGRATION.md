@@ -197,3 +197,9 @@ set `TMDB_API_KEY=YOUR_TMDB_V3_API_KEY` and rebuild. Never commit `.env`.
 ## Subtitle dialog accessibility regression
 
 The MediaForge Extras subtitle dialog now exposes explicit selectable state to TalkBack and Compose UI testing. The initial TV focus request runs inside the popup composition rather than racing with attachment of its focusable children. Emulator tests cover visible subtitle track names, default Off selection, selecting an available subtitle and turning subtitles Off without accessing private or third-party media.
+
+## Foreground playback intent and native player ownership
+
+The Extras Media3 and experimental LibVLC players now remember **Play intent** when the Android Activity stops and restore that intent exactly once on a later foreground event. A user pause (no Play intent) remains paused; buffering does not get misclassified as a pause. Error/disposal paths cancel any pending restart. Media3 now keys its player instance by the chosen inspected media and subtitle URL: a subtitle/source change cannot release a player and accidentally reuse that released instance. The Android PlayerView clears its player reference when disposed. This is an Extras-only fix and does not alter Telegram media playback.
+
+The new pure JVM test `ExtrasForegroundPlaybackIntentTest` covers the one-shot resume contract, manual pause, buffering, cancellation and superseded stop events. Physical TV seek/buffer/autoplay behavior still requires device evidence.

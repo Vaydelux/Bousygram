@@ -90,6 +90,9 @@ internal class ExtrasLibVlcSession(
     private var attached = false
     private var initialized = false
     private var hasAudioFocus = false
+    @Volatile private var playbackRequested = false
+
+    val wantsPlayback: Boolean get() = playbackRequested
 
     init {
         player.setEventListener { event ->
@@ -151,10 +154,18 @@ internal class ExtrasLibVlcSession(
             }
             hasAudioFocus = true
         }
-        runCatching { player.play() }.onFailure { onStatus("LibVLC could not start playback") }
+        runCatching {
+            player.play()
+            playbackRequested = true
+        }.onFailure {
+            playbackRequested = false
+            releaseAudioFocus()
+            onStatus("LibVLC could not start playback")
+        }
     }
 
     fun pause() {
+        playbackRequested = false
         if (released.get()) return
         if (runCatching { player.isPlaying }.getOrDefault(false)) {
             runCatching { player.pause() }
@@ -187,6 +198,7 @@ internal class ExtrasLibVlcSession(
 
     fun release() {
         if (!released.compareAndSet(false, true)) return
+        playbackRequested = false
         handler.removeCallbacksAndMessages(null)
         runCatching { player.setEventListener(null) }
         runCatching { player.stop() }
@@ -243,12 +255,23 @@ internal fun ExtrasLibVlcPlayer(
         }
     }
     val session = sessionResult?.getOrNull()
+    val foregroundIntent = remember(session) { ExtrasForegroundPlaybackIntent() }
     DisposableEffect(session, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) session?.pause()
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    foregroundIntent.onBackground(session?.wantsPlayback == true)
+                    session?.pause()
+                }
+                Lifecycle.Event.ON_START -> {
+                    if (foregroundIntent.onForeground()) session?.play()
+                }
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            foregroundIntent.cancel()
             lifecycleOwner.lifecycle.removeObserver(observer)
             session?.release()
         }
