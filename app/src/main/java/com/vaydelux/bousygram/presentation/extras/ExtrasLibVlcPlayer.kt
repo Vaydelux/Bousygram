@@ -38,12 +38,15 @@ import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.players.MediaForgeGuardedProgressiveSource
+import com.vaydelux.bousygram.core.media.LibVlcUnexpectedPauseAction
+import com.vaydelux.bousygram.core.media.libVlcUnexpectedPauseAction
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.interfaces.IMedia
 import org.videolan.libvlc.util.VLCVideoLayout
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.isActive
 
 /** Only Extras uses this decoder; Telegram's loopback-only LibVlcPlayerEngine is untouched. */
@@ -91,20 +94,91 @@ internal class ExtrasLibVlcSession(
     private var initialized = false
     private var hasAudioFocus = false
     @Volatile private var playbackRequested = false
+    private val unexpectedPauseRetries = AtomicInteger(0)
 
     val wantsPlayback: Boolean get() = playbackRequested
 
     init {
         player.setEventListener { event ->
-            val text = when (event.type) {
-                MediaPlayer.Event.Playing -> "Playing in LibVLC"
-                MediaPlayer.Event.Buffering -> "Buffering"
-                MediaPlayer.Event.Paused -> "Paused"
-                MediaPlayer.Event.EncounteredError -> "LibVLC cannot open this stream; return to WebView"
-                MediaPlayer.Event.EndReached -> "Playback finished"
-                else -> null
+            if (released.get()) return@setEventListener
+            when (event.type) {
+                MediaPlayer.Event.Playing -> {
+                    if (playbackRequested) postStatus("Playing in LibVLC")
+                    else {
+                        // Native Playing can arrive AFTER a user Pause while the
+                        // file was buffering. Do not resurrect playback.
+                        enforceNativePauseAfterDelayedStart()
+                    }
+                }
+                MediaPlayer.Event.Buffering -> {
+                    if (playbackRequested) postStatus("Buffering")
+                    else enforceNativePauseAfterDelayedStart()
+                }
+                MediaPlayer.Event.Paused -> {
+                    when (libVlcUnexpectedPauseAction(
+                        playRequested = playbackRequested,
+                        prepared = initialized,
+                        stoppedByOwner = released.get(),
+                        alreadyRetried = unexpectedPauseRetries.get()
+                    )) {
+                        LibVlcUnexpectedPauseAction.IGNORE -> postStatus("Paused")
+                        LibVlcUnexpectedPauseAction.RETRY -> {
+                            unexpectedPauseRetries.incrementAndGet()
+                            handler.post {
+                                if (!released.get() && initialized && playbackRequested) {
+                                    runCatching { player.play() }.onFailure {
+                                        playbackRequested = false
+                                        releaseAudioFocus()
+                                        onStatus("LibVLC could not resume; return to WebView")
+                                    }
+                                }
+                            }
+                        }
+                        LibVlcUnexpectedPauseAction.FAIL -> {
+                            playbackRequested = false
+                            handler.post {
+                                if (!released.get()) {
+                                    releaseAudioFocus()
+                                    onStatus("LibVLC paused repeatedly; return to WebView")
+                                }
+                            }
+                        }
+                    }
+                }
+                MediaPlayer.Event.EncounteredError -> {
+                    playbackRequested = false
+                    handler.post {
+                        if (!released.get()) {
+                            releaseAudioFocus()
+                            onStatus("LibVLC cannot open this stream; return to WebView")
+                        }
+                    }
+                }
+                MediaPlayer.Event.EndReached -> {
+                    playbackRequested = false
+                    handler.post {
+                        if (!released.get()) {
+                            releaseAudioFocus()
+                            onStatus("Playback finished")
+                        }
+                    }
+                }
             }
-            if (text != null) handler.post { if (!released.get()) onStatus(text) }
+        }
+    }
+
+    private fun postStatus(message: String) {
+        handler.post { if (!released.get()) onStatus(message) }
+    }
+
+    private fun enforceNativePauseAfterDelayedStart() {
+        handler.post {
+            if (!released.get() && !playbackRequested) {
+                runCatching {
+                    if (player.isPlaying) player.pause()
+                }
+                onStatus("Paused")
+            }
         }
     }
 
@@ -154,10 +228,11 @@ internal class ExtrasLibVlcSession(
             }
             hasAudioFocus = true
         }
-        runCatching {
-            player.play()
-            playbackRequested = true
-        }.onFailure {
+        // Arm user intent BEFORE calling native play: some LibVLC callbacks
+        // can race with the caller. Never mark Playing as an unsolicited start.
+        unexpectedPauseRetries.set(0)
+        playbackRequested = true
+        runCatching { player.play() }.onFailure {
             playbackRequested = false
             releaseAudioFocus()
             onStatus("LibVLC could not start playback")
@@ -166,6 +241,7 @@ internal class ExtrasLibVlcSession(
 
     fun pause() {
         playbackRequested = false
+        unexpectedPauseRetries.set(0)
         if (released.get()) return
         if (runCatching { player.isPlaying }.getOrDefault(false)) {
             runCatching { player.pause() }
