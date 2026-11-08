@@ -9,6 +9,19 @@ class ExtrasPagingWindowTest {
     private fun item(id: Int, type: ExtrasType = ExtrasType.ANIME): ExtrasItem =
         ExtrasItem(id = id, type = type, title = "Fixture $id")
 
+    @Test fun restoredTabIndicesAlwaysResolveToOneVisibleCatalog() {
+        assertEquals(ExtrasType.MOVIES.ordinal, ExtrasPagingWindow.activeTabIndex(-42))
+        assertEquals(ExtrasType.TV.ordinal, ExtrasPagingWindow.activeTabIndex(ExtrasType.TV.ordinal))
+        assertEquals(ExtrasType.ANIME.ordinal, ExtrasPagingWindow.activeTabIndex(Int.MAX_VALUE))
+        assertEquals(ExtrasType.MOVIES.ordinal, ExtrasPagingWindow.activeTabIndex(Int.MIN_VALUE))
+        // At all times exactly one current catalog is protected from dormant trimming.
+        for (saved in listOf(-100, 0, 1, 2, 42, Int.MAX_VALUE)) {
+            val current = ExtrasPagingWindow.activeTabIndex(saved)
+            assertEquals(1, ExtrasType.entries.count { it.ordinal == current })
+            assertEquals(2, ExtrasType.entries.count { it.ordinal != current })
+        }
+    }
+
     @Test fun arm32WindowNeverRetainsMoreThan120UniquePostersDuringLongSession() {
         val limit = ExtrasPagingWindow.itemLimit(lowMemory = true)
         assertEquals(120, limit)
