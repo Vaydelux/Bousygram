@@ -37,8 +37,10 @@ class MediaForgeGuardedProgressiveSourceTest {
 
     @Test fun strongEtagsOnlyAndRangeIdentity() {
         assertEquals("\"media-v1\"", parseStrongEtag("\"media-v1\""))
-        assertEquals("\"with spaces\"", parseStrongEtag(" \"with spaces\" "))
+        assertNull(parseStrongEtag("\"with spaces\""))
         assertNull(parseStrongEtag("W/\"media-v1\""))
+        assertNull(parseStrongEtag("\"bad\"quoted\""))
+        assertEquals("\"\"", parseStrongEtag("\"\""))
         assertNull(parseStrongEtag("media-v1"))
         assertNull(parseStrongEtag("\"bad\r\nheader\""))
         assertNull(parseStrongEtag(null))
