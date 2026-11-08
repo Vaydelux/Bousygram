@@ -28,7 +28,15 @@ internal fun extrasMedia3Handoff(
 
 internal fun extrasLibVlcHandoff(controls: ExtrasLibVlcControlState): ExtrasPlaybackHandoff =
     ExtrasPlaybackHandoff(
-        positionMs = extrasVlcHandoffPosition(controls.positionMs, controls.seekable),
+        // A paused or not-yet-started LibVLC decoder may report 0:00 until it
+        // applies the seek accepted by the source engine. Preserve that
+        // already-validated origin through a rapid Media3 → LibVLC → Media3
+        // round trip, including when the native decoder fails to initialize.
+        positionMs = if (!controls.ended && controls.pendingHandoffPositionMs != null) {
+            controls.pendingHandoffPositionMs.coerceAtLeast(0L)
+        } else {
+            extrasVlcHandoffPosition(controls.positionMs, controls.seekable)
+        },
         playRequested = controls.playRequested && !controls.failed && !controls.ended
     )
 
