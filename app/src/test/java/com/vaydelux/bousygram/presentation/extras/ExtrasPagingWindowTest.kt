@@ -97,6 +97,27 @@ class ExtrasPagingWindowTest {
         assertFalse(result.items.size > 10)
     }
 
+    @Test fun dormantArm32TabReleasesCachedPostersWithoutLosingSearchSettings() {
+        val old = TabState(
+            query = "favorite series",
+            results = (1..120).map(::item),
+            page = 9,
+            droppedResults = 75,
+            loading = true,
+            error = "Previous fetch failed"
+        )
+        val trimmed = old.releaseDormantPosters()
+        assertEquals("favorite series", trimmed.query)
+        assertEquals(old.filters, trimmed.filters)
+        assertTrue(trimmed.results.isEmpty())
+        assertEquals(0, trimmed.page)
+        assertEquals(0, trimmed.droppedResults)
+        assertTrue(trimmed.hasMore)
+        assertFalse(trimmed.loading)
+        assertEquals(null, trimmed.error)
+        assertEquals(120, old.results.size) // Existing snapshot is immutable.
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun invalidMaximumIsRejected() {
         ExtrasPagingWindow.merge(emptyList(), listOf(item(1)), 0)
