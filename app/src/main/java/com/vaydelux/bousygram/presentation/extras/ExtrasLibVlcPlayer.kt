@@ -5,6 +5,8 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.AudioAttributes
 import android.net.Uri
+import android.os.Debug
+import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.background
@@ -67,6 +69,7 @@ import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.players.MediaForgeGuardedProgressiveSource
+import com.vaydelux.mediaforge.players.MediaForgeRangeMetricsSnapshot
 import com.vaydelux.bousygram.core.media.LibVlcUnexpectedPauseAction
 import com.vaydelux.bousygram.core.media.libVlcUnexpectedPauseAction
 import org.videolan.libvlc.LibVLC
@@ -147,6 +150,7 @@ internal class ExtrasLibVlcSession(
     private var hasPlaybackError = false
     private var reachedEnd = false
     private val initialSeek = ExtrasVlcInitialSeek(initialPositionMs)
+    private val latencyProbe = ExtrasVlcLatencyProbe()
     private val progressTicker = object : Runnable {
         override fun run() {
             if (released.get() || !attached || !inForeground) return
@@ -171,6 +175,7 @@ internal class ExtrasLibVlcSession(
         if (released.get()) return
         val position = runCatching { player.time }.getOrDefault(0L).coerceAtLeast(0L)
         val duration = runCatching { player.length }.getOrDefault(0L).coerceAtLeast(0L)
+        latencyProbe.observeNativePosition(position, SystemClock.elapsedRealtime())
         onControls(
             ExtrasLibVlcControlState(
                 positionMs = position,
@@ -179,7 +184,9 @@ internal class ExtrasLibVlcSession(
                 playing = runCatching { player.isPlaying }.getOrDefault(false),
                 playRequested = playbackRequested,
                 failed = hasPlaybackError,
-                ended = reachedEnd
+                ended = reachedEnd,
+                timing = latencyProbe.snapshot(),
+                rangeMetrics = guarded.metrics.snapshot()
             )
         )
     }
@@ -209,7 +216,12 @@ internal class ExtrasLibVlcSession(
                 MediaPlayer.Event.Playing -> {
                     if (playbackRequested) {
                         postStatus("Playing")
-                        postControls()
+                        handler.post {
+                            if (!released.get() && playbackRequested) {
+                                latencyProbe.onNativePlaying(SystemClock.elapsedRealtime())
+                                publishControls()
+                            }
+                        }
                     }
                     else {
                         // Native Playing can arrive AFTER a user Pause while the
@@ -362,6 +374,7 @@ internal class ExtrasLibVlcSession(
         reachedEnd = false
         unexpectedPauseRetries.set(0)
         playbackRequested = true
+        latencyProbe.onPlayRequested(SystemClock.elapsedRealtime())
         onStatus("Starting playback…")
         runCatching {
             if (restartEndedMedia && player.isSeekable) player.setTime(0L)
@@ -418,6 +431,7 @@ internal class ExtrasLibVlcSession(
         runCatching {
             if (player.isSeekable) {
                 val target = extrasVlcSeekTarget(player.time, deltaMs, player.length)
+                latencyProbe.onSeekRequested(target, SystemClock.elapsedRealtime())
                 player.setTime(target)
             } else onStatus("Seeking is not available for this stream")
         }
@@ -429,7 +443,9 @@ internal class ExtrasLibVlcSession(
         runCatching {
             if (player.isSeekable) {
                 val duration = player.length
-                player.setTime(extrasVlcSeekAbsolute(positionMs, duration))
+                val target = extrasVlcSeekAbsolute(positionMs, duration)
+                latencyProbe.onSeekRequested(target, SystemClock.elapsedRealtime())
+                player.setTime(target)
             } else onStatus("Seeking is not available for this stream")
         }
         publishControls()
@@ -568,6 +584,8 @@ internal fun ExtrasLibVlcPlayer(
         } else {
             val playFocus = remember(session) { FocusRequester() }
             val videoFocus = remember(session) { FocusRequester() }
+            var showDiagnostics by remember(session) { mutableStateOf(false) }
+            var processPssKiB by remember(session) { mutableStateOf<Long?>(null) }
             var controlsVisible by remember(session) { mutableStateOf(true) }
             var headerFocused by remember(session) { mutableStateOf(false) }
             var footerFocused by remember(session) { mutableStateOf(false) }
@@ -677,6 +695,16 @@ internal fun ExtrasLibVlcPlayer(
                 Text(
                     "FIT", color = Color(0xFFB5EAFB), fontSize = 13.sp,
                     modifier = Modifier.testTag("extras-libvlc-aspect-fit")
+                )
+                ExtrasVlcAction(
+                    if (showDiagnostics) "Hide stats" else "Stats",
+                    modifier = Modifier.testTag("extras-libvlc-diagnostics-toggle"),
+                    onClick = {
+                        showDiagnostics = !showDiagnostics
+                        if (showDiagnostics) {
+                            processPssKiB = runCatching { Debug.getPss() }.getOrNull()
+                        }
+                    }
                 )
             }
 
@@ -834,6 +862,54 @@ internal fun ExtrasLibVlcPlayer(
                             "Use Media3",
                             modifier = Modifier.weight(1.2f).testTag("extras-libvlc-use-media3"),
                             onClick = onUseMedia3
+                        )
+                    }
+                }
+                if (showDiagnostics) {
+                    val range = controls.rangeMetrics
+                    val timing = controls.timing
+                    val pssLabel = processPssKiB?.let { "${it / 1024L} MiB" } ?: "unavailable"
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(Color(0xFF132332), RoundedCornerShape(10.dp))
+                            .padding(10.dp)
+                            .testTag("extras-libvlc-diagnostics"),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "Debug diagnostics · this playback only · no URLs recorded",
+                            color = Color(0xFFB5EAFB), fontSize = 14.sp
+                        )
+                        Text(
+                            "Startup → native Playing: ${timing.startupToNativePlayingMs?.let { "${it} ms" } ?: "pending"}" +
+                                "  ·  Seek → reported position: ${timing.lastSeekPositionMs?.let { "${it} ms" } ?: "no sample"}" +
+                                "  (${timing.seekSamples} samples)",
+                            color = Color.White, fontSize = 14.sp
+                        )
+                        Text(
+                            if (range == null) "Range metrics unavailable"
+                            else "HTTP windows: ${range.httpRequests} · failed/canceled: ${range.failedRequests}" +
+                                " · cache hits: ${range.cacheHits} (${range.cacheHitPercent}%)" +
+                                " · downloaded: ${range.downloadedBytes / 1024L} KiB",
+                            color = Color.White, fontSize = 14.sp
+                        )
+                        Text(
+                            if (range == null) "Window cache unavailable"
+                            else "Window cache: ${range.retainedCacheBytes / 1024} KiB" +
+                                " · longest HTTP fetch: ${range.longestFetchMillis} ms" +
+                                " · process PSS snapshot: $pssLabel",
+                            color = Color(0xFFD1E2F3), fontSize = 14.sp
+                        )
+                        Text(
+                            "PSS covers the whole app. Seek metric reflects native position, not rendered frames.",
+                            color = Color(0xFFA9BAC9), fontSize = 12.sp
+                        )
+                        ExtrasVlcAction(
+                            "Sample PSS",
+                            onClick = {
+                                processPssKiB = runCatching { Debug.getPss() }.getOrNull()
+                            },
+                            modifier = Modifier.testTag("extras-libvlc-diagnostics-sample")
                         )
                     }
                 }

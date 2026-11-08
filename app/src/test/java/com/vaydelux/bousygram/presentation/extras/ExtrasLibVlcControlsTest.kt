@@ -44,6 +44,48 @@ class ExtrasLibVlcControlsTest {
         assertTrue(!nonseekable.isPending)
     }
 
+    @Test fun latencyProbeSeparatesPlayingCallbackFromPositionAcknowledgement() {
+        val probe = ExtrasVlcLatencyProbe()
+        probe.onPlayRequested(1_000L)
+        probe.onNativePlaying(1_750L)
+        probe.onNativePlaying(2_000L) // Only the first native Playing event matters.
+        assertEquals(750L, probe.snapshot().startupToNativePlayingMs)
+        probe.onSeekRequested(45_000L, 5_000L)
+        probe.observeNativePosition(12_000L, 5_500L)
+        assertEquals(0, probe.snapshot().seekSamples)
+        probe.observeNativePosition(44_600L, 5_800L)
+        assertEquals(1, probe.snapshot().seekSamples)
+        assertEquals(800L, probe.snapshot().lastSeekPositionMs)
+    }
+
+    @Test fun latencyProbeExpiresStalledSeeksAndKeepsLastValidResult() {
+        val probe = ExtrasVlcLatencyProbe()
+        probe.onSeekRequested(20_000L, 1_000L)
+        probe.observeNativePosition(19_500L, 1_100L)
+        assertEquals(100L, probe.snapshot().lastSeekPositionMs)
+        probe.onSeekRequested(80_000L, 2_000L)
+        probe.observeNativePosition(1_000L, 17_001L)
+        assertEquals(1, probe.snapshot().seekSamples)
+        assertEquals(1, probe.snapshot().seekTimeouts)
+        assertEquals(100L, probe.snapshot().lastSeekPositionMs)
+        probe.observeNativePosition(80_000L, 20_000L)
+        assertEquals(1, probe.snapshot().seekSamples)
+    }
+
+    @Test fun latencyProbeHandlesUnknownOrOutOfOrderNativeTimestamps() {
+        val probe = ExtrasVlcLatencyProbe()
+        probe.onNativePlaying(1_000L)
+        assertEquals(null, probe.snapshot().startupToNativePlayingMs)
+        probe.onPlayRequested(2_000L)
+        probe.onNativePlaying(1_000L)
+        assertEquals(null, probe.snapshot().startupToNativePlayingMs)
+        probe.onNativePlaying(2_100L)
+        assertEquals(100L, probe.snapshot().startupToNativePlayingMs)
+        probe.onSeekRequested(15_000L, 5_000L)
+        probe.observeNativePosition(15_000L, 4_000L)
+        assertEquals(0, probe.snapshot().seekSamples)
+    }
+
     @Test fun timeLabelsStayReadableForTv() {
         assertEquals("0:00", extrasVlcTimeLabel(-1L))
         assertEquals("0:09", extrasVlcTimeLabel(9_000L))

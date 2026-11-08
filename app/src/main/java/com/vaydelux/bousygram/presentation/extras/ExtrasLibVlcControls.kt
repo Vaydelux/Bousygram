@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import com.vaydelux.mediaforge.players.MediaForgeRangeMetricsSnapshot
+
 /** Read-only LibVLC state published on the main thread for Compose controls. */
 internal data class ExtrasLibVlcControlState(
     val positionMs: Long = 0L,
@@ -8,7 +10,9 @@ internal data class ExtrasLibVlcControlState(
     val playing: Boolean = false,
     val playRequested: Boolean = false,
     val failed: Boolean = false,
-    val ended: Boolean = false
+    val ended: Boolean = false,
+    val timing: ExtrasVlcLatencySnapshot = ExtrasVlcLatencySnapshot(),
+    val rangeMetrics: MediaForgeRangeMetricsSnapshot? = null
 )
 
 /** Normalize native seek requests, including remote-duration unknown cases. */
@@ -68,4 +72,71 @@ internal class ExtrasVlcInitialSeek(
     }
 
     val isPending: Boolean get() = pending
+}
+
+/**
+ * Debug-only local latency estimator. These signals are not time-to-first-
+ * rendered-frame or decoder seek recovery metrics: they measure LibVLC's
+ * native Playing callback and reported position acknowledgement only.
+ *
+ * All methods are called on the player's main Handler thread.
+ */
+internal data class ExtrasVlcLatencySnapshot(
+    val startupToNativePlayingMs: Long? = null,
+    val lastSeekPositionMs: Long? = null,
+    val seekSamples: Int = 0,
+    val seekTimeouts: Int = 0
+)
+
+internal class ExtrasVlcLatencyProbe {
+    private var firstPlayStartedMs: Long? = null
+    private var firstPlayingMs: Long? = null
+    private var pendingSeekTarget: Long? = null
+    private var pendingSeekStartedMs: Long? = null
+    private var lastSeekAckMs: Long? = null
+    private var seekSamples = 0
+    private var seekTimeouts = 0
+
+    fun onPlayRequested(nowMs: Long) {
+        if (firstPlayingMs == null) firstPlayStartedMs = nowMs.coerceAtLeast(0L)
+    }
+
+    fun onNativePlaying(nowMs: Long) {
+        if (firstPlayingMs != null) return
+        val started = firstPlayStartedMs ?: return
+        if (nowMs >= started) {
+            firstPlayingMs = nowMs - started
+            firstPlayStartedMs = null
+        }
+    }
+
+    fun onSeekRequested(targetMs: Long, nowMs: Long) {
+        pendingSeekTarget = targetMs.coerceAtLeast(0L)
+        pendingSeekStartedMs = nowMs.coerceAtLeast(0L)
+    }
+
+    fun observeNativePosition(positionMs: Long, nowMs: Long) {
+        val target = pendingSeekTarget ?: return
+        val started = pendingSeekStartedMs ?: return
+        if (nowMs < started) return
+        val duration = nowMs - started
+        val distance = if (positionMs >= target) positionMs - target else target - positionMs
+        if (distance <= 1_500L) {
+            lastSeekAckMs = duration
+            seekSamples++
+            pendingSeekTarget = null
+            pendingSeekStartedMs = null
+        } else if (duration >= 15_000L) {
+            seekTimeouts++
+            pendingSeekTarget = null
+            pendingSeekStartedMs = null
+        }
+    }
+
+    fun snapshot() = ExtrasVlcLatencySnapshot(
+        startupToNativePlayingMs = firstPlayingMs,
+        lastSeekPositionMs = lastSeekAckMs,
+        seekSamples = seekSamples,
+        seekTimeouts = seekTimeouts
+    )
 }
