@@ -203,7 +203,8 @@ internal fun ExtrasMediaForgeScreen(
                 media = media,
                 caption = selectedCaption,
                 title = request.title,
-                onBack = { returnToWebView() }
+                onBack = { returnToWebView() },
+                onUseMedia3 = { nativeEngine = ExtrasNativeEngine.MEDIA3 }
             )
         }
         return
@@ -615,7 +616,8 @@ internal fun ExtrasSubtitlePicker(
     onSelected: (CaptionCandidate?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val firstFocus = remember { FocusRequester() }
+    val selectedFocus = remember { FocusRequester() }
+    val focusOff = selected == null || captions.none { it.url == selected.url }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -657,7 +659,7 @@ internal fun ExtrasSubtitlePicker(
                     title = "Off · No subtitles",
                     selected = selected == null,
                     isTv = isTv,
-                    modifier = Modifier.focusRequester(firstFocus),
+                    modifier = if (focusOff) Modifier.focusRequester(selectedFocus) else Modifier,
                     onClick = { onSelected(null) }
                 )
                 captions.forEach { caption ->
@@ -666,6 +668,8 @@ internal fun ExtrasSubtitlePicker(
                             "  ·  ${caption.format.name}",
                         selected = selected?.url == caption.url,
                         isTv = isTv,
+                        modifier = if (!focusOff && selected?.url == caption.url)
+                            Modifier.focusRequester(selectedFocus) else Modifier,
                         onClick = { onSelected(caption) }
                     )
                 }
@@ -673,7 +677,9 @@ internal fun ExtrasSubtitlePicker(
         }
         // Request focus in the dialog's composition, after the remote-friendly
         // choices have been attached to the popup's own focus tree.
-        LaunchedEffect(firstFocus) { firstFocus.requestFocus() }
+        LaunchedEffect(selectedFocus, selected?.url, captions) {
+            selectedFocus.requestFocus()
+        }
     }
 }
 
@@ -778,7 +784,29 @@ private fun ExtrasMediaForgeNativePlayer(
             Text(title, color = Color.White, maxLines = 1)
         }
         playbackError?.let { error ->
-            Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(error, color = Color(0xFFFFC7C7), modifier = Modifier.weight(1f))
+                // Explicit retry rather than endlessly auto-restarting failed media.
+                Button(
+                    modifier = Modifier.testTag("extras-native-media3-retry"),
+                    onClick = {
+                        playbackError = null
+                        player.prepare()
+                        if (lifecycleOwner.lifecycle.currentState
+                                .isAtLeast(Lifecycle.State.STARTED)
+                        ) {
+                            player.play()
+                        } else {
+                            foregroundIntent.onBackground(true)
+                            player.pause()
+                        }
+                    }
+                ) { Text("Retry playback") }
+            }
         }
         AndroidView(
             factory = { ctx ->
