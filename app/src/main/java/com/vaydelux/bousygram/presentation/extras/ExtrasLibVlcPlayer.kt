@@ -64,12 +64,29 @@ internal class ExtrasLibVlcSession(
     private val handler = Handler(Looper.getMainLooper())
     private val audioManager = context.applicationContext
         .getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val focusRecovery = ExtrasAudioFocusRecoveryIntent()
+    private var inForeground = true
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        when (change) {
-            AudioManager.AUDIOFOCUS_LOSS,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                if (!released.get()) handler.post { pause() }
+        if (!released.get()) handler.post {
+            if (released.get()) return@post
+            when (change) {
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    focusRecovery.onFocusLost(
+                        transient = true, wasPlayRequested = playbackRequested
+                    )
+                    pauseForAudioFocus()
+                }
+                AudioManager.AUDIOFOCUS_LOSS -> {
+                    focusRecovery.onFocusLost(
+                        transient = false, wasPlayRequested = playbackRequested
+                    )
+                    pauseForAudioFocus()
+                    releaseAudioFocus()
+                }
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    if (focusRecovery.onFocusGained(inForeground)) play()
+                }
             }
         }
     }
@@ -100,6 +117,11 @@ internal class ExtrasLibVlcSession(
     private val unexpectedPauseRetries = AtomicInteger(0)
 
     val wantsPlayback: Boolean get() = playbackRequested
+    val wantsResumeAfterFocus: Boolean get() = focusRecovery.hasPendingResume
+
+    fun setForeground(active: Boolean) {
+        inForeground = active
+    }
 
     init {
         player.setEventListener { event ->
@@ -150,6 +172,7 @@ internal class ExtrasLibVlcSession(
                 }
                 MediaPlayer.Event.EncounteredError -> {
                     playbackRequested = false
+                    handler.post { focusRecovery.cancel() }
                     handler.post {
                         if (!released.get()) {
                             releaseAudioFocus()
@@ -159,6 +182,7 @@ internal class ExtrasLibVlcSession(
                 }
                 MediaPlayer.Event.EndReached -> {
                     playbackRequested = false
+                    handler.post { focusRecovery.cancel() }
                     handler.post {
                         if (!released.get()) {
                             releaseAudioFocus()
@@ -223,7 +247,8 @@ internal class ExtrasLibVlcSession(
     }
 
     fun play() {
-        if (released.get() || !initialized) return
+        if (released.get() || !initialized || !inForeground) return
+        focusRecovery.cancel()
         if (!hasAudioFocus) {
             if (audioManager.requestAudioFocus(focusRequest) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 onStatus("Audio output unavailable")
@@ -242,13 +267,23 @@ internal class ExtrasLibVlcSession(
         }
     }
 
-    fun pause() {
+    /**
+     * Focus loss suppresses decoder output without abandoning the focus
+     * request. Android can now deliver GAIN; a regular Pause must NOT do this.
+     */
+    private fun pauseForAudioFocus() {
         playbackRequested = false
         unexpectedPauseRetries.set(0)
         if (released.get()) return
         if (runCatching { player.isPlaying }.getOrDefault(false)) {
             runCatching { player.pause() }
         }
+        onStatus("Paused for audio focus")
+    }
+
+    fun pause() {
+        focusRecovery.cancel()
+        pauseForAudioFocus()
         releaseAudioFocus()
     }
 
@@ -277,6 +312,8 @@ internal class ExtrasLibVlcSession(
 
     fun release() {
         if (!released.compareAndSet(false, true)) return
+        focusRecovery.cancel()
+        inForeground = false
         playbackRequested = false
         handler.removeCallbacksAndMessages(null)
         runCatching { player.setEventListener(null) }
@@ -337,13 +374,18 @@ internal fun ExtrasLibVlcPlayer(
     val session = sessionResult?.getOrNull()
     val foregroundIntent = remember(session) { ExtrasForegroundPlaybackIntent() }
     DisposableEffect(session, lifecycleOwner) {
+        session?.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
-                    foregroundIntent.onBackground(session?.wantsPlayback == true)
+                    foregroundIntent.onBackground(
+                        session?.wantsPlayback == true || session?.wantsResumeAfterFocus == true
+                    )
+                    session?.setForeground(false)
                     session?.pause()
                 }
                 Lifecycle.Event.ON_START -> {
+                    session?.setForeground(true)
                     if (foregroundIntent.onForeground()) session?.play()
                 }
                 else -> Unit

@@ -25,3 +25,28 @@ internal class ExtrasForegroundPlaybackIntent {
         resumePending = false
     }
 }
+
+/**
+ * Audio focus is distinct from a user Pause. Preserve autoplay intent for a
+ * temporary focus interruption only, then consume it once on GAIN.
+ * A permanent loss, explicit Pause, or a backgrounded UI cannot resume.
+ *
+ * All calls are serialized on the main thread by ExtrasLibVlcSession.
+ */
+internal class ExtrasAudioFocusRecoveryIntent {
+    private var resumePending = false
+
+    val hasPendingResume: Boolean get() = resumePending
+
+    fun onFocusLost(transient: Boolean, wasPlayRequested: Boolean) {
+        resumePending = transient && (wasPlayRequested || resumePending)
+    }
+
+    fun onFocusGained(inForeground: Boolean): Boolean {
+        val resume = resumePending && inForeground
+        resumePending = false
+        return resume
+    }
+
+    fun cancel() { resumePending = false }
+}

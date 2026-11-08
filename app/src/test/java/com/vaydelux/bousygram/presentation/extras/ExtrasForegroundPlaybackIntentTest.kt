@@ -39,4 +39,35 @@ class ExtrasForegroundPlaybackIntentTest {
         intent.onBackground(playRequested = false)
         assertFalse(intent.onForeground())
     }
+    @Test fun transientAudioFocusLossResumesExactlyOnce() {
+        val intent = ExtrasAudioFocusRecoveryIntent()
+        assertFalse(intent.hasPendingResume)
+        intent.onFocusLost(transient = true, wasPlayRequested = true)
+        assertTrue(intent.hasPendingResume)
+        assertTrue(intent.onFocusGained(inForeground = true))
+        assertFalse(intent.onFocusGained(inForeground = true))
+    }
+
+    @Test fun explicitPausePermanentLossAndBackgroundDoNotAutoPlay() {
+        val intent = ExtrasAudioFocusRecoveryIntent()
+        intent.onFocusLost(transient = true, wasPlayRequested = true)
+        intent.cancel() // user pressed Pause
+        assertFalse(intent.onFocusGained(inForeground = true))
+        intent.onFocusLost(transient = true, wasPlayRequested = true)
+        intent.onFocusLost(transient = false, wasPlayRequested = true)
+        assertFalse(intent.onFocusGained(inForeground = true))
+        intent.onFocusLost(transient = true, wasPlayRequested = true)
+        assertFalse(intent.onFocusGained(inForeground = false))
+        assertFalse(intent.onFocusGained(inForeground = true))
+    }
+
+    @Test fun transientFocusPendingSurvivesRepeatedTransientCallbacks() {
+        val intent = ExtrasAudioFocusRecoveryIntent()
+        intent.onFocusLost(transient = true, wasPlayRequested = true)
+        intent.onFocusLost(transient = true, wasPlayRequested = false)
+        assertTrue(intent.hasPendingResume)
+        assertTrue(intent.onFocusGained(inForeground = true))
+        intent.onFocusLost(transient = true, wasPlayRequested = false)
+        assertFalse(intent.onFocusGained(inForeground = true))
+    }
 }
