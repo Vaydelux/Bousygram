@@ -36,6 +36,42 @@ class ExtrasLibVlcControlsTest {
         assertTrue(!seek.isPending)
         assertEquals(null, seek.nextTarget(playing = true, seekable = true, durationMs = 90_000L))
     }
+    @Test fun manualSeekWinsOverOldEngineHandoffRestore() {
+        val seek = ExtrasVlcInitialSeek(45_000L)
+        assertEquals(45_000L, seek.pendingPositionMs)
+        // LibVLC has not yet emitted a Playing callback or applied the handoff.
+        assertEquals(null, seek.nextTarget(playing = false, seekable = true, durationMs = 120_000L))
+        // An explicit successful 80-second seek must win, including after
+        // a later Playing event tries to consume the old 45-second handoff.
+        seek.onExplicitSeekAccepted()
+        assertTrue(!seek.isPending)
+        assertEquals(null, seek.pendingPositionMs)
+        assertEquals(null, seek.nextTarget(playing = true, seekable = true, durationMs = 120_000L))
+        seek.onApplied(success = true) // A late callback cannot rearm it.
+        assertEquals(null, seek.nextTarget(playing = true, seekable = true, durationMs = 120_000L))
+    }
+
+    @Test fun rejectedManualSeekDoesNotDiscardPendingHandoff() {
+        val seek = ExtrasVlcInitialSeek(12_000L)
+        // Caller invokes onExplicitSeekAccepted ONLY if native setTime succeeds.
+        assertEquals(12_000L, seek.pendingPositionMs)
+        assertEquals(null, seek.nextTarget(false, false, 90_000L))
+        assertTrue(seek.isPending)
+        assertEquals(12_000L, seek.nextTarget(true, true, 90_000L))
+        seek.onApplied(success = true)
+        assertEquals(null, seek.pendingPositionMs)
+    }
+
+    @Test fun manualSeekCanSupersedeAStartedButNotCompletedRestore() {
+        val seek = ExtrasVlcInitialSeek(35_000L)
+        assertEquals(35_000L, seek.nextTarget(true, true, 100_000L))
+        seek.onExplicitSeekAccepted()
+        // A deferred restore failure or success callback is now ignored.
+        seek.onApplied(success = false)
+        assertEquals(null, seek.nextTarget(true, true, 100_000L))
+        assertTrue(!seek.isPending)
+    }
+
     @Test fun resumePositionIsClampedAndRetryCountIsBounded() {
         val seek = ExtrasVlcInitialSeek(Long.MAX_VALUE, maxPlayingChecks = 2)
         assertEquals(500L, seek.nextTarget(playing = true, seekable = true, durationMs = 500L))
