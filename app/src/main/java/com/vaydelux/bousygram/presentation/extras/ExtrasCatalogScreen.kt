@@ -118,11 +118,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // A 32-bit/low-RAM TV should not keep three full catalog windows alive
     // throughout a long browsing session. Only the current tab retains
     // posters; dormant tabs keep query/filter settings and re-fetch on entry.
-    LaunchedEffect(selectedTab, lowMemoryDevice) {
+    LaunchedEffect(activeTabIndex, lowMemoryDevice) {
         if (lowMemoryDevice) {
-            if (selectedTab != ExtrasType.MOVIES.ordinal) movies = movies.releaseDormantPosters()
-            if (selectedTab != ExtrasType.TV.ordinal) tv = tv.releaseDormantPosters()
-            if (selectedTab != ExtrasType.ANIME.ordinal) anime = anime.releaseDormantPosters()
+            if (activeTabIndex != ExtrasType.MOVIES.ordinal) movies = movies.releaseDormantPosters()
+            if (activeTabIndex != ExtrasType.TV.ordinal) tv = tv.releaseDormantPosters()
+            if (activeTabIndex != ExtrasType.ANIME.ordinal) anime = anime.releaseDormantPosters()
         }
     }
     // Respond to actual Android memory trim callbacks even on high-memory
