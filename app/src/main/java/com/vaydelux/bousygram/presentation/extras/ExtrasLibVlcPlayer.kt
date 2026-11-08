@@ -159,7 +159,9 @@ internal class ExtrasLibVlcSession(
             if (released.get() || !attached || !inForeground) return
             restoreSubtitleChangePosition()
             publishControls()
-            if (playbackRequested) handler.postDelayed(this, 750L)
+            if (playbackRequested || latencyProbe.hasPendingSeek) {
+                handler.postDelayed(this, 750L)
+            }
         }
     }
 
@@ -214,115 +216,104 @@ internal class ExtrasLibVlcSession(
 
     init {
         player.setEventListener { event ->
+            // LibVLC delivers callbacks on its native event dispatcher.
+            // Never mutate playback intent, focus, retry state or Compose
+            // snapshots from that thread. Capture the immutable event type
+            // and serialize all processing on the main Handler.
             if (released.get()) return@setEventListener
-            when (event.type) {
-                MediaPlayer.Event.Playing -> {
-                    if (playbackRequested) {
-                        postStatus("Playing")
-                        handler.post {
-                            if (!released.get() && playbackRequested) {
-                                latencyProbe.onNativePlaying(SystemClock.elapsedRealtime())
+            val type = event.type
+            handler.post {
+                if (!released.get()) handleNativeEvent(type)
+            }
+        }
+    }
+
+    private fun handleNativeEvent(type: Int) {
+        when (type) {
+            MediaPlayer.Event.Playing -> {
+                if (playbackRequested) {
+                    latencyProbe.onNativePlaying(SystemClock.elapsedRealtime())
+                    onStatus("Playing")
+                    publishControls()
+                } else {
+                    // A late native Playing callback may follow user Pause
+                    // while buffering. Never resurrect playback intent.
+                    enforceNativePauseAfterDelayedStart()
+                }
+            }
+            MediaPlayer.Event.Buffering -> {
+                if (playbackRequested) {
+                    onStatus("Buffering…")
+                    publishControls()
+                } else {
+                    enforceNativePauseAfterDelayedStart()
+                }
+            }
+            MediaPlayer.Event.Paused -> {
+                when (libVlcUnexpectedPauseAction(
+                    playRequested = playbackRequested,
+                    prepared = initialized,
+                    stoppedByOwner = released.get(),
+                    alreadyRetried = unexpectedPauseRetries.get()
+                )) {
+                    LibVlcUnexpectedPauseAction.IGNORE -> {
+                        if (!hasPlaybackError && !reachedEnd &&
+                            !focusRecovery.hasPendingResume
+                        ) onStatus("Paused")
+                        publishControls()
+                    }
+                    LibVlcUnexpectedPauseAction.RETRY -> {
+                        unexpectedPauseRetries.incrementAndGet()
+                        if (!released.get() && initialized && playbackRequested) {
+                            runCatching { player.play() }.onFailure {
+                                playbackRequested = false
+                                hasPlaybackError = true
+                                releaseAudioFocus()
+                                onStatus("LibVLC could not resume; try Retry or Media3")
                                 publishControls()
                             }
                         }
                     }
-                    else {
-                        // Native Playing can arrive AFTER a user Pause while the
-                        // file was buffering. Do not resurrect playback.
-                        enforceNativePauseAfterDelayedStart()
-                    }
-                }
-                MediaPlayer.Event.Buffering -> {
-                    if (playbackRequested) {
-                        postStatus("Buffering…")
-                        postControls()
-                    }
-                    else enforceNativePauseAfterDelayedStart()
-                }
-                MediaPlayer.Event.Paused -> {
-                    when (libVlcUnexpectedPauseAction(
-                        playRequested = playbackRequested,
-                        prepared = initialized,
-                        stoppedByOwner = released.get(),
-                        alreadyRetried = unexpectedPauseRetries.get()
-                    )) {
-                        LibVlcUnexpectedPauseAction.IGNORE -> {
-                            if (!hasPlaybackError && !reachedEnd) postStatus("Paused")
-                            postControls()
-                        }
-                        LibVlcUnexpectedPauseAction.RETRY -> {
-                            unexpectedPauseRetries.incrementAndGet()
-                            handler.post {
-                                if (!released.get() && initialized && playbackRequested) {
-                                    runCatching { player.play() }.onFailure {
-                                        playbackRequested = false
-                                        hasPlaybackError = true
-                                        releaseAudioFocus()
-                                        onStatus("LibVLC could not resume; try Retry or Media3")
-                                        publishControls()
-                                    }
-                                }
-                            }
-                        }
-                        LibVlcUnexpectedPauseAction.FAIL -> {
-                            playbackRequested = false
-                            hasPlaybackError = true
-                            handler.post {
-                                if (!released.get()) {
-                                    releaseAudioFocus()
-                                    onStatus("LibVLC paused repeatedly; try Retry or Media3")
-                                    publishControls()
-                                }
-                            }
-                        }
-                    }
-                }
-                MediaPlayer.Event.EncounteredError -> {
-                    playbackRequested = false
-                    hasPlaybackError = true
-                    reachedEnd = false
-                    handler.post { focusRecovery.cancel() }
-                    handler.post {
-                        if (!released.get()) {
-                            releaseAudioFocus()
-                            onStatus("LibVLC cannot open this stream; use Retry or Media3")
-                            publishControls()
-                        }
-                    }
-                }
-                MediaPlayer.Event.EndReached -> {
-                    playbackRequested = false
-                    reachedEnd = true
-                    hasPlaybackError = false
-                    handler.post { focusRecovery.cancel() }
-                    handler.post {
-                        if (!released.get()) {
-                            releaseAudioFocus()
-                            onStatus("Playback finished")
-                            publishControls()
-                        }
+                    LibVlcUnexpectedPauseAction.FAIL -> {
+                        playbackRequested = false
+                        hasPlaybackError = true
+                        handler.removeCallbacks(progressTicker)
+                        releaseAudioFocus()
+                        onStatus("LibVLC paused repeatedly; try Retry or Media3")
+                        publishControls()
                     }
                 }
             }
-        }
-    }
-
-    private fun postStatus(message: String) {
-        handler.post { if (!released.get()) onStatus(message) }
-    }
-
-    private fun enforceNativePauseAfterDelayedStart() {
-        handler.post {
-            if (!released.get() && !playbackRequested) {
-                runCatching {
-                    if (player.isPlaying) player.pause()
-                }
-                if (!hasPlaybackError && !reachedEnd &&
-                    !focusRecovery.hasPendingResume
-                ) onStatus("Paused")
+            MediaPlayer.Event.EncounteredError -> {
+                playbackRequested = false
+                hasPlaybackError = true
+                reachedEnd = false
+                focusRecovery.cancel()
+                handler.removeCallbacks(progressTicker)
+                releaseAudioFocus()
+                onStatus("LibVLC cannot open this stream; use Retry or Media3")
+                publishControls()
+            }
+            MediaPlayer.Event.EndReached -> {
+                playbackRequested = false
+                reachedEnd = true
+                hasPlaybackError = false
+                focusRecovery.cancel()
+                handler.removeCallbacks(progressTicker)
+                releaseAudioFocus()
+                onStatus("Playback finished")
                 publishControls()
             }
         }
+    }
+
+    private fun enforceNativePauseAfterDelayedStart() {
+        if (released.get() || playbackRequested) return
+        runCatching { if (player.isPlaying) player.pause() }
+        if (!hasPlaybackError && !reachedEnd && !focusRecovery.hasPendingResume) {
+            onStatus("Paused")
+        }
+        publishControls()
     }
 
     fun attach(layout: VLCVideoLayout) {
@@ -420,6 +411,9 @@ internal class ExtrasLibVlcSession(
         }
         if (!hasPlaybackError && !reachedEnd) onStatus("Paused for audio focus")
         publishControls()
+        // A seek issued just before Pause may still be acknowledging.
+        // Keep its 15-second bounded position probe alive in foreground.
+        if (latencyProbe.hasPendingSeek) scheduleProgress()
     }
 
     fun pause() {
@@ -479,6 +473,7 @@ internal class ExtrasLibVlcSession(
         val startedMs = SystemClock.elapsedRealtime()
         if (runCatching { player.setTime(targetMs) }.isSuccess) {
             latencyProbe.onSeekRequested(targetMs, startedMs, previousPositionMs)
+            if (latencyProbe.hasPendingSeek) scheduleProgress()
         } else {
             latencyProbe.onSeekRejected()
             onStatus("Seek failed in LibVLC; try another position or Media3")

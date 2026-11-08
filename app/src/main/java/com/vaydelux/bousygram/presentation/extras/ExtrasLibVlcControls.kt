@@ -108,6 +108,9 @@ internal class ExtrasVlcLatencyProbe {
     private var seekSupersededCount = 0
     private var seekNoChangeCount = 0
 
+    /** Paused seeking continues to poll only until ack or the 15s deadline. */
+    val hasPendingSeek: Boolean get() = pendingSeekTarget != null
+
     fun onPlayRequested(nowMs: Long) {
         if (firstPlayingMs == null) firstPlayStartedMs = nowMs.coerceAtLeast(0L)
     }

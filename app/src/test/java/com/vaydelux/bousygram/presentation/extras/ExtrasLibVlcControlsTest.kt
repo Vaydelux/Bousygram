@@ -147,6 +147,31 @@ class ExtrasLibVlcControlsTest {
         assertEquals(1, stats.seekRejectedCount)
     }
 
+    @Test fun pausedSeekPollingIsBoundedByAcknowledgementOrTimeout() {
+        val probe = ExtrasVlcLatencyProbe()
+        assertTrue(!probe.hasPendingSeek)
+        probe.onSeekRequested(90_000L, 1_000L, previousPositionMs = 2_000L)
+        assertTrue(probe.hasPendingSeek)
+        probe.observeNativePosition(40_000L, 1_500L)
+        assertTrue(probe.hasPendingSeek)
+        probe.observeNativePosition(89_900L, 2_000L)
+        assertTrue(!probe.hasPendingSeek)
+        assertEquals(1, probe.snapshot().seekSamples)
+
+        probe.onSeekRequested(120_000L, 3_000L, previousPositionMs = 90_000L)
+        assertTrue(probe.hasPendingSeek)
+        probe.observeNativePosition(90_000L, 18_001L)
+        assertTrue(!probe.hasPendingSeek)
+        assertEquals(1, probe.snapshot().seekTimeouts)
+    }
+
+    @Test fun currentPositionSeekDoesNotArmPausedPolling() {
+        val probe = ExtrasVlcLatencyProbe()
+        probe.onSeekRequested(12_000L, 500L, previousPositionMs = 12_000L)
+        assertTrue(!probe.hasPendingSeek)
+        assertEquals(1, probe.snapshot().seekNoChangeCount)
+    }
+
     @Test fun timeLabelsStayReadableForTv() {
         assertEquals("0:00", extrasVlcTimeLabel(-1L))
         assertEquals("0:09", extrasVlcTimeLabel(9_000L))
