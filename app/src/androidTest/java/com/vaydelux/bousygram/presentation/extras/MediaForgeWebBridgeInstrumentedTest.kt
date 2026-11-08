@@ -79,6 +79,10 @@ class MediaForgeWebBridgeInstrumentedTest {
                 val blocked = listOf(
                     "http://mediaforge.example.invalid/embed/movie/42",
                     "https://127.0.0.1/embed/movie/42",
+                    "https://device.local./embed/movie/42",
+                    "https://router.localdomain/embed/movie/42",
+                    "https://nas.lan/embed/movie/42",
+                    "https://mediaforge.example.invalid./embed/movie/42",
                     "file:///data/local/tmp/embed.html",
                     "https://user:secret@mediaforge.example.invalid/embed/movie/42"
                 )
