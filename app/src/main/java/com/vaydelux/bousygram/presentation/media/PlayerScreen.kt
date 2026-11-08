@@ -2558,6 +2558,7 @@ fun PlayerScreen(
             TrackPickerOverlay(
                 playerEngine = playerEngine,
                 compact = compactHud,
+                isTv = tvChrome,
                 subtitleAppearance = subtitleAppearance,
                 audioProfile = audioProfile,
                 castAudioActive = castState.connected,
@@ -3307,6 +3308,7 @@ private fun VideoDebugHud(
 private fun TrackPickerOverlay(
     playerEngine: PlayerEngine,
     compact: Boolean,
+    isTv: Boolean,
     subtitleAppearance: SubtitleAppearance,
     audioProfile: AudioProcessingProfile,
     castAudioActive: Boolean,
@@ -3327,20 +3329,21 @@ private fun TrackPickerOverlay(
 
     Surface(
         modifier = modifier
-            .padding(if (compact) 12.dp else 28.dp)
-            .widthIn(max = 420.dp)
-            .fillMaxWidth(if (compact) 0.94f else 0.42f)
+            .padding(if (isTv) 24.dp else if (compact) 12.dp else 28.dp)
+            .widthIn(max = if (isTv) 760.dp else 420.dp)
+            .fillMaxWidth(if (isTv) 0.72f else if (compact) 0.94f else 0.42f)
             .focusGroup(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        shape = RoundedCornerShape(24.dp),
-        shadowElevation = 20.dp
+        color = if (isTv) Color(0xFF0C1727) else MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+        contentColor = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(if (isTv) 20.dp else 24.dp),
+        shadowElevation = if (isTv) 28.dp else 20.dp
     ) {
         Column(
             Modifier
-                .heightIn(max = if (compact) 420.dp else 620.dp)
+                .heightIn(max = if (isTv) 700.dp else if (compact) 420.dp else 620.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(if (isTv) 24.dp else 18.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 16.dp else 10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -3350,8 +3353,9 @@ private fun TrackPickerOverlay(
                         MediaTrackInfo.TrackType.VIDEO -> "Video Streams"
                     },
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    fontSize = if (isTv) 28.sp else 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface
                 )
                 BousygramButton("Close", onClose)
             }
