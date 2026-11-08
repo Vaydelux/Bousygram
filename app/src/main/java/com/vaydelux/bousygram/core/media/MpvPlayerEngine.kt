@@ -76,12 +76,9 @@ class MpvPlayerEngine(
 
     override fun applyAudioProcessing(profile: AudioProcessingProfile): Boolean {
         if (isDestroyed.get()) return false
-        // A custom curve may change even when the preset enum remains CUSTOM.
-        if (profile.preset == AudioEqualizerPreset.CUSTOM &&
-            activeAudioProfile.sanitizedGains != profile.sanitizedGains
-        ) appliedEqPreset = AudioEqualizerPreset.ORIGINAL
-        activeAudioProfile = profile.copy(customGainsDb = profile.sanitizedGains)
-        val eqApplied = applyAudioEqualizer(profile.preset)
+        // Always remove legacy EQ filters; Smart Volume is a separate option.
+        activeAudioProfile = AudioProcessingProfile(smartVolume = profile.smartVolume)
+        val eqApplied = applyAudioEqualizer(AudioEqualizerPreset.ORIGINAL)
         val volumeApplied = applySmartVolume(profile.smartVolume)
         return eqApplied && volumeApplied
     }
