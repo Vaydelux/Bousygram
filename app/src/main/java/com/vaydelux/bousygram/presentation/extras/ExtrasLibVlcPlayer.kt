@@ -314,7 +314,10 @@ internal class ExtrasLibVlcSession(
                 runCatching {
                     if (player.isPlaying) player.pause()
                 }
-                onStatus("Paused")
+                if (!hasPlaybackError && !reachedEnd &&
+                    !focusRecovery.hasPendingResume
+                ) onStatus("Paused")
+                publishControls()
             }
         }
     }
@@ -359,6 +362,9 @@ internal class ExtrasLibVlcSession(
 
     fun play() {
         if (released.get() || !initialized || !inForeground) return
+        // A second Play during buffering must not reset native pause-recovery
+        // state, retrigger the decoder, or restart the startup stopwatch.
+        if (playbackRequested && !hasPlaybackError && !reachedEnd) return
         focusRecovery.cancel()
         if (!hasAudioFocus) {
             if (audioManager.requestAudioFocus(focusRequest) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
@@ -435,11 +441,12 @@ internal class ExtrasLibVlcSession(
                 Pair(extrasVlcSeekTarget(previous, deltaMs, player.length), previous)
             }
         }
-        if (seek.isFailure || seek.getOrNull() == null) {
+        val requested = seek.getOrNull()
+        if (requested == null) {
             latencyProbe.onSeekRejected()
             onStatus("Seeking is not available for this stream")
         } else {
-            val (target, previous) = seek.getOrThrow()
+            val (target, previous) = requested
             issueSeek(target, previous)
         }
         publishControls()
@@ -454,11 +461,12 @@ internal class ExtrasLibVlcSession(
                 Pair(extrasVlcSeekAbsolute(positionMs, player.length), previous)
             }
         }
-        if (seek.isFailure || seek.getOrNull() == null) {
+        val requested = seek.getOrNull()
+        if (requested == null) {
             latencyProbe.onSeekRejected()
             onStatus("Seeking is not available for this stream")
         } else {
-            val (target, previous) = seek.getOrThrow()
+            val (target, previous) = requested
             issueSeek(target, previous)
         }
         publishControls()
