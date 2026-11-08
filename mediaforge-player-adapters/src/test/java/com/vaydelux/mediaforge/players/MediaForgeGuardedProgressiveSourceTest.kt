@@ -23,6 +23,30 @@ class MediaForgeGuardedProgressiveSourceTest {
         assertNull(parseContentRange("bytes 1-1/99999999999999999999999"))
     }
 
+    @Test fun alignedWindowsAvoidOverlappingRequestsAcrossSmallSeeks() {
+        val size = MEDIAFORGE_RANGE_WINDOW_BYTES
+        assertEquals(0L, alignedRangeWindowStart(0L))
+        assertEquals(0L, alignedRangeWindowStart(4096L))
+        assertEquals(0L, alignedRangeWindowStart(size - 1L))
+        assertEquals(size, alignedRangeWindowStart(size))
+        assertEquals(size, alignedRangeWindowStart(size + 128L))
+        assertEquals(size * 2L, alignedRangeWindowStart(size * 2L + 10L))
+        // Very large offsets must not overflow when computing an aligned start.
+        assertTrue(alignedRangeWindowStart(Long.MAX_VALUE) <= Long.MAX_VALUE)
+    }
+
+    @Test fun strongEtagsOnlyAndRangeIdentity() {
+        assertEquals("\"media-v1\"", parseStrongEtag("\"media-v1\""))
+        assertEquals("\"with spaces\"", parseStrongEtag(" \"with spaces\" "))
+        assertNull(parseStrongEtag("W/\"media-v1\""))
+        assertNull(parseStrongEtag("media-v1"))
+        assertNull(parseStrongEtag("\"bad\\r\\nheader\""))
+        assertNull(parseStrongEtag(null))
+        val identity = RemoteRangeIdentity(12_345L, parseStrongEtag("\"media-v1\""))
+        assertEquals(12_345L, identity.length)
+        assertEquals("\"media-v1\"", identity.strongEtag)
+    }
+
     @Test fun guardedLibVlcSourceOnlyAcceptsProgressiveFormats() {
         val url = "https://video.example.org/fixture"
         fun candidate(format: StreamFormat) = StreamCandidate(url, format, "video.example.org")
