@@ -135,7 +135,8 @@ internal fun ExtrasMediaForgeScreen(
     var approved by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
     var nativeMedia by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
     var nativeEngine by remember(request.url) { mutableStateOf(ExtrasNativeEngine.MEDIA3) }
-    var vlcResumePositionMs by remember(request.url) { mutableLongStateOf(0L) }
+    var nativeResumePositionMs by remember(request.url) { mutableLongStateOf(0L) }
+    var nativePlayRequested by remember(request.url) { mutableStateOf(true) }
     var inspectionJob by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
     var inspectionGeneration by remember { mutableIntStateOf(0) }
@@ -182,7 +183,7 @@ internal fun ExtrasMediaForgeScreen(
         busy = false
         webGeneration += 1
         nativeMedia = null
-        vlcResumePositionMs = 0L
+        nativeResumePositionMs = 0L
     }
 
     BackHandler {
@@ -201,10 +202,12 @@ internal fun ExtrasMediaForgeScreen(
                 media = media,
                 caption = selectedCaption,
                 title = request.title,
-                initialPositionMs = vlcResumePositionMs,
+                initialPositionMs = nativeResumePositionMs,
+                initiallyPlayRequested = nativePlayRequested,
                 onBack = { returnToWebView() },
-                onUseLibVlc = { positionMs ->
-                    vlcResumePositionMs = positionMs
+                onUseLibVlc = { handoff ->
+                    nativeResumePositionMs = handoff.positionMs
+                    nativePlayRequested = handoff.playRequested
                     nativeEngine = ExtrasNativeEngine.LIBVLC
                 }
             )
@@ -213,14 +216,17 @@ internal fun ExtrasMediaForgeScreen(
                 caption = selectedCaption,
                 title = request.title,
                 isTv = isAndroidTv,
-                initialPositionMs = vlcResumePositionMs,
+                initialPositionMs = nativeResumePositionMs,
+                initiallyPlayRequested = nativePlayRequested,
                 onBack = { returnToWebView() },
-                onUseMedia3 = { positionMs ->
-                    vlcResumePositionMs = positionMs
+                onUseMedia3 = { handoff ->
+                    nativeResumePositionMs = handoff.positionMs
+                    nativePlayRequested = handoff.playRequested
                     nativeEngine = ExtrasNativeEngine.MEDIA3
                 },
-                onChooseSubtitles = { positionMs ->
-                    vlcResumePositionMs = positionMs
+                onChooseSubtitles = { handoff ->
+                    nativeResumePositionMs = handoff.positionMs
+                    nativePlayRequested = handoff.playRequested
                     showSubtitlePicker = true
                 }
             )
@@ -495,7 +501,8 @@ internal fun ExtrasMediaForgeScreen(
                     onClick = {
                         inspectionGeneration += 1
                         inspectionJob?.cancel()
-                        vlcResumePositionMs = 0L
+                        nativeResumePositionMs = 0L
+                        nativePlayRequested = true // An explicit launch is a new Play action.
                         nativeMedia = media
                     }
                 ) { Text("Play with " + nativeEngine.label) }
@@ -780,14 +787,15 @@ private fun ExtrasMediaForgeNativePlayer(
     caption: CaptionCandidate?,
     title: String,
     initialPositionMs: Long,
+    initiallyPlayRequested: Boolean,
     onBack: () -> Unit,
-    onUseLibVlc: (Long) -> Unit
+    onUseLibVlc: (ExtrasPlaybackHandoff) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     // A new source or subtitle selection needs a NEW player; releasing the
     // previous DisposableEffect must never leave a released ExoPlayer in remember.
-    val player = remember(media, caption?.url, context, initialPositionMs) {
+    val player = remember(media, caption?.url, context, initialPositionMs, initiallyPlayRequested) {
         MediaForgeMedia3.newPlayer(context)
     }
     val foregroundIntent = remember(player) { ExtrasForegroundPlaybackIntent() }
@@ -831,8 +839,8 @@ private fun ExtrasMediaForgeNativePlayer(
         player.setMediaItem(MediaForgeMedia3.mediaItem(media, caption))
         if (initialPositionMs > 0L) player.seekTo(initialPositionMs)
         player.prepare()
-        player.playWhenReady = lifecycleOwner.lifecycle.currentState
-            .isAtLeast(Lifecycle.State.STARTED)
+        player.playWhenReady = initiallyPlayRequested &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
         onDispose {
             foregroundIntent.cancel()
             lifecycleOwner.lifecycle.removeObserver(observer)
@@ -855,9 +863,12 @@ private fun ExtrasMediaForgeNativePlayer(
                 OutlinedButton(
                     modifier = Modifier.testTag("extras-media3-use-libvlc"),
                     onClick = {
-                        onUseLibVlc(extrasVlcHandoffPosition(
-                            player.currentPosition,
-                            player.isCurrentMediaItemSeekable
+                        onUseLibVlc(extrasMedia3Handoff(
+                            positionMs = player.currentPosition,
+                            seekable = player.isCurrentMediaItemSeekable,
+                            playWhenReady = player.playWhenReady,
+                            failed = playbackError != null,
+                            ended = player.playbackState == Player.STATE_ENDED
                         ))
                     }
                 ) { Text("Use LibVLC") }
