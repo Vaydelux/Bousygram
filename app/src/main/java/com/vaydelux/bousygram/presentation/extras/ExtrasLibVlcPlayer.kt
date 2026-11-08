@@ -92,6 +92,7 @@ internal class ExtrasLibVlcSession(
     private val subtitle: CaptionCandidate?,
     private val guarded: MediaForgeGuardedProgressiveSource,
     initialPositionMs: Long,
+    private val initiallyPlayRequested: Boolean,
     private val onStatus: (String) -> Unit,
     private val onControls: (ExtrasLibVlcControlState) -> Unit
 ) {
@@ -362,7 +363,13 @@ internal class ExtrasLibVlcSession(
                 onStatus("Subtitle unavailable through guarded LibVLC; use Media3")
             }
         }
-        play()
+        if (initiallyPlayRequested) {
+            play()
+        } else {
+            // Engine switches and subtitle changes are not an implicit Play.
+            onStatus("Paused")
+            publishControls()
+        }
         scheduleProgress()
     }
 
@@ -523,9 +530,10 @@ internal fun ExtrasLibVlcPlayer(
     title: String,
     isTv: Boolean,
     initialPositionMs: Long,
+    initiallyPlayRequested: Boolean,
     onBack: () -> Unit,
-    onUseMedia3: (Long) -> Unit,
-    onChooseSubtitles: (Long) -> Unit
+    onUseMedia3: (ExtrasPlaybackHandoff) -> Unit,
+    onChooseSubtitles: (ExtrasPlaybackHandoff) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -557,12 +565,15 @@ internal fun ExtrasLibVlcPlayer(
         onDispose { source?.close() }
     }
     // Failed native initialization is shown as a recoverable Media3 fallback.
-    val sessionResult = remember(source, media.stream.url, caption?.url) {
+    val sessionResult = remember(
+        source, media.stream.url, caption?.url, initialPositionMs, initiallyPlayRequested
+    ) {
         source?.let { guardedSource ->
             runCatching {
                 ExtrasLibVlcSession(
                     context, media, caption, guardedSource,
                     initialPositionMs = initialPositionMs,
+                    initiallyPlayRequested = initiallyPlayRequested,
                     onStatus = { status = it },
                     onControls = { controls = it }
                 )
@@ -620,7 +631,12 @@ internal fun ExtrasLibVlcPlayer(
                         emphasized = true,
                         // A failed guarded-LibVLC probe must not erase the
                         // seekable position handed off by the Media3 player.
-                        onClick = { onUseMedia3(initialPositionMs) }
+                        onClick = {
+                            onUseMedia3(ExtrasPlaybackHandoff(
+                                positionMs = initialPositionMs.coerceAtLeast(0L),
+                                playRequested = initiallyPlayRequested
+                            ))
+                        }
                     )
                 }
             }
@@ -870,15 +886,13 @@ internal fun ExtrasLibVlcPlayer(
                         ExtrasVlcAction(
                             "Subtitles", enabled = media.captions.isNotEmpty(),
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-subtitles"),
-                            onClick = { onChooseSubtitles(controls.positionMs) }
+                            onClick = { onChooseSubtitles(extrasLibVlcHandoff(controls)) }
                         )
                         ExtrasVlcAction(
                             "Use Media3",
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-use-media3"),
                             onClick = {
-                                onUseMedia3(extrasVlcHandoffPosition(
-                                    controls.positionMs, controls.seekable
-                                ))
+                                onUseMedia3(extrasLibVlcHandoff(controls))
                             }
                         )
                     }
@@ -919,15 +933,13 @@ internal fun ExtrasLibVlcPlayer(
                             if (caption == null) "Subtitles" else "Captions ✓",
                             enabled = media.captions.isNotEmpty(),
                             modifier = Modifier.weight(1.2f).testTag("extras-libvlc-subtitles"),
-                            onClick = { onChooseSubtitles(controls.positionMs) }
+                            onClick = { onChooseSubtitles(extrasLibVlcHandoff(controls)) }
                         )
                         ExtrasVlcAction(
                             "Use Media3",
                             modifier = Modifier.weight(1.2f).testTag("extras-libvlc-use-media3"),
                             onClick = {
-                                onUseMedia3(extrasVlcHandoffPosition(
-                                    controls.positionMs, controls.seekable
-                                ))
+                                onUseMedia3(extrasLibVlcHandoff(controls))
                             }
                         )
                     }
