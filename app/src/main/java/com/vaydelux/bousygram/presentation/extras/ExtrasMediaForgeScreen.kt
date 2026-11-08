@@ -398,7 +398,16 @@ internal fun ExtrasMediaForgeScreen(
                                         }
                                     }
                                 } catch (cancelled: CancellationException) {
+                                    // Navigation, a newer choice, or browser reload
+                                    // cancels this probe; it must not post stale UI.
                                     throw cancelled
+                                } catch (_: Exception) {
+                                    if (generation == inspectionGeneration) {
+                                        approved = null
+                                        // Never expose arbitrary provider exception
+                                        // messages: URLs may contain credentials.
+                                        status = "Could not check this source. Check your connection or select another stream."
+                                    }
                                 } finally {
                                     if (generation == inspectionGeneration) busy = false
                                 }
