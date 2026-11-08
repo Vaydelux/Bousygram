@@ -13,6 +13,8 @@ import com.vaydelux.bousygram.core.media.PlaybackRetryDecision
 import com.vaydelux.bousygram.core.media.PlaybackSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.TelegramProxyPlayerFactory
+import com.vaydelux.bousygram.core.media.PlaybackPresentationState
+import com.vaydelux.bousygram.core.media.playbackPresentationState
 import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.StructuredPlaybackLogger
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
@@ -58,14 +60,14 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             PlaybackSessionController.setVideoPlaying(
                 isPlaying || (playRequested && player.playbackState == Player.STATE_BUFFERING)
             )
-            if (!playRequested && player.playbackState == Player.STATE_READY) {
-                setState(VideoPlayerUiState.Paused)
+            if (player.playbackState == Player.STATE_READY) {
+                reportReadyDecoderState()
             }
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (!playWhenReady && player.playbackState == Player.STATE_READY) {
-                setState(VideoPlayerUiState.Paused)
+            if (player.playbackState == Player.STATE_READY) {
+                reportReadyDecoderState()
             }
         }
 
@@ -79,7 +81,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     if (player.currentPosition > 0L) {
                         lastGoodPositionMs = player.currentPosition
                     }
-                    setState(if (player.playWhenReady) VideoPlayerUiState.Playing else VideoPlayerUiState.Paused)
+                    reportReadyDecoderState()
                 }
                 Player.STATE_ENDED -> setState(VideoPlayerUiState.Ended)
                 Player.STATE_IDLE -> {
@@ -190,11 +192,34 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         super.onCleared()
     }
 
+    /**
+     * Media3 STATE_READY means the decoder is prepared, not necessarily
+     * producing output (for example after a seek or audio-focus suppression).
+     * A late Ready event must not revive playback after an explicit Pause.
+     */
+    private fun reportReadyDecoderState() {
+        when (playbackPresentationState(
+            ready = true,
+            playWhenReady = player.playWhenReady,
+            isPlaying = player.isPlaying
+        )) {
+            PlaybackPresentationState.PAUSED -> setState(VideoPlayerUiState.Paused)
+            PlaybackPresentationState.PLAYING -> setState(VideoPlayerUiState.Playing)
+            PlaybackPresentationState.BUFFERING -> showBufferingDebounced()
+        }
+    }
+
     private fun showBufferingDebounced() {
         bufferingJob?.cancel()
         bufferingJob = viewModelScope.launch {
             delay(BUFFERING_DEBOUNCE_MS)
-            if (player.playbackState == Player.STATE_BUFFERING && player.playWhenReady) {
+            // READY without a decoded output is also waiting, not Playing.
+            // A user Pause before the debounce expires must always win.
+            if (player.playWhenReady && (
+                    player.playbackState == Player.STATE_BUFFERING ||
+                    (player.playbackState == Player.STATE_READY && !player.isPlaying)
+                )
+            ) {
                 _uiState.value = VideoPlayerUiState.Buffering
             }
         }
