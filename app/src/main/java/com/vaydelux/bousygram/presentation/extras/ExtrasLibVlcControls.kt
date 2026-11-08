@@ -76,6 +76,14 @@ internal class ExtrasVlcInitialSeek(
         else if (++failedAttempts >= 2) pending = false
     }
 
+    /** A later explicit, accepted user seek supersedes this old handoff. */
+    fun onExplicitSeekAccepted() {
+        pending = false
+    }
+
+    /** Useful for +/-10s while a handed-off decoder has not sought yet. */
+    val pendingPositionMs: Long? get() = if (pending) initialPositionMs else null
+
     val isPending: Boolean get() = pending
 }
 
