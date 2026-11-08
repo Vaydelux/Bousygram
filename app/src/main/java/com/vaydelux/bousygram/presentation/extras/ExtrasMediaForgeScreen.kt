@@ -8,6 +8,10 @@ import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +19,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -35,10 +42,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -50,7 +59,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.media3.ui.PlayerView
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
@@ -117,6 +129,7 @@ internal fun ExtrasMediaForgeScreen(
     var areaWidth by remember { mutableIntStateOf(1) }
     var areaHeight by remember { mutableIntStateOf(1) }
     var selectedCaption by remember(request.url) { mutableStateOf<CaptionCandidate?>(null) }
+    var showSubtitlePicker by remember(request.url) { mutableStateOf(false) }
     var approved by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
     var nativeMedia by remember(request.url) { mutableStateOf<InspectedMedia?>(null) }
     var nativeEngine by remember(request.url) { mutableStateOf(ExtrasNativeEngine.MEDIA3) }
@@ -396,18 +409,25 @@ internal fun ExtrasMediaForgeScreen(
                         )
                     }
                 }
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(media.captions.size) { index ->
-                        val caption = media.captions[index]
-                        OutlinedButton(onClick = {
-                        selectedCaption = if (selectedCaption?.url == caption.url) null else caption
-                    }, modifier = Modifier.fillMaxWidth()) {
+                if (media.captions.isNotEmpty()) {
+                    OutlinedButton(
+                        onClick = { showSubtitlePicker = true },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = if (isAndroidTv) 54.dp else 44.dp)
+                            .testTag("extras-subtitles-open")
+                    ) {
                         Text(
-                            "${if (selectedCaption?.url == caption.url) "✓ " else ""}Subtitles: ${caption.label ?: caption.language ?: caption.host} · ${caption.format}",
-                            maxLines = 1
+                            "Subtitles: " + (selectedCaption?.label ?: selectedCaption?.language ?: "Off") +
+                                "  ·  ${media.captions.size} available",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = if (isAndroidTv) 19.sp else 15.sp,
+                            maxLines = 2
                         )
                     }
-                    }
+                } else {
+                    Text(
+                        "No external subtitle tracks were discovered.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
                 Button(
                     modifier = Modifier.fillMaxWidth().testTag("extras-play-native"),
@@ -420,6 +440,19 @@ internal fun ExtrasMediaForgeScreen(
             }
         }
         }
+    }
+
+    if (showSubtitlePicker && approved != null) {
+        ExtrasSubtitlePicker(
+            captions = approved!!.captions,
+            selected = selectedCaption,
+            isTv = isAndroidTv,
+            onSelected = { caption ->
+                selectedCaption = caption
+                showSubtitlePicker = false
+            },
+            onDismiss = { showSubtitlePicker = false }
+        )
     }
 
     // Chromium's HTML5 fullscreen surface is distinct from the ordinary
@@ -552,6 +585,113 @@ internal fun ExtrasVirtualCursor(
             }
             drawPath(arrow, Color.White)
             drawPath(arrow, Color.Black, style = Stroke(width = 2.dp.toPx()))
+        }
+    }
+}
+
+@Composable
+private fun ExtrasSubtitlePicker(
+    captions: List<CaptionCandidate>,
+    selected: CaptionCandidate?,
+    isTv: Boolean,
+    onSelected: (CaptionCandidate?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val firstFocus = remember { FocusRequester() }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(if (isTv) 0.78f else 0.94f)
+                .widthIn(max = if (isTv) 780.dp else 480.dp),
+            color = Color(0xFF0D1929),
+            contentColor = Color.White,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+            shadowElevation = 24.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = if (isTv) 650.dp else 540.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(if (isTv) 26.dp else 18.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isTv) 14.dp else 9.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Subtitle tracks",
+                        color = Color.White,
+                        fontSize = if (isTv) 28.sp else 21.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedButton(onClick = onDismiss) {
+                        Text("Close", color = Color.White)
+                    }
+                }
+                Text(
+                    "Choose a subtitle track using the D-pad, or turn subtitles off.",
+                    color = Color(0xFFD0DCEB),
+                    fontSize = if (isTv) 18.sp else 14.sp
+                )
+                SubtitlePickerChoice(
+                    title = "Off · No subtitles",
+                    selected = selected == null,
+                    isTv = isTv,
+                    modifier = Modifier.focusRequester(firstFocus),
+                    onClick = { onSelected(null) }
+                )
+                captions.forEach { caption ->
+                    SubtitlePickerChoice(
+                        title = (caption.label ?: caption.language ?: caption.host) +
+                            "  ·  ${caption.format.name}",
+                        selected = selected?.url == caption.url,
+                        isTv = isTv,
+                        onClick = { onSelected(caption) }
+                    )
+                }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+}
+
+@Composable
+private fun SubtitlePickerChoice(
+    title: String,
+    selected: Boolean,
+    isTv: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    Surface(
+        modifier = modifier.fillMaxWidth()
+            .heightIn(min = if (isTv) 64.dp else 48.dp)
+            .border(
+                if (focused) 3.dp else 1.dp,
+                if (focused) Color(0xFF78D8FF) else Color(0xFF3B526C),
+                shape
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick),
+        color = if (focused) Color(0xFF175481)
+            else if (selected) Color(0xFF174061) else Color(0xFF17273B),
+        shape = shape
+    ) {
+        Row(
+            Modifier.padding(horizontal = if (isTv) 20.dp else 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title,
+                modifier = Modifier.weight(1f),
+                fontSize = if (isTv) 20.sp else 15.sp,
+                color = Color.White,
+                maxLines = 2
+            )
+            if (selected) Text("✓", color = Color(0xFF9EF4C9), fontSize = 24.sp)
         }
     }
 }
