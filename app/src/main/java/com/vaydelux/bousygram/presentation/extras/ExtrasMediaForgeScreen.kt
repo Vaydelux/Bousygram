@@ -754,19 +754,30 @@ private fun ExtrasMediaForgeNativePlayer(
     // previous DisposableEffect must never leave a released ExoPlayer in remember.
     val player = remember(media, caption?.url, context) { MediaForgeMedia3.newPlayer(context) }
     val foregroundIntent = remember(player) { ExtrasForegroundPlaybackIntent() }
-    var playbackError by remember(media.stream.url) { mutableStateOf<String?>(null) }
+    // A changed caption/source creates a new player; stale errors must not bleed across it.
+    var playbackError by remember(player) { mutableStateOf<String?>(null) }
     DisposableEffect(player, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
                     // Capture playWhenReady, not isPlaying: a buffering decoder
                     // still owns an active Play intent.
-                    foregroundIntent.onBackground(player.playWhenReady)
+                    foregroundIntent.onBackground(
+                        shouldPreserveExtrasMedia3Resume(
+                            playWhenReady = player.playWhenReady,
+                            hasPlaybackError = playbackError != null,
+                            reachedEnd = player.playbackState == Player.STATE_ENDED
+                        )
+                    )
                     player.pause()
                 }
                 Lifecycle.Event.ON_START -> {
                     if (foregroundIntent.onForeground() &&
-                        player.playbackState != Player.STATE_ENDED
+                        shouldPreserveExtrasMedia3Resume(
+                            playWhenReady = true,
+                            hasPlaybackError = playbackError != null,
+                            reachedEnd = player.playbackState == Player.STATE_ENDED
+                        )
                     ) player.play()
                 }
                 else -> Unit

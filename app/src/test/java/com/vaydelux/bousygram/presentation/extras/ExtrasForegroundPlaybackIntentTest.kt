@@ -39,6 +39,30 @@ class ExtrasForegroundPlaybackIntentTest {
         intent.onBackground(playRequested = false)
         assertFalse(intent.onForeground())
     }
+    @Test fun media3BackgroundPreservesBufferingPlayButNotUserPause() {
+        assertTrue(shouldPreserveExtrasMedia3Resume(
+            playWhenReady = true, hasPlaybackError = false, reachedEnd = false
+        ))
+        assertFalse(shouldPreserveExtrasMedia3Resume(
+            playWhenReady = false, hasPlaybackError = false, reachedEnd = false
+        ))
+    }
+
+    @Test fun media3ErrorAndNaturalEndCannotRestartOnForeground() {
+        assertFalse(shouldPreserveExtrasMedia3Resume(
+            playWhenReady = true, hasPlaybackError = true, reachedEnd = false
+        ))
+        assertFalse(shouldPreserveExtrasMedia3Resume(
+            playWhenReady = true, hasPlaybackError = false, reachedEnd = true
+        ))
+        assertFalse(shouldPreserveExtrasMedia3Resume(
+            playWhenReady = true, hasPlaybackError = true, reachedEnd = true
+        ))
+        val intent = ExtrasForegroundPlaybackIntent()
+        intent.onBackground(shouldPreserveExtrasMedia3Resume(true, true, false))
+        assertFalse(intent.onForeground())
+    }
+
     @Test fun transientAudioFocusLossResumesExactlyOnce() {
         val intent = ExtrasAudioFocusRecoveryIntent()
         assertFalse(intent.hasPendingResume)

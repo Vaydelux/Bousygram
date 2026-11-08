@@ -50,3 +50,14 @@ internal class ExtrasAudioFocusRecoveryIntent {
 
     fun cancel() { resumePending = false }
 }
+
+/**
+ * Only an active, healthy playback request survives activity STOP/START.
+ * A decoder error or natural EOF is final until the user explicitly retries
+ * (or selects a different title/source); transient buffering is not a pause.
+ */
+internal fun shouldPreserveExtrasMedia3Resume(
+    playWhenReady: Boolean,
+    hasPlaybackError: Boolean,
+    reachedEnd: Boolean
+): Boolean = playWhenReady && !hasPlaybackError && !reachedEnd
