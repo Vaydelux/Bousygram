@@ -58,6 +58,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -105,6 +106,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     val maxRetainedPosters = ExtrasPagingWindow.itemLimit(lowMemoryDevice)
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    // The memory-pressure collector is long-lived; read the latest tab rather
+    // than retaining a potentially stale composition-time selection.
+    val currentTabForTrim by rememberUpdatedState(selectedTab)
     val type = ExtrasType.entries[selectedTab.coerceIn(0, ExtrasType.entries.lastIndex)]
     var movies by remember { mutableStateOf(TabState()) }
     var tv by remember { mutableStateOf(TabState()) }
@@ -127,9 +131,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             if (severity == MediaMemoryTrim.MODERATE ||
                 severity == MediaMemoryTrim.CRITICAL
             ) {
-                if (selectedTab != ExtrasType.MOVIES.ordinal) movies = movies.releaseDormantPosters()
-                if (selectedTab != ExtrasType.TV.ordinal) tv = tv.releaseDormantPosters()
-                if (selectedTab != ExtrasType.ANIME.ordinal) anime = anime.releaseDormantPosters()
+                // Trim only dormant catalogs. Switching tabs must not make a
+                // later OS memory callback drop the now-visible poster grid.
+                val activeTab = currentTabForTrim
+                if (activeTab != ExtrasType.MOVIES.ordinal) movies = movies.releaseDormantPosters()
+                if (activeTab != ExtrasType.TV.ordinal) tv = tv.releaseDormantPosters()
+                if (activeTab != ExtrasType.ANIME.ordinal) anime = anime.releaseDormantPosters()
             }
         }
     }
