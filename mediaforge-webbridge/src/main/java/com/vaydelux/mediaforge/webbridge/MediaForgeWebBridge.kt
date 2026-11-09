@@ -114,8 +114,16 @@ class MediaForgeWebBridge(
                 // that the embedded player may make for its own server picker.
                 val sourcePath = approved.path.orEmpty()
                 val targetPath = target?.path.orEmpty()
+                // For explicit /embed/{type}/{TMDB-or-AniList-id} routes, never
+                // let an internal server-selector navigation swap the chosen
+                // title/episode by changing the path. Non-title embed helpers
+                // retain their prior same-provider navigation compatibility.
+                val titleBoundPath = Regex(
+                    "^/embed/(movie|tv|anime)/[0-9]+(?:/[0-9]+)*$"
+                ).matches(sourcePath)
                 val allowedPath = targetPath == sourcePath ||
-                    (sourcePath.startsWith("/embed/") && targetPath.startsWith("/embed/"))
+                    (!titleBoundPath && sourcePath.startsWith("/embed/") &&
+                        targetPath.startsWith("/embed/"))
                 // Provider-side selectors can change query options, but the
                 // legacy /embed?id=550&type=movie route must never silently
                 // switch to a different TMDB title or content type.
@@ -131,8 +139,16 @@ class MediaForgeWebBridge(
                     sourceId == param(target?.rawQuery, "id") &&
                         sourceType == param(target?.rawQuery, "type")
                 } else true
+                // A source with explicit episode query parameters must stay on
+                // that episode when the provider changes its server setting.
+                val episodeIdentityLocked = if (titleBoundPath) {
+                    listOf("s", "e", "season", "episode").all { key ->
+                        val original = param(approved.rawQuery, key)
+                        original == null || original == param(target?.rawQuery, key)
+                    }
+                } else true
                 val allowed = target != null && target.host.equals(embedHost, true) &&
-                    allowedPath && legacyIdentityLocked
+                    allowedPath && legacyIdentityLocked && episodeIdentityLocked
                 if (!allowed) onNavigationBlocked?.invoke()
                 return !allowed
             }
