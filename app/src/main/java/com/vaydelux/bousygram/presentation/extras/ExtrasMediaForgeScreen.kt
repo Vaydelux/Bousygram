@@ -196,6 +196,7 @@ private fun ExtrasMediaForgePlayerScreen(
     var webGeneration by remember(request.url) { mutableIntStateOf(0) }
     var pointerX by remember(request.url) { mutableIntStateOf(70) }
     var pointerY by remember(request.url) { mutableIntStateOf(70) }
+    var cursorPositionInitialized by remember(request.url) { mutableStateOf(false) }
     var areaWidth by remember { mutableIntStateOf(1) }
     var areaHeight by remember { mutableIntStateOf(1) }
     var selectedCaption by remember(request.url) { mutableStateOf<CaptionCandidate?>(null) }
@@ -489,8 +490,15 @@ private fun ExtrasMediaForgePlayerScreen(
                 .onSizeChanged { size ->
                     areaWidth = size.width.coerceAtLeast(1)
                     areaHeight = size.height.coerceAtLeast(1)
-                    pointerX = pointerX.coerceIn(0, areaWidth - 1)
-                    pointerY = pointerY.coerceIn(0, areaHeight - 1)
+                    if (!cursorPositionInitialized && areaWidth > 1 && areaHeight > 1) {
+                        // Start at the video center rather than the top-left on 4K TVs.
+                        pointerX = areaWidth / 2
+                        pointerY = areaHeight / 2
+                        cursorPositionInitialized = true
+                    } else {
+                        pointerX = ExtrasTvCursorPolicy.clamp(pointerX, 0, areaWidth)
+                        pointerY = ExtrasTvCursorPolicy.clamp(pointerY, 0, areaHeight)
+                    }
                 }
         ) {
             key(request.url, webGeneration) {
@@ -528,8 +536,8 @@ private fun ExtrasMediaForgePlayerScreen(
                     xPx = pointerX,
                     yPx = pointerY,
                     onDelta = { dx, dy ->
-                        pointerX = (pointerX + dx).coerceIn(0, areaWidth - 1)
-                        pointerY = (pointerY + dy).coerceIn(0, areaHeight - 1)
+                        pointerX = ExtrasTvCursorPolicy.clamp(pointerX, dx, areaWidth)
+                        pointerY = ExtrasTvCursorPolicy.clamp(pointerY, dy, areaHeight)
                     },
                     onConfirm = { webView?.let { bridge.click(it, pointerX.toFloat(), pointerY.toFloat()) } },
                     isActive = htmlFullscreenView == null,
@@ -715,8 +723,8 @@ private fun ExtrasMediaForgePlayerScreen(
                     xPx = pointerX,
                     yPx = pointerY,
                     onDelta = { dx, dy ->
-                        pointerX = (pointerX + dx).coerceIn(0, fullscreenWidth - 1)
-                        pointerY = (pointerY + dy).coerceIn(0, fullscreenHeight - 1)
+                        pointerX = ExtrasTvCursorPolicy.clamp(pointerX, dx, fullscreenWidth)
+                        pointerY = ExtrasTvCursorPolicy.clamp(pointerY, dy, fullscreenHeight)
                     },
                     onConfirm = { bridge.click(videoView, pointerX.toFloat(), pointerY.toFloat()) },
                     isActive = true,
