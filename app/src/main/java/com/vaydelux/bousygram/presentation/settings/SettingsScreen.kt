@@ -111,8 +111,8 @@ fun SettingsScreen(
             TelegramCachePruner.storageStats(context, tdLibCacheDir)
         }
     }
-    // Other files include databases, downloads and app state. Do not mislabel
-    // that complete footprint as automatically evictable "media cache".
+    // The filesDir remainder is not automatically evictable cache.
+    // These sampled locations exclude databases, shared preferences and APKs.
     val cacheSize = storageStats.measuredCacheBytes
 
     val diagnosticsText = remember(safeMode, subtitleLang, playerEngine, audioProfile, cacheSize) {
@@ -408,9 +408,9 @@ fun SettingsScreen(
                             }
                             Text(
                                 text = "Other app files: ${formatBytes(storageStats.appFilesBytes)}. " +
-                                    "Measured app data: ${formatBytes(storageStats.totalBytes)} " +
-                                    "(excluding installed APK). Pinned or active downloads " +
-                                    "may exceed the disposable-cache target.",
+                                    "Measured directories: ${formatBytes(storageStats.totalBytes)} " +
+                                    "(not total installed app size; databases and APK excluded). " +
+                                    "Pinned or active downloads can exceed the cache target.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
