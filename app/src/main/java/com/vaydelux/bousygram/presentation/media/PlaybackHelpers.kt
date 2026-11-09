@@ -474,9 +474,13 @@ fun buildPlaybackRequest(
     queueVideos: List<MediaItem>,
     subtitleUrl: String? = null
 ): PlaybackRequest {
+    // Keep the *request itself* bounded, not only the copy PlayerScreen
+    // creates later. A large source/search catalog may otherwise remain
+    // retained for the full duration of playback on memory-limited TVs.
     val queue = buildPlaybackQueue(queueVideos)
+        .distinctBy { it.chatId to it.messageId }
     val fileId = item.fileId ?: 0
-    return PlaybackRequest(
+    val request = PlaybackRequest(
         initialStreamUrl = streamUrl?.takeIf { it.isNotBlank() },
         chatId = item.chatId,
         messageId = item.messageId,
@@ -491,6 +495,17 @@ fun buildPlaybackRequest(
         alternativeVideos = item.alternativeVideos,
         topicId = item.messageThreadId
     )
+    // TDLib can refresh a file ID after an older catalog item was queued
+    // (or the message was edited). The clicked item must win over that stale
+    // message entry; otherwise the player opens the previous file.
+    val selected = queueItemFromRequest(request)
+    val withCurrentSelection = request.queue.map { queued ->
+        if (queued.chatId == request.chatId && queued.messageId == request.messageId) {
+            selected
+        } else queued
+    }
+    val corrected = request.copy(queue = withCurrentSelection)
+    return corrected.copy(queue = boundedInitialEpisodeQueue(corrected, 256))
 }
 
 fun queueItemFromRequest(request: PlaybackRequest): PlaybackQueueItem =
@@ -538,7 +553,11 @@ fun queueIndexForRequest(
         val byMessage = queue.indexOfFirst { it.chatId == chatId && it.messageId == messageId }
         if (byMessage >= 0) return byMessage
     }
-    return queueIndexForFileId(queue, fileId)
+    // A TDLib file can appear in more than one message or chat. Never select
+    // a different chat's item merely because it references the same file.
+    return if (fileId > 0) queue.indexOfFirst {
+        it.chatId == chatId && it.fileId == fileId
+    } else -1
 }
 
 /** Seek buttons must work while an MKV is still resolving its duration from Cues.
