@@ -7,3 +7,14 @@ branch_prune_eligible() {
     [[ "$ahead" =~ ^[0-9]+$ ]] && [[ "$ahead" == 0 ]] &&
     [[ "$protected" == "false" ]] && [[ "$open_pr" == "false" ]]
 }
+
+# One-branch cleanup is a distinct, explicit owner-approved operation.
+# Unlike routine pruning, it can archive a branch with unique commits.
+# Such commits must be preserved by a verified immutable tag before deletion.
+branch_archive_cleanup_eligible() {
+  local branch="$1" ahead="$2" protected="$3" approved="$4"
+  [[ "$approved" == "true" ]] &&
+    [[ -n "$branch" && "$branch" != "main" ]] &&
+    [[ "$ahead" =~ ^[0-9]+$ ]] &&
+    [[ "$protected" == "false" ]]
+}

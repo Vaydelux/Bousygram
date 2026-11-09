@@ -10,6 +10,14 @@ fi
 # shellcheck source=tools/ci/branch_prune_policy.sh
 source "$(dirname "${BASH_SOURCE[0]}")/branch_prune_policy.sh"
 
+# This workflow is intentionally dispatched or merge-triggered on protected
+# main after an explicit user request to keep only the main branch. Unmerged
+# commits are preserved by immutable archive tags; active PRs are closed only
+# after their exact source commits are saved and verified.
+[[ "${ONE_BRANCH_CLEANUP:-false}" == "true" ]] || {
+  echo "::error::Explicit one-branch cleanup approval is required." >&2
+  exit 1
+}
 # Branch names may contain slashes; preserve original names from the API.
 branches="$(gh api --paginate "repos/$REPO/branches?per_page=100" --jq '.[] | [.name, (.protected | tostring)] | @tsv')"
 archived=0
@@ -25,16 +33,19 @@ while IFS=$'\t' read -r branch protected; do
   # GitHub's compare endpoint compares main with the immutable SHA rather
   # than a moving branch name. Ahead-by > 0 means unique, unmerged commits.
   ahead="$(gh api "repos/$REPO/compare/main...$original_sha" --jq '.ahead_by')"
-  open_count="$(gh api -X GET "repos/$REPO/pulls" \
-    -f "state=open" -f "head=${REPO%%/*}:$branch" -f "per_page=1" --jq 'length')"
-  [[ "$open_count" =~ ^[0-9]+$ ]] || {
-    echo "::error::Unable to verify open PRs for $branch" >&2
+  open_prs="$(gh api -X GET "repos/$REPO/pulls" \
+    -f "state=open" -f "head=${REPO%%/*}:$branch" -f "per_page=100")"
+  open_count="$(jq -er 'length' <<< "$open_prs")"
+  # Never close an unrelated PR, or a PR whose head has changed.
+  jq -e --arg repo "$REPO" --arg branch "$branch" --arg sha "$original_sha" '
+    all(.[]; .head.repo.full_name == $repo and
+      .head.ref == $branch and .head.sha == $sha)
+  ' <<< "$open_prs" >/dev/null || {
+    echo "::error::PR head changed or belongs to another repository for $branch." >&2
     exit 1
   }
-  open_pr=false
-  if (( open_count > 0 )); then open_pr=true; fi
-  if ! branch_prune_eligible "$branch" "$ahead" "$protected" "$open_pr"; then
-    echo "Preserving $branch (main-ahead=$ahead, protected=$protected, openPR=$open_pr)"
+  if ! branch_archive_cleanup_eligible "$branch" "$ahead" "$protected" "$ONE_BRANCH_CLEANUP"; then
+    echo "::warning::Keeping $branch (main-ahead=$ahead, protected=$protected)"
     skipped=$((skipped + 1))
     continue
   fi
@@ -58,28 +69,55 @@ while IFS=$'\t' read -r branch protected; do
   }
   archived=$((archived + 1))
 
-  # Recheck the head lease and open PR immediately before deletion. An
-  # operator can push new commits or open a PR during the archive action.
+  # Recheck the source before closing any open PR. A new push must not be
+  # discarded based on a stale archive SHA.
+  current_sha="$(gh api "repos/$REPO/git/ref/heads/$branch" --jq '.object.sha')"
+  current_open_prs="$(gh api -X GET "repos/$REPO/pulls" \
+    -f "state=open" -f "head=${REPO%%/*}:$branch" -f "per_page=100")"
+  if [[ "$current_sha" != "$original_sha" ]] ||
+      ! jq -e --arg repo "$REPO" --arg branch "$branch" --arg sha "$original_sha" '
+        all(.[]; .head.repo.full_name == $repo and
+          .head.ref == $branch and .head.sha == $sha)
+      ' <<< "$current_open_prs" >/dev/null; then
+    echo "::warning::Branch or PR changed during archival; keeping $branch"
+    skipped=$((skipped + 1))
+    continue
+  fi
+  if [[ "$(jq -r 'length' <<< "$current_open_prs")" != "$open_count" ]]; then
+    echo "::warning::Open PR count changed for $branch; keeping branch."
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  # Preserve the experimental PR discussion and a directly recoverable tag,
+  # rather than merging untested experimental playback code to main.
+  while IFS= read -r pr_number; do
+    [[ -n "$pr_number" ]] || continue
+    gh api -X POST "repos/$REPO/issues/$pr_number/comments" \
+      -f body="Archived commit $original_sha as tag \`$archive_ref\` for the requested main-only branch cleanup. The experimental code was NOT merged. Restore from the archive tag if hardware qualification later supports it." >/dev/null
+    gh api -X PATCH "repos/$REPO/pulls/$pr_number" -f state=closed >/dev/null
+  done < <(jq -r '.[].number' <<< "$current_open_prs")
+
+  # Account for PRs opened while the archive ran, and verify the head lease.
   current_sha="$(gh api "repos/$REPO/git/ref/heads/$branch" --jq '.object.sha')"
   current_open_count="$(gh api -X GET "repos/$REPO/pulls" \
     -f "state=open" -f "head=${REPO%%/*}:$branch" -f "per_page=1" --jq 'length')"
-  if [[ "$current_sha" != "$original_sha" || ! "$current_open_count" =~ ^[0-9]+$ ]] ||
-     (( current_open_count > 0 )); then
-    echo "Branch or PR changed during archive; keeping $branch"
+  if [[ "$current_sha" != "$original_sha" || "$current_open_count" != "0" ]]; then
+    echo "::warning::Branch or PR changed after archive; keeping $branch"
     skipped=$((skipped + 1))
     continue
   fi
   gh api -X DELETE "repos/$REPO/git/refs/heads/$branch" >/dev/null
   deleted=$((deleted + 1))
-  echo "Archived and pruned fully merged branch: $branch"
+  echo "Archived and removed branch: $branch (original SHA=$original_sha)"
 done <<< "$branches"
 
 {
-  echo "Archived $archived and deleted $deleted fully merged branches; preserved $skipped active/unmerged branches."
+  echo "Archived $archived branches and deleted $deleted verified refs; preserved $skipped protected or changed branches."
 } >> "$GITHUB_STEP_SUMMARY"
 remaining="$(gh api --paginate "repos/$REPO/branches?per_page=100" --jq '.[].name' | grep -v '^main$' || true)"
 if [[ -n "$remaining" ]]; then
-  echo "::warning::Unmerged, protected, or active PR branches remain. Do not delete them before review." >&2
+  echo "::warning::Protected or concurrently changed branches remain; cleanup is incomplete." >&2
   printf '%s\n' "$remaining" >&2
   exit 1
 fi
