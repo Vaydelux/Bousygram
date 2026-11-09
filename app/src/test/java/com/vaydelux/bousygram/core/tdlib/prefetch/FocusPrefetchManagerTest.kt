@@ -1,6 +1,8 @@
 package com.vaydelux.bousygram.core.tdlib.prefetch
 
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
+import com.vaydelux.bousygram.core.cache.TvStorageBudget
 import com.vaydelux.bousygram.core.tdlib.server.TelegramFileGateway
 import com.vaydelux.bousygram.core.tdlib.server.TelegramFileGatewayRegistry
 import com.vaydelux.bousygram.core.tdlib.server.TelegramGatewayFile
@@ -25,6 +27,7 @@ class FocusPrefetchManagerTest {
 
     @Before
     fun setUp() {
+        StoragePressureMonitor.overrideFreeBytesForTests(2_048L * TvStorageBudget.MIB)
         FocusPrefetchManager.resetForTests()
         PlaybackSessionController.setVideoPlaying(false)
         gateway = TestTelegramFileGateway()
@@ -33,6 +36,7 @@ class FocusPrefetchManagerTest {
 
     @After
     fun tearDown() {
+        StoragePressureMonitor.overrideFreeBytesForTests(null)
         FocusPrefetchManager.resetForTests()
         PlaybackSessionController.setVideoPlaying(false)
         TelegramFileGatewayRegistry.reset()
@@ -169,6 +173,16 @@ class FocusPrefetchManagerTest {
             gateway.cancelledFiles.contains(701)
         )
         assertFalse(FocusPrefetchManager.isPrefetching(701))
+    }
+
+    @Test
+    fun lowStorageSkipsFocusPrefetchWithoutStoppingPlayback() = runBlocking {
+        StoragePressureMonitor.overrideFreeBytesForTests(200L * TvStorageBudget.MIB)
+        val item = createMediaItem(fileId = 801, title = "No disk space")
+        FocusPrefetchManager.onCardFocused(item)
+        Thread.sleep(550)
+        assertTrue(gateway.downloadRecords.none { it.fileId == 801 })
+        assertFalse(FocusPrefetchManager.isPrefetching(801))
     }
 
     @Test

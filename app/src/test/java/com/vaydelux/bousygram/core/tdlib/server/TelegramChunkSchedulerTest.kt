@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
+import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
+import com.vaydelux.bousygram.core.cache.TvStorageBudget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -21,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class TelegramChunkSchedulerTest {
     @Before
     fun setUp() {
+        StoragePressureMonitor.overrideFreeBytesForTests(2_048L * TvStorageBudget.MIB)
         TelegramChunkScheduler.resetForTests()
         TelegramFileGatewayRegistry.reset()
         TelegramChunkScheduler.resumeBackgroundWork()
@@ -28,6 +31,7 @@ class TelegramChunkSchedulerTest {
 
     @After
     fun tearDown() {
+        StoragePressureMonitor.overrideFreeBytesForTests(null)
         TelegramChunkScheduler.resetForTests()
         TelegramFileGatewayRegistry.reset()
         TelegramChunkScheduler.resumeBackgroundWork()

@@ -1,15 +1,23 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
+import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
+import com.vaydelux.bousygram.core.cache.TvStorageBudget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TelegramPreCacheEngineTest {
+    @Before fun setUp() {
+        StoragePressureMonitor.overrideFreeBytesForTests(2_048L * TvStorageBudget.MIB)
+    }
+
     @After
     fun tearDown() {
+        StoragePressureMonitor.overrideFreeBytesForTests(null)
         TelegramPreCacheEngine.stopAllCaching(cancelTdLibDownload = false)
         TelegramChunkScheduler.resetForTests()
         TelegramFileGatewayRegistry.reset()

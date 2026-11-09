@@ -40,8 +40,19 @@ internal object StoragePressureMonitor {
     private val lock = Any()
     @Volatile private var sampledAtMs = Long.MIN_VALUE
     @Volatile private var cachedFreeBytes: Long? = null
+    @Volatile private var testFreeBytes: Long? = null
+
+    /** Pure JVM tests have no Android app filesystem; production never sets this. */
+    internal fun overrideFreeBytesForTests(bytes: Long?) {
+        synchronized(lock) {
+            testFreeBytes = bytes
+            sampledAtMs = Long.MIN_VALUE
+            cachedFreeBytes = null
+        }
+    }
 
     fun freeBytes(): Long? {
+        testFreeBytes?.let { return it }
         val now = System.nanoTime() / 1_000_000L
         if (sampledAtMs != Long.MIN_VALUE && now - sampledAtMs in 0 until REFRESH_MS) {
             return cachedFreeBytes
