@@ -495,7 +495,17 @@ fun buildPlaybackRequest(
         alternativeVideos = item.alternativeVideos,
         topicId = item.messageThreadId
     )
-    return request.copy(queue = boundedInitialEpisodeQueue(request, 256))
+    // TDLib can refresh a file ID after an older catalog item was queued
+    // (or the message was edited). The clicked item must win over that stale
+    // message entry; otherwise the player opens the previous file.
+    val selected = queueItemFromRequest(request)
+    val withCurrentSelection = request.queue.map { queued ->
+        if (queued.chatId == request.chatId && queued.messageId == request.messageId) {
+            selected
+        } else queued
+    }
+    val corrected = request.copy(queue = withCurrentSelection)
+    return corrected.copy(queue = boundedInitialEpisodeQueue(corrected, 256))
 }
 
 fun queueItemFromRequest(request: PlaybackRequest): PlaybackQueueItem =
