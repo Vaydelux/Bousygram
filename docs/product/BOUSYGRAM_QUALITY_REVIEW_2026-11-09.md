@@ -36,18 +36,27 @@ cover invalid IDs, temporary failures, unknown error messages and rate limits.
 2. Firebase Test Lab instrumentation is currently reported as *not
    configured* in the mainline workflow, so Android TV hardware coverage
    cannot be presumed.
-3. Physical 60-minute soak still requires device observation of native heap,
+3. **Repository governance:** GitHub's branches API currently reports
+   `main.protected=false` and the repository rulesets endpoint returned no
+   rulesets. The dedicated protection endpoint returned permission denied for
+   the connector, so enforcement details cannot be independently inspected.
+   Require branch protection/rulesets with exact-commit Android Enterprise
+   and emulator checks before production release approval. As currently
+   observed, the production-release protection gate should reject release
+   attempts. Several prior feature branches also remain in the repository;
+   do not delete without confirming they are fully merged.
+4. Physical 60-minute soak still requires device observation of native heap,
    total PSS, free storage, seek completion and rebuffer count. The new
    physical-soak free-space data measures the **whole /data filesystem**,
    not the app's storage consumption.
-4. The configured 160 MiB TDLib media cache allocation (within the user's
+5. The configured 160 MiB TDLib media cache allocation (within the user's
    200 MiB disposable-media target) is **not** a hard limit on installed
    app binaries, pinned/offline files, SQLite databases or TDLib metadata.
-5. A publicly distributed client APK necessarily exposes embedded TMDB
+6. A publicly distributed client APK necessarily exposes embedded TMDB
    credentials. Debug packaging validates the secret is configured but
    cannot make an embedded API key confidential. Use an appropriate backend
    for credentials needing true server-side secrecy.
-6. Production builds require separate signed release and device-qualification
+7. Production builds require separate signed release and device-qualification
    gates. A CI-passing debug prerelease is not production approval.
 
 ## Follow-on manual validation
