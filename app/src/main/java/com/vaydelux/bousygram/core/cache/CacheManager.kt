@@ -304,9 +304,11 @@ object CacheManager {
     }
 
     fun storageStats(context: Context, tdLibCacheDir: File): TelegramCacheStorageStats {
-        val appCacheBytes = directorySize(context.cacheDir)
-        val tdLibBytes = directorySizeOrZero(tdLibCacheDir)
-        val appFilesBytes = (directorySize(context.filesDir) - tdLibBytes).coerceAtLeast(0L)
+        val appCacheBytes = directoryUsageBytes(context.cacheDir)
+        val tdLibBytes = directoryUsageBytes(tdLibCacheDir)
+        // Counting filesDir and subtracting TDLib's size walks the entire
+        // TDLib tree TWICE. Exclude it while traversing filesDir instead.
+        val appFilesBytes = directoryUsageBytes(context.filesDir, tdLibCacheDir)
         return TelegramCacheStorageStats(
             appCacheBytes = appCacheBytes,
             appFilesBytes = appFilesBytes,
@@ -568,13 +570,7 @@ object CacheManager {
     }
 
     private fun directorySizeOrZero(file: File): Long =
-        runCatching { directorySize(file) }.getOrDefault(0L)
-
-    private fun directorySize(file: File?): Long {
-        if (file == null || !file.exists()) return 0L
-        if (file.isFile) return file.length()
-        return file.listFiles()?.sumOf { directorySize(it) } ?: 0L
-    }
+        runCatching { directoryUsageBytes(file) }.getOrDefault(0L)
 }
 
 data class TrackedCacheCleanupResult(
