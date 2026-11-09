@@ -76,6 +76,7 @@ object CacheManager {
     // A closed playback file may be recycled without losing the account-scoped
     // Continue Watching document. This table is never persisted across accounts.
     private val pendingClosedPlaybackReclaims = ConcurrentHashMap<Int, AccountSnapshot>()
+    private val closedPlaybackReclaimsInFlight = ConcurrentHashMap.newKeySet<Int>()
     private data class AccessCleanupMarker(val accountId: Long, val elapsedMs: Long)
     private val lastAccessCleanupMarker = AtomicReference<AccessCleanupMarker?>(null)
     private var pinnedAccountId: Long? = null
@@ -110,6 +111,7 @@ object CacheManager {
         preloadedNextEpisodes.clear()
         preloadAttemptsMs.clear()
         pendingClosedPlaybackReclaims.clear()
+        closedPlaybackReclaimsInFlight.clear()
     }
 
     // --- Dynamic Quota Calculation ---
@@ -336,29 +338,40 @@ object CacheManager {
         val owner = AccountSession.current() ?: return
         if (fileId <= 0) return
         pendingClosedPlaybackReclaims[fileId] = owner
+        // Completed files may not have an active native download to cancel,
+        // so they must be checked on player exit even without an Ok callback.
+        onStoppedDownloadCancelled(fileId)
     }
 
-    /** Run only after TDLib acknowledges CancelDownloadFile. Never delete a live lease. */
+    /**
+     * Called on playback exit and again after TDLib cancellation acknowledgement.
+     * Inspect actual file state on an I/O worker; never delete a live lease.
+     */
     fun onStoppedDownloadCancelled(fileId: Int) {
         val owner = pendingClosedPlaybackReclaims[fileId] ?: return
+        if (!closedPlaybackReclaimsInFlight.add(fileId)) return
         scope.launch {
-            repeat(3) { attempt ->
-                delay(if (attempt == 0) 300L else 1_500L)
-                if (!AccountSession.isCurrent(owner) ||
-                    pendingClosedPlaybackReclaims[fileId] != owner
-                ) return@launch
-                val completed = synchronized(cleanupLock) {
-                    if (!AccountSession.isCurrent(owner)) true
-                    else reclaimClosedFileOnce(fileId, owner)
+            try {
+                repeat(4) { attempt ->
+                    delay(if (attempt == 0) 500L else 1_700L)
+                    if (!AccountSession.isCurrent(owner) ||
+                        pendingClosedPlaybackReclaims[fileId] != owner
+                    ) return@launch
+                    val completed = synchronized(cleanupLock) {
+                        if (!AccountSession.isCurrent(owner)) true
+                        else reclaimClosedFileOnce(fileId, owner)
+                    }
+                    if (completed) {
+                        pendingClosedPlaybackReclaims.remove(fileId, owner)
+                        return@launch
+                    }
                 }
-                if (completed) {
-                    pendingClosedPlaybackReclaims.remove(fileId, owner)
-                    return@launch
-                }
+                // On slow native cancellation, leave bytes intact for a later
+                // protected quota sweep rather than force-deleting them.
+                pendingClosedPlaybackReclaims.remove(fileId, owner)
+            } finally {
+                closedPlaybackReclaimsInFlight.remove(fileId)
             }
-            // A native download may remain active after cancellation; defer to
-            // normal quota-based pruning instead of forcibly deleting its bytes.
-            pendingClosedPlaybackReclaims.remove(fileId, owner)
         }
     }
 
