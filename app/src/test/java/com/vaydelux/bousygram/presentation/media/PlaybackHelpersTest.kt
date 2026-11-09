@@ -241,6 +241,20 @@ class PlaybackHelpersTest {
     }
 
     @Test
+    fun selectedVideoUsesFreshTelegramFileIdWhenCatalogEntryIsStale() {
+        val selected = MediaItem(chatId = 140L, messageId = 17L, date = 10,
+            type = MediaType.Video, title = "Latest title", fileId = 900,
+            fileName = "latest.mkv")
+        val stale = selected.copy(title = "Older title", fileId = 20,
+            fileName = "old.ts")
+        val request = buildPlaybackRequest(selected, null, listOf(stale))
+        assertEquals(1, request.queue.size)
+        assertEquals(900, request.queue.single().fileId)
+        assertEquals("latest.mkv", request.queue.single().fileName)
+        assertEquals("Latest title", request.queue.single().title)
+    }
+
+    @Test
     fun matchingFileInAnotherChatIsNotAValidQueueFallback() {
         val other = PlaybackQueueItem(chatId = 1L, messageId = 55L,
             title = "Other chat", fileId = 123)
