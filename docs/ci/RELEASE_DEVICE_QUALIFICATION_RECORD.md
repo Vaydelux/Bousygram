@@ -60,7 +60,11 @@ The following example shows the **schema**. All `passed` values are placeholders
     "accountIsolation": "passed",
     "catalogNavigation": "passed",
     "lifecycle": "passed",
-    "longSession": "passed"
+    "longSession": "passed",
+    "pauseDuringBuffer": "passed",
+    "nativeEngineSwitch": "passed",
+    "tvDpadSubtitleFocus": "passed",
+    "arm32MemoryStability": "passed"
   }
 }
 ```
@@ -73,6 +77,7 @@ never changes the protected production-qualification requirements.
 ## What each reviewer must verify
 
 - **Hardware execution:** test with actual Telegram authentication and real files. Verify TDLib native initialization on every supported ABI. Use the full scenario checklist in [PLAYBACK_DEVICE_QUALIFICATION.md](../release/PLAYBACK_DEVICE_QUALIFICATION.md). Each device must have at least three recorded playback iterations; the long-session scenario must include sustained viewing and restart/recovery checks.
+- **Four additional real-device acceptance gates:** `pauseDuringBuffer` checks manual Pause across startup, seeking, and network interruption on all three engines; `nativeEngineSwitch` checks visible/audible output, lifecycle, subtitles and seek after repeated switches; `tvDpadSubtitleFocus` checks remote focus visibility and subtitle controls in all themes; `arm32MemoryStability` requires reviewed repeated-playback PSS, crash/ANR and process-continuity evidence. **PSS counters alone do not establish working playback.**
 - **Candidate binding:** the ARM32 TV uses the *signed* `arm32` APK, ARM64 TV and phone use the *signed* `arm64` APK, and ARM64 tablet uses the *signed* `universal` APK. These are exact artifact hash bindings, not package-name matches.
 - **Evidence:** reviewer-accessible HTTPS links for the overall report and each device, including actual OS/model/ABI, tested video formats, elapsed results, crash/ANR status, media codec/decoder, network conditions, p50/p95 start/seek/buffer measurements, and issues. Do not place Telegram identifiers, bearer tokens, private video, account phone numbers, raw device serial numbers, or unsanitized logcat in public evidence.
 - **Failure policy:** any missing device, incomplete scenario, unresolved P0/P1 issue, mismatch to the signed artifacts, or failed runtime check means `status` must **not** be `passed`. Open issues with reproductions, fix them and retest the **new exact signed APK hash**.

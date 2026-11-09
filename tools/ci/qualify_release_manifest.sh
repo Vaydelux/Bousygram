@@ -37,7 +37,9 @@ jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" '
   (.deviceResults.arm64Tablet | namedDevice("arm64-v8a"; $q.apkSha256.universal)) and
   (["authenticatedStartup", "mkvTsSeek", "audioOnly", "mpvFallback",
     "forceStopReopen", "networkRecovery", "accountIsolation",
-    "catalogNavigation", "lifecycle", "longSession"] |
+    "catalogNavigation", "lifecycle", "longSession",
+    "pauseDuringBuffer", "nativeEngineSwitch", "tvDpadSubtitleFocus",
+    "arm32MemoryStability"] |
     all(.[]; $q.scenarioResults[.] == "passed"))
 ' "$QUALIFICATION_FILE" >/dev/null || { echo 'Release blocked: missing physical-device matrix, scenario evidence, reviewer approval, or exact candidate identity.' >&2; exit 1; }
 # shellcheck disable=SC2016

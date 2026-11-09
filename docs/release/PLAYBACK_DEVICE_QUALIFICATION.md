@@ -53,6 +53,23 @@ network type, source file ID (redacted in shared logs), outcome and issue link.
     20 times; look for native-client growth, pending TDLib handlers,
     leaked sockets, ANRs, crashes or increasing memory use.
 
+## Additional release-blocking hardware outcomes
+
+The protected qualification record now requires these four scenarios to be reviewed as
+**passed** on the signed candidate, in addition to the existing release matrix:
+
+- `pauseDuringBuffer`: Media3, libmpv and LibVLC respect deliberate Pause while the stream
+  buffers, seeks into uncached ranges or recovers from disconnected Wi-Fi.
+- `nativeEngineSwitch`: repeated transitions among all three engines retain expected
+  audible output, real video frames, timeline progress, subtitle operation and surface cleanup.
+- `tvDpadSubtitleFocus`: a physical TV remote can enter/select/exit track and subtitle
+  controls in Dark, Light and High Contrast without losing focus or trapping Back.
+- `arm32MemoryStability`: repeated native playback and 30–60-minute viewing on a real
+  32-bit TV have reviewed PSS, native heap and process continuity with no unexplained
+  sustained memory growth, crashes or ANRs.
+
+These fields are **not** automatically populated or certified by CI.
+
 ## Windows / ADB evidence capture
 
 For **each real device**, use the signed candidate APK from the protected `signed-build` job (not a debug prerelease). On Windows, connect and authorize USB debugging, install Android platform-tools so `adb` is on PATH, then run:
