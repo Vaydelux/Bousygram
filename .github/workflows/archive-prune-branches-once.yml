@@ -7,49 +7,32 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
+
+concurrency:
+  group: archive-prune-main
+  cancel-in-progress: false
 
 jobs:
   archive-and-prune:
     # Runs only after an intentionally marked main integration commit.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.message, '[archive-prune-branches]')
+      github.repository == 'Vaydelux/Bousygram' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[archive-prune-branches]'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Preserve branch commits as tags before deleting branch refs
+      - name: Check out trusted mainline policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Archive only fully merged branches without active PRs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           ARCHIVE_RUN: ${{ github.run_id }}
-        run: |
-          set -Eeuo pipefail
-          archived=0
-          deleted=0
-          while IFS= read -r branch; do
-            [[ -n "$branch" && "$branch" != "main" ]] || continue
-            original_sha="$(gh api "repos/$REPO/git/ref/heads/$branch" --jq '.object.sha')"
-            [[ "$original_sha" =~ ^[a-f0-9]{40}$ ]] || { echo "Invalid SHA for $branch" >&2; exit 1; }
-            archive_ref="refs/tags/archive/branch-cleanup/$ARCHIVE_RUN/$branch"
-            gh api -X POST "repos/$REPO/git/refs" -f ref="$archive_ref" -f sha="$original_sha" >/dev/null
-            saved_sha="$(gh api "repos/$REPO/git/ref/${archive_ref#refs/}" --jq '.object.sha')"
-            [[ "$saved_sha" == "$original_sha" ]] || { echo "Archive failed for $branch" >&2; exit 1; }
-            archived=$((archived + 1))
-            current_sha="$(gh api "repos/$REPO/git/ref/heads/$branch" --jq '.object.sha')"
-            if [[ "$current_sha" != "$original_sha" ]]; then
-              echo "Branch moved during archival; preserved tag but kept branch: $branch"
-              continue
-            fi
-            gh api -X DELETE "repos/$REPO/git/refs/heads/$branch" >/dev/null
-            deleted=$((deleted + 1))
-            echo "Archived and deleted: $branch"
-          done < <(gh api --paginate "repos/$REPO/branches?per_page=100" --jq '.[].name')
-          echo "Archived $archived and deleted $deleted non-main branches" >> "$GITHUB_STEP_SUMMARY"
-          remaining="$(gh api --paginate "repos/$REPO/branches?per_page=100" --jq '.[].name' | grep -v '^main$' || true)"
-          if [[ -n "$remaining" ]]; then
-            echo "Not all branch refs could be safely deleted:" >&2
-            printf '%s\n' "$remaining" >&2
-            exit 1
-          fi
-          echo "Verified: main is the only remaining branch." >> "$GITHUB_STEP_SUMMARY"
+        run: bash tools/ci/archive_prune_branches.sh

@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/android-enterprise.yml .github/workflows/android-release.yml .github/workflows/tdlib-java-generation.yml .github/workflows/android-apk-release.yml .github/workflows/android-emulator-smoke.yml .github/workflows/android-debug-prerelease.yml .github/workflows/extras-live-provider-smoke.yml .github/workflows/libvlc-experimental-debug.yml
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/android-enterprise.yml .github/workflows/android-release.yml .github/workflows/tdlib-java-generation.yml .github/workflows/android-apk-release.yml .github/workflows/android-emulator-smoke.yml .github/workflows/android-debug-prerelease.yml .github/workflows/extras-live-provider-smoke.yml .github/workflows/libvlc-experimental-debug.yml .github/workflows/archive-prune-branches-once.yml
           shellcheck tools/ci/*.sh tools/tdlib/*.sh
           bash -n tools/ci/*.sh tools/tdlib/*.sh
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -105,6 +105,10 @@ jobs:
         shell: bash
         run: bash tools/ci/test_debug_preview_publication.sh
 
+      - name: Verify branch archive/prune policy fixtures
+        shell: bash
+        run: bash tools/ci/test_branch_prune_policy.sh
+
       - name: Test deterministic UTC debug prerelease tags
         shell: bash
         run: |
@@ -140,11 +144,18 @@ jobs:
         shell: bash
         run: bash tools/ci/test_android_sdk_setup.sh
 
+      - name: Refuse manually dispatched debug builds outside main
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' }}
+        shell: bash
+        run: |
+          echo '::error::Credentialed Android debug builds must be dispatched from main.' >&2
+          exit 1
+
       # API keys are never exposed to pull_request builds. Only trusted manual
       # workflow dispatches and pushes to main may bake TMDB v3 into debug APKs.
       # APK contents are publicly inspectable: this protects CI storage, not the key.
       - name: Configure TMDB v3 API key for trusted debug builds
-        if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+        if: ${{ github.ref == 'refs/heads/main' && github.repository == 'Vaydelux/Bousygram' }}
         shell: bash
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
@@ -239,7 +250,7 @@ jobs:
       # workflow dispatches and pushes to main may bake TMDB v3 into debug APKs.
       # APK contents are publicly inspectable: this protects CI storage, not the key.
       - name: Configure TMDB v3 API key for trusted debug builds
-        if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+        if: ${{ github.ref == 'refs/heads/main' && github.repository == 'Vaydelux/Bousygram' }}
         shell: bash
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
