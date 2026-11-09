@@ -251,7 +251,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     Text("Enter a channel slug, such as bbc-one-gb. Only open channels you are authorized to view.")
                     OutlinedTextField(
                         value = liveChannelSlugInput,
-                        onValueChange = { liveChannelSlugInput = it },
+                        onValueChange = { liveChannelSlugInput = it.take(80) },
                         label = { Text("Channel slug") },
                         placeholder = { Text("bbc-one-gb") },
                         singleLine = true,
