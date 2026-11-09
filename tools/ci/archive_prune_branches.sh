@@ -51,16 +51,18 @@ while IFS=$'\t' read -r branch protected; do
   fi
 
   archive_ref="refs/tags/archive/branch-cleanup/$ARCHIVE_RUN/$branch"
-  existing=""
-  existing="$(gh api "repos/$REPO/git/ref/${archive_ref#refs/}" --jq '.object.sha // empty' 2>/dev/null)" || true
-  if [[ -n "$existing" ]]; then
-    [[ "$existing" == "$original_sha" ]] || {
-      echo "::error::Archive ref collision for $branch" >&2
+  # Do not probe a missing tag with gh's --jq option: the CLI may return
+  # a nonempty placeholder for a 404, falsely reporting a collision.
+  # Attempt atomic creation first, then require an exact verified SHA.
+  if ! gh api -X POST "repos/$REPO/git/refs" \
+      -f ref="$archive_ref" -f sha="$original_sha" >/dev/null 2>&1; then
+    # Existing refs may be from a retried run. Reuse only identical SHA.
+    existing="$(gh api "repos/$REPO/git/ref/${archive_ref#refs/}" \
+      --jq '.object.sha' 2>/dev/null || true)"
+    if [[ "$existing" != "$original_sha" ]]; then
+      echo "::error::Could not create and verify archive for $branch; preserving branch." >&2
       exit 1
-    }
-  else
-    gh api -X POST "repos/$REPO/git/refs" \
-      -f ref="$archive_ref" -f sha="$original_sha" >/dev/null
+    fi
   fi
   saved_sha="$(gh api "repos/$REPO/git/ref/${archive_ref#refs/}" --jq '.object.sha // empty')"
   [[ "$saved_sha" == "$original_sha" ]] || {
