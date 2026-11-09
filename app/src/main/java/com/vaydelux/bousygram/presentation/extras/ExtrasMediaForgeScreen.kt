@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -100,26 +102,38 @@ internal data class ExtrasEmbedRequest(
     val tmdbId: Int = 0,
     val season: Int? = null,
     val episode: Int? = null,
-    val server: ExtrasEmbedServer = ExtrasEmbedServer.CINESRC
+    val server: ExtrasEmbedServer = ExtrasEmbedServer.CINESRC,
+    val anilistId: Int = 0,
+    val animeServer: ExtrasAnimeEmbedServer = ExtrasAnimeEmbedServer.FILMU
 ) {
+    init { require((tmdbId > 0) != (anilistId > 0)) { "Expected exactly one catalog identity" } }
+
     fun forServer(next: ExtrasEmbedServer): ExtrasEmbedRequest {
-        require(tmdbId > 0) { "Server switching requires a TMDB title ID" }
+        require(tmdbId > 0) { "TMDB server selection requires a TMDB title" }
         return copy(url = next.urlFor(tmdbId, season, episode), server = next)
     }
 
-    companion object {
-        fun movie(tmdbId: Int, title: String): ExtrasEmbedRequest {
-            return ExtrasEmbedRequest(
-                url = ExtrasEmbedServer.CINESRC.urlFor(tmdbId),
-                title = title,
-                tmdbId = tmdbId
-            )
-        }
+    fun forServer(next: ExtrasAnimeEmbedServer): ExtrasEmbedRequest {
+        require(anilistId > 0) { "Anime server selection requires an AniList title" }
+        return copy(url = next.urlFor(anilistId, season ?: 1, episode ?: 1), animeServer = next)
+    }
 
-        fun episode(tmdbId: Int, season: Int, episode: Int, title: String): ExtrasEmbedRequest {
-            val url = ExtrasEmbedServer.CINESRC.urlFor(tmdbId, season, episode)
-            return ExtrasEmbedRequest(url, "$title · S$season E$episode", tmdbId, season, episode)
-        }
+    companion object {
+        fun movie(tmdbId: Int, title: String): ExtrasEmbedRequest =
+            ExtrasEmbedRequest(ExtrasEmbedServer.CINESRC.urlFor(tmdbId), title, tmdbId)
+
+        fun episode(tmdbId: Int, season: Int, episode: Int, title: String): ExtrasEmbedRequest =
+            ExtrasEmbedRequest(
+                ExtrasEmbedServer.CINESRC.urlFor(tmdbId, season, episode),
+                "$title · S$season E$episode", tmdbId, season, episode
+            )
+
+        fun anime(anilistId: Int, episode: Int, title: String, season: Int = 1): ExtrasEmbedRequest =
+            ExtrasEmbedRequest(
+                url = ExtrasAnimeEmbedServer.FILMU.urlFor(anilistId, season, episode),
+                title = "$title · E$episode",
+                anilistId = anilistId, season = season, episode = episode
+            )
     }
 }
 
@@ -133,11 +147,15 @@ internal fun ExtrasMediaForgeScreen(
     onBack: () -> Unit,
     isAndroidTv: Boolean
 ) {
-    var selectedServer by remember(request.tmdbId, request.season, request.episode) {
-        mutableStateOf(ExtrasEmbedServer.CINESRC)
+    var selectedServer by remember(request.tmdbId, request.anilistId, request.season, request.episode) {
+        mutableStateOf(request.server)
     }
-    val selectedRequest = remember(request, selectedServer) {
-        if (request.tmdbId > 0) request.forServer(selectedServer) else request
+    var selectedAnimeServer by remember(request.tmdbId, request.anilistId, request.season, request.episode) {
+        mutableStateOf(request.animeServer)
+    }
+    val selectedRequest = remember(request, selectedServer, selectedAnimeServer) {
+        if (request.anilistId > 0) request.forServer(selectedAnimeServer)
+        else request.forServer(selectedServer)
     }
     // Each provider owns a distinct untrusted browsing session. Disposing the
     // keyed subtree destroys the old WebView, native engine, detected URLs,
@@ -148,7 +166,9 @@ internal fun ExtrasMediaForgeScreen(
             onBack = onBack,
             isAndroidTv = isAndroidTv,
             selectedServer = selectedServer,
-            onServerSelected = { selectedServer = it }
+            onServerSelected = { selectedServer = it },
+            selectedAnimeServer = selectedAnimeServer,
+            onAnimeServerSelected = { selectedAnimeServer = it }
         )
     }
 }
@@ -159,7 +179,9 @@ private fun ExtrasMediaForgePlayerScreen(
     onBack: () -> Unit,
     isAndroidTv: Boolean,
     selectedServer: ExtrasEmbedServer,
-    onServerSelected: (ExtrasEmbedServer) -> Unit
+    onServerSelected: (ExtrasEmbedServer) -> Unit,
+    selectedAnimeServer: ExtrasAnimeEmbedServer,
+    onAnimeServerSelected: (ExtrasAnimeEmbedServer) -> Unit
 ) {
     val discovery = remember(request.url) { MediaForgeDiscovery() }
     val resolver = remember { MediaForgeResolver() }
@@ -174,6 +196,7 @@ private fun ExtrasMediaForgePlayerScreen(
     var webGeneration by remember(request.url) { mutableIntStateOf(0) }
     var pointerX by remember(request.url) { mutableIntStateOf(70) }
     var pointerY by remember(request.url) { mutableIntStateOf(70) }
+    var cursorPositionInitialized by remember(request.url) { mutableStateOf(false) }
     var areaWidth by remember { mutableIntStateOf(1) }
     var areaHeight by remember { mutableIntStateOf(1) }
     var selectedCaption by remember(request.url) { mutableStateOf<CaptionCandidate?>(null) }
@@ -362,7 +385,12 @@ private fun ExtrasMediaForgePlayerScreen(
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     if (maxWidth < 520.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            ExtrasEmbedServerDropdown(
+                            if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
+                                server = selectedAnimeServer,
+                                onSelected = onAnimeServerSelected,
+                                isTv = isAndroidTv,
+                                modifier = Modifier.fillMaxWidth()
+                            ) else ExtrasEmbedServerDropdown(
                                 server = selectedServer,
                                 onSelected = onServerSelected,
                                 isTv = isAndroidTv,
@@ -390,7 +418,12 @@ private fun ExtrasMediaForgePlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            ExtrasEmbedServerDropdown(
+                            if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
+                                server = selectedAnimeServer,
+                                onSelected = onAnimeServerSelected,
+                                isTv = isAndroidTv,
+                                modifier = Modifier.weight(1f)
+                            ) else ExtrasEmbedServerDropdown(
                                 server = selectedServer,
                                 onSelected = onServerSelected,
                                 isTv = isAndroidTv,
@@ -411,7 +444,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 }
 
                 Text(
-                    "TMDB #${request.tmdbId} · ${selectedServer.description} · Availability varies by provider.",
+                    (if (request.anilistId > 0) "AniList #${request.anilistId} · ${selectedAnimeServer.description}" else "TMDB #${request.tmdbId} · ${selectedServer.description}") + " · Availability varies by provider.",
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 2
                 )
@@ -457,8 +490,15 @@ private fun ExtrasMediaForgePlayerScreen(
                 .onSizeChanged { size ->
                     areaWidth = size.width.coerceAtLeast(1)
                     areaHeight = size.height.coerceAtLeast(1)
-                    pointerX = pointerX.coerceIn(0, areaWidth - 1)
-                    pointerY = pointerY.coerceIn(0, areaHeight - 1)
+                    if (!cursorPositionInitialized && areaWidth > 1 && areaHeight > 1) {
+                        // Start at the video center rather than the top-left on 4K TVs.
+                        pointerX = areaWidth / 2
+                        pointerY = areaHeight / 2
+                        cursorPositionInitialized = true
+                    } else {
+                        pointerX = ExtrasTvCursorPolicy.clamp(pointerX, 0, areaWidth)
+                        pointerY = ExtrasTvCursorPolicy.clamp(pointerY, 0, areaHeight)
+                    }
                 }
         ) {
             key(request.url, webGeneration) {
@@ -496,8 +536,8 @@ private fun ExtrasMediaForgePlayerScreen(
                     xPx = pointerX,
                     yPx = pointerY,
                     onDelta = { dx, dy ->
-                        pointerX = (pointerX + dx).coerceIn(0, areaWidth - 1)
-                        pointerY = (pointerY + dy).coerceIn(0, areaHeight - 1)
+                        pointerX = ExtrasTvCursorPolicy.clamp(pointerX, dx, areaWidth)
+                        pointerY = ExtrasTvCursorPolicy.clamp(pointerY, dy, areaHeight)
                     },
                     onConfirm = { webView?.let { bridge.click(it, pointerX.toFloat(), pointerY.toFloat()) } },
                     isActive = htmlFullscreenView == null,
@@ -683,8 +723,8 @@ private fun ExtrasMediaForgePlayerScreen(
                     xPx = pointerX,
                     yPx = pointerY,
                     onDelta = { dx, dy ->
-                        pointerX = (pointerX + dx).coerceIn(0, fullscreenWidth - 1)
-                        pointerY = (pointerY + dy).coerceIn(0, fullscreenHeight - 1)
+                        pointerX = ExtrasTvCursorPolicy.clamp(pointerX, dx, fullscreenWidth)
+                        pointerY = ExtrasTvCursorPolicy.clamp(pointerY, dy, fullscreenHeight)
                     },
                     onConfirm = { bridge.click(videoView, pointerX.toFloat(), pointerY.toFloat()) },
                     isActive = true,
@@ -697,14 +737,20 @@ private fun ExtrasMediaForgePlayerScreen(
 }
 
 /**
- * Compact, D-pad reachable provider menu. Source selection is explicit;
- * the provider changes the entire isolated browsing session, not just a URL
- * in an already-running WebView.
+ * A virtualized D-pad accessible server dialog avoids eagerly composing over
+ * fifty WebView providers on memory-limited Android TVs.
  */
+private data class ExtrasServerOption(
+    val key: String, val label: String, val description: String,
+    val group: String
+)
+
 @Composable
-internal fun ExtrasEmbedServerDropdown(
-    server: ExtrasEmbedServer,
-    onSelected: (ExtrasEmbedServer) -> Unit,
+private fun ExtrasServerPicker(
+    label: String,
+    selectedKey: String,
+    options: List<ExtrasServerOption>,
+    onSelected: (String) -> Unit,
     isTv: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -716,44 +762,118 @@ internal fun ExtrasEmbedServerDropdown(
                 .heightIn(min = if (isTv) 56.dp else 48.dp)
                 .testTag("extras-server-dropdown")
         ) {
-            Text(
-                "Server: ${server.label}  ▾",
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Text("Server: $label  ▾", maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.widthIn(min = 220.dp, max = if (isTv) 420.dp else 340.dp)
-        ) {
-            ExtrasEmbedServer.entries.forEach { candidate ->
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(
-                                (if (candidate == server) "✓  " else "") + candidate.label,
-                                fontSize = if (isTv) 19.sp else 16.sp
-                            )
-                            Text(
-                                candidate.description,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 2
-                            )
+        if (expanded) {
+            Dialog(onDismissRequest = { expanded = false }) {
+                val listState = rememberLazyListState()
+                val selectedFocus = remember { FocusRequester() }
+                // Include group header rows when calculating the selected row.
+                val selectedPosition = remember(options, selectedKey) {
+                    val selected = options.indexOfFirst { it.key == selectedKey }
+                    if (selected < 0) 0
+                    else selected + options.take(selected + 1).map { it.group }.distinct().size
+                }
+                // The server picker lives in another Android window. Ensure an
+                // already selected server is reachable by D-pad without 50 taps.
+                LaunchedEffect(selectedPosition) {
+                    listState.scrollToItem(selectedPosition)
+                    withFrameNanos { }
+                    if (!selectedFocus.requestFocus()) {
+                        withFrameNanos { }
+                        selectedFocus.requestFocus()
+                    }
+                }
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier.widthIn(min = 260.dp, max = if (isTv) 530.dp else 390.dp)
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Choose a web server", style = MaterialTheme.typography.titleMedium)
+                        Text("Third-party sources are not verified for availability or licensing.",
+                            style = MaterialTheme.typography.labelSmall)
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp)
+                        ) {
+                            options.groupBy { it.group }.forEach { (group, candidates) ->
+                                item(key = "group:$group") {
+                                    Text(group, style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.padding(vertical = 8.dp))
+                                }
+                                items(candidates, key = { it.key }) { candidate ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text((if (candidate.key == selectedKey) "✓  " else "") + candidate.label,
+                                                    fontSize = if (isTv) 19.sp else 16.sp)
+                                                Text(candidate.description,
+                                                    style = MaterialTheme.typography.labelSmall, maxLines = 2)
+                                            }
+                                        },
+                                        onClick = {
+                                            expanded = false
+                                            if (candidate.key != selectedKey) onSelected(candidate.key)
+                                        },
+                                        modifier = Modifier.heightIn(min = if (isTv) 64.dp else 48.dp)
+                                            .then(if (candidate.key == selectedKey)
+                                                Modifier.focusRequester(selectedFocus) else Modifier)
+                                            .semantics { selected = candidate.key == selectedKey }
+                                            .testTag(candidate.key)
+                                    )
+                                }
+                            }
                         }
-                    },
-                    onClick = {
-                        expanded = false
-                        if (candidate != server) onSelected(candidate)
-                    },
-                    modifier = Modifier
-                        .heightIn(min = if (isTv) 64.dp else 48.dp)
-                        .semantics { selected = candidate == server }
-                        .testTag("extras-server-" + candidate.name.lowercase())
-                )
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+internal fun ExtrasEmbedServerDropdown(
+    server: ExtrasEmbedServer,
+    onSelected: (ExtrasEmbedServer) -> Unit,
+    isTv: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val options = remember {
+        val existing = setOf(ExtrasEmbedServer.CINESRC, ExtrasEmbedServer.XXIKU, ExtrasEmbedServer.EMBED_HEAVEN)
+        ExtrasEmbedServer.entries.filter { it.selectable }
+            .sortedBy { when { it in existing -> 0; it.featured -> 1; else -> 2 } }
+            .map {
+                ExtrasServerOption(
+                    "extras-server-" + it.name.lowercase(), it.label, it.description,
+                    when {
+                        it in existing -> "Existing servers"
+                        it.featured -> "New servers"
+                        else -> "More servers"
+                    }
+                )
+            }
+    }
+    ExtrasServerPicker(server.label, "extras-server-" + server.name.lowercase(),
+        options, { key -> onSelected(ExtrasEmbedServer.entries.first { "extras-server-" + it.name.lowercase() == key }) },
+        isTv, modifier)
+}
+
+@Composable
+internal fun ExtrasAnimeEmbedServerDropdown(
+    server: ExtrasAnimeEmbedServer,
+    onSelected: (ExtrasAnimeEmbedServer) -> Unit,
+    isTv: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val options = remember {
+        ExtrasAnimeEmbedServer.entries.map {
+            ExtrasServerOption("extras-anime-server-" + it.name.lowercase(),
+                it.label, it.description, if (it.featured) "New anime servers" else "Default anime server")
+        }
+    }
+    ExtrasServerPicker(server.label, "extras-anime-server-" + server.name.lowercase(),
+        options, { key -> onSelected(ExtrasAnimeEmbedServer.entries.first { "extras-anime-server-" + it.name.lowercase() == key }) },
+        isTv, modifier)
 }
 
 /**
@@ -773,17 +893,23 @@ internal fun ExtrasVirtualCursor(
     tag: String
 ) {
     val focus = remember { FocusRequester() }
-    // Explicit user input is required before any synthetic pointer action.
+    // The HTML5 fullscreen window / WebView may attach after composition.
+    // Two bounded frame attempts avoid an unresponsive remote on slow TVs.
     LaunchedEffect(isActive, target) {
-        if (isActive) runCatching { focus.requestFocus() }
+        if (isActive) {
+            withFrameNanos { }
+            if (!focus.requestFocus()) {
+                withFrameNanos { }
+                focus.requestFocus()
+            }
+        }
     }
     Box(
         modifier = Modifier.fillMaxSize()
             .onPreviewKeyEvent { event ->
                 if (!isActive || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val repeat = event.nativeKeyEvent.repeatCount
-                val baseStep = maxOf(18, minOf(widthPx, heightPx) / 55)
-                val step = if (repeat > 4) baseStep * 2 else baseStep
+                val step = ExtrasTvCursorPolicy.step(widthPx, heightPx, repeat)
                 when (event.nativeKeyEvent.keyCode) {
                     AndroidKeyEvent.KEYCODE_DPAD_UP -> {
                         onDelta(0, -step)
@@ -818,8 +944,9 @@ internal fun ExtrasVirtualCursor(
                     xPx.coerceIn(0, widthPx - 1),
                     yPx.coerceIn(0, heightPx - 1)
                 )
-            }.size(24.dp)
+            }.size(30.dp)
         ) {
+            // Larger high-contrast arrow remains legible at TV viewing distances.
             // Pointer tip is also the exact synthesized tap hotspot.
             val arrow = Path().apply {
                 moveTo(0f, 0f)

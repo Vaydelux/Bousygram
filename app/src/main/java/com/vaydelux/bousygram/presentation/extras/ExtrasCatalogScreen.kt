@@ -395,6 +395,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
                     onSeason = { selectedSeason = it },
                     onPlayMovie = { activeEmbed = ExtrasEmbedRequest.movie(info.item.id, info.item.title) },
+                    onPlayAnime = { episodeNumber ->
+                        activeEmbed = ExtrasEmbedRequest.anime(info.item.id, episodeNumber, info.item.title)
+                    },
                     onPlayEpisode = { episodeNumber ->
                         selectedSeason?.let { season ->
                             activeEmbed = ExtrasEmbedRequest.episode(info.item.id, season, episodeNumber, info.item.title)
@@ -882,6 +885,7 @@ private fun ExtrasDetailContent(
     onSeason: (Int) -> Unit,
     onSeasonRetry: () -> Unit,
     onPlayMovie: () -> Unit,
+    onPlayAnime: (Int) -> Unit,
     onPlayEpisode: (Int) -> Unit,
     onOpenItem: (ExtrasItem) -> Unit,
     modifier: Modifier,
@@ -918,6 +922,41 @@ private fun ExtrasDetailContent(
                     onClick = onPlayMovie,
                     modifier = Modifier.fillMaxWidth().testTag("extras-play-movie")
                 ) { Text("Play · Web source") }
+            }
+        }
+        if (info.item.type == ExtrasType.ANIME) {
+            item {
+                var episodeNumber by remember(info.item.id) { mutableIntStateOf(1) }
+                val total = info.episodeCount?.takeIf { it > 0 }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Anime episodes", style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { episodeNumber = (episodeNumber - 1).coerceAtLeast(1) },
+                            enabled = episodeNumber > 1,
+                            modifier = Modifier.testTag("extras-anime-previous-episode")
+                        ) { Text("−") }
+                        Text("Episode $episodeNumber" + (total?.let { " / $it" } ?: ""),
+                            style = MaterialTheme.typography.titleMedium)
+                        OutlinedButton(
+                            onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: 9999) },
+                            enabled = episodeNumber < (total ?: 9999),
+                            modifier = Modifier.testTag("extras-anime-next-episode")
+                        ) { Text("+") }
+                    }
+                    Button(onClick = { onPlayAnime(episodeNumber) },
+                        modifier = Modifier.fillMaxWidth().testTag("extras-play-anime")) {
+                        Text("Play episode · Web source")
+                    }
+                    Text(
+                        "AniList IDs identify individual anime entries. Source episode selection varies, and season defaults to 1.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         info.youtubeId?.let { youtube ->
