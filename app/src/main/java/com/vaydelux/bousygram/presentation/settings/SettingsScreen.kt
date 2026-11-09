@@ -111,7 +111,9 @@ fun SettingsScreen(
             TelegramCachePruner.storageStats(context, tdLibCacheDir)
         }
     }
-    val cacheSize = storageStats.totalBytes
+    // The filesDir remainder is not automatically evictable cache.
+    // These sampled locations exclude databases, shared preferences and APKs.
+    val cacheSize = storageStats.measuredCacheBytes
 
     val diagnosticsText = remember(safeMode, subtitleLang, playerEngine, audioProfile, cacheSize) {
         EnterprisePreferences.diagnosticsText(cacheSize, BuildConfig.VERSION_NAME)
@@ -365,28 +367,53 @@ fun SettingsScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        "Local media cache: ${formatBytes(cacheSize)}. Automatically pruned with 5 GB LRU policy.",
+                                        "Cache directories: ${formatBytes(cacheSize)}. " +
+                                            "Telegram media target: ${formatBytes(storageStats.cacheLimitBytes)} " +
+                                            "(maximum 160 MiB, within the 200 MiB disposable-media budget).",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodyMedium
                                     )
                                 }
                                 BousygramButton(
-                                    text = if (isClearingCache) "Clearing…" else "Clear Cache Now",
+                                    text = if (isClearingCache) "Pruning…" else "Prune Safe Cache",
                                     onClick = {
                                         if (!isClearingCache) {
                                             isClearingCache = true
                                             scope.launch {
-                                                val result = withContext(Dispatchers.IO) {
-                                                    TelegramCachePruner.pruneCacheNow(context, tdLibCacheDir)
+                                                clearCacheStatus = null
+                                                try {
+                                                    val result = withContext(Dispatchers.IO) {
+                                                        TelegramCachePruner.pruneCacheNow(context, tdLibCacheDir)
+                                                    }
+                                                    clearCacheStatus =
+                                                        "Pruned ${formatBytes(result.freedBytes)} " +
+                                                            "(${result.deletedFiles} tracked files). ${result.note}"
+                                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                                    throw cancelled
+                                                } catch (failure: Exception) {
+                                                    android.util.Log.w(
+                                                        "BousygramSettings", "Safe cache pruning failed", failure
+                                                    )
+                                                    clearCacheStatus =
+                                                        "Cache pruning could not complete. " +
+                                                            "Pinned and active media were not intentionally removed."
+                                                } finally {
+                                                    isClearingCache = false
+                                                    storageRefresh++
                                                 }
-                                                clearCacheStatus = "Cleared ${formatBytes(result.freedBytes)} (${result.deletedFiles} files)"
-                                                isClearingCache = false
-                                                storageRefresh++
                                             }
                                         }
                                     }
                                 )
                             }
+                            Text(
+                                text = "Other app files: ${formatBytes(storageStats.appFilesBytes)}. " +
+                                    "Measured directories: ${formatBytes(storageStats.totalBytes)} " +
+                                    "(not total installed app size; databases and APK excluded). " +
+                                    "Pinned or active downloads can exceed the cache target.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                             if (clearCacheStatus != null) {
                                 Text(
                                     text = clearCacheStatus.orEmpty(),

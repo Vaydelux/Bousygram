@@ -14,6 +14,21 @@ class CacheManagerTest {
     }
 
     @Test
+    fun cacheStorageStatsNeverMislabelsPersistentAppFilesAsDisposableCache() {
+        val storage = TelegramCacheStorageStats(
+            appCacheBytes = 20L * TvStorageBudget.MIB,
+            appFilesBytes = 900L * TvStorageBudget.MIB,
+            tdLibCacheBytes = 90L * TvStorageBudget.MIB,
+            cacheLimitBytes = 160L * TvStorageBudget.MIB
+        )
+        assertEquals(110L * TvStorageBudget.MIB, storage.measuredCacheBytes)
+        assertEquals(1010L * TvStorageBudget.MIB, storage.totalBytes)
+        assertTrue(storage.totalBytes > TvStorageBudget.TOTAL_MEDIA_CACHE_BYTES)
+        // The target is not a hard limit on app files, offline pins or APKs.
+        assertEquals(160L * TvStorageBudget.MIB, storage.cacheLimitBytes)
+    }
+
+    @Test
     fun dynamicQuota_largeStorage_cappedAt160MiBWithin200MiBMediaBudget() {
         // 50 GB free storage
         val availableBytes = 50L * 1024L * 1024L * 1024L
