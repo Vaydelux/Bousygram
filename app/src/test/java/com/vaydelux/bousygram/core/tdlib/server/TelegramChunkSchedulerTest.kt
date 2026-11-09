@@ -703,6 +703,35 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun cachedBytesTriggerBoundedRangeExtensionBeforeNetworkStall() = runBlocking {
+        val fileId = 812
+        val mib = 1024 * 1024
+        val gateway = FakeTelegramFileGateway(
+            bytes = ByteArray(40 * mib) { 4 }, completed = false,
+            downloadedPrefixSize = 16L * mib, enforcePartialRanges = true
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.experimentalBoundedOverrideForTests = true
+        TelegramChunkScheduler.openPlayback(fileId, 40L * mib).join()
+        assertEquals(1, gateway.downloadRecords.size)
+
+        // 14 MiB is cached but falls in the last quarter of the 16 MiB head.
+        val offset = 14L * mib
+        val chunk = TelegramChunkScheduler.fetchChunk(TelegramChunkRequest(
+            fileId, offset, 4096, 32, TelegramChunkPurpose.Streaming
+        ))
+        assertTrue(chunk is TelegramChunkResult.Ready)
+        val deadline = System.currentTimeMillis() + 2_000L
+        while (gateway.downloadRecords.size < 2 && System.currentTimeMillis() < deadline) {
+            kotlinx.coroutines.delay(20L)
+        }
+        assertEquals(2, gateway.downloadRecords.size)
+        assertEquals(offset, gateway.downloadRecords.last().offset)
+        assertEquals(16 * mib, gateway.downloadRecords.last().limit)
+        assertTrue(gateway.downloadRecords.all { it.limit > 0 })
+    }
+
+    @Test
     fun lowStorageOptInUsesEightMiBRequestsNotWholeVideo() = runBlocking {
         val fileId = 811
         val mib = 1024 * 1024
