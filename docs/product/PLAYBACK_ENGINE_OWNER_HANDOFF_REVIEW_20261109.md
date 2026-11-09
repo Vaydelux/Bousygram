@@ -29,3 +29,20 @@ for concurrent ownership and account disposal remain enabled.
 Physical 32-bit/64-bit Android TV testing must still verify real LibVLC and
 libmpv native faults, rapid switching, playback restart, audio session cleanup,
 and heap/PSS behavior. CI checks alone cannot prove vendor JNI stability.
+
+
+## Queued owner-thread dispatch timeout
+
+`AccountMediaResources.onPlayerThread()` previously posted a FutureTask to
+Android's main thread and called `get(5 seconds)`. A timeout left the task
+**still queued**; the switch coordinator could release the proposed engine,
+only for the delayed task to adopt that already released player later.
+
+The shared dispatcher now cancels the FutureTask on timeout or interrupted
+wait. A unit test queues a task without executing it, times out, runs it
+afterward, and proves no engine-owner action was executed. The success and
+failed-enqueue paths also have tests.
+
+This does not promise cancellation of already-running native code. Android
+threads cannot safely be interrupted inside vendor JNI; delayed operations
+still require normal player ownership/account guards and physical soak tests.
