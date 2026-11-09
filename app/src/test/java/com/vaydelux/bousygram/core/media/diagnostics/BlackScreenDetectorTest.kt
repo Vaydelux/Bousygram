@@ -137,6 +137,59 @@ class BlackScreenDetectorTest {
     }
 
     @Test
+    fun seekForwardDoesNotCountAsAudioAdvancementOrForceDecoderFallback() {
+        fun check(positionMs: Long) = detector.evaluate(
+            context = null,
+            currentEngine = SelectedPlayerEngine.ExoPlayer,
+            isPlaying = true,
+            isBuffering = false,
+            hasFirstFrame = false,
+            currentPositionMs = positionMs
+        )
+        assertEquals(BlackScreenRecoveryAction.NONE, check(100))
+        virtualTimeMs += 4_000L
+        // Large native seek while the new frame is not yet rendered.
+        assertEquals(BlackScreenRecoveryAction.NONE, check(120_000))
+        virtualTimeMs += 2_000L
+        assertEquals(BlackScreenRecoveryAction.NONE, check(122_000))
+        virtualTimeMs += 2_000L
+        assertEquals(BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW, check(124_000))
+    }
+
+    @Test
+    fun clockMovesBackwardWhileWaitingAndWatchdogRearms() {
+        fun check(positionMs: Long) = detector.evaluate(
+            context = null,
+            currentEngine = SelectedPlayerEngine.ExoPlayer,
+            isPlaying = true,
+            isBuffering = false,
+            hasFirstFrame = false,
+            currentPositionMs = positionMs
+        )
+        assertEquals(BlackScreenRecoveryAction.NONE, check(0L))
+        virtualTimeMs -= 20_000L
+        assertEquals(BlackScreenRecoveryAction.NONE, check(0L))
+        virtualTimeMs += 3_000L
+        assertEquals(BlackScreenRecoveryAction.NONE, check(2_000L))
+        virtualTimeMs += 1_000L
+        assertEquals(BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW, check(3_000L))
+    }
+
+    @Test
+    fun zeroOriginClockArmsWatchdogOnFirstFrameWithoutSentinelCollision() {
+        virtualTimeMs = 0L
+        detector = BlackScreenDetector(clock = { virtualTimeMs })
+        fun check(positionMs: Long) = detector.evaluate(
+            context = null, currentEngine = SelectedPlayerEngine.ExoPlayer,
+            isPlaying = true, isBuffering = false, hasFirstFrame = false,
+            currentPositionMs = positionMs
+        )
+        assertEquals(BlackScreenRecoveryAction.NONE, check(0L))
+        virtualTimeMs += 4_000L
+        assertEquals(BlackScreenRecoveryAction.SWITCH_TO_TEXTURE_VIEW, check(4_000L))
+    }
+
+    @Test
     fun bufferingState_pausesWatchdog_neverTriggersRecovery() {
         // Start buffering
         detector.evaluate(
