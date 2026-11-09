@@ -52,10 +52,15 @@ class PlaybackEngineOwner(
         // a bridge can be installed after the old engine has been released.
         onOwnerThread {
             if (closed.get() || state.value !== engine) {
-                closeOnce()
+                // A stale callback must not undo ownership of the active engine.
+                runCatching { closeOnce() }.onFailure(::reportRetirementError)
             } else {
-                // Only one MediaSession bridge may retain this engine at a time.
-                engineResource?.invoke()
+                // Old MediaSession bridge teardown can fail in platform/vendor code.
+                // Clear it first, attempt closure, then register the new bridge
+                // regardless of the retired bridge's failure.
+                val retiringResource = engineResource
+                engineResource = null
+                runCatching { retiringResource?.invoke() }.onFailure(::reportRetirementError)
                 engineResource = closeOnce
             }
         }
@@ -88,7 +93,10 @@ class PlaybackEngineOwner(
     private fun release(engine: PlayerEngine) {
         var failure: Throwable? = null
         listOf<() -> Unit>({ engine.detachSurface() }, { engine.stop() }, { engine.release() }).forEach { action ->
-            runCatching(action).onFailure { failure = failure ?: it }
+            runCatching(action).onFailure { error ->
+                if (failure == null) failure = error
+                else if (failure !== error) failure?.addSuppressed(error)
+            }
         }
         failure?.let { throw it }
     }
