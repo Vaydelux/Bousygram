@@ -52,7 +52,7 @@ while IFS=$'\t' read -r branch protected; do
 
   archive_ref="refs/tags/archive/branch-cleanup/$ARCHIVE_RUN/$branch"
   existing=""
-  existing="$(gh api "repos/$REPO/git/ref/${archive_ref#refs/}" --jq '.object.sha' 2>/dev/null)" || true
+  existing="$(gh api "repos/$REPO/git/ref/${archive_ref#refs/}" --jq '.object.sha // empty' 2>/dev/null)" || true
   if [[ -n "$existing" ]]; then
     [[ "$existing" == "$original_sha" ]] || {
       echo "::error::Archive ref collision for $branch" >&2
@@ -62,7 +62,7 @@ while IFS=$'\t' read -r branch protected; do
     gh api -X POST "repos/$REPO/git/refs" \
       -f ref="$archive_ref" -f sha="$original_sha" >/dev/null
   fi
-  saved_sha="$(gh api "repos/$REPO/git/ref/${archive_ref#refs/}" --jq '.object.sha')"
+  saved_sha="$(gh api "repos/$REPO/git/ref/${archive_ref#refs/}" --jq '.object.sha // empty')"
   [[ "$saved_sha" == "$original_sha" ]] || {
     echo "::error::Archive verification failed for $branch" >&2
     exit 1
