@@ -50,6 +50,26 @@ class LibVlcPlaybackPolicyTest {
             libVlcUnexpectedPauseAction(true, true, false, 20))
     }
 
+    @Test fun stablePlaybackCanRenewRecoveryBudgetWithoutRapidPauseLoop() {
+        val requested = { elapsed: Long, progress: Long, requestedPlay: Boolean,
+                          active: Boolean, actuallyPlaying: Boolean, attempts: Int ->
+            shouldRestoreLibVlcPauseRetryBudget(
+                playRequested = requestedPlay, prepared = active,
+                nativePlaying = actuallyPlaying, retriesSoFar = attempts,
+                stableElapsedMs = elapsed, timelineProgressMs = progress
+            )
+        }
+        assertFalse(requested(0L, 0L, true, true, true, 1))
+        assertFalse(requested(14_999L, 10_000L, true, true, true, 1))
+        assertFalse(requested(15_000L, 4_999L, true, true, true, 1))
+        assertTrue(requested(15_000L, 5_000L, true, true, true, 1))
+        assertTrue(requested(45_000L, 25_000L, true, true, true, 2))
+        assertFalse(requested(45_000L, 25_000L, false, true, true, 1))
+        assertFalse(requested(45_000L, 25_000L, true, false, true, 1))
+        assertFalse(requested(45_000L, 25_000L, true, true, false, 1))
+        assertFalse(requested(45_000L, 25_000L, true, true, true, 0))
+    }
+
     @Test fun seeksAreClampedToContainerBoundsWithoutOverflow() {
         assertEquals(0L, boundedLibVlcSeekMs(-250L, 9000L))
         assertEquals(9000L, boundedLibVlcSeekMs(Long.MAX_VALUE, 9000L))
