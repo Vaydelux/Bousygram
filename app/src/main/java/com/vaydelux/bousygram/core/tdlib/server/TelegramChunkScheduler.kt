@@ -1537,6 +1537,15 @@ internal object TelegramChunkScheduler {
                         Log.i(TAG, "Re-resolved fileId=$effectiveId -> ${reResolved.fileId}, retrying download")
                         remappedFileIds[fileId] = reResolved.fileId
                         remappedFileIds[effectiveId] = reResolved.fileId
+                        // A native FILE_REFERENCE refresh must preserve the
+                        // caller's bounded-session mode. Otherwise a stale-ID
+                        // recovery could silently switch back to unlimited
+                        // foreground downloading on an 8 GB Android TV.
+                        if (boundedPlaybackFiles.contains(fileId) ||
+                            boundedPlaybackFiles.contains(effectiveId)
+                        ) {
+                            boundedPlaybackFiles.add(reResolved.fileId)
+                        }
                         fileContexts[reResolved.fileId] = context
                         retainFileStatus(reResolved)
                         if (reResolved.size > 0L) fileSizes[reResolved.fileId] = reResolved.size
