@@ -4,6 +4,7 @@ import androidx.media3.common.PlaybackException
 import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.PlaybackRecoveryAction
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
+import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.cache.CacheManager
 import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
 import com.vaydelux.bousygram.core.cache.StoragePressurePolicy
