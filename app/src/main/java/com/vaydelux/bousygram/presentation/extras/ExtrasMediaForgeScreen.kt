@@ -104,13 +104,31 @@ internal data class ExtrasEmbedRequest(
     val episode: Int? = null,
     val server: ExtrasEmbedServer = ExtrasEmbedServer.CINESRC,
     val anilistId: Int = 0,
-    val animeServer: ExtrasAnimeEmbedServer = ExtrasAnimeEmbedServer.FILMU
+    val animeServer: ExtrasAnimeEmbedServer = ExtrasAnimeEmbedServer.FILMU,
+    val liveChannelSlug: String? = null,
+    val legacyEmbedHeaven: Boolean = false
 ) {
-    init { require((tmdbId > 0) != (anilistId > 0)) { "Expected exactly one catalog identity" } }
+    init {
+        val identityCount = listOf(tmdbId > 0, anilistId > 0, liveChannelSlug != null).count { it }
+        require(identityCount == 1) { "Expected exactly one catalog or live channel identity" }
+        if (liveChannelSlug != null) {
+            require(season == null && episode == null &&
+                url == ExtrasEmbedHeavenRoutes.live(liveChannelSlug)) {
+                "Invalid live channel request"
+            }
+        }
+        if (legacyEmbedHeaven) {
+            require(tmdbId > 0 && season == null && episode == null &&
+                server == ExtrasEmbedServer.EMBED_HEAVEN &&
+                url == ExtrasEmbedHeavenRoutes.legacyMovie(tmdbId)) {
+                "Legacy EmbedHeaven only supports TMDB movies"
+            }
+        }
+    }
 
     fun forServer(next: ExtrasEmbedServer): ExtrasEmbedRequest {
         require(tmdbId > 0) { "TMDB server selection requires a TMDB title" }
-        return copy(url = next.urlFor(tmdbId, season, episode), server = next)
+        return copy(url = next.urlFor(tmdbId, season, episode), server = next, legacyEmbedHeaven = false)
     }
 
     fun forServer(next: ExtrasAnimeEmbedServer): ExtrasEmbedRequest {
@@ -118,7 +136,25 @@ internal data class ExtrasEmbedRequest(
         return copy(url = next.urlFor(anilistId, season ?: 1, episode ?: 1), animeServer = next)
     }
 
+    fun forLegacyEmbedHeaven(): ExtrasEmbedRequest {
+        require(tmdbId > 0 && season == null && episode == null) {
+            "Legacy EmbedHeaven route supports movies only"
+        }
+        return copy(
+            url = ExtrasEmbedHeavenRoutes.legacyMovie(tmdbId),
+            server = ExtrasEmbedServer.EMBED_HEAVEN,
+            legacyEmbedHeaven = true
+        )
+    }
+
     companion object {
+        fun live(channelSlug: String): ExtrasEmbedRequest =
+            ExtrasEmbedRequest(
+                url = ExtrasEmbedHeavenRoutes.live(channelSlug),
+                title = "Live TV · " + channelSlug,
+                liveChannelSlug = channelSlug
+            )
+
         fun movie(tmdbId: Int, title: String): ExtrasEmbedRequest =
             ExtrasEmbedRequest(ExtrasEmbedServer.CINESRC.urlFor(tmdbId), title, tmdbId)
 
@@ -147,15 +183,23 @@ internal fun ExtrasMediaForgeScreen(
     onBack: () -> Unit,
     isAndroidTv: Boolean
 ) {
-    var selectedServer by remember(request.tmdbId, request.anilistId, request.season, request.episode) {
+    var selectedServer by remember(request.tmdbId, request.anilistId, request.liveChannelSlug, request.season, request.episode) {
         mutableStateOf(request.server)
     }
-    var selectedAnimeServer by remember(request.tmdbId, request.anilistId, request.season, request.episode) {
+    var selectedAnimeServer by remember(request.tmdbId, request.anilistId, request.liveChannelSlug, request.season, request.episode) {
         mutableStateOf(request.animeServer)
     }
-    val selectedRequest = remember(request, selectedServer, selectedAnimeServer) {
-        if (request.anilistId > 0) request.forServer(selectedAnimeServer)
-        else request.forServer(selectedServer)
+    var useLegacyEmbedHeaven by remember(request.tmdbId, request.season, request.episode) {
+        mutableStateOf(request.legacyEmbedHeaven)
+    }
+    val selectedRequest = remember(request, selectedServer, selectedAnimeServer, useLegacyEmbedHeaven) {
+        when {
+            request.liveChannelSlug != null -> request
+            request.anilistId > 0 -> request.forServer(selectedAnimeServer)
+            selectedServer == ExtrasEmbedServer.EMBED_HEAVEN &&
+                request.season == null && useLegacyEmbedHeaven -> request.forLegacyEmbedHeaven()
+            else -> request.forServer(selectedServer)
+        }
     }
     // Each provider owns a distinct untrusted browsing session. Disposing the
     // keyed subtree destroys the old WebView, native engine, detected URLs,
@@ -166,7 +210,8 @@ internal fun ExtrasMediaForgeScreen(
             onBack = onBack,
             isAndroidTv = isAndroidTv,
             selectedServer = selectedServer,
-            onServerSelected = { selectedServer = it },
+            onServerSelected = { selectedServer = it; useLegacyEmbedHeaven = false },
+            onLegacyEmbedHeavenToggle = { useLegacyEmbedHeaven = it },
             selectedAnimeServer = selectedAnimeServer,
             onAnimeServerSelected = { selectedAnimeServer = it }
         )
@@ -180,6 +225,7 @@ private fun ExtrasMediaForgePlayerScreen(
     isAndroidTv: Boolean,
     selectedServer: ExtrasEmbedServer,
     onServerSelected: (ExtrasEmbedServer) -> Unit,
+    onLegacyEmbedHeavenToggle: (Boolean) -> Unit,
     selectedAnimeServer: ExtrasAnimeEmbedServer,
     onAnimeServerSelected: (ExtrasAnimeEmbedServer) -> Unit
 ) {
@@ -385,7 +431,9 @@ private fun ExtrasMediaForgePlayerScreen(
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     if (maxWidth < 520.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
+                            if (request.liveChannelSlug != null) {
+                                Text("EmbedHeaven · Live TV", style = MaterialTheme.typography.labelLarge)
+                            } else if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
                                 server = selectedAnimeServer,
                                 onSelected = onAnimeServerSelected,
                                 isTv = isAndroidTv,
@@ -418,7 +466,9 @@ private fun ExtrasMediaForgePlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
+                            if (request.liveChannelSlug != null) {
+                                Text("EmbedHeaven · Live TV", style = MaterialTheme.typography.labelLarge)
+                            } else if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
                                 server = selectedAnimeServer,
                                 onSelected = onAnimeServerSelected,
                                 isTv = isAndroidTv,
@@ -444,10 +494,24 @@ private fun ExtrasMediaForgePlayerScreen(
                 }
 
                 Text(
-                    (if (request.anilistId > 0) "AniList #${request.anilistId} · ${selectedAnimeServer.description}" else "TMDB #${request.tmdbId} · ${selectedServer.description}") + " · Availability varies by provider.",
+                    (when {
+                        request.liveChannelSlug != null -> "Live TV · ${request.liveChannelSlug} · EmbedHeaven"
+                        request.anilistId > 0 -> "AniList #${request.anilistId} · ${selectedAnimeServer.description}"
+                        else -> "TMDB #${request.tmdbId} · ${selectedServer.description}"
+                    }) + " · Availability varies by provider.",
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 2
                 )
+                if (request.tmdbId > 0 && request.season == null &&
+                    selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
+                ) {
+                    OutlinedButton(
+                        onClick = { onLegacyEmbedHeavenToggle(!request.legacyEmbedHeaven) },
+                        modifier = Modifier.testTag("extras-embedheaven-legacy")
+                    ) {
+                        Text(if (request.legacyEmbedHeaven) "Use standard movie route" else "Try legacy movie route")
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
