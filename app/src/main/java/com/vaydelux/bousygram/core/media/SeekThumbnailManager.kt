@@ -6,7 +6,11 @@ import android.os.Build
 import android.util.Log
 import android.util.LruCache
 import com.vaydelux.bousygram.core.account.AccountSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -50,6 +54,8 @@ object SeekThumbnailManager {
     private const val TARGET_HEIGHT = 90
 
     private data class CapturedFrame(val timestampMs: Long, val bitmap: Bitmap)
+    // One extractor prevents overlapping native bitmap allocations on ARM32.
+    private val extractionMutex = Mutex()
 
     // Count-based eviction lets full-resolution or unexpectedly large Bitmap
     // allocations consume substantially more RAM than expected. Limit by bytes.
@@ -93,19 +99,30 @@ object SeekThumbnailManager {
         filePathOrUrl: String,
         durationMs: Long
     ): List<Bitmap> = withContext(Dispatchers.IO) {
-        val owner = AccountSession.current() ?: return@withContext emptyList()
+        val job = coroutineContext[Job]
+        extractionMutex.withLock { generateSnapshotsLocked(key, filePathOrUrl, durationMs, job) }
+    }
+
+    /** Runs off the main thread with the native extractor mutex held. */
+    private fun generateSnapshotsLocked(
+        key: String, filePathOrUrl: String, durationMs: Long, job: Job?
+    ): List<Bitmap> {
+        if (job?.isActive == false) throw CancellationException("Seek preview cancelled")
+        val owner = AccountSession.current() ?: return emptyList()
         val accountKey = "${owner.accountId}:${owner.generation}:$key"
         val cached = memoryCache.get(accountKey)
         if (cached != null && cached.isNotEmpty()) {
-            return@withContext cached.takeIf { AccountSession.isCurrent(owner) }
+            return cached.takeIf { AccountSession.isCurrent(owner) }
                 ?.map { it.bitmap } ?: emptyList()
         }
 
         if (filePathOrUrl.isBlank() || durationMs <= 0L) {
-            return@withContext emptyList()
+            return emptyList()
         }
 
         val retriever = MediaMetadataRetriever()
+        val list = mutableListOf<CapturedFrame>()
+        var retainedByCache = false
         try {
             // During playback, 8 HTTP frame probes can issue many random
             // TDLib range requests, create rebuffering, and retain short-lived
@@ -113,17 +130,14 @@ object SeekThumbnailManager {
             // Timestamp-only seek previews remain available for streamed media.
             val file = File(filePathOrUrl)
             if (!file.exists() || !file.isFile || !file.canRead()) {
-                return@withContext emptyList()
+                return emptyList()
             }
             retriever.setDataSource(file.absolutePath)
 
-            val list = mutableListOf<CapturedFrame>()
-            val durationUs = durationMs * 1000L
-            val stepUs = durationUs / SNAPSHOT_COUNT
-
             for (i in 0 until SNAPSHOT_COUNT) {
-                if (!AccountSession.isCurrent(owner)) return@withContext emptyList()
-                val timeUs = (i * stepUs).coerceIn(0L, durationUs)
+                if (job?.isActive == false) throw CancellationException("Seek preview cancelled")
+                if (!AccountSession.isCurrent(owner)) return emptyList()
+                val timeUs = seekPreviewSampleTimeUs(durationMs, i, SNAPSHOT_COUNT)
                 val scaledFrame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                     runCatching {
                         retriever.getScaledFrameAtTime(
@@ -154,16 +168,24 @@ object SeekThumbnailManager {
                 }
             }
 
-            if (!AccountSession.isCurrent(owner)) return@withContext emptyList()
+            if (job?.isActive == false) throw CancellationException("Seek preview cancelled")
+            if (!AccountSession.isCurrent(owner)) return emptyList()
             if (list.isNotEmpty()) {
                 memoryCache.put(accountKey, list)
+                retainedByCache = true
                 Log.d(TAG, "Generated ${list.size} seek snapshots")
             }
-            list.map { it.bitmap }
+            return list.map { it.bitmap }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Throwable) {
             Log.w(TAG, "Could not generate seek previews (${e.javaClass.simpleName})")
-            emptyList()
+            return emptyList()
         } finally {
+            // Only reclaim unowned frames: UI references may outlive LRU eviction.
+            if (!retainedByCache) list.forEach { frame ->
+                if (!frame.bitmap.isRecycled) runCatching { frame.bitmap.recycle() }
+            }
             runCatching { retriever.release() }
         }
     }
