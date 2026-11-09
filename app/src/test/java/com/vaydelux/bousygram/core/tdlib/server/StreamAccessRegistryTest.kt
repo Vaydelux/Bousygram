@@ -58,10 +58,11 @@ class StreamAccessRegistryTest {
     fun nonCanonicalAndTamperedTokensAreRejectedWithoutRevokingRealGrant() {
         val token = StreamAccessRegistry.issueFile(31)
         assertTrue(StreamAccessRegistry.authorizesFile(token, 31))
-        listOf(
-            token.uppercase(), token.dropLast(1), token + "0",
+        val uppercaseIfChanged = token.uppercase().takeIf { it != token }
+        (listOfNotNull(uppercaseIfChanged) + listOf(
+            token.dropLast(1), token + "0",
             "g" + token.drop(1), "0".repeat(64)
-        ).forEach { invalid ->
+        )).forEach { invalid ->
             assertFalse(StreamAccessRegistry.authorizesFile(invalid, 31))
             assertFalse(StreamAccessRegistry.revoke(invalid))
         }
