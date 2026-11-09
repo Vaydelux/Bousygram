@@ -95,6 +95,9 @@ fun SettingsScreen(
     var storageRefresh by remember { mutableIntStateOf(0) }
     var clearCacheStatus by remember { mutableStateOf<String?>(null) }
     var isClearingCache by remember { mutableStateOf(false) }
+    var boundedStreaming by remember {
+        mutableStateOf(EnterprisePreferences.boundedForegroundStreamingEnabled())
+    }
     var isAdvancedExpanded by remember { mutableStateOf(false) }
 
     val storageStats by produceState(
@@ -414,6 +417,48 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
+                            if (BuildConfig.DEBUG) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f).padding(end = 16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            "Experimental bounded Telegram buffering",
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            "For testing on small-storage TVs. Request roughly two minutes " +
+                                                "of video at a time, capped by byte limits, then extend while " +
+                                                "playing. Keeps Continue Watching progress after video cache " +
+                                                "cleanup. Not a strict 200 MiB cap: TDLib can retain earlier " +
+                                                "ranges until the player closes. Takes effect on next video; " +
+                                                "turn off if MKV/TS seek or buffering regresses.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    Switch(
+                                        checked = boundedStreaming,
+                                        onCheckedChange = {
+                                            boundedStreaming = it
+                                            EnterprisePreferences.setBoundedForegroundStreamingEnabled(it)
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    )
+                                }
+                            }
                             if (clearCacheStatus != null) {
                                 Text(
                                     text = clearCacheStatus.orEmpty(),

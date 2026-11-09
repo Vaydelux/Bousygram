@@ -226,6 +226,7 @@ object TelegramPreCacheEngine {
                     // The player has released its file; a protected worker can
                     // now remove eligible watched/old bytes without touching
                     // any active playback leases or pinned offline downloads.
+                    CacheManager.onStoppedDownloadCancelled(fileId)
                     CacheManager.triggerCacheCleanupIfNeeded()
                 }
             }

@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.data.store
 import android.content.Context
 import androidx.core.content.edit
 import com.vaydelux.bousygram.app.BousygramApp
+import com.vaydelux.bousygram.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import android.content.SharedPreferences
@@ -73,6 +74,7 @@ object EnterprisePreferences {
     private const val KEY_SUBTITLE_COLOR_PRESET = "subtitle_color_preset"
     private const val KEY_SPEED = "preferred_speed"
     private const val KEY_BUFFER_MODE = "buffer_mode"
+    private const val KEY_EXPERIMENTAL_BOUNDED_FOREGROUND = "experimental_bounded_foreground"
     private const val KEY_CACHE_LIMIT = "cache_limit"
     private const val KEY_LAST_ERROR = "last_error"
     private const val KEY_VISUAL_THEME = "visual_theme"
@@ -249,6 +251,16 @@ object EnterprisePreferences {
 
     fun setBufferMode(value: BufferMode) = prefs.edit { putString(KEY_BUFFER_MODE, value.name) }
 
+    /**
+     * Native bounded TDLib downloads are experimental, debug-only and off by
+     * default until MKV/TS seeking passes authenticated physical TV soak tests.
+     */
+    fun boundedForegroundStreamingEnabled(): Boolean =
+        BuildConfig.DEBUG && prefs.getBoolean(KEY_EXPERIMENTAL_BOUNDED_FOREGROUND, false)
+
+    fun setBoundedForegroundStreamingEnabled(enabled: Boolean) =
+        prefs.edit { putBoolean(KEY_EXPERIMENTAL_BOUNDED_FOREGROUND, enabled) }
+
     @Deprecated("Cache limit is now automatically managed based on a fraction of free storage")
     fun cacheLimitOption(): CacheLimitOption = CacheLimitOption.TwoGb
 
@@ -291,6 +303,7 @@ object EnterprisePreferences {
         appendLine("Cache size: ${cacheSizeBytes / (1024 * 1024)} MB")
         appendLine("Cache limit: ${cacheLimitBytes() / (1024 * 1024)} MB (automatic)")
         appendLine("Full-video background cache: Disabled")
+        appendLine("Foreground bounded streaming (experimental): ${boundedForegroundStreamingEnabled()}")
         appendLine("Last error: ${lastError()}")
         appendLine("Playback: ${PlaybackDiagnostics.summary()}")
         appendLine("Playback telemetry: ${com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder.summary()}")

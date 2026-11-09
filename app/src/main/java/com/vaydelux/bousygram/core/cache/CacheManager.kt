@@ -16,11 +16,12 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.data.database.AppDatabase
-import com.vaydelux.bousygram.data.repository.ContinueWatchingRepository
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.util.Collections
@@ -72,6 +73,9 @@ object CacheManager {
     private val preloadAttemptsMs = ConcurrentHashMap<Int, Long>()
     private const val PRELOAD_RETRY_COOLDOWN_MS = 30_000L
     private val isEvictionScheduled = AtomicBoolean(false)
+    // A closed playback file may be recycled without losing the account-scoped
+    // Continue Watching document. This table is never persisted across accounts.
+    private val pendingClosedPlaybackReclaims = ConcurrentHashMap<Int, AccountSnapshot>()
     private data class AccessCleanupMarker(val accountId: Long, val elapsedMs: Long)
     private val lastAccessCleanupMarker = AtomicReference<AccessCleanupMarker?>(null)
     private var pinnedAccountId: Long? = null
@@ -105,6 +109,7 @@ object CacheManager {
         lastAccessCleanupMarker.set(null)
         preloadedNextEpisodes.clear()
         preloadAttemptsMs.clear()
+        pendingClosedPlaybackReclaims.clear()
     }
 
     // --- Dynamic Quota Calculation ---
@@ -322,6 +327,51 @@ object CacheManager {
         }
     }
 
+    /**
+     * Record a *bounded-mode* playback exit before requesting asynchronous
+     * CancelDownloadFile. This is a video-byte cleanup request only: resume
+     * progress and channel/group metadata are separate persistent records.
+     */
+    fun requestClosedPlaybackRecycle(fileId: Int) {
+        val owner = AccountSession.current() ?: return
+        if (fileId <= 0) return
+        pendingClosedPlaybackReclaims[fileId] = owner
+    }
+
+    /** Run only after TDLib acknowledges CancelDownloadFile. Never delete a live lease. */
+    fun onStoppedDownloadCancelled(fileId: Int) {
+        val owner = pendingClosedPlaybackReclaims[fileId] ?: return
+        scope.launch {
+            repeat(3) { attempt ->
+                delay(if (attempt == 0) 300L else 1_500L)
+                if (!AccountSession.isCurrent(owner) ||
+                    pendingClosedPlaybackReclaims[fileId] != owner
+                ) return@launch
+                val completed = synchronized(cleanupLock) {
+                    if (!AccountSession.isCurrent(owner)) true
+                    else reclaimClosedFileOnce(fileId, owner)
+                }
+                if (completed) {
+                    pendingClosedPlaybackReclaims.remove(fileId, owner)
+                    return@launch
+                }
+            }
+            // A native download may remain active after cancellation; defer to
+            // normal quota-based pruning instead of forcibly deleting its bytes.
+            pendingClosedPlaybackReclaims.remove(fileId, owner)
+        }
+    }
+
+    private fun reclaimClosedFileOnce(fileId: Int, owner: AccountSnapshot): Boolean {
+        ensurePinnedLoaded()
+        // An already reopened player takes priority over space reclamation.
+        if (isTrackedFileDeletionProtected(fileId)) return true
+        val file = getFilesBlocking(listOf(fileId), owner)[fileId] ?: return false
+        if (file.local.isDownloadingActive) return false
+        if (file.local.downloadedSize <= 0L || file.local.path.isNullOrBlank()) return true
+        return deleteFilesBlocking(listOf(fileId), owner).contains(fileId)
+    }
+
     fun pruneTrackedCacheNow(): TrackedCacheCleanupResult = synchronized(cleanupLock) {
         performCacheCleanup()
     }
@@ -389,9 +439,9 @@ object CacheManager {
         val accessTime = accessed.toMap()
         val now = System.currentTimeMillis()
 
-        val continueWatchingIds = runCatching {
-            ContinueWatchingRepository.getContinueWatchingFileIds()
-        }.getOrDefault(emptySet())
+        // Continue Watching metadata lives in a different account-owned
+        // persistent ledger and must not pin downloaded video bytes forever.
+        // The live-player and offline-pin checks below remain authoritative.
         val lastPlayedId = EnterprisePreferences.lastPlayed()?.fileId
         // An unfinished last-played movie is protected for resume. A completed
         // movie no longer needs a storage exemption after the player releases it.
@@ -407,7 +457,6 @@ object CacheManager {
                     // Protect only the active/resolving video; the safeguards
                     // below still protect downloads, leases and prefetch.
                     !PlaybackSessionController.isCacheProtectedPlaybackFile(id) &&
-                    !continueWatchingIds.contains(id) &&
                     id != protectedLastPlayedId &&
                     !TelegramPreCacheEngine.isCaching(id) &&
                     TelegramChunkScheduler.activeLeaseCount(id) == 0 &&

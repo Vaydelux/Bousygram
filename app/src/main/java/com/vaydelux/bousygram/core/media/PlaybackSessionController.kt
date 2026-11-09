@@ -353,11 +353,21 @@ object PlaybackSessionController {
             PlaybackCacheStopReason.ErrorRecovery -> PlaybackStallReason.ErrorRecovery
             else -> session.lastStallReason
         }
+        // Save no media bytes for a closed experimental bounded session.
+        // Continue Watching positions remain in their account-scoped ledger.
+        // Register BEFORE cancellation, as native callbacks may arrive quickly.
+        if (cancelTdLibDownload &&
+            TelegramChunkScheduler.isBoundedPlaybackFile(session.fileId)
+        ) {
+            CacheManager.requestClosedPlaybackRecycle(session.fileId)
+        }
         TelegramPreCacheEngine.stopCaching(session.fileId, cancelTdLibDownload)
         if (cancelTdLibDownload && session.fileId > 0) {
             com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.cancelPrefetch(session.fileId)
         }
         session.release()
+        // Do not mistake a newly reopened file for an old completed download.
+        if (cancelTdLibDownload) TelegramChunkScheduler.finishPlaybackSession(session.fileId)
         if (activeSessions.isEmpty()) isVideoPlayingFlag.set(false)
         record(session)
         // Run outside the player teardown on the cache worker. The ongoing

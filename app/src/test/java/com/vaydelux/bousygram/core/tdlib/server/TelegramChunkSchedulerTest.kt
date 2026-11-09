@@ -660,6 +660,65 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun optInBoundedPlaybackRequestsFiniteWindowsAndPreservesTailSeeking() = runBlocking {
+        val fileId = 810
+        val mib = 1024 * 1024
+        val bytes = ByteArray(40 * mib) { index -> (index % 199).toByte() }
+        val gateway = FakeTelegramFileGateway(
+            bytes = bytes, completed = false, downloadedPrefixSize = 16L * mib,
+            enforcePartialRanges = true
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.experimentalBoundedOverrideForTests = true
+
+        TelegramChunkScheduler.openPlayback(fileId, bytes.size.toLong()).join()
+        assertTrue(TelegramChunkScheduler.isBoundedPlaybackFile(fileId))
+        assertEquals(0L, gateway.downloadRecords.first().offset)
+        assertEquals(16 * mib, gateway.downloadRecords.first().limit)
+
+        // At 20 MiB the first finite window is exhausted. Request exactly the
+        // decoder's offset; never estimate seek offsets from video duration.
+        val seekOffset = 20L * mib
+        val middle = TelegramChunkScheduler.fetchChunk(TelegramChunkRequest(
+            fileId, seekOffset, 4096, 32, TelegramChunkPurpose.Streaming
+        ))
+        assertTrue("Actual media seek must recover", middle is TelegramChunkResult.Ready)
+        assertEquals(seekOffset, gateway.downloadRecords.last().offset)
+        assertEquals(16 * mib, gateway.downloadRecords.last().limit)
+
+        // MKV Cues / MP4 moov near EOF are eligible even outside the current
+        // 16 MiB window. A small tail must never become unlimited download.
+        val tail = bytes.size.toLong() - 4096L
+        val tailRead = TelegramChunkScheduler.fetchChunk(TelegramChunkRequest(
+            fileId, tail, 4096, 32, TelegramChunkPurpose.Streaming
+        ))
+        assertTrue(tailRead is TelegramChunkResult.Ready)
+        assertEquals(tail, gateway.downloadRecords.last().offset)
+        assertEquals(4096, gateway.downloadRecords.last().limit)
+        assertTrue(gateway.downloadRecords.all { it.limit in 1..(32 * mib) })
+
+        TelegramChunkScheduler.finishPlaybackSession(fileId)
+        assertFalse(TelegramChunkScheduler.isBoundedPlaybackFile(fileId))
+        assertFalse(TelegramChunkScheduler.hasDownloadWindowForTests(fileId))
+    }
+
+    @Test
+    fun lowStorageOptInUsesEightMiBRequestsNotWholeVideo() = runBlocking {
+        val fileId = 811
+        val mib = 1024 * 1024
+        val gateway = FakeTelegramFileGateway(
+            bytes = ByteArray(24 * mib) { 3 }, completed = false,
+            downloadedPrefixSize = 8L * mib, enforcePartialRanges = true
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.experimentalBoundedOverrideForTests = true
+        StoragePressureMonitor.overrideFreeBytesForTests(150L * mib)
+        TelegramChunkScheduler.openPlayback(fileId, 24L * mib).join()
+        assertEquals(8 * mib, gateway.downloadRecords.single().limit)
+        assertEquals(0, gateway.downloadRecords.single().offset.toInt())
+    }
+
+    @Test
     fun testSmallFiles() = runBlocking {
         // Case 1: Very small file (1.5 MB <= HEAD_BURST_BYTES 2 MB)
         val smallSize = (1.5 * 1024 * 1024).toInt()
