@@ -517,23 +517,37 @@ object CacheManager {
         return results.toMap()
     }
 
+    /**
+     * Keep the same live current-media and lease guards immediately before
+     * each DeleteFile request, since playback can switch while TDLib GetFile
+     * responses are being collected.
+     */
+    private fun isTrackedFileDeletionProtected(fileId: Int): Boolean =
+        pinnedFiles.contains(fileId) ||
+            PlaybackSessionController.isCacheProtectedPlaybackFile(fileId) ||
+            TelegramPreCacheEngine.isCaching(fileId) ||
+            TelegramChunkScheduler.activeChunkCount(fileId) > 0 ||
+            TelegramChunkScheduler.activeLeaseCount(fileId) > 0 ||
+            FocusPrefetchManager.isPrefetching(fileId)
+
     private fun deleteFilesBlocking(fileIds: List<Int>, account: AccountSnapshot): Set<Int> {
         if (fileIds.isEmpty()) return emptySet()
         if (!AccountSession.isCurrent(account)) return emptySet()
         val client = TdLibClient.client
-        val eligibleFileIds = fileIds.filterNot { fileId ->
-            pinnedFiles.contains(fileId) ||
-                PlaybackSessionController.isCacheProtectedPlaybackFile(fileId) ||
-                TelegramPreCacheEngine.isCaching(fileId) || TelegramChunkScheduler.activeChunkCount(fileId) > 0 ||
-                TelegramChunkScheduler.activeLeaseCount(fileId) > 0 ||
-                FocusPrefetchManager.isPrefetching(fileId)
-        }
+        val eligibleFileIds = fileIds.filterNot(::isTrackedFileDeletionProtected)
         if (eligibleFileIds.isEmpty()) return emptySet()
         val confirmed = ConcurrentHashMap.newKeySet<Int>()
         val latch = CountDownLatch(eligibleFileIds.size)
         eligibleFileIds.forEach { fileId ->
             try {
-                if (!AccountSession.isCurrent(account)) { latch.countDown(); return@forEach }
+                // A queued file may become the currently playing one between
+                // the candidate scan and issuing TDLib's async delete request.
+                if (!AccountSession.isCurrent(account) ||
+                    isTrackedFileDeletionProtected(fileId)
+                ) {
+                    latch.countDown()
+                    return@forEach
+                }
                 client.send(TdApi.DeleteFile(fileId)) { response ->
                     if (!AccountSession.isCurrent(account)) { latch.countDown(); return@send }
                     if (response is TdApi.Ok) {
