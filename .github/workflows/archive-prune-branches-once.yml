@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: archive-prune-main
@@ -29,10 +29,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Archive only fully merged branches without active PRs
+      - name: Archive every non-main branch and close archived PRs safely
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           ARCHIVE_RUN: ${{ github.run_id }}
+          ONE_BRANCH_CLEANUP: 'true'
         run: bash tools/ci/archive_prune_branches.sh
