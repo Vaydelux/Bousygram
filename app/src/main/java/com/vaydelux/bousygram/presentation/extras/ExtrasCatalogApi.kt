@@ -71,7 +71,8 @@ data class ExtrasDetail(
     val backdrop: String? = null,
     val youtubeId: String? = null,
     val legalStreamingLinks: List<ExtrasStreamingLink> = emptyList(),
-    val watchCountries: List<ExtrasWatchAvailability> = emptyList()
+    val watchCountries: List<ExtrasWatchAvailability> = emptyList(),
+    val episodeCount: Int? = null
 )
 
 /** Pure routing policy. Provider IDs must never be guessed or interchanged. */
@@ -548,6 +549,7 @@ object ExtrasCatalogApi {
             cast = cast + voiceActors + staff,
             reviews = reviewList,
             seasons = emptyList(), // AniList has episode counts / relations, not TMDB-style season episode lists.
+            episodeCount = obj.optInt("episodes").takeIf { it > 0 },
             related = relations,
             backdrop = secureImage(obj.optString("bannerImage")),
             youtubeId = ExtrasProviderPolicy.youtubeId(trailer?.optString("id")),
