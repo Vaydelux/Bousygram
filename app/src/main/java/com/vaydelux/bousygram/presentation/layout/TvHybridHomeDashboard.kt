@@ -398,9 +398,9 @@ fun TvHybridHomeDashboard(
                                             Text(
                                                 text = "$count",
                                                 color = if (isSelected) colors.primary else colors.onSurfaceVariant,
-                                                fontSize = 10.sp,
+                                                fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                             )
                                         }
                                     } else if (topic.unreadCount > 0) {
@@ -408,13 +408,13 @@ fun TvHybridHomeDashboard(
                                         Surface(
                                             shape = CircleShape,
                                             color = colors.error,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(26.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Text(
                                                     text = "${topic.unreadCount.coerceAtMost(99)}",
                                                     color = colors.onError,
-                                                    fontSize = 9.sp,
+                                                    fontSize = 12.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }

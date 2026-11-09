@@ -3420,8 +3420,8 @@ private fun TrackPickerOverlay(
             .widthIn(max = if (isTv) 760.dp else 420.dp)
             .fillMaxWidth(if (isTv) 0.72f else if (compact) 0.94f else 0.42f)
             .focusGroup(),
-        color = if (isTv) Color(0xFF0C1727) else MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-        contentColor = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(if (isTv) 20.dp else 24.dp),
         shadowElevation = if (isTv) 28.dp else 20.dp
     ) {
@@ -3442,7 +3442,7 @@ private fun TrackPickerOverlay(
                     modifier = Modifier.weight(1f),
                     fontSize = if (isTv) 28.sp else 22.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 BousygramButton("Close", onClose)
             }
@@ -3488,7 +3488,7 @@ private fun TrackPickerOverlay(
             if (selectedType == MediaTrackInfo.TrackType.SUBTITLE) {
                 Text(
                     "Select a subtitle track",
-                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = if (isTv) 20.sp else 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -3529,7 +3529,7 @@ private fun TrackPickerOverlay(
             ) {
                 Text(
                     "LibVLC supports subtitle tracks. Custom caption colors and sizing currently use ExoPlayer/libmpv.",
-                    color = if (isTv) Color(0xFFD3DFEC) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = if (isTv) 17.sp else 13.sp
                 )
             }
@@ -3538,13 +3538,13 @@ private fun TrackPickerOverlay(
             ) {
                 Text(
                     "Subtitle appearance",
-                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = if (isTv) 20.sp else 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
                     "Bitmap and burned-in captions cannot change appearance.",
-                    color = if (isTv) Color(0xFFD3DFEC) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = if (isTv) 16.sp else 12.sp
                 )
                 SubtitleColorPreset.entries.forEach { preset ->
@@ -3569,7 +3569,7 @@ private fun TrackPickerOverlay(
                     })
                     Text(
                         "Size ${subtitleAppearance.safePercent}%",
-                        color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                         fontSize = if (isTv) 20.sp else 15.sp
                     )
@@ -3594,16 +3594,16 @@ private fun TrackChoice(
     onSelect: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val fill = if (isTv) {
-        when {
-            focused -> Color(0xFF175481)
-            selected -> Color(0xFF174061)
-            else -> Color(0xFF17273B)
-        }
-    } else when {
-        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
-        focused -> MaterialTheme.colorScheme.surfaceVariant
-        else -> MaterialTheme.colorScheme.surface
+    val colors = MaterialTheme.colorScheme
+    val fill = when {
+        focused -> colors.primaryContainer
+        selected -> colors.secondaryContainer
+        else -> colors.surfaceContainerHigh
+    }
+    val foreground = when {
+        focused -> colors.onPrimaryContainer
+        selected -> colors.onSecondaryContainer
+        else -> colors.onSurface
     }
     Surface(
         modifier = modifier
@@ -3611,15 +3611,14 @@ private fun TrackChoice(
             .heightIn(min = if (isTv) 60.dp else 44.dp)
             .border(
                 if (focused) 3.dp else if (isTv) 1.dp else 0.dp,
-                if (focused && isTv) Color(0xFF78D8FF)
-                else if (focused) MaterialTheme.colorScheme.primary
-                else if (isTv) Color(0xFF40566E) else Color.Transparent,
+                if (focused) colors.primary
+                else if (isTv) colors.outline else Color.Transparent,
                 RoundedCornerShape(if (isTv) 12.dp else 16.dp)
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onSelect),
         color = fill,
-        contentColor = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+        contentColor = foreground,
         shape = RoundedCornerShape(if (isTv) 12.dp else 16.dp)
     ) {
         Row(
@@ -3634,13 +3633,13 @@ private fun TrackChoice(
                 modifier = Modifier.weight(1f),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurface,
+                color = foreground,
                 fontSize = if (isTv) 19.sp else 14.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
             )
             if (selected) Text(
                 "✓",
-                color = if (isTv) Color(0xFF9EF4C9) else MaterialTheme.colorScheme.primary,
+                color = foreground,
                 fontSize = if (isTv) 23.sp else 18.sp,
                 fontWeight = FontWeight.Bold
             )

@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import com.vaydelux.bousygram.R
 import androidx.compose.ui.Modifier
@@ -74,16 +75,18 @@ fun BousygramModeSelection(
                     title = "Telegram Media",
                     subtitle = "Saved messages, channels, groups and your media library",
                     onClick = onTelegram,
-                    primary = true
+                    primary = true,
+                    modeTag = "mode-telegram"
                 )
                 ModeOption(
-                    title = "Movies, TV Shows & Anime",
-                    subtitle = "Discover movies, TV shows and anime",
+                    title = "Movies, TV Shows, Anime & Live TV",
+                    subtitle = "Explore catalogs and optional external web playback",
                     onClick = onExtras,
-                    primary = false
+                    primary = false,
+                    modeTag = "mode-extras"
                 )
                 Text(
-                    "TMDB powers Movies and TV Shows; AniList powers Anime. Extras is metadata-only and independent of Telegram Media.",
+                    "TMDB and AniList supply title information. Extras offers optional third-party web players and manual Live TV entry, separate from Telegram Media.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -94,11 +97,18 @@ fun BousygramModeSelection(
 }
 
 @Composable
-private fun ModeOption(title: String, subtitle: String, primary: Boolean, onClick: () -> Unit) {
+private fun ModeOption(
+    title: String,
+    subtitle: String,
+    primary: Boolean,
+    modeTag: String,
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(20.dp)
     val modifier = Modifier
         .fillMaxWidth()
+        .testTag(modeTag)
         .onFocusChanged { focused = it.isFocused }
         .border(
             if (focused) 3.dp else 1.dp,
@@ -156,13 +166,13 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                 }
                 Text("More to Explore", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(
-                    "Movies, TV shows and anime experiences are currently in progress.",
+                    "Movies, TV shows, anime and Live TV are available through Extras. External source availability varies.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    "Telegram Media is ready to use. This upcoming section is isolated from your Telegram account and playback.",
+                    "Extras uses separate web sessions and does not access your Telegram account or playback cache.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center

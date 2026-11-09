@@ -1046,8 +1046,8 @@ internal fun ExtrasSubtitlePicker(
             modifier = Modifier.fillMaxWidth(if (isTv) 0.78f else 0.94f)
                 .widthIn(max = if (isTv) 780.dp else 480.dp)
                 .testTag("extras-subtitle-dialog"),
-            color = Color(0xFF0D1929),
-            contentColor = Color.White,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
             shadowElevation = 24.dp
         ) {
@@ -1061,18 +1061,18 @@ internal fun ExtrasSubtitlePicker(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "Subtitle tracks",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = if (isTv) 28.sp else 21.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedButton(onClick = onDismiss) {
-                        Text("Close", color = Color.White)
+                        Text("Close", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 Text(
                     "Choose a subtitle track using the D-pad, or turn subtitles off.",
-                    color = Color(0xFFD0DCEB),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = if (isTv) 18.sp else 14.sp
                 )
                 SubtitlePickerChoice(
@@ -1121,18 +1121,29 @@ private fun SubtitlePickerChoice(
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    val colors = MaterialTheme.colorScheme
+    val fill = when {
+        focused -> colors.primaryContainer
+        selected -> colors.secondaryContainer
+        else -> colors.surfaceContainerHigh
+    }
+    val foreground = when {
+        focused -> colors.onPrimaryContainer
+        selected -> colors.onSecondaryContainer
+        else -> colors.onSurface
+    }
     Surface(
         modifier = modifier.fillMaxWidth()
             .heightIn(min = if (isTv) 64.dp else 48.dp)
             .border(
                 if (focused) 3.dp else 1.dp,
-                if (focused) Color(0xFF78D8FF) else Color(0xFF3B526C),
+                if (focused) colors.primary else colors.outline,
                 shape
             )
             .onFocusChanged { focused = it.isFocused }
             .selectable(selected = selected, onClick = onClick),
-        color = if (focused) Color(0xFF175481)
-            else if (selected) Color(0xFF174061) else Color(0xFF17273B),
+        color = fill,
+        contentColor = foreground,
         shape = shape
     ) {
         Row(
@@ -1143,10 +1154,10 @@ private fun SubtitlePickerChoice(
                 title,
                 modifier = Modifier.weight(1f),
                 fontSize = if (isTv) 20.sp else 15.sp,
-                color = Color.White,
+                color = foreground,
                 maxLines = 2
             )
-            if (selected) Text("✓", color = Color(0xFF9EF4C9), fontSize = 24.sp)
+            if (selected) Text("✓", color = foreground, fontSize = 24.sp)
         }
     }
 }

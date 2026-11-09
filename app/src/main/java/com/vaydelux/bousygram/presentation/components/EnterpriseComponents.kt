@@ -962,7 +962,7 @@ fun BousygramButton(
         onClick = onClick,
         selected = selected,
         enabled = enabled,
-        modifier = modifier.heightIn(min = 44.dp)
+        modifier = modifier.heightIn(min = 48.dp)
     ) { focused ->
         Box(
             contentAlignment = Alignment.Center,
@@ -970,11 +970,9 @@ fun BousygramButton(
         ) {
             Text(
                 text = text,
-                color = when {
-                    selected -> MaterialTheme.colorScheme.secondary
-                    focused -> MaterialTheme.colorScheme.onSurface
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
+                // The selected fill is translucent, so secondary-colored text
+                // can lose contrast in Light mode. Keep the text semantic.
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -2179,24 +2177,27 @@ fun RecentSearchesSection(
                                 Text(
                                     text = "${entry.resultCount}",
                                     color = if (isSelected) colors.primary else colors.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                 )
                             }
                         }
                         if (onRemoveQuery != null && !isSelected) {
                             Box(
                                 modifier = Modifier
+                                    .size(48.dp)
                                     .clip(CircleShape)
-                                    .clickable { onRemoveQuery(entry.query) }
-                                    .padding(horizontal = 3.dp, vertical = 1.dp),
+                                    .clickable(
+                                        role = Role.Button,
+                                        onClickLabel = "Remove recent search ${entry.query}"
+                                    ) { onRemoveQuery(entry.query) },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = "×",
-                                    color = colors.onSurfaceVariant.copy(alpha = 0.75f),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                             }

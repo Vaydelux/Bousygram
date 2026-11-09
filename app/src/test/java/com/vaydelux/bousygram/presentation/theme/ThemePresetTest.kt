@@ -28,6 +28,21 @@ class ThemePresetTest {
         assertTrue(themeContrastRatio(high.onPrimary, high.primary) >= 7.0)
     }
 
+    @Test fun tvTrackAndSubtitlePickerSemanticStatesKeepReadableContrast() {
+        BousygramThemePreset.entries.forEach { preset ->
+            val c = schemeFor(preset)
+            val roles = listOf(
+                "focused" to (c.onPrimaryContainer to c.primaryContainer),
+                "selected" to (c.onSecondaryContainer to c.secondaryContainer),
+                "unselected" to (c.onSurface to c.surfaceContainerHigh)
+            )
+            roles.forEach { (name, pair) ->
+                assertTrue("${preset.id} $name must be readable",
+                    themeContrastRatio(pair.first, pair.second) >= 4.5)
+            }
+        }
+    }
+
     @Test fun hudOpacityRespectsHighContrastWhileShowingMoreVideoInDarkMode() {
         assertEquals(0.90f, playerHudSurfaceOpacity(BousygramThemePreset.DARK.background), 0.001f)
         assertEquals(0.96f, playerHudSurfaceOpacity(BousygramThemePreset.LIGHT.background), 0.001f)
