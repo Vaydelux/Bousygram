@@ -229,6 +229,7 @@ object CacheManager {
         if (currentFileId <= 0 || nextItemFileId == null ||
             nextItemFileId <= 0 || nextItemFileId == currentFileId
         ) return
+        if (StoragePressureMonitor.isLow()) return
         if (shouldPreloadNextEpisode(
                 currentPositionMs, durationMs, currentBufferedPositionMs,
                 isBuffering, playWhenReady, currentFileSizeBytes, measuredThroughputBytesPerSec
@@ -237,6 +238,9 @@ object CacheManager {
     }
 
     fun preloadNextEpisode(nextFileId: Int, totalSize: Long = 0L) {
+        // This is optional next-episode work, never a foreground playback read.
+        // On small TVs reserve free flash for the video already being watched.
+        if (StoragePressureMonitor.isLow()) return
         val owner = AccountSession.current() ?: return
         if (nextFileId <= 0 || preloadedNextEpisodes.contains(nextFileId)) return
         val now = System.nanoTime() / 1_000_000L

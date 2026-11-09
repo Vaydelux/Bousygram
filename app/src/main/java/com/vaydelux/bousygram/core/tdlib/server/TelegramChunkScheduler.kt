@@ -5,6 +5,7 @@ import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
+import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
 import com.vaydelux.bousygram.core.tdlib.server.TdLibTelegramFileGateway.toGatewayFile
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import kotlinx.coroutines.CompletableDeferred
@@ -796,6 +797,12 @@ internal object TelegramChunkScheduler {
         val effectivePriority = if (isPlaybackPurpose(purpose)) PLAYBACK_PRIORITY else min(priority, PREFETCH_PRIORITY)
         val job = scope.launch(start = CoroutineStart.LAZY) {
             if (effectiveId <= 0 || length <= 0L) return@launch
+            // Streaming and Preflight are user-driven reads and must still work.
+            // Only speculative range work yields under storage pressure.
+            val speculative = purpose == TelegramChunkPurpose.CacheAhead ||
+                purpose == TelegramChunkPurpose.BackgroundFull ||
+                purpose == TelegramChunkPurpose.Priming
+            if (speculative && StoragePressureMonitor.isLow()) return@launch
             val endExclusive = offset.coerceAtLeast(0L) + length
             var currentOffset = offset.coerceAtLeast(0L)
             var failures = 0
@@ -812,6 +819,9 @@ internal object TelegramChunkScheduler {
             )
 
             while (currentOffset < endExclusive && coroutineContext.isActive) {
+                // A previously started next-episode/poster prefetch cannot keep
+                // filling flash after free space drops below 500 MiB.
+                if (speculative && StoragePressureMonitor.isLow()) return@launch
                 val limit = min(CHUNK_SIZE_BYTES.toLong(), endExclusive - currentOffset).toInt()
                 val result = fetchChunk(
                     TelegramChunkRequest(

@@ -134,3 +134,49 @@ files or database directories using raw filesystem cleanup.
    canceled next-episode prefetches do not create repeated buffering.
 5. Compare physical app disk usage and RAM PSS separately for 30–60 minutes.
    No hardware certification or 200 MiB total-app guarantee is claimed.
+
+## Streaming-first storage protection (next milestone)
+
+**Goal:** keep the 200 MiB managed media-cache allocation useful on an
+8 GB Android TV, while protecting the current movie's playback/seek traffic.
+
+- **500 MiB free:** speculative next-episode, focused-poster and background
+  head/range prefetch are disabled. Already running speculative range jobs
+  stop requesting further chunks at their next chunk boundary. The player
+  can still request required foreground bytes.
+- **250 MiB free:** classified as critical storage pressure; no extra
+  speculative work is permitted. These thresholds are based on actual
+  available bytes from the TDLib app-data filesystem; the check is cached
+  for eight seconds to avoid hot-path filesystem polling. If the disk
+  measurement is unavailable, optional downloads fail closed.
+- **Active player:** its requested stream bytes and seek handling are never
+  blocked by this guard. Any speculative read-ahead request is capped at
+  32 MiB on healthy storage and reduced to zero below the low-space
+  threshold. This does not shrink an active decoder's memory allocations.
+- **Playback exit / track switch:** the app schedules protected TDLib
+  reclamation on the existing serial I/O worker. A successful TDLib
+  download cancellation also prompts reclamation; the job is coalesced.
+  Already pinned/offline files, live player/seek leases and
+  continue-watching items are protected by existing guards.
+- **Lifecycle:** a foreground return on low storage cancels focus prefetch,
+  pauses other background speculation and schedules cleanup. The regular
+  protected cleanup cadence is now every 10 minutes (previously 30)
+  while Telegram runtime is active. The initial Telegram runtime start
+  still schedules a cleanup, and app backgrounding also prunes.
+
+**Remaining architectural limitation (important):** TDLib's active
+`openPlayback` currently begins an open-ended foreground download to
+avoid MKV/TS seek and Media3-reopen stalls. A very large movie can therefore
+temporarily grow beyond the 160 MiB TDLib-cache *eviction target* while the
+file is still in use; this milestone does not claim to convert that path into
+a bounded rolling disk window. Doing that safely requires native range
+handoff, exact seek/resume regression coverage, and physical ARM32/ARM64
+testing to ensure no looped buffering. Never delete the in-use file just
+to enforce a nominal 200 MiB quota.
+
+**How to validate:** measure available flash before, during and after
+two long MKV/TS episodes. Trigger playback switches and app-background
+cleanup. Verify no new focus/next-episode prefetch occurs while free space
+is under 500 MiB, active movie seeking still works, and pinned downloads
+survive. Repeat physical low-storage and crash reproduction separately.
+Android CI does not replace real-device low-flash playback qualification.

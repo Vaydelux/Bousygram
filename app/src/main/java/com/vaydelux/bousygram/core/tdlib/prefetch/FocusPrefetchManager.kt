@@ -4,6 +4,7 @@ import android.util.Log
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
+import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkPurpose
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkRequest
@@ -62,8 +63,9 @@ object FocusPrefetchManager {
             return
         }
 
-        // Invariant: Never prefetch while video playback is active
-        if (PlaybackSessionController.isVideoPlaying()) {
+        // Low-storage TVs must never spend flash on a focused poster video.
+        // Preserve the existing foreground-only streaming path.
+        if (PlaybackSessionController.isVideoPlaying() || StoragePressureMonitor.isLow()) {
             onFocusCleared()
             return
         }
@@ -83,8 +85,8 @@ object FocusPrefetchManager {
             delay(FOCUS_DEBOUNCE_MS)
             if (!isActive) return@launch
 
-            if (PlaybackSessionController.isVideoPlaying()) {
-                Log.d(TAG, "Playback active; skipping focus prefetch for fileId=$fileId")
+            if (PlaybackSessionController.isVideoPlaying() || StoragePressureMonitor.isLow()) {
+                Log.d(TAG, "Playback or low storage; skipping focus prefetch for fileId=$fileId")
                 return@launch
             }
 
@@ -145,7 +147,8 @@ object FocusPrefetchManager {
             var releaseReason = TelegramLeaseReleaseReason.Completed
             try {
                 semaphore.withPermit {
-                    if (!isActive || PlaybackSessionController.isVideoPlaying()) return@withPermit
+                    if (!isActive || PlaybackSessionController.isVideoPlaying() ||
+                        StoragePressureMonitor.isLow()) return@withPermit
                     Log.i(TAG, "Starting focus prefetch")
 
                     // Track file access in offline cache manager

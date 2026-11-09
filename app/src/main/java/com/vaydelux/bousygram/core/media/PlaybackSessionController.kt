@@ -4,6 +4,9 @@ import androidx.media3.common.PlaybackException
 import com.vaydelux.bousygram.core.observability.PlaybackErrorMapper
 import com.vaydelux.bousygram.core.observability.PlaybackRecoveryAction
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
+import com.vaydelux.bousygram.core.cache.CacheManager
+import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
+import com.vaydelux.bousygram.core.cache.StoragePressurePolicy
 import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import com.vaydelux.bousygram.data.store.BufferMode
@@ -242,18 +245,26 @@ object PlaybackSessionController {
             BufferMode.StableNetwork -> if (startup) 30_000L else 45_000L
         }
         val targetPosition = saturatedCacheLeadPositionMs(positionMs, leadMs)
-        val maxBytes = when (mode) {
+        val proposedBytes = when (mode) {
             BufferMode.FastStart -> if (session.consecutiveRangeStalls >= 2) MIN_CACHE_AHEAD_BYTES else FAST_START_CACHE_AHEAD_BYTES
             BufferMode.Balanced -> adaptiveCacheAheadBytes(session)
             BufferMode.StableNetwork -> STABLE_CACHE_AHEAD_BYTES
         }
-        TelegramPreCacheEngine.cacheAhead(
-            fileId = session.fileId,
-            totalSize = totalSize,
-            positionMs = targetPosition,
-            durationMs = durationMs,
-            maxBytes = maxBytes
+        val maxBytes = StoragePressurePolicy.boundedReadAheadBytes(
+            proposedBytes, StoragePressureMonitor.freeBytes()
         )
+        // This operation is entirely speculative and must not compete with
+        // the active decoder when disk space is low.
+        if (maxBytes > 0L) {
+            TelegramPreCacheEngine.cacheAhead(
+                fileId = session.fileId,
+                totalSize = totalSize,
+                positionMs = targetPosition,
+                durationMs = durationMs,
+                maxBytes = maxBytes
+            )
+        }
+        // Progress diagnostics must still update when optional prefetch is disabled.
         recordProgress(session, positionMs, totalSize, durationMs)
     }
 
@@ -327,6 +338,10 @@ object PlaybackSessionController {
         session.release()
         if (activeSessions.isEmpty()) isVideoPlayingFlag.set(false)
         record(session)
+        // Run outside the player teardown on the cache worker. The ongoing
+        // media is no longer protected by this session; offline pins, other
+        // active leases and continue-watching entries remain protected.
+        CacheManager.triggerCacheCleanupIfNeeded()
         ownerFailure?.let { throw it }
     }
 

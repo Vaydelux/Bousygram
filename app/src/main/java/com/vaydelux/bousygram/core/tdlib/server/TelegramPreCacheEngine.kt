@@ -3,6 +3,9 @@ package com.vaydelux.bousygram.core.tdlib.server
 import android.content.Context
 import android.util.Log
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
+import com.vaydelux.bousygram.core.cache.CacheManager
+import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
+import com.vaydelux.bousygram.core.cache.StoragePressurePolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,7 +53,8 @@ object TelegramPreCacheEngine {
         includeTail: Boolean = true,
         onComplete: ((Boolean) -> Unit)? = null
     ) {
-        if (fileId <= 0 || TelegramChunkScheduler.isPlaybackBusy(fileId)) {
+        if (fileId <= 0 || TelegramChunkScheduler.isPlaybackBusy(fileId) ||
+            StoragePressureMonitor.isLow()) {
             onComplete?.invoke(false)
             return
         }
@@ -115,7 +119,7 @@ object TelegramPreCacheEngine {
         durationMs: Long,
         maxBytes: Long = CACHE_AHEAD_BYTES
     ) {
-        if (fileId <= 0 || totalSize <= 0L) return
+        if (fileId <= 0 || totalSize <= 0L || StoragePressureMonitor.isLow()) return
         // Playback has an open-ended high-priority window; avoid competing cache requests.
         if (TelegramChunkScheduler.isPlaybackBusy(fileId)) return
         val offset = positionToOffset(totalSize, positionMs, durationMs)
@@ -124,7 +128,11 @@ object TelegramPreCacheEngine {
         } else {
             maxBytes
         }
-        val length = min(effectiveMax.coerceIn(1L, CACHE_AHEAD_BYTES * 2), totalSize - offset)
+        val bounded = StoragePressurePolicy.boundedReadAheadBytes(
+            effectiveMax, StoragePressureMonitor.freeBytes()
+        )
+        if (bounded <= 0L) return
+        val length = min(bounded, totalSize - offset)
         if (length <= 0L) return
 
         val endExclusive = offset + length
@@ -215,6 +223,10 @@ object TelegramPreCacheEngine {
                     Log.w(TAG, "CancelDownloadFile failed fileId=$fileId code=${response.code} message=${response.message}")
                 } else {
                     Log.d(TAG, "Stopped active Telegram download fileId=$fileId")
+                    // The player has released its file; a protected worker can
+                    // now remove eligible watched/old bytes without touching
+                    // any active playback leases or pinned offline downloads.
+                    CacheManager.triggerCacheCleanupIfNeeded()
                 }
             }
         } catch (t: Throwable) {

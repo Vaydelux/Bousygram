@@ -10,6 +10,8 @@ import com.vaydelux.bousygram.core.cache.TvStorageBudget
 import coil.memory.MemoryCache
 import com.vaydelux.bousygram.core.memory.decodedPosterCacheHeapFraction
 import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
+import com.vaydelux.bousygram.core.cache.CacheManager
+import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
 import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
 import com.vaydelux.bousygram.core.memory.mediaMemoryTrim
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -114,7 +116,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
         com.vaydelux.bousygram.data.database.VideoIndexRepository.init(this)
         com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.init(this)
         com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.enableStorageOptimizer()
-        com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.startPeriodicGc(intervalMinutes = 30)
+        com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.startPeriodicGc(intervalMinutes = 10)
         TelegramLogWrapper.configure()
         LocalStreamingServer.start()
         TelegramProxyManager.startProxy()
@@ -128,7 +130,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
 
     private fun refreshTelegramForegroundServices() {
         com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.refresh()
-        if (ManagedAppConfiguration.allowBackgroundPrefetch()) {
+        if (ManagedAppConfiguration.allowBackgroundPrefetch() && !StoragePressureMonitor.isLow()) {
             TelegramPreCacheEngine.resumeBackgroundCaching()
         } else {
             TelegramPreCacheEngine.pauseBackgroundCaching()
@@ -138,18 +140,23 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
 
     override fun onStart(owner: LifecycleOwner) {
         ManagedAppConfiguration.refresh(this)
-        if (telegramRuntimeStarted) refreshTelegramForegroundServices()
+        if (telegramRuntimeStarted) {
+            if (StoragePressureMonitor.isLow()) {
+                com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.cancelAll()
+                TelegramPreCacheEngine.pauseBackgroundCaching()
+                CacheManager.triggerCacheCleanupIfNeeded()
+            }
+            refreshTelegramForegroundServices()
+        }
     }
 
     override fun onStop(owner: LifecycleOwner) {
         // Preserve active Telegram sessions, sockets and playback across modes and PiP.
         // Extras-only processes have no Telegram jobs or files to prune.
         if (!telegramRuntimeStarted) return
-        com.vaydelux.bousygram.core.tdlib.cache.TelegramNativeFileGc.optimizeStorage()
-        TelegramCachePruner.pruneCacheIfNecessary(
-            context = this,
-            tdLibCacheDir = File(filesDir, "tdlib_files")
-        )
+        // One coalesced protected sweep is enough. The prior stop path
+        // scheduled two independent TDLib scans for the same files.
+        CacheManager.triggerCacheCleanupIfNeeded()
     }
 
     @Suppress("DEPRECATION")

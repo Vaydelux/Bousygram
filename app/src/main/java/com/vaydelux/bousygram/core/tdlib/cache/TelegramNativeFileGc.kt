@@ -47,7 +47,7 @@ object TelegramNativeFileGc {
         }
     }
 
-    fun startPeriodicGc(intervalMinutes: Long = 30) {
+    fun startPeriodicGc(intervalMinutes: Long = 10) {
         if (periodicJob?.isActive == true) return
         periodicJob = scope.launch {
             while (isActive) {
