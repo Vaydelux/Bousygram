@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import com.vaydelux.bousygram.R
 import androidx.compose.ui.Modifier
@@ -74,13 +75,15 @@ fun BousygramModeSelection(
                     title = "Telegram Media",
                     subtitle = "Saved messages, channels, groups and your media library",
                     onClick = onTelegram,
-                    primary = true
+                    primary = true,
+                    modeTag = "mode-telegram"
                 )
                 ModeOption(
                     title = "Movies, TV Shows, Anime & Live TV",
                     subtitle = "Explore catalogs and optional external web playback",
                     onClick = onExtras,
-                    primary = false
+                    primary = false,
+                    modeTag = "mode-extras"
                 )
                 Text(
                     "TMDB and AniList supply title information. Extras offers optional third-party web players and manual Live TV entry, separate from Telegram Media.",
@@ -94,11 +97,18 @@ fun BousygramModeSelection(
 }
 
 @Composable
-private fun ModeOption(title: String, subtitle: String, primary: Boolean, onClick: () -> Unit) {
+private fun ModeOption(
+    title: String,
+    subtitle: String,
+    primary: Boolean,
+    modeTag: String,
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(20.dp)
     val modifier = Modifier
         .fillMaxWidth()
+        .testTag(modeTag)
         .onFocusChanged { focused = it.isFocused }
         .border(
             if (focused) 3.dp else 1.dp,
