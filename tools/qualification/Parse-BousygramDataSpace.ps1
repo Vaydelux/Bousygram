@@ -13,9 +13,9 @@ function Read-BousygramDataSpace {
         [long] $total = 0
         [long] $used = 0
         [long] $free = 0
-        if (-not [long]::TryParse(($columns[-5] -replace ',', ''),, [ref]$total)) { continue }
-        if (-not [long]::TryParse(($columns[-4] -replace ',', ''),, [ref]$used)) { continue }
-        if (-not [long]::TryParse(($columns[-3] -replace ',', ''),, [ref]$free)) { continue }
+        if (-not [long]::TryParse(($columns[-5] -replace ',', ''), [ref]$total)) { continue }
+        if (-not [long]::TryParse(($columns[-4] -replace ',', ''), [ref]$used)) { continue }
+        if (-not [long]::TryParse(($columns[-3] -replace ',', ''), [ref]$free)) { continue }
         if ($total -le 0 -or $used -lt 0 -or $free -lt 0 -or
             $used -gt $total -or $free -gt $total - $used) { continue }
         return [pscustomobject]@{
