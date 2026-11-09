@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -757,6 +758,24 @@ private fun ExtrasServerPicker(
         }
         if (expanded) {
             Dialog(onDismissRequest = { expanded = false }) {
+                val listState = rememberLazyListState()
+                val selectedFocus = remember { FocusRequester() }
+                // Include group header rows when calculating the selected row.
+                val selectedPosition = remember(options, selectedKey) {
+                    val selected = options.indexOfFirst { it.key == selectedKey }
+                    if (selected < 0) 0
+                    else selected + options.take(selected + 1).map { it.group }.distinct().size
+                }
+                // The server picker lives in another Android window. Ensure an
+                // already selected server is reachable by D-pad without 50 taps.
+                LaunchedEffect(selectedPosition) {
+                    listState.scrollToItem(selectedPosition)
+                    withFrameNanos { }
+                    if (!selectedFocus.requestFocus()) {
+                        withFrameNanos { }
+                        selectedFocus.requestFocus()
+                    }
+                }
                 Surface(
                     shape = MaterialTheme.shapes.large,
                     modifier = Modifier.widthIn(min = 260.dp, max = if (isTv) 530.dp else 390.dp)
@@ -766,6 +785,7 @@ private fun ExtrasServerPicker(
                         Text("Third-party sources are not verified for availability or licensing.",
                             style = MaterialTheme.typography.labelSmall)
                         androidx.compose.foundation.lazy.LazyColumn(
+                            state = listState,
                             modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp)
                         ) {
                             options.groupBy { it.group }.forEach { (group, candidates) ->
@@ -788,6 +808,8 @@ private fun ExtrasServerPicker(
                                             if (candidate.key != selectedKey) onSelected(candidate.key)
                                         },
                                         modifier = Modifier.heightIn(min = if (isTv) 64.dp else 48.dp)
+                                            .then(if (candidate.key == selectedKey)
+                                                Modifier.focusRequester(selectedFocus) else Modifier)
                                             .semantics { selected = candidate.key == selectedKey }
                                             .testTag(candidate.key)
                                     )
@@ -863,17 +885,23 @@ internal fun ExtrasVirtualCursor(
     tag: String
 ) {
     val focus = remember { FocusRequester() }
-    // Explicit user input is required before any synthetic pointer action.
+    // The HTML5 fullscreen window / WebView may attach after composition.
+    // Two bounded frame attempts avoid an unresponsive remote on slow TVs.
     LaunchedEffect(isActive, target) {
-        if (isActive) runCatching { focus.requestFocus() }
+        if (isActive) {
+            withFrameNanos { }
+            if (!focus.requestFocus()) {
+                withFrameNanos { }
+                focus.requestFocus()
+            }
+        }
     }
     Box(
         modifier = Modifier.fillMaxSize()
             .onPreviewKeyEvent { event ->
                 if (!isActive || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val repeat = event.nativeKeyEvent.repeatCount
-                val baseStep = maxOf(18, minOf(widthPx, heightPx) / 55)
-                val step = if (repeat > 4) baseStep * 2 else baseStep
+                val step = ExtrasTvCursorPolicy.step(widthPx, heightPx, repeat)
                 when (event.nativeKeyEvent.keyCode) {
                     AndroidKeyEvent.KEYCODE_DPAD_UP -> {
                         onDelta(0, -step)
@@ -908,8 +936,9 @@ internal fun ExtrasVirtualCursor(
                     xPx.coerceIn(0, widthPx - 1),
                     yPx.coerceIn(0, heightPx - 1)
                 )
-            }.size(24.dp)
+            }.size(30.dp)
         ) {
+            // Larger high-contrast arrow remains legible at TV viewing distances.
             // Pointer tip is also the exact synthesized tap hotspot.
             val arrow = Path().apply {
                 moveTo(0f, 0f)
