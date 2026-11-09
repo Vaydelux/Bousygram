@@ -12,7 +12,8 @@ internal enum class ExtrasAnimeEmbedServer(
     FMOV("FMOV", "https://fmov.my/embed/anime/{anilistId}/{season}/{episode}", featured = true),
     CINETARO("Cinetaro", "https://cinextream.cc/api/embed/anime/sub/{anilistId}/{episode}", mapOf("color" to "e91e63"), featured = true),
     VIDY("Vidy", "https://vidy.st/anime/{anilistId}/{episode}", mapOf("color" to "DC2626"), featured = true),
-    XXIKU("XXIKU", "https://player.xxiku.com/embed/anime/{anilistId}/{episode}", featured = true);
+    XXIKU("XXIKU", "https://player.xxiku.com/embed/anime/{anilistId}/{episode}", featured = true),
+    EMBED_HEAVEN("EmbedHeaven", ExtrasEmbedHeavenRoutes.ANIME_TEMPLATE, featured = true);
 
     val description: String get() = "External anime embed; availability unverified"
 

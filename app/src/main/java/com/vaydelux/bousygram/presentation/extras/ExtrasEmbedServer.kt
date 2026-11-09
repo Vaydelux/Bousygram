@@ -47,7 +47,7 @@ internal enum class ExtrasEmbedServer(
 ) {
     CINESRC("CineSrc", "Original external embed", "https://cinesrc.st/embed/movie/{tmdbId}", "https://cinesrc.st/embed/tv/{tmdbId}?s={season}&e={episode}"),
     XXIKU("XXIKU", "External movie/TV embed; availability unverified", "https://player.xxiku.com/embed/movie/{tmdbId}", "https://player.xxiku.com/embed/tv/{tmdbId}/{season}/{episode}"),
-    EMBED_HEAVEN("EmbedHeaven", "Alternate external embedded player", "https://player.embedheaven.st/movie/{tmdbId}?autoplay=0", "https://player.embedheaven.st/tv/{tmdbId}/{season}/{episode}?autoplay=0"),
+    EMBED_HEAVEN("EmbedHeaven", "External movie/TV embed; availability unverified", ExtrasEmbedHeavenRoutes.MOVIE_TEMPLATE, ExtrasEmbedHeavenRoutes.TV_TEMPLATE),
     SERVER_111MOVIES("111Movies", "External embed; playback and licensing unverified", "https://111movies.net/movie/{id}", "https://111movies.net/tv/{id}/{season}/{episode}"),
     SERVER_1EMBED("1Embed", "External embed; playback and licensing unverified", "https://1embed.cc/embed/movie/{id}", "https://1embed.cc/embed/tv/{id}/{season}/{episode}"),
     SERVER_2EMBED("2Embed", "External embed; playback and licensing unverified", "https://www.2embed.cc/embed/{id}", "https://www.2embed.cc/embedtv/{id}?s={season}&e={episode}"),
