@@ -7,7 +7,7 @@ and [zoku-tv AniList catalog](https://github.com/Vaydelux/zoku-tv/blob/e094faeaa
 - TMDB: 50 source entries from upstream, including CineSrc already present in Bousygram, plus
   two retained Bousygram-specific servers (XXIKU and EmbedHeaven): **52 registered, 51 selectable**.
   TMDB movie and series IDs are never substituted with AniList or IMDb IDs.
-- AniList: 5 source entries plus Bousygram XXIKU: **6 total**, separate server picker. Selected episodes use the AniList media
+- AniList: 5 source entries plus Bousygram XXIKU and EmbedHeaven: **7 total**, separate server picker. Selected episodes use the AniList media
   ID, season 1, and a one-based episode number. AniList media IDs commonly refer to a
   specific season; do not assume one ID provides every sequel season.
 - Existing TMDB season 0 (specials) remains valid. Anime episode controls are one-based.
@@ -19,6 +19,18 @@ and [zoku-tv AniList catalog](https://github.com/Vaydelux/zoku-tv/blob/e094faeaa
   The anime URL includes the episode but **not a season**, as AniList media IDs
   already identify the anime entry; the API's season argument is validated but
   intentionally not rendered in this server's URL.
+- EmbedHeaven uses `https://player.embedheaven.st` with five supplied patterns:
+  `/movie/{tmdb_id}`, `/tv/{tmdb_id}/{season}/{episode}`,
+  `/anime/{anilist_id}/{episode}`, `/live/{channel_slug}`, and
+  legacy movie fallback `/embed?id={id}&type=movie`. The undocumented
+  `autoplay=0` parameter has been removed from the movie/TV URLs.
+  The legacy movie fallback is an explicit control on EmbedHeaven movie pages,
+  not an automatic provider redirect.
+- Live TV is a manual channel-slug entry in Extras (for example, `bbc-one-gb`),
+  not a TMDB/AniList catalog tab or an auto-populated channel list. Channel
+  slugs must be 1–80 lowercase ASCII letters, digits, or hyphen-separated
+  words. Live streams use the existing isolated WebView and guarded native
+  handoff; upstream availability and playback support remain unverified.
 - Both catalogs use a user-selected HTTPS WebView page. Switching servers disposes the
   previous MediaForge session and invalidates discovered streams, captions and checks.
 - `SUPEREMBED_VIP` is registered but **not selectable**. Its upstream
