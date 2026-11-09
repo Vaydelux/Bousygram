@@ -201,6 +201,47 @@ class MediaForgeWebBridgeInstrumentedTest {
         }
     }
 
+    @Test fun legacyEmbedNavigationCannotSwitchMovieIdentity() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val bridge = MediaForgeWebBridge(onMediaResource = {})
+            val view = bridge.create(
+                instrumentation.targetContext,
+                "https://mediaforge.example.invalid/embed?id=550&type=movie"
+            )
+            try {
+                fun request(url: String) = object : WebResourceRequest {
+                    override fun getUrl(): Uri = Uri.parse(url)
+                    override fun isForMainFrame(): Boolean = true
+                    override fun isRedirect(): Boolean = false
+                    override fun hasGesture(): Boolean = true
+                    override fun getMethod(): String = "GET"
+                    override fun getRequestHeaders(): Map<String, String> = emptyMap()
+                }
+                assertFalse(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://mediaforge.example.invalid/embed?id=550&type=movie&server=2")
+                ))
+                assertTrue(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://mediaforge.example.invalid/embed?id=551&type=movie")
+                ))
+                assertTrue(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://mediaforge.example.invalid/embed?id=550&type=tv")
+                ))
+                assertTrue(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://mediaforge.example.invalid/embed?id=550&id=551&type=movie")
+                ))
+                assertTrue(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://outside.example.invalid/embed?id=550&type=movie")
+                ))
+            } finally {
+                bridge.close()
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            }
+        }
+    }
+
     @Test fun webBridgeRejectsUnsafeTopLevelEmbed() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
