@@ -25,7 +25,7 @@ class ExtrasEmbedRequestTest {
         val expected = mapOf(
             ExtrasEmbedServer.CINESRC to "https://cinesrc.st/embed/movie/1084242",
             ExtrasEmbedServer.XXIKU to
-                "https://player.xxiku.com/embed/movie/1084242?best=1&auto=1&style=compact",
+                "https://player.xxiku.com/embed/movie/1084242",
             ExtrasEmbedServer.EMBED_HEAVEN to
                 "https://player.embedheaven.st/movie/1084242?autoplay=0"
         )
@@ -46,7 +46,7 @@ class ExtrasEmbedRequestTest {
             original.url
         )
         assertEquals(
-            "https://player.xxiku.com/embed/tv/1399/0/3?best=1&auto=1&style=compact",
+            "https://player.xxiku.com/embed/tv/1399/0/3",
             original.forServer(ExtrasEmbedServer.XXIKU).url
         )
         val alternate = original.forServer(ExtrasEmbedServer.EMBED_HEAVEN)
