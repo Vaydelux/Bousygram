@@ -355,7 +355,11 @@ object CacheManager {
         val safeCandidates = files
             .filter { (id, file) ->
                 !pinnedFiles.contains(id) &&
-                    !PlaybackSessionController.isFileActive(id) &&
+                    // Episode queue membership grants stream access, but is
+                    // not a reason to retain an otherwise evictable full file.
+                    // Protect only the active/resolving video; the safeguards
+                    // below still protect downloads, leases and prefetch.
+                    !PlaybackSessionController.isCacheProtectedPlaybackFile(id) &&
                     !continueWatchingIds.contains(id) &&
                     id != protectedLastPlayedId &&
                     !TelegramPreCacheEngine.isCaching(id) &&
