@@ -568,7 +568,12 @@ object CacheManager {
                     }
                 }
                 completed = try {
-                    latch.await(remainingNs, TimeUnit.NANOSECONDS)
+                    // Include batch submission time in the single shared deadline.
+                    val waitNs = cacheTdLibRemainingNanos(
+                        startedNs, System.nanoTime(), TD_API_TIMEOUT_MS
+                    )
+                    if (waitNs > 0L) latch.await(waitNs, TimeUnit.NANOSECONDS)
+                    else false
                 } catch (interrupted: InterruptedException) {
                     Thread.currentThread().interrupt()
                     false
@@ -643,7 +648,12 @@ object CacheManager {
                     }
                 }
                 completed = try {
-                    latch.await(remainingNs, TimeUnit.NANOSECONDS)
+                    // Include batch submission time in the single shared deadline.
+                    val waitNs = cacheTdLibRemainingNanos(
+                        startedNs, System.nanoTime(), TD_API_TIMEOUT_MS
+                    )
+                    if (waitNs > 0L) latch.await(waitNs, TimeUnit.NANOSECONDS)
+                    else false
                 } catch (interrupted: InterruptedException) {
                     Thread.currentThread().interrupt()
                     false
