@@ -1,19 +1,10 @@
 name: Android Emulator Cast Smoke
 
 on:
+  # Every mainline debug prerelease must have an exact-commit emulator check.
   push:
     branches:
       - main
-    paths:
-      - '.github/workflows/android-emulator-smoke.yml'
-      - 'app/src/main/java/com/vaydelux/bousygram/core/media/**'
-      - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
-      - 'app/src/main/java/com/vaydelux/bousygram/presentation/components/**'
-      - 'app/src/main/java/com/vaydelux/bousygram/presentation/theme/**'
-      - 'app/src/main/java/com/vaydelux/bousygram/presentation/layout/**'
-      - 'app/src/androidTest/**'
-      - 'tools/ci/generate_playback_fixtures.sh'
-      - 'tools/ci/run_emulator_smoke.sh'
   pull_request:
     paths:
       - '.github/workflows/android-emulator-smoke.yml'
