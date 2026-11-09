@@ -237,6 +237,7 @@ internal object TelegramChunkScheduler {
     private val savedTails = ConcurrentHashMap<Int, SavedTail>()
     private val playbackReady = ConcurrentHashMap.newKeySet<Int>()
     private val boundedPlaybackFiles = ConcurrentHashMap.newKeySet<Int>()
+    private val boundedWindowExtensions = ConcurrentHashMap.newKeySet<Int>()
     @Volatile internal var experimentalBoundedOverrideForTests: Boolean? = null
 
     private fun boundedFeatureSelected(): Boolean =
@@ -254,6 +255,7 @@ internal object TelegramChunkScheduler {
         val effective = resolveEffectiveFileId(fileId)
         boundedPlaybackFiles.remove(effective)
         boundedPlaybackFiles.remove(fileId)
+        boundedWindowExtensions.remove(effective)
         playbackReady.remove(effective)
         downloadWindows.remove(effective)
         downloadProgress.remove(effective)
@@ -462,6 +464,7 @@ internal object TelegramChunkScheduler {
         savedTails.clear()
         playbackReady.clear()
         boundedPlaybackFiles.clear()
+        boundedWindowExtensions.clear()
         experimentalBoundedOverrideForTests = null
         prepareLocks.clear()
         downloadCommandLocks.clear()
@@ -989,6 +992,9 @@ internal object TelegramChunkScheduler {
             // seeking again would discard usable bytes and slow startup.
             readReadyChunk(latestFiles[request.fileId] ?: getFileStatus(request.fileId), request)?.let { cached ->
                 PlaybackTelemetryRecorder.recordCacheHit(request.fileId, cached.bytes.size)
+                // Renew before the finite range runs out, not on its first miss.
+                // Otherwise short sequential reads would stall at every boundary.
+                maybeExtendBoundedWindow(request)
                 return cached
             }
             // A distant extractor seek must not reopen the head window first.
@@ -1002,6 +1008,7 @@ internal object TelegramChunkScheduler {
             handleSeek(request)
             val result = awaitPlaybackChunk(request)
             if (result is TelegramChunkResult.Ready) {
+                maybeExtendBoundedWindow(request)
                 prefetchAhead(request.fileId, request.offset, result.bytes.size)
             }
             return result
@@ -1147,6 +1154,37 @@ internal object TelegramChunkScheduler {
         val minCap = if (isCellular) 4L * 1024L * 1024L else 8L * 1024L * 1024L
         val maxCap = if (isCellular) 16L * 1024L * 1024L else 48L * 1024L * 1024L
         return targetBytes.coerceIn(minCap, maxCap)
+    }
+
+    /** Extend finite downloads while the decoder still has cached runway. */
+    private fun maybeExtendBoundedWindow(request: TelegramChunkRequest) {
+        if (!isBoundedPlaybackFile(request.fileId)) return
+        val fileId = resolveEffectiveFileId(request.fileId)
+        val window = downloadWindows[fileId] ?: return
+        if (request.offset < window.offset || !ForegroundPlaybackWindowPolicy.needsNewWindow(
+                requestedOffset = request.offset,
+                readLength = request.limit,
+                windowStart = window.offset,
+                windowEndExclusive = window.endExclusive
+            )
+        ) return
+        if (!boundedWindowExtensions.add(fileId)) return
+        scope.launch {
+            try {
+                // A concurrent seek/stop may have replaced this range.
+                val current = downloadWindows[fileId]
+                if (!isBoundedPlaybackFile(fileId) || current == null ||
+                    current.offset != window.offset ||
+                    current.endExclusive != window.endExclusive
+                ) return@launch
+                val failure = issuePlaybackWindow(fileId, request.offset)
+                if (failure != null) {
+                    Log.w(TAG, "Bounded foreground extension could not start; reader will retry")
+                }
+            } finally {
+                boundedWindowExtensions.remove(fileId)
+            }
+        }
     }
 
     private suspend fun handleSeek(request: TelegramChunkRequest) {
