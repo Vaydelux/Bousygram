@@ -116,8 +116,23 @@ class MediaForgeWebBridge(
                 val targetPath = target?.path.orEmpty()
                 val allowedPath = targetPath == sourcePath ||
                     (sourcePath.startsWith("/embed/") && targetPath.startsWith("/embed/"))
+                // Provider-side selectors can change query options, but the
+                // legacy /embed?id=550&type=movie route must never silently
+                // switch to a different TMDB title or content type.
+                fun param(query: String?, name: String): String? =
+                    query.orEmpty().split('&')
+                        .filter { it.startsWith("$name=") }
+                        .singleOrNull()?.substringAfter('=')
+                val sourceId = param(approved.rawQuery, "id")
+                val sourceType = param(approved.rawQuery, "type")
+                val legacyIdentityLocked = if (sourcePath == "/embed" &&
+                    sourceId != null && sourceType != null
+                ) {
+                    sourceId == param(target?.rawQuery, "id") &&
+                        sourceType == param(target?.rawQuery, "type")
+                } else true
                 val allowed = target != null && target.host.equals(embedHost, true) &&
-                    allowedPath
+                    allowedPath && legacyIdentityLocked
                 if (!allowed) onNavigationBlocked?.invoke()
                 return !allowed
             }
