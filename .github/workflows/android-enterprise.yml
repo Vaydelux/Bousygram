@@ -104,7 +104,9 @@ jobs:
 
       - name: Test deterministic UTC debug prerelease tags
         shell: bash
-        run: bash tools/ci/test_debug_prerelease_tag.sh
+        run: |
+          bash tools/ci/test_debug_prerelease_tag.sh
+          bash tools/ci/test_debug_emulator_gate.sh
 
       # The pinned wrapper's runtime verification invokes Java. Provision the
       # explicit supported JDK first; ubuntu-latest may change default Java.
