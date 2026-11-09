@@ -14,12 +14,12 @@ class CacheManagerTest {
     }
 
     @Test
-    fun dynamicQuota_largeStorage_cappedAt2GB() {
+    fun dynamicQuota_largeStorage_cappedAt160MiBWithin200MiBMediaBudget() {
         // 50 GB free storage
         val availableBytes = 50L * 1024L * 1024L * 1024L
         val quota = CacheManager.calculateQuota(availableBytes, null)
 
-        assertEquals(2L * 1024L * 1024L * 1024L, quota)
+        assertEquals(TvStorageBudget.TELEGRAM_MEDIA_CACHE_BYTES, quota)
     }
 
     @Test
@@ -29,8 +29,8 @@ class CacheManagerTest {
         val quota = CacheManager.calculateQuota(availableBytes, null)
 
         val expected = (4L * 1024L * 1024L * 1024L * 0.15).toLong()
-        assertEquals(expected, quota)
-        assertTrue(quota < CacheManager.MAX_CACHE_LIMIT_BYTES)
+        assertEquals(CacheManager.MAX_CACHE_LIMIT_BYTES, quota)
+        assertTrue(expected > quota)
         assertTrue(quota > 0L)
     }
 
@@ -46,7 +46,8 @@ class CacheManagerTest {
     @Test
     fun dynamicQuota_managedCeilingAndZeroStorageAreRespected() {
         val availableBytes = 10L * 1024L * 1024L * 1024L
-        assertEquals(300L * 1024L * 1024L, CacheManager.calculateQuota(availableBytes, 300L * 1024L * 1024L))
+        assertEquals(TvStorageBudget.TELEGRAM_MEDIA_CACHE_BYTES, CacheManager.calculateQuota(availableBytes, 300L * 1024L * 1024L))
+        assertEquals(64L * TvStorageBudget.MIB, CacheManager.calculateQuota(availableBytes, 64L * TvStorageBudget.MIB))
         assertEquals(0L, CacheManager.calculateQuota(0L, null))
         assertEquals(0L, CacheManager.calculateQuota(-1L, -1L))
     }

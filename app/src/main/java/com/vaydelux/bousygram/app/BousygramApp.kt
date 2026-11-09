@@ -5,6 +5,8 @@ import android.app.ActivityManager
 import android.os.Process
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import com.vaydelux.bousygram.core.cache.TvStorageBudget
 import coil.memory.MemoryCache
 import com.vaydelux.bousygram.core.memory.decodedPosterCacheHeapFraction
 import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
@@ -41,6 +43,15 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(decodedPosterCacheHeapFraction(lowMemory))
+                    .build()
+            }
+            // Coil's default disk allocation is too large for 8 GB TV storage.
+            // Reuse the standard image_cache directory so old poster files
+            // are eligible for the same bounded LRU eviction on upgrade.
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(File(cacheDir, "image_cache"))
+                    .maxSizeBytes(TvStorageBudget.POSTER_DISK_CACHE_BYTES)
                     .build()
             }
             .build()
@@ -84,6 +95,9 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
             failure?.let { throw IllegalStateException("Account resources could not be fully closed", it) }
         }
         ManagedAppConfiguration.refresh(this)
+        // Recycle obsolete generated PNGs from all account-scoped cache dirs
+        // without doing a synchronous disk scan on cold Android TV startup.
+        ThumbnailExtractor.pruneDiskCacheAsync(this)
         // The account invalidation handler and lifecycle observer must exist from launch,
         // even when Extras is selected. Telegram native/loopback initialization is deferred.
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)

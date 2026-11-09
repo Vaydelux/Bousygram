@@ -6,6 +6,9 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.util.Log
 import android.util.AtomicFile
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import androidx.core.graphics.scale
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
@@ -95,7 +98,26 @@ object ThumbnailExtractor {
             ((value.byteCount.toLong() + 1023L) / 1024L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
     }
     private val diskWriteLock = Any()
+    private val diskMaintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val localFramePermits = Semaphore(2)
+
+    /** Reclaim old per-account previews on upgrade without delaying app launch. */
+    fun pruneDiskCacheAsync(context: Context) {
+        val cacheDir = context.applicationContext.cacheDir
+        diskMaintenanceScope.launch {
+            synchronized(diskWriteLock) { recycleGeneratedDiskFiles(cacheDir) }
+        }
+    }
+
+    private fun recycleGeneratedDiskFiles(cacheDir: File, protectedFile: File? = null) {
+        runCatching { ThumbnailDiskQuota.enforce(cacheDir, protectedFile) }
+            .onSuccess { result ->
+                if (result.deletedFiles > 0) {
+                    Log.i(TAG, "Recycled ${result.deletedFiles} generated cache images; freed ${result.freedBytes} bytes")
+                }
+            }
+            .onFailure { Log.w(TAG, "Could not recycle generated thumbnail cache", it) }
+    }
 
     fun invalidateAccountResources() { memoryCache.evictAll(); previewCache.evictAll() }
 
@@ -137,6 +159,7 @@ object ThumbnailExtractor {
                 android.graphics.BitmapFactory.decodeFile(disk.absolutePath)
             }.getOrNull()
             if (cached != null && AccountSession.isCurrent(owner)) {
+                runCatching { disk.setLastModified(System.currentTimeMillis()) }
                 memoryCache.put(key, cached)
                 return@withContext cached
             }
@@ -182,6 +205,7 @@ object ThumbnailExtractor {
                 try {
                     check(scaled.compress(Bitmap.CompressFormat.PNG, 90, out))
                     atomic.finishWrite(out)
+                        recycleGeneratedDiskFiles(context.cacheDir, disk)
                 } catch (failure: Throwable) {
                     atomic.failWrite(out)
                     throw failure
@@ -212,6 +236,7 @@ object ThumbnailExtractor {
             try {
                 val bitmap = android.graphics.BitmapFactory.decodeFile(diskFile.absolutePath)
                 if (bitmap != null && AccountSession.isCurrent(owner)) {
+                    runCatching { diskFile.setLastModified(System.currentTimeMillis()) }
                     memoryCache.put(key, bitmap)
                     return@withContext bitmap
                 }
@@ -237,6 +262,7 @@ object ThumbnailExtractor {
                     try {
                         check(scaled.compress(Bitmap.CompressFormat.PNG, 90, out))
                         atomic.finishWrite(out)
+                        recycleGeneratedDiskFiles(context.cacheDir, diskFile)
                     } catch (failure: Throwable) { atomic.failWrite(out); throw failure }
                 }
                 if (!AccountSession.isCurrent(owner)) return@withContext null
@@ -272,6 +298,7 @@ object ThumbnailExtractor {
             try {
                 val bitmap = android.graphics.BitmapFactory.decodeFile(diskFile.absolutePath)
                 if (bitmap != null && AccountSession.isCurrent(owner)) {
+                    runCatching { diskFile.setLastModified(System.currentTimeMillis()) }
                     previewCache.put(key, bitmap)
                     return@withContext bitmap
                 }
@@ -294,6 +321,7 @@ object ThumbnailExtractor {
                     try {
                         check(scaled.compress(Bitmap.CompressFormat.PNG, 85, out))
                         atomic.finishWrite(out)
+                        recycleGeneratedDiskFiles(context.cacheDir, diskFile)
                     } catch (failure: Throwable) { atomic.failWrite(out); throw failure }
                 }
                 if (!AccountSession.isCurrent(owner)) return@withContext null

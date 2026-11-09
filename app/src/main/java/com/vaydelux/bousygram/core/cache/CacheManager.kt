@@ -44,9 +44,9 @@ object CacheManager {
     private const val KEY_ACCESS_PREFIX = "access_time_"
 
     // Sizing constants
-    const val MAX_CACHE_LIMIT_BYTES = 2L * 1024L * 1024L * 1024L // Eviction target ceiling; not a TDLib write cap.
+    const val MAX_CACHE_LIMIT_BYTES = TvStorageBudget.TELEGRAM_MEDIA_CACHE_BYTES // 160 MiB, within the 200 MiB media-cache allocation.
     @Deprecated("The active quota has no minimum floor")
-    const val MIN_CACHE_LIMIT_BYTES = 256L * 1024L * 1024L // Legacy compatibility only.
+    const val MIN_CACHE_LIMIT_BYTES = 0L // No floor on low-storage Android TVs.
     const val DEFAULT_STORAGE_FRACTION = 0.15 // Fraction of available internal app-data storage.
     const val SLIDING_WINDOW_BYTES = 32L * 1024L * 1024L // 32 MB forward read-ahead window
     const val HEAD_PRELOAD_BYTES = 8L * 1024L * 1024L // 8 MB head preload for next episode

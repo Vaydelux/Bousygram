@@ -23,7 +23,7 @@ import org.drinkless.tdlib.TdApi
  */
 object TelegramNativeFileGc {
     private const val TAG = "TelegramNativeFileGc"
-    const val DEFAULT_MAX_CACHE_SIZE_BYTES = 2L * 1024L * 1024L * 1024L // 2 GB
+    const val DEFAULT_MAX_CACHE_SIZE_BYTES = CacheManager.MAX_CACHE_LIMIT_BYTES // 160 MiB protected cache target
     private const val IMMUNITY_DELAY_SECONDS = 3600 // 1 hour immunity for active/recent media
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

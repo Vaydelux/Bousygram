@@ -19,10 +19,10 @@ class AutomaticCacheManagementTest {
     @Test
     fun testDynamicCacheBudgetParameters() {
         assertEquals(0.15, com.vaydelux.bousygram.core.cache.CacheManager.DEFAULT_STORAGE_FRACTION, 0.001)
-        assertEquals(2L * 1024L * 1024L * 1024L, com.vaydelux.bousygram.core.cache.CacheManager.MAX_CACHE_LIMIT_BYTES)
+        assertEquals(160L * 1024L * 1024L, com.vaydelux.bousygram.core.cache.CacheManager.MAX_CACHE_LIMIT_BYTES)
         val availableBytes = 4L * 1024L * 1024L * 1024L
         assertEquals(
-            (availableBytes * 0.15).toLong(),
+            com.vaydelux.bousygram.core.cache.CacheManager.MAX_CACHE_LIMIT_BYTES,
             com.vaydelux.bousygram.core.cache.CacheManager.calculateQuota(availableBytes, null)
         )
     }

@@ -85,3 +85,52 @@ Existing emulator/JVM/ABI checks can validate syntax, rules, lifecycle and
 packaging only. **Physical memory-regression thresholds remain undefined until
 matched baselines are collected.** A build pass is not certification of
 long-session stability.
+
+## 8 GB Android TV — 200 MiB reclaimable media-cache target
+
+The previous Telegram media cache ceiling was **2 GiB** and could consume
+hundreds of megabytes on an 8 GB TV. This policy allocates a **200 MiB
+(209,715,200 bytes)** best-effort disk cache target across three explicitly
+managed, disposable cache families:
+
+| Cache family | Budget | Cleanup |
+| --- | ---: | --- |
+| TDLib transient media | 160 MiB | Existing account-safe LRU via `TdApi.DeleteFile`, dynamic low-storage threshold, background / periodic sweeps |
+| Coil public poster images | 24 MiB | Coil `DiskCache` LRU (including existing `image_cache` files) |
+| Generated Telegram thumbnails and seek previews | 16 MiB | Oldest generated PNGs recycled across account-specific cache directories, at launch and after writes |
+| **Total allocation** | **200 MiB** | No forced deletion of active or user-saved media |
+
+The TDLib target is additionally bounded to **15% of remaining available disk
+space** and can become zero on a critically full device. Managed-app ceilings
+can only reduce the quota; they cannot raise the 160 MiB limit. Pinned files,
+active player/seek leases, continuing playback, and recently accessed files
+are protected. On-disk thumbnail recycling scans **only** recognized
+`cacheDir/accounts/{accountId}/video_thumbnails/thumb_*.png` and
+`cacheDir/accounts/{accountId}/seek_previews/seek_*_*.png`; it never recurses
+into TDLib databases or arbitrary user files. The current thumbnail being
+written is protected. Work runs off the UI thread, preserving D-pad focus
+and decoder responsiveness.
+
+**Not a hard limit on all application storage.** The installed APK,
+decompressed native libraries, Telegram login databases, pinned/offline
+downloads, untracked old media, WebView site data, and an actively streaming
+large video are **outside** this allocation. TDLib may download beyond its
+eviction target while playback is using a file, and cache trimming is
+asynchronous. Android's "App storage" panel may therefore show more than
+200 MiB even after cleanup. Likewise, this is **disk storage**, not a
+200 MiB process-RAM/PSS limit. Do not delete or overwrite live TDLib
+files or database directories using raw filesystem cleanup.
+
+### Qualification for a small-storage TV
+
+1. Install a trusted ARM32/ARM64 debug build; record Android Settings → Apps
+   → Bousygram → Storage sizes (App / Data / Cache).
+2. Browse posters and generate TS/seek thumbnails, restart the app, then
+   verify generated PNG and Coil disk caches stay within their allocations.
+3. Stream multiple Telegram episodes, pause/seek repeatedly, and wait for
+   background/periodic cleanup; verify the active video and manually pinned
+   media remain playable. Cache may temporarily exceed target during use.
+4. On a TV with low free storage, verify the effective TDLib quota shrinks and
+   canceled next-episode prefetches do not create repeated buffering.
+5. Compare physical app disk usage and RAM PSS separately for 30–60 minutes.
+   No hardware certification or 200 MiB total-app guarantee is claimed.
