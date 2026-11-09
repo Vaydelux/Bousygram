@@ -681,7 +681,7 @@ class TelegramAuthManager(private val context: Context) {
         qrRequestInFlight = false
         synchronized(authLock) { authSubmitInFlight = false }
         _uiState.update { state ->
-            state.copy(message = t?.message ?: "TDLib error", isLoading = false)
+            state.copy(message = AuthInputPolicy.friendlyMessage(t?.message.orEmpty()), isLoading = false)
         }
     }
 
