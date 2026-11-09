@@ -70,6 +70,16 @@ The protected qualification record now requires these four scenarios to be revie
 
 These fields are **not** automatically populated or certified by CI.
 
+## Database migration verification
+
+An emulator instrumentation test now constructs the original version-1 `videos` table
+and indexes, inserts one existing video row, upgrades it through the production
+`MIGRATION_1_2` path, and verifies the existing record and new `recent_searches`
+table survive. Room's Java annotation processor exports `AppDatabase/2.json`
+to `app/schemas` and Android Enterprise checks that the generated file exists.
+This is **migration smoke**, not proof of existing Telegram account data integrity
+on a physical device. Real logout/relogin and account-switch tests remain necessary.
+
 ## Windows / ADB evidence capture
 
 For **each real device**, use the signed candidate APK from the protected `signed-build` job (not a debug prerelease). On Windows, connect and authorize USB debugging, install Android platform-tools so `adb` is on PATH, then run:

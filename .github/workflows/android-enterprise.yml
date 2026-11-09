@@ -189,6 +189,15 @@ jobs:
             :app:assembleDebug \
             :app:assembleDebugAndroidTest
 
+      - name: Verify generated Room v2 schema
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          test -s app/schemas/com.vaydelux.bousygram.data.database.AppDatabase/2.json || {
+            echo "::error::Room v2 schema export missing; future migrations must not be opaque." >&2
+            exit 1
+          }
+
       - name: Normalize and verify debug artifacts
         if: ${{ success() }}
         shell: bash
@@ -205,6 +214,7 @@ jobs:
             mediaforge-core/build/test-results/testDebugUnitTest/**/*.xml
             mediaforge-player-adapters/build/test-results/testDebugUnitTest/**/*.xml
             mediaforge-core/build/reports/tests/testDebugUnitTest/**
+            app/schemas/**/*.json
             app/build/test-results/testDebugUnitTest/**/*.xml
             app/build/reports/tests/testDebugUnitTest/**
             app/build/reports/lint-results-debug.html

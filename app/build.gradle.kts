@@ -117,6 +117,13 @@ android {
         versionCode = releaseVersionCode
         versionName = releaseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Room's Java annotation processor exports the current database schema.
+        // Keep this path stable for future migration fixtures.
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += mapOf("room.schemaLocation" to "$projectDir/schemas")
+            }
+        }
 
         if (!devAbi.isNullOrBlank()) {
             require(devAbi in supportedTdLibAbis) {
