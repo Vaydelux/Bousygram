@@ -809,16 +809,19 @@ internal fun ExtrasEmbedServerDropdown(
     modifier: Modifier = Modifier
 ) {
     val options = remember {
-        ExtrasEmbedServer.entries.filter { it.selectable }.map {
-            ExtrasServerOption(
-                "extras-server-" + it.name.lowercase(), it.label, it.description,
-                when {
-                    it in setOf(ExtrasEmbedServer.CINESRC, ExtrasEmbedServer.XXIKU, ExtrasEmbedServer.EMBED_HEAVEN) -> "Existing servers"
-                    it.featured -> "New servers"
-                    else -> "More servers"
-                }
-            )
-        }
+        val existing = setOf(ExtrasEmbedServer.CINESRC, ExtrasEmbedServer.XXIKU, ExtrasEmbedServer.EMBED_HEAVEN)
+        ExtrasEmbedServer.entries.filter { it.selectable }
+            .sortedBy { when { it in existing -> 0; it.featured -> 1; else -> 2 } }
+            .map {
+                ExtrasServerOption(
+                    "extras-server-" + it.name.lowercase(), it.label, it.description,
+                    when {
+                        it in existing -> "Existing servers"
+                        it.featured -> "New servers"
+                        else -> "More servers"
+                    }
+                )
+            }
     }
     ExtrasServerPicker(server.label, "extras-server-" + server.name.lowercase(),
         options, { key -> onSelected(ExtrasEmbedServer.entries.first { "extras-server-" + it.name.lowercase() == key }) },
