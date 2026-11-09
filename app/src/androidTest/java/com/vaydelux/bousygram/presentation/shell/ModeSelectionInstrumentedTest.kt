@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -28,7 +29,7 @@ class ModeSelectionInstrumentedTest {
             }
         }
         composeRule.onNodeWithText("Bousygram").assertExists()
-        composeRule.onNodeWithText("Movies, TV Shows & Anime").performClick()
+        composeRule.onNodeWithTag("mode-extras").performClick()
         composeRule.onNodeWithText("More to Explore").assertExists()
         composeRule.onNodeWithText("Back to Mode Selection").performClick()
         composeRule.onNodeWithText("Telegram Media").assertExists()
@@ -41,7 +42,7 @@ class ModeSelectionInstrumentedTest {
                 BousygramModeSelection(onTelegram = { telegramLaunches++ }, onExtras = {})
             }
         }
-        composeRule.onNodeWithText("Telegram Media").performClick()
+        composeRule.onNodeWithTag("mode-telegram").performClick()
         composeRule.runOnIdle { assertEquals(1, telegramLaunches) }
     }
 }
