@@ -346,13 +346,18 @@ object CacheManager {
             ContinueWatchingRepository.getContinueWatchingFileIds()
         }.getOrDefault(emptySet())
         val lastPlayedId = EnterprisePreferences.lastPlayed()?.fileId
+        // An unfinished last-played movie is protected for resume. A completed
+        // movie no longer needs a storage exemption after the player releases it.
+        val protectedLastPlayedId = protectedLastPlayedId(
+            lastPlayedId, lastPlayedId?.let { isWatched(it) } == true
+        )
 
         val safeCandidates = files
             .filter { (id, file) ->
                 !pinnedFiles.contains(id) &&
                     !PlaybackSessionController.isFileActive(id) &&
                     !continueWatchingIds.contains(id) &&
-                    id != lastPlayedId &&
+                    id != protectedLastPlayedId &&
                     !TelegramPreCacheEngine.isCaching(id) &&
                     TelegramChunkScheduler.activeLeaseCount(id) == 0 &&
                     TelegramChunkScheduler.activeChunkCount(id) == 0 &&
@@ -417,6 +422,10 @@ object CacheManager {
             initiallyOverLimit = initialTrackedBytes > cacheLimit
         )
     }
+
+    /** Completed last-played media can be recycled after its session closes. */
+    internal fun protectedLastPlayedId(lastPlayedId: Int?, completed: Boolean): Int? =
+        if (completed) null else lastPlayedId?.takeIf { it > 0 }
 
     fun isWatched(fileId: Int): Boolean {
         val account = AccountSession.current() ?: return false

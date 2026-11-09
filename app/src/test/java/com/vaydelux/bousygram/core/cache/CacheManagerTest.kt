@@ -53,6 +53,14 @@ class CacheManagerTest {
     }
 
     @Test
+    fun completedLastPlayedFileCanBeEvictedButUnfinishedResumeIsProtected() {
+        assertEquals(123, CacheManager.protectedLastPlayedId(123, completed = false))
+        assertEquals(null, CacheManager.protectedLastPlayedId(123, completed = true))
+        assertEquals(null, CacheManager.protectedLastPlayedId(null, completed = false))
+        assertEquals(null, CacheManager.protectedLastPlayedId(0, completed = false))
+    }
+
+    @Test
     fun nextEpisodePrefetchRequiresHealthyForegroundBuffer() {
         fun permits(position: Long, buffered: Long, busy: Boolean = false, play: Boolean = true) =
             CacheManager.shouldPreloadNextEpisode(position, 100_000L, buffered, busy, play)

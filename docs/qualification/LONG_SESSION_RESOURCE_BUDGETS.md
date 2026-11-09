@@ -164,6 +164,12 @@ files or database directories using raw filesystem cleanup.
   while Telegram runtime is active. The initial Telegram runtime start
   still schedules a cleanup, and app backgrounding also prunes.
 
+
+Completed last-played media is not retained solely because it is the
+previous title. It becomes eligible for cleanup after playback releases its
+TDLib lease, and after cancellation acknowledgement if its download was still
+active. Unfinished last-played and continue-watching files remain protected.
+
 **Remaining architectural limitation (important):** TDLib's active
 `openPlayback` currently begins an open-ended foreground download to
 avoid MKV/TS seek and Media3-reopen stalls. A very large movie can therefore
