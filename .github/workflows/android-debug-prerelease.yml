@@ -31,6 +31,13 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      # Gate policy is on the trusted default branch. The second checkout
+      # below pins the released artifacts to the exact CI-approved commit.
+      - name: Check out trusted publisher gate scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Resolve exact successful mainline Android CI
         id: source
         shell: bash
