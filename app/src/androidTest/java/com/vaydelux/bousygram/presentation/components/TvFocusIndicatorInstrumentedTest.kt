@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.foundation.focusGroup
@@ -12,6 +15,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -20,6 +26,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
+import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -31,6 +38,30 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TvFocusIndicatorInstrumentedTest {
     @get:Rule val composeRule = createComposeRule()
+
+    @Test fun toolbarActionsAre48dpAndAccessibleAcrossAllThemes() {
+        var theme by mutableStateOf(BousygramThemePreset.DARK)
+        var activations = 0
+        composeRule.setContent {
+            BousygramTheme(preset = theme) {
+                TopBarIconButton(
+                    onClick = { activations++ },
+                    contentDescription = "Search",
+                    modifier = Modifier.testTag("toolbar_search")
+                ) { tint ->
+                    ShellNavIcon(destination = ShellDestination.Search, tint = tint)
+                }
+            }
+        }
+        BousygramThemePreset.entries.forEachIndexed { index, preset ->
+            composeRule.runOnIdle { theme = preset }
+            val button = composeRule.onNodeWithTag("toolbar_search")
+            button.assertHeightIsAtLeast(48.dp)
+                .assertContentDescriptionEquals("Search")
+                .performClick()
+            composeRule.runOnIdle { assertEquals(index + 1, activations) }
+        }
+    }
 
     @Test fun dpadMovesSingleFocusTargetAndUpdatesVisibleFocusedState() {
         val firstRequester = FocusRequester()

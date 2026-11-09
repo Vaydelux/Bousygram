@@ -782,7 +782,8 @@ fun TopBarIconButton(
     val tint = if (focused) colors.primary else colors.onSurfaceVariant
     Box(
         modifier = modifier
-            .size(38.dp)
+            // Match the minimum 48dp touch/focus target across phone and TV.
+            .size(48.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) colors.surfaceVariant else Color.Transparent)
             .border(
@@ -850,7 +851,7 @@ private fun GlassBottomBar(
                             destination.label,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
                         )
                     },
