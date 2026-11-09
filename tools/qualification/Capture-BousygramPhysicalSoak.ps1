@@ -28,6 +28,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Parse-BousygramDataSpace.ps1')
 $packageName = 'com.vaydelux.bousygram'
 $adb = (Get-Command adb -ErrorAction Stop).Source
 $deviceLines = @(& $adb devices | Where-Object { $_ -match '^\S+\s+device(?:\s|$)' })
@@ -93,6 +94,7 @@ if (-not [string]::IsNullOrWhiteSpace($ApkPath)) {
 $startUtc = (Get-Date).ToUniversalTime().ToString('o')
 $samples = @()
 $aborted = $false
+$storageWarningIssued = $false
 for ($i = 1; $i -le $Cycles; $i++) {
     if ($Scenario -ne 'arm32-playback') {
         $answer = Read-Host "Cycle $i/${Cycles}: complete the on-device action, then press Enter to sample (type q to stop)"
@@ -112,22 +114,43 @@ for ($i = 1; $i -le $Cycles; $i++) {
         throw "Unable to parse TOTAL PSS at cycle $i; raw private system output is not saved."
     }
     $nativePss = Get-MemoryNumber -Source $meminfo -Pattern '(?im)^\s*Native Heap\s+([\d,]+)\s+'
+    # Read-only device-wide free space; cannot attribute use to Bousygram.
+    # Do not enumerate private files, Telegram content or the app's databases.
+    $dataSpace = $null
+    try {
+        $dfOutput = Invoke-SelectedAdb -CommandArguments @('shell', 'df', '-k', '/data')
+        $dataSpace = Read-BousygramDataSpace -DfText $dfOutput
+    } catch {
+        # Some OEM builds restrict or change df output. Do not abort a useful
+        # memory-only soak when an optional filesystem metric is unavailable.
+    }
+    if ($null -eq $dataSpace -and -not $storageWarningIssued) {
+        Write-Warning 'Device-wide /data free space is unavailable. PSS capture continues.'
+        $storageWarningIssued = $true
+    }
     $samples += [ordered]@{
         cycle = $i
         capturedUtc = (Get-Date).ToUniversalTime().ToString('o')
         processId = [int]::Parse($pidText)
         totalPssKiB = $pss
         nativeHeapPssKiB = $nativePss
+        deviceDataFreeKiB = if ($null -ne $dataSpace) { $dataSpace.freeKiB } else { $null }
+        deviceDataUsedKiB = if ($null -ne $dataSpace) { $dataSpace.usedKiB } else { $null }
+        deviceDataTotalKiB = if ($null -ne $dataSpace) { $dataSpace.totalKiB } else { $null }
         manualPlaybackVerified = $false
         manualReconnectVerified = $false
     }
-    Write-Host ("Cycle {0}: total PSS={1} KiB; native heap PSS={2} KiB" -f $i, $pss, $nativePss)
+    Write-Host ("Cycle {0}: total PSS={1} KiB; native heap PSS={2} KiB; device /data free={3} KiB" -f $i, $pss, $nativePss, $(if ($null -ne $dataSpace) { $dataSpace.freeKiB } else { 'unavailable' }))
 }
 if ($samples.Count -eq 0) { throw 'No samples collected. No report was written.' }
 $firstPss = [long]$samples[0].totalPssKiB
 $lastPss = [long]$samples[$samples.Count-1].totalPssKiB
 $peakPss = [long](($samples | Measure-Object -Property totalPssKiB -Maximum).Maximum)
 $uniquePids = @($samples | Select-Object -ExpandProperty processId -Unique)
+$spaceSamples = @($samples | Where-Object { $null -ne $_.deviceDataFreeKiB })
+$firstFree = if ($spaceSamples.Count -gt 0) { [long]$spaceSamples[0].deviceDataFreeKiB } else { $null }
+$lastFree = if ($spaceSamples.Count -gt 0) { [long]$spaceSamples[$spaceSamples.Count - 1].deviceDataFreeKiB } else { $null }
+$freeDelta = if ($spaceSamples.Count -ge 2) { $lastFree - $firstFree } else { $null }
 $report = [ordered]@{
     schemaVersion = 1
     status = 'observations-only'
@@ -154,8 +177,16 @@ $report = [ordered]@{
         lastMinusFirstPssKiB = ($lastPss - $firstPss)
         distinctProcessIds = $uniquePids.Count
     }
+    storage = [ordered]@{
+        scope = 'device-wide /data filesystem only; other apps and OS may affect free space'
+        availableSamples = $spaceSamples.Count
+        firstFreeKiB = $firstFree
+        lastFreeKiB = $lastFree
+        lastMinusFirstFreeKiB = $freeDelta
+        attributedToBousygram = $false
+    }
     samples = $samples
-    notes = 'Operator must separately attest installed APK identity, real account, first frame, seek correctness, decoder and crash-free behavior. No source media or credentials were collected.'
+    notes = 'Storage values are device-wide /data free space, NOT the app footprint or cache size. Playback and APK identity require separate verification. No media, credentials or private paths were collected.'
 }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
@@ -163,4 +194,7 @@ $destination = Join-Path (Resolve-Path -LiteralPath $OutputDirectory).Path "phys
 [IO.File]::WriteAllText($destination, ($report | ConvertTo-Json -Depth 8) + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "Observations written: $destination"
 Write-Host "PSS change: $($lastPss - $firstPss) KiB; peak: $peakPss KiB; distinct PIDs: $($uniquePids.Count)"
+if ($null -ne $freeDelta) {
+    Write-Host "Device-wide /data free space change: $freeDelta KiB (NOT app-attributed)"
+}
 Write-Host 'No production/device qualification status was changed.'
