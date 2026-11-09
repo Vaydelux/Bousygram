@@ -553,8 +553,19 @@ object CacheManager {
                                     when (response) {
                                         is TdApi.File -> results[fileId] = response
                                         is TdApi.Error -> {
-                                            prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }
-                                            Log.d(TAG, "Dropping stale cache tracking fileId=$fileId (${response.code})")
+                                            // Only a confirmed permanently missing TDLib
+                                            // file is safe to remove from access tracking.
+                                            // Temporary 429/500/503, authorization or
+                                            // migration errors must not orphan cached media.
+                                            if (shouldDiscardCacheAccessRecordOnGetFileError(
+                                                    response.code, response.message
+                                                )
+                                            ) {
+                                                prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }
+                                                Log.d(TAG, "Dropping permanently invalid cache fileId=$fileId")
+                                            } else {
+                                                Log.w(TAG, "Retaining tracked cache file after transient/unclassified GetFile error code=${response.code}")
+                                            }
                                         }
                                     }
                                 }
