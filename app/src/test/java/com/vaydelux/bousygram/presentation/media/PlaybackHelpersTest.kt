@@ -227,6 +227,30 @@ class PlaybackHelpersTest {
     }
 
     @Test
+    fun launchRequestRetainsAtMost256MetadataItemsAndSelectedVideo() {
+        val item = MediaItem(chatId = 140L, messageId = 350L, date = 1,
+            type = MediaType.Video, title = "Episode 350", fileId = 350)
+        val catalog = (1L..700L).map { index ->
+            item.copy(messageId = index, title = "Episode $index",
+                fileId = index.toInt())
+        }
+        val launch = buildPlaybackRequest(item, null, catalog + catalog.take(5))
+        assertEquals(256, launch.queue.size)
+        assertEquals(256, launch.queue.distinctBy { it.chatId to it.messageId }.size)
+        assertTrue(queueIndexForRequest(launch.queue, 140L, 350L, 350) >= 0)
+    }
+
+    @Test
+    fun matchingFileInAnotherChatIsNotAValidQueueFallback() {
+        val other = PlaybackQueueItem(chatId = 1L, messageId = 55L,
+            title = "Other chat", fileId = 123)
+        val same = other.copy(chatId = 2L, messageId = 56L)
+        assertEquals(-1, queueIndexForRequest(listOf(other), 2L, 999L, 123))
+        assertEquals(1, queueIndexForRequest(listOf(other, same), 2L, 999L, 123))
+        assertEquals(-1, queueIndexForRequest(listOf(other, same), 2L, 999L, -1))
+    }
+
+    @Test
     fun playbackRequestAndQueueRetainTelegramTopicIdentity() {
         val item = MediaItem(
             chatId = 901L,
