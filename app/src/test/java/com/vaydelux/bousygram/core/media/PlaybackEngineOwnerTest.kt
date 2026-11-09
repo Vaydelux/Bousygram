@@ -85,6 +85,122 @@ class PlaybackEngineOwnerTest {
     }
 
     @Test
+    fun oldDecoderTeardownFailureCannotStrandAlreadyConstructedReplacement() {
+        val session = PlaybackSessionController.start(fileId = 790)
+        val calls = mutableListOf<String>()
+        val warnings = mutableListOf<Throwable>()
+        val teardownError = IllegalStateException("old native release failed")
+        val old = object : FakeTestEngine() {
+            override fun detachSurface() { calls += "old.detach" }
+            override fun stop() { calls += "old.stop" }
+            override fun release() { calls += "old.release"; throw teardownError }
+        }
+        val next = object : FakeTestEngine() {
+            override fun release() { calls += "new.release" }
+        }
+        val owner = PlaybackEngineOwner(
+            session, old, onOwnerThread = { it() },
+            reportReplacementCleanupFailure = warnings::add
+        )
+        try {
+            owner.value = next
+            assertTrue("Replacement must become the owner", owner.value === next)
+            assertEquals(listOf("old.detach", "old.stop", "old.release"), calls)
+            assertEquals(listOf(teardownError), warnings)
+        } finally {
+            owner.close()
+            PlaybackSessionController.stop(session, PlaybackCacheStopReason.Dispose)
+        }
+        assertEquals(1, calls.count { it == "new.release" })
+    }
+
+    @Test
+    fun mediaSessionBridgeFailureDoesNotBlockNativeEngineHandoff() {
+        val session = PlaybackSessionController.start(fileId = 791)
+        val warnings = mutableListOf<Throwable>()
+        val oldBridgeFailure = IllegalStateException("bridge could not close")
+        var oldReleased = 0
+        var newReleased = 0
+        val old = object : FakeTestEngine() {
+            override fun release() { oldReleased++ }
+        }
+        val next = object : FakeTestEngine() {
+            override fun release() { newReleased++ }
+        }
+        val owner = PlaybackEngineOwner(
+            session, old, onOwnerThread = { it() },
+            reportReplacementCleanupFailure = warnings::add
+        )
+        owner.registerEngineResource(old) { throw oldBridgeFailure }
+        try {
+            owner.value = next
+            assertTrue(owner.value === next)
+            assertEquals(listOf(oldBridgeFailure), warnings)
+            assertEquals(1, oldReleased)
+        } finally {
+            owner.close()
+            PlaybackSessionController.stop(session, PlaybackCacheStopReason.Dispose)
+        }
+        assertEquals(1, newReleased)
+    }
+
+    @Test
+    fun failedOldBridgeCloseDoesNotDropNewBridgeRegistration() {
+        val session = PlaybackSessionController.start(fileId = 793)
+        val engine = FakeTestEngine()
+        val error = IllegalStateException("prior bridge close failed")
+        val warnings = mutableListOf<Throwable>()
+        var newBridgeCloses = 0
+        val owner = PlaybackEngineOwner(
+            session, engine, onOwnerThread = { it() },
+            reportReplacementCleanupFailure = warnings::add
+        )
+        try {
+            owner.registerEngineResource(engine) { throw error }
+            owner.registerEngineResource(engine) { newBridgeCloses++ }
+            assertEquals(listOf(error), warnings)
+            assertEquals(0, newBridgeCloses)
+        } finally {
+            owner.close()
+            PlaybackSessionController.stop(
+                session, PlaybackCacheStopReason.Dispose, cancelTdLibDownload = false
+            )
+        }
+        assertEquals(1, newBridgeCloses)
+    }
+
+    @Test
+    fun nativeTeardownAttemptsEveryStepAndReportsSuppressedErrors() {
+        val session = PlaybackSessionController.start(fileId = 794)
+        val detachFailure = IllegalStateException("detach failed")
+        val stopFailure = IllegalStateException("stop failed")
+        var releases = 0
+        val old = object : FakeTestEngine() {
+            override fun detachSurface() { throw detachFailure }
+            override fun stop() { throw stopFailure }
+            override fun release() { releases++ }
+        }
+        val next = FakeTestEngine()
+        val warnings = mutableListOf<Throwable>()
+        val owner = PlaybackEngineOwner(
+            session, old, onOwnerThread = { it() },
+            reportReplacementCleanupFailure = warnings::add
+        )
+        try {
+            owner.value = next
+            assertTrue(owner.value === next)
+            assertEquals(1, releases)
+            assertTrue(warnings.single() === detachFailure)
+            assertEquals(listOf(stopFailure), detachFailure.suppressed.toList())
+        } finally {
+            owner.close()
+            PlaybackSessionController.stop(
+                session, PlaybackCacheStopReason.Dispose, cancelTdLibDownload = false
+            )
+        }
+    }
+
+    @Test
     fun replacementAndRepeatedStopReleaseEachEngineOnlyOnce() {
         val session = PlaybackSessionController.start(fileId = 777)
         val firstCalls = mutableListOf<String>()

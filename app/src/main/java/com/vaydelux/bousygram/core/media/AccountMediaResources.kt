@@ -14,8 +14,7 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.core.tdlib.utils.ThumbnailExtractor
-import java.util.concurrent.FutureTask
-import java.util.concurrent.TimeUnit
+
 
 /** Synchronous privacy barrier, called before a new account is published. */
 object AccountMediaResources {
@@ -46,8 +45,10 @@ object AccountMediaResources {
     fun onPlayerThread(action: () -> Unit) {
         val main = Looper.getMainLooper()
         if (Looper.myLooper() == main) { action(); return }
-        val task = FutureTask { action() }
-        check(Handler(main).post(task)) { "The playback owner is unavailable" }
-        task.get(5, TimeUnit.SECONDS)
+        dispatchPlayerThreadAction(
+            enqueue = { task -> Handler(main).post(task) },
+            action = action,
+            timeoutMs = 5_000L
+        )
     }
 }
