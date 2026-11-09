@@ -72,6 +72,11 @@ object CacheManager {
     private const val PRELOAD_RETRY_COOLDOWN_MS = 30_000L
     private val isEvictionScheduled = AtomicBoolean(false)
     private var pinnedAccountId: Long? = null
+    // Access timestamps are sorted oldest first. Rotate a bounded TDLib
+    // lookup page across sweeps so the first 256 entries cannot starve newer
+    // tracked files when some old entries are protected or unresolved.
+    private var inspectionCursorAccountId: Long? = null
+    private var inspectionCursor = 0
 
     @Synchronized
     private fun ensurePinnedLoaded() {
@@ -325,17 +330,26 @@ object CacheManager {
 
         val pinnedSnapshot = pinnedFiles.toList().take(MAX_PINNED_FILES_TO_INSPECT)
         val accessCapacity = (MAX_TRACKED_FILES_PER_SWEEP - pinnedSnapshot.size).coerceAtLeast(0)
-        val oldAccessIds = accessed.asSequence()
-            .map { it.first }
+        if (inspectionCursorAccountId != account.accountId) {
+            inspectionCursorAccountId = account.accountId
+            inspectionCursor = 0
+        }
+        val unpinnedIds = accessed.map { it.first }
             .filterNot { pinnedFiles.contains(it) }
-            .take(accessCapacity)
-            .toList()
-        val fileIds = (oldAccessIds + pinnedSnapshot).distinct()
+        val page = selectCacheInspectionPage(unpinnedIds, inspectionCursor, accessCapacity)
+        inspectionCursor = page.nextCursor
+        val fileIds = (page.ids + pinnedSnapshot).distinct()
         val fileById = getFilesBlocking(fileIds, account)
         if (!AccountSession.isCurrent(account)) return TrackedCacheCleanupResult(0, 0L, 0L, cacheLimit, false)
         val files = fileIds.mapNotNull { id -> fileById[id]?.let { id to it } }
         var totalSize = files.sumOf { (_, file) -> file.local.downloadedSize.coerceAtLeast(0L) }
-        val initialTrackedBytes = totalSize
+        // The inspected 256-file window is not the whole TDLib cache. Use a
+        // disk snapshot of the configured TDLib media directory for quota
+        // pressure, while still querying/deleting only the bounded page.
+        // An unavailable/empty directory must never hide known tracked bytes.
+        val diskBytes = directorySizeOrZero(File(BousygramApp.instance.filesDir, "tdlib_files"))
+        val measuredCachePressureBytes = cacheQuotaPressureBytes(diskBytes, totalSize)
+        val initiallyOverLimit = measuredCachePressureBytes > cacheLimit
 
         var deletedFiles = 0
         var freedBytes = 0L
@@ -371,7 +385,7 @@ object CacheManager {
             }
 
         val plannedDeletions = mutableListOf<Pair<Int, Long>>()
-        var plannedTotal = totalSize
+        var plannedTotal = measuredCachePressureBytes
 
         // Phase 1: Evict watched/completed media first
         val watchedCandidates = safeCandidates.filter { (id, _) -> isWatched(id) }
@@ -403,7 +417,7 @@ object CacheManager {
         }
 
         if (plannedDeletions.isEmpty()) {
-            return TrackedCacheCleanupResult(0, 0L, totalSize, cacheLimit, initiallyOverLimit = initialTrackedBytes > cacheLimit)
+            return TrackedCacheCleanupResult(0, 0L, totalSize, cacheLimit, initiallyOverLimit = initiallyOverLimit)
         }
 
         val confirmedDeletions = deleteFilesBlocking(plannedDeletions.map { it.first }, account)
@@ -423,7 +437,7 @@ object CacheManager {
             freedBytes = freedBytes,
             remainingTrackedBytes = totalSize,
             limitBytes = cacheLimit,
-            initiallyOverLimit = initialTrackedBytes > cacheLimit
+            initiallyOverLimit = initiallyOverLimit
         )
     }
 
@@ -508,7 +522,8 @@ object CacheManager {
         if (!AccountSession.isCurrent(account)) return emptySet()
         val client = TdLibClient.client
         val eligibleFileIds = fileIds.filterNot { fileId ->
-            pinnedFiles.contains(fileId) || PlaybackSessionController.isFileActive(fileId) ||
+            pinnedFiles.contains(fileId) ||
+                PlaybackSessionController.isCacheProtectedPlaybackFile(fileId) ||
                 TelegramPreCacheEngine.isCaching(fileId) || TelegramChunkScheduler.activeChunkCount(fileId) > 0 ||
                 TelegramChunkScheduler.activeLeaseCount(fileId) > 0 ||
                 FocusPrefetchManager.isPrefetching(fileId)
