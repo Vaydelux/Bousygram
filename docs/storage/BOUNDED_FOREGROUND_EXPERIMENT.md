@@ -36,9 +36,12 @@ remove its Telegram message, channel, group, database or resume position.
   True distant seeks still cancel stale in-flight reads and request the
   exact new byte offset, including near-EOF metadata. The stable unlimited
   path remains untouched when the experiment is disabled.
-- On playback close/switch, cancellation acknowledgement schedules a
-  protected, account-safe `TdApi.DeleteFile` of the closed *video bytes*
-  only. The worker verifies the file is no longer downloading, has no
+- On playback close/switch, a delayed protected cleanup begins and a
+  native cancellation acknowledgement can also trigger the check. This
+  handles videos that have already finished downloading (and have no
+  active native download to cancel). The app uses an account-safe
+  `TdApi.DeleteFile` for the closed *video bytes* only. The worker
+  verifies the file is no longer downloading, has no
   active playback/reader lease, no active scheduler chunks, no prefetch,
   and is not manually pinned for offline use. It retries briefly rather
   than deleting busy media. Continue Watching metadata is untouched.
