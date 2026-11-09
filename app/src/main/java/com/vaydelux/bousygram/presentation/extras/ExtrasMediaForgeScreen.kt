@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -123,13 +124,13 @@ internal data class ExtrasEmbedRequest(
         fun episode(tmdbId: Int, season: Int, episode: Int, title: String): ExtrasEmbedRequest =
             ExtrasEmbedRequest(
                 ExtrasEmbedServer.CINESRC.urlFor(tmdbId, season, episode),
-                "$"+"title · S$"+"season E$"+"episode", tmdbId, season, episode
+                "$title · S$season E$episode", tmdbId, season, episode
             )
 
         fun anime(anilistId: Int, episode: Int, title: String, season: Int = 1): ExtrasEmbedRequest =
             ExtrasEmbedRequest(
                 url = ExtrasAnimeEmbedServer.FILMU.urlFor(anilistId, season, episode),
-                title = "$"+"title · E$"+"episode",
+                title = "$title · E$episode",
                 anilistId = anilistId, season = season, episode = episode
             )
     }
@@ -752,7 +753,7 @@ private fun ExtrasServerPicker(
                 .heightIn(min = if (isTv) 56.dp else 48.dp)
                 .testTag("extras-server-dropdown")
         ) {
-            Text("Server: $"+"label  ▾", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Server: $label  ▾", maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (expanded) {
             Dialog(onDismissRequest = { expanded = false }) {
@@ -768,11 +769,11 @@ private fun ExtrasServerPicker(
                             modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp)
                         ) {
                             options.groupBy { it.group }.forEach { (group, candidates) ->
-                                item(key = "group:$"+"group") {
+                                item(key = "group:$group") {
                                     Text(group, style = MaterialTheme.typography.labelLarge,
                                         modifier = Modifier.padding(vertical = 8.dp))
                                 }
-                                androidx.compose.foundation.lazy.items(candidates, key = { it.key }) { candidate ->
+                                items(candidates, key = { it.key }) { candidate ->
                                     DropdownMenuItem(
                                         text = {
                                             Column {
