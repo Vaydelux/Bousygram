@@ -91,6 +91,38 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
+    fun queuedEpisodesRemainStreamAccessibleButDoNotAllBlockCacheEviction() {
+        val session = PlaybackSessionController.start(
+            queue = listOf(
+                com.vaydelux.bousygram.presentation.media.PlaybackQueueItem(
+                    chatId = 200L, messageId = 1L, title = "Now playing", fileId = 2201
+                ),
+                com.vaydelux.bousygram.presentation.media.PlaybackQueueItem(
+                    chatId = 200L, messageId = 2L, title = "Already cached", fileId = 2202
+                )
+            )
+        )
+        try {
+            assertTrue(PlaybackSessionController.isFileActive(2201))
+            assertTrue(PlaybackSessionController.isFileActive(2202))
+            assertTrue(PlaybackSessionController.isCacheProtectedPlaybackFile(2201))
+            assertFalse(PlaybackSessionController.isCacheProtectedPlaybackFile(2202))
+            assertFalse(PlaybackSessionController.isCacheProtectedPlaybackFile(-1))
+
+            assertTrue(session.next())
+            assertFalse(PlaybackSessionController.isCacheProtectedPlaybackFile(2201))
+            assertTrue(PlaybackSessionController.isCacheProtectedPlaybackFile(2202))
+            session.finishTransition()
+        } finally {
+            PlaybackSessionController.stop(
+                session, PlaybackCacheStopReason.ViewModelStop,
+                cancelTdLibDownload = false
+            )
+        }
+        assertFalse(PlaybackSessionController.isCacheProtectedPlaybackFile(2202))
+    }
+
+    @Test
     fun diagnosticSnapshotsAreThrottledWithoutDroppingInMemoryProgress() {
         assertTrue(PlaybackSessionController.shouldPersistProgressDiagnostics(10_000L, 0L))
         assertFalse(PlaybackSessionController.shouldPersistProgressDiagnostics(10_500L, 10_000L))
