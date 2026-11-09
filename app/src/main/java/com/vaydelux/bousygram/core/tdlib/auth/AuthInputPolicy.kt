@@ -92,7 +92,10 @@ internal object AuthInputPolicy {
                 "Those Telegram API credentials were rejected. Check the API ID and hash from my.telegram.org."
             "FLOOD_WAIT" in normalized ->
                 "Too many attempts. Wait a moment, then try again."
-            else -> raw
+            // Native error descriptions can contain phone numbers, URLs,
+            // authorization material, or translated server text. Never display
+            // unknown raw error details in the login UI.
+            else -> "Telegram could not complete the request. Please try again."
         }
     }
 }

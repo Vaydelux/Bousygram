@@ -55,6 +55,33 @@ class StreamAccessRegistryTest {
     }
 
     @Test
+    fun nonCanonicalAndTamperedTokensAreRejectedWithoutRevokingRealGrant() {
+        val token = StreamAccessRegistry.issueFile(31)
+        assertTrue(StreamAccessRegistry.authorizesFile(token, 31))
+        val uppercaseIfChanged = token.uppercase().takeIf { it != token }
+        (listOfNotNull(uppercaseIfChanged) + listOf(
+            token.dropLast(1), token + "0",
+            "g" + token.drop(1), "0".repeat(64)
+        )).forEach { invalid ->
+            assertFalse(StreamAccessRegistry.authorizesFile(invalid, 31))
+            assertFalse(StreamAccessRegistry.revoke(invalid))
+        }
+        assertTrue(StreamAccessRegistry.authorizesFile(token, 31))
+    }
+
+    @Test
+    fun manyActiveGrantsKeepTheirIndividualFileAndRevocationScope() {
+        val active = (1..256).associateWith(StreamAccessRegistry::issueFile)
+        active.forEach { (fileId, token) ->
+            assertTrue(StreamAccessRegistry.authorizesFile(token, fileId))
+            assertFalse(StreamAccessRegistry.authorizesFile(token, fileId + 256))
+        }
+        assertTrue(StreamAccessRegistry.revokeFile(13) == 1)
+        assertFalse(StreamAccessRegistry.authorizesFile(active.getValue(13), 13))
+        assertTrue(StreamAccessRegistry.authorizesFile(active.getValue(14), 14))
+    }
+
+    @Test
     fun revokedTokenCannotBeReused() {
         val token = StreamAccessRegistry.issueFile(99)
         assertTrue(StreamAccessRegistry.authorizesFile(token, 99))

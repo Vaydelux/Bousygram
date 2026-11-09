@@ -117,6 +117,13 @@ android {
         versionCode = releaseVersionCode
         versionName = releaseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Room's Java annotation processor exports the current database schema.
+        // Keep this path stable for future migration fixtures.
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += mapOf("room.schemaLocation" to "$projectDir/schemas")
+            }
+        }
 
         if (!devAbi.isNullOrBlank()) {
             require(devAbi in supportedTdLibAbis) {
@@ -637,6 +644,7 @@ tasks.register("verifySensitiveLogRedaction") {
         file("src/main/java/com/vaydelux/bousygram/core/tdlib/server/TelegramLogWrapper.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/tdlib/utils/QrCodeGenerator.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/cast/CastReceiverManager.kt"),
+        file("src/main/java/com/vaydelux/bousygram/core/tdlib/auth/TelegramAuthManager.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/tdlib/prefetch/FocusPrefetchManager.kt"),
         file("src/main/java/com/vaydelux/bousygram/data/repository/SavedMessagesSubtitle.kt")
     )
@@ -649,6 +657,11 @@ tasks.register("verifySensitiveLogRedaction") {
         val logCall = Regex("""Log\.(?:v|d|i|w|e)\s*\([^)]*\)""", RegexOption.DOT_MATCHES_ALL)
         sources.forEach { source ->
             logCall.findAll(source.readText()).forEach { match ->
+                if (source.name == "TelegramAuthManager.kt") {
+                    require(listOf("result.message", "t.message", "error.message").none {
+                        it in match.value
+                    }) { "Raw TDLib authentication details must never be logged." }
+                }
                 require(sensitiveNames.none { name -> "\$$name" in match.value || "\${$name}" in match.value }) {
                     "Potentially sensitive authentication or media value logged in ${source.path}."
                 }

@@ -1,3 +1,10 @@
+> **Current-status note (November 2026):** This roadmap is a historical phase
+> proposal, not the current feature inventory. LibVLC and Extras catalogs are
+> implemented. Protected production releases additionally require the physical
+> Pause, engine-switch, TV focus/subtitle and ARM32 memory scenarios described in
+> [device qualification](docs/release/PLAYBACK_DEVICE_QUALIFICATION.md).
+> Real device verification remains pending; green CI is not hardware evidence.
+
 # Bousygram v2 Roadmap — Ordered Delivery
 
 **Stage:** Planning, not implementation. Refer to [APP_GOAL.md](APP_GOAL.md), [PHASE_PLAN.md](PHASE_PLAN.md), and [Architecture v2](docs/product/ARCHITECTURE_V2.md).

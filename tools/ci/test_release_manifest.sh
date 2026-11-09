@@ -38,7 +38,9 @@ jq --arg tag "$RELEASE_TAG" --arg commit "$RELEASE_SHA" '
     scenarioResults: (
       ["authenticatedStartup", "mkvTsSeek", "audioOnly", "mpvFallback",
        "forceStopReopen", "networkRecovery", "accountIsolation",
-       "catalogNavigation", "lifecycle", "longSession"] |
+       "catalogNavigation", "lifecycle", "longSession",
+       "pauseDuringBuffer", "nativeEngineSwitch", "tvDpadSubtitleFocus",
+       "arm32MemoryStability"] |
       map({key: ., value: "passed"}) | from_entries
     ),
     unrelatedSecret:"must-not-be-exported"
@@ -82,6 +84,14 @@ jq '.deviceResults.arm64Tv.nativeTdlibRuntime = "skipped"' "$tmp/qualification.j
 expect_rejected 'native engine runtime never exercised on ARM64 TV'
 jq '.scenarioResults.longSession = "observed"' "$tmp/qualification.json" > "$tmp/rejected.json"
 expect_rejected 'memory graph substituted for reviewed long-session playback'
+jq '.scenarioResults.pauseDuringBuffer = "not-run"' "$tmp/qualification.json" > "$tmp/rejected.json"
+expect_rejected 'manual Pause must not be overridden by buffering callbacks'
+jq '.scenarioResults.nativeEngineSwitch = "skipped"' "$tmp/qualification.json" > "$tmp/rejected.json"
+expect_rejected 'unverified native engine switching'
+jq '.scenarioResults.tvDpadSubtitleFocus = "observed"' "$tmp/qualification.json" > "$tmp/rejected.json"
+expect_rejected 'TV focus observation substituted for real interaction'
+jq '.scenarioResults.arm32MemoryStability = "observed"' "$tmp/qualification.json" > "$tmp/rejected.json"
+expect_rejected 'PSS sampling substituted for actual ARM32 playback stability'
 jq -n '{schemaVersion: 1, status: "observations-only", productionQualified: false,
     checks: {memoryComparison: "observed", physicalPlayback: "missing"}}' > "$tmp/rejected.json"
 expect_rejected 'unreviewed synthetic cohort comparison as release qualification'
