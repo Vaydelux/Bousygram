@@ -188,7 +188,7 @@ class TelegramAuthManager(private val context: Context) {
         TdLibClient.sendCurrent(TdApi.RequestQrCodeAuthentication(longArrayOf())) { result ->
             qrRequestInFlight = false
             if (result is TdApi.Error) {
-                Log.e(TAG, "RequestQrCodeAuthentication error: ${result.code} ${result.message}")
+                Log.e(TAG, "QR authentication rejected (code=${result.code})")
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -252,7 +252,7 @@ class TelegramAuthManager(private val context: Context) {
         TdLibClient.sendCurrent(TdApi.Destroy()) { result ->
             if (result is TdApi.Error) {
                 destroyInFlight = false
-                Log.w(TAG, "Destroy error: ${result.message}")
+                Log.w(TAG, "TDLib destruction failed (code=${result.code})")
                 _uiState.update { it.copy(isLoading = false, message = AuthInputPolicy.friendlyMessage(result.message)) }
             }
         }
@@ -339,7 +339,7 @@ class TelegramAuthManager(private val context: Context) {
         try {
             credentialsStore.save(cleanId, cleanHash)
         } catch (e: Exception) {
-            Log.e(TAG, "Unable to protect Telegram API credentials", e)
+            Log.e(TAG, "Unable to protect Telegram API credentials (type=${e.javaClass.simpleName})")
             _uiState.update {
                 it.copy(message = "Secure credential storage is unavailable on this device", isLoading = false)
             }
@@ -395,7 +395,7 @@ class TelegramAuthManager(private val context: Context) {
         AccountSession.invalidate()
         true
     } catch (error: Exception) {
-        Log.e(TAG, "Private session cleanup failed; account remains locked", error)
+        Log.e(TAG, "Private session cleanup failed; account remains locked (type=${error.javaClass.simpleName})")
         _uiState.update {
             it.copy(
                 step = AuthStep.Unavailable,
@@ -445,7 +445,7 @@ class TelegramAuthManager(private val context: Context) {
                         AccountPrivateDataPurger.purge(context, revoked)
                     } catch (failure: Exception) {
                         revokedCleanupFailed = true
-                        Log.e(TAG, "Cannot erase revoked account private data", failure)
+                        Log.e(TAG, "Cannot erase revoked account data (type=${failure.javaClass.simpleName})")
                         _uiState.update {
                             it.copy(step = AuthStep.Unavailable, isLoading = false,
                                 message = "Telegram session ended, but private data cleanup failed. Clear Bousygram app storage before using another account.")
@@ -639,7 +639,7 @@ class TelegramAuthManager(private val context: Context) {
                 AccountSession.generation() == epoch
             ) {
                 identityRetryOnConnection = true
-                Log.w(TAG, "Could not request verified Telegram account identity", error)
+                Log.w(TAG, "Unable to verify Telegram identity (type=${error.javaClass.simpleName})")
                 _uiState.update {
                     it.copy(step = AuthStep.Unavailable, isLoading = false,
                         message = "Telegram identity verification could not start. Retry the connection.")
@@ -666,7 +666,7 @@ class TelegramAuthManager(private val context: Context) {
 
     private fun handleResult(result: TdApi.Object?) {
         if (result is TdApi.Error) {
-            Log.e(TAG, "Auth error: ${result.code} ${result.message}")
+            Log.e(TAG, "Telegram authentication rejected (code=${result.code})")
             if (result.message.contains("parameter", ignoreCase = true)) {
                 tdlibParametersSent = false
             }
@@ -677,7 +677,7 @@ class TelegramAuthManager(private val context: Context) {
     }
 
     private fun handleError(t: Throwable?) {
-        Log.e(TAG, "TDLib error", t)
+        Log.e(TAG, "TDLib callback error (type=${t?.javaClass?.simpleName ?: "Unknown"})")
         qrRequestInFlight = false
         synchronized(authLock) { authSubmitInFlight = false }
         _uiState.update { state ->
@@ -723,7 +723,7 @@ class TelegramAuthManager(private val context: Context) {
         val databaseEncryptionKey = try {
             databaseKeyStore.getOrCreateKey(databaseDirectory)
         } catch (e: Exception) {
-            Log.e(TAG, "Unable to unlock the protected TDLib database key", e)
+            Log.e(TAG, "Unable to unlock TDLib database key (type=${e.javaClass.simpleName})")
             tdlibParametersSent = false
             _uiState.update {
                 it.copy(
@@ -778,7 +778,7 @@ class TelegramAuthManager(private val context: Context) {
         if (!invalidateOrLockSession()) return
         TdLibClient.sendCurrent(TdApi.LogOut()) { result ->
             if (result is TdApi.Error) {
-                Log.w(TAG, "LogOut error: ${result.message}")
+                Log.w(TAG, "Telegram logout failed (code=${result.code})")
                 _uiState.update { it.copy(step = AuthStep.Unavailable, isLoading = false,
                     message = "Telegram could not complete logout. The private session is locked. Retry the connection.") }
             }

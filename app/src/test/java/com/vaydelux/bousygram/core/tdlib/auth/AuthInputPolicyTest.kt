@@ -70,6 +70,15 @@ class AuthInputPolicyTest {
     }
 
     @Test
+    fun unknownTdlibErrorDescriptionsNeverExposeSensitiveServerData() {
+        val raw = "unexpected phone=+15551234567 password=secret https://example.invalid/?token=private"
+        assertEquals(
+            "Telegram could not complete the request. Please try again.",
+            AuthInputPolicy.friendlyMessage(raw)
+        )
+    }
+
+    @Test
     fun defaultApiCredentialsAreValid() {
         assertNull(
             AuthInputPolicy.apiCredentialsError(
