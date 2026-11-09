@@ -7,10 +7,18 @@ and [zoku-tv AniList catalog](https://github.com/Vaydelux/zoku-tv/blob/e094faeaa
 - TMDB: 50 source entries from upstream, including CineSrc already present in Bousygram, plus
   two retained Bousygram-specific servers (XXIKU and EmbedHeaven): **52 registered, 51 selectable**.
   TMDB movie and series IDs are never substituted with AniList or IMDb IDs.
-- AniList: 5 source entries, separate server picker. Selected episodes use the AniList media
+- AniList: 5 source entries plus Bousygram XXIKU: **6 total**, separate server picker. Selected episodes use the AniList media
   ID, season 1, and a one-based episode number. AniList media IDs commonly refer to a
   specific season; do not assume one ID provides every sequel season.
 - Existing TMDB season 0 (specials) remains valid. Anime episode controls are one-based.
+- XXIKU canonical examples supplied for integration: movie `/embed/movie/603` (TMDB 603),
+  TV `/embed/tv/1399/1/1` (TMDB 1399, season 1, episode 1), and anime
+  `/embed/anime/16498/1` (AniList 16498, episode 1), all at
+  `https://player.xxiku.com`. The legacy undocumented `best`, `auto`, and
+  `style` query parameters were removed to match those exact URLs.
+  The anime URL includes the episode but **not a season**, as AniList media IDs
+  already identify the anime entry; the API's season argument is validated but
+  intentionally not rendered in this server's URL.
 - Both catalogs use a user-selected HTTPS WebView page. Switching servers disposes the
   previous MediaForge session and invalidates discovered streams, captions and checks.
 - `SUPEREMBED_VIP` is registered but **not selectable**. Its upstream
