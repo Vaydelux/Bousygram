@@ -54,6 +54,21 @@ otherwise the selected item is inserted into the bounded request queue.
 **JVM evidence:** duplicate file across two chat IDs with a missing message
 ID never selects the other chat's entry.
 
+### P1 — A selected message could reuse stale catalog file metadata
+
+An asynchronous TDLib file-ID refresh or an edited message may update the
+clicked `MediaItem` while the launch catalogue still includes a matching
+chat/message with an earlier file ID. The original queue construction selected
+that stale entry by message ID, even when the `PlaybackRequest` had the new
+file ID.
+
+**Correction:** The clicked item's current file ID, filename and display title
+replace the matching queued entry before the bounded queue is handed to the
+player. The change does not alter unrelated chat/message entries.
+
+**JVM evidence:** A stale TS queue entry cannot replace an updated MKV
+selection for the same Telegram message.
+
 ## Reviewed and intentionally unchanged
 
 - A `null` selected **forum** topic represents *All Media*, not necessarily
