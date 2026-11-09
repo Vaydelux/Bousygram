@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows:
       - Android Enterprise Checks
+      - Android Emulator Cast Smoke
     types: [completed]
   workflow_dispatch:
 
@@ -30,6 +31,13 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      # Gate policy is on the trusted default branch. The second checkout
+      # below pins the released artifacts to the exact CI-approved commit.
+      - name: Check out trusted publisher gate scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Resolve exact successful mainline Android CI
         id: source
         shell: bash
@@ -37,11 +45,14 @@ jobs:
           EVENT_TYPE: ${{ github.event_name }}
           EVENT_CI_RUN_ID: ${{ github.event.workflow_run.id }}
           EVENT_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_TRIGGER_WORKFLOW: ${{ github.event.workflow_run.name }}
           MANUAL_SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # The Enterprise and emulator workflows can complete in either order.
+          # Only the second successful result can authorize publication.
+          echo 'ready=false' >> "$GITHUB_OUTPUT"
           if [[ "$EVENT_TYPE" == 'workflow_run' ]]; then
-            run_id="$EVENT_CI_RUN_ID"
             source_sha="$EVENT_SOURCE_SHA"
           else
             [[ "$GITHUB_REF" == 'refs/heads/main' ]] || {
@@ -49,17 +60,32 @@ jobs:
               exit 1
             }
             source_sha="$MANUAL_SOURCE_SHA"
+          fi
+          [[ "$source_sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
+            echo '::error::Invalid release source SHA.' >&2
+            exit 1
+          }
+          if [[ "$EVENT_TYPE" == 'workflow_run' &&
+                "$EVENT_TRIGGER_WORKFLOW" == 'Android Enterprise Checks' ]]; then
+            run_id="$EVENT_CI_RUN_ID"
+          else
             runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-enterprise.yml/runs?head_sha=$source_sha&event=push&per_page=100")"
             # shellcheck disable=SC2016
-            run_id="$(jq -r --arg sha "$source_sha" '[.workflow_runs[] | select(
+            run_id="$(jq -r --arg sha "$source_sha" --arg repo "$GITHUB_REPOSITORY" '[.workflow_runs[] | select(
               .head_sha == $sha and .head_branch == "main" and .event == "push" and
+              .head_repository.full_name == $repo and
+              .path == ".github/workflows/android-enterprise.yml" and
               .status == "completed" and .conclusion == "success"
             )] | sort_by(.run_number) | last | .id // empty' <<< "$runs")"
           fi
-          [[ "$run_id" =~ ^[1-9][0-9]*$ && "$source_sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
-            echo '::error::No successful exact-commit mainline CI for this release.' >&2
-            exit 1
-          }
+          if [[ ! "$run_id" =~ ^[1-9][0-9]*$ ]]; then
+            if [[ "$EVENT_TYPE" == 'workflow_dispatch' ]]; then
+              echo '::error::No successful exact-commit Android Enterprise CI exists.' >&2
+              exit 1
+            fi
+            echo 'Enterprise CI is not verified yet; retrying on its completion.'
+            exit 0
+          fi
           run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
           jq -e --arg sha "$source_sha" --arg repo "$GITHUB_REPOSITORY" '
             .head_sha == $sha and .head_branch == "main" and .event == "push" and
@@ -73,6 +99,15 @@ jobs:
             (.name == "Build and verify" or .name == "Verify debug APK ABI matrix") and
             .status == "completed" and .conclusion == "success"
           )] | length == 2' <<< "$jobs" >/dev/null
+          emulator_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-emulator-smoke.yml/runs?head_sha=$source_sha&event=push&per_page=100")"
+          if ! emulator_id="$(bash tools/ci/verify_debug_emulator_gate.sh /dev/stdin "$source_sha" "$GITHUB_REPOSITORY" <<< "$emulator_runs")"; then
+            if [[ "$EVENT_TYPE" == 'workflow_dispatch' ]]; then
+              echo '::error::Manual preview release requires a successful exact-commit emulator smoke run.' >&2
+              exit 1
+            fi
+            echo 'Emulator smoke has not passed for this exact commit; retrying on completion.'
+            exit 0
+          fi
           # Stable CI creation time makes manual publisher reruns idempotent.
           ci_created_at="$(jq -er '.created_at | select(type == "string")' <<< "$run")"
           [[ "$ci_created_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || {
@@ -80,13 +115,16 @@ jobs:
             exit 1
           }
           {
+            echo "ready=true"
+            echo "emulator_run_id=$emulator_id"
             echo "sha=$source_sha"
             echo "ci_run_id=$run_id"
             echo "ci_created_at=$ci_created_at"
           } >> "$GITHUB_OUTPUT"
-          echo "Verified exact mainline commit $source_sha with CI run $run_id at $ci_created_at"
+          echo "Verified exact mainline commit $source_sha with Enterprise $run_id and emulator $emulator_id at $ci_created_at"
 
       - name: Check out exact CI-approved source
+        if: steps.source.outputs.ready == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.source.outputs.sha }}
@@ -94,6 +132,7 @@ jobs:
           persist-credentials: false
 
       - name: Confirm commit remains on main
+        if: steps.source.outputs.ready == 'true'
         shell: bash
         env:
           RELEASE_SHA: ${{ steps.source.outputs.sha }}
@@ -107,6 +146,7 @@ jobs:
           }
 
       - name: Download exact CI-verified ARM APK matrix
+        if: steps.source.outputs.ready == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: debug-preview-apks-${{ steps.source.outputs.sha }}
@@ -116,6 +156,7 @@ jobs:
           path: ci-artifacts/debug-preview/
 
       - name: Check APK digests and exact build provenance
+        if: steps.source.outputs.ready == 'true'
         id: apks
         shell: bash
         env:
@@ -127,10 +168,12 @@ jobs:
             ci-artifacts/debug-preview "$RELEASE_SHA" "$CI_VERIFICATION_RUN_ID"
 
       - name: Publish versioned GitHub debug prerelease
+        if: steps.source.outputs.ready == 'true'
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
           CI_RUN_ID: ${{ steps.source.outputs.ci_run_id }}
+          EMULATOR_RUN_ID: ${{ steps.source.outputs.emulator_run_id }}
           CI_CREATED_AT: ${{ steps.source.outputs.ci_created_at }}
           VERSION: ${{ steps.apks.outputs.version }}
         run: |
@@ -160,6 +203,7 @@ jobs:
           These APKs are **debug builds for testing**, not production-signed releases.
           Tested source commit: \`$SOURCE_SHA\`
           Required Android Enterprise CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID
+          Required Emulator Cast Smoke: https://github.com/$GITHUB_REPOSITORY/actions/runs/$EMULATOR_RUN_ID
           Verified CI run created: $readable_date (stable UTC timestamp)
 
           | File suffix | Device architecture |
