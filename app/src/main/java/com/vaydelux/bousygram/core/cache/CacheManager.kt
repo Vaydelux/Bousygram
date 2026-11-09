@@ -29,6 +29,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.min
 
 /**
@@ -71,6 +72,8 @@ object CacheManager {
     private val preloadAttemptsMs = ConcurrentHashMap<Int, Long>()
     private const val PRELOAD_RETRY_COOLDOWN_MS = 30_000L
     private val isEvictionScheduled = AtomicBoolean(false)
+    private data class AccessCleanupMarker(val accountId: Long, val elapsedMs: Long)
+    private val lastAccessCleanupMarker = AtomicReference<AccessCleanupMarker?>(null)
     private var pinnedAccountId: Long? = null
     // Access timestamps are sorted oldest first. Rotate a bounded TDLib
     // lookup page across sweeps so the first 256 entries cannot starve newer
@@ -99,6 +102,7 @@ object CacheManager {
         }
         pinnedFiles.clear()
         pinnedAccountId = null
+        lastAccessCleanupMarker.set(null)
         preloadedNextEpisodes.clear()
         preloadAttemptsMs.clear()
     }
@@ -162,9 +166,28 @@ object CacheManager {
     // --- Access Tracking ---
 
     fun markFileAccessed(fileId: Int) {
-        if (fileId <= 0 || AccountSession.current() == null) return
+        if (fileId <= 0) return
+        val account = AccountSession.current() ?: return
+        // Keep accurate recency for every access; only expensive directory
+        // scans/GetFile requests are rate-limited, never the tracking write.
         prefs?.edit { putLong(KEY_ACCESS_PREFIX + fileId, System.currentTimeMillis()) }
-        triggerCacheCleanupIfNeeded()
+        val now = System.nanoTime() / 1_000_000L
+        val freeBytes = StoragePressureMonitor.freeBytes()
+        // A failed StatFs read does not prove critical storage pressure.
+        val level = if (freeBytes != null) StoragePressurePolicy.level(freeBytes)
+            else StoragePressurePolicy.Level.NORMAL
+        while (true) {
+            val previous = lastAccessCleanupMarker.get()
+            val scheduledMs = previous?.takeIf { it.accountId == account.accountId }?.elapsedMs
+            if (!shouldRequestCacheCleanupForAccess(scheduledMs, now, level)) return
+            if (lastAccessCleanupMarker.compareAndSet(
+                    previous, AccessCleanupMarker(account.accountId, now)
+                )
+            ) {
+                triggerCacheCleanupIfNeeded()
+                return
+            }
+        }
     }
 
     // --- Sliding Read-Ahead Window & Seek ---
