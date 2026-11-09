@@ -10,7 +10,7 @@ class ExtrasExpandedEmbedServersTest {
     @Test fun fullCatalogsAreRegisteredWithoutReplacingLegacyEntries() {
         // 50 upstream TMDB entries include CineSrc; Bousygram has two additional legacy entries.
         assertEquals(52, ExtrasEmbedServer.entries.size)
-        assertEquals(5, ExtrasAnimeEmbedServer.entries.size)
+        assertEquals(6, ExtrasAnimeEmbedServer.entries.size)
         assertFalse(ExtrasEmbedServer.SUPEREMBED_VIP.selectable)
         assertEquals(51, ExtrasEmbedServer.entries.count { it.selectable })
     }
@@ -36,6 +36,24 @@ class ExtrasExpandedEmbedServersTest {
         assertEquals("https://cinesrc.st/embed/tv/42?s=0&e=5",
             ExtrasEmbedServer.CINESRC.urlFor(42, 0, 5))
         assertEquals("https://embed.filmu.in/movie/42", ExtrasEmbedServer.EMBED_SU.urlFor(42))
+    }
+
+    @Test fun xxikuRoutesMatchProvidedUrlsWithoutUnverifiedParameters() {
+        assertEquals("https://player.xxiku.com/embed/movie/603",
+            ExtrasEmbedServer.XXIKU.urlFor(603))
+        assertEquals("https://player.xxiku.com/embed/tv/1399/1/1",
+            ExtrasEmbedServer.XXIKU.urlFor(1399, season = 1, episode = 1))
+        assertEquals("https://player.xxiku.com/embed/anime/16498/1",
+            ExtrasAnimeEmbedServer.XXIKU.urlFor(16498, season = 1, episode = 1))
+        assertEquals("https://player.xxiku.com/embed/anime/16498/4",
+            ExtrasAnimeEmbedServer.XXIKU.urlFor(16498, season = 1, episode = 4))
+        assertEquals("https://player.xxiku.com/embed/tv/1399/1/1",
+            ExtrasEmbedRequest.episode(1399, 1, 1, "Example").forServer(ExtrasEmbedServer.XXIKU).url)
+        val anime = ExtrasEmbedRequest.anime(16498, episode = 4, title = "Example")
+            .forServer(ExtrasAnimeEmbedServer.XXIKU)
+        assertEquals("https://player.xxiku.com/embed/anime/16498/4", anime.url)
+        assertEquals(16498, anime.anilistId)
+        assertEquals(0, anime.tmdbId)
     }
 
     @Test fun animeEpisodeRoutesUseAnilistIdentity() {
