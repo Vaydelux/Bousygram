@@ -939,7 +939,7 @@ private fun ExtrasDetailContent(
                             enabled = episodeNumber > 1,
                             modifier = Modifier.testTag("extras-anime-previous-episode")
                         ) { Text("−") }
-                        Text("Episode $"+"episodeNumber" + (total?.let { " / $"+"it" } ?: ""),
+                        Text("Episode $episodeNumber" + (total?.let { " / $it" } ?: ""),
                             style = MaterialTheme.typography.titleMedium)
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: 9999) },
