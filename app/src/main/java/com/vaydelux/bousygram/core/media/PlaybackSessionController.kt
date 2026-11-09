@@ -188,6 +188,28 @@ object PlaybackSessionController {
     }
 
     /**
+     * Eviction protection applies ONLY to the current playback item, not
+     * every item in the episode queue. isFileActive() deliberately grants
+     * queued media temporary stream-access capability, but that must not
+     * protect hundreds of unrelated cached episodes from LRU eviction.
+     *
+     * Protect both the original and TDLib-refreshed file ID during handoff,
+     * including before the first data-source lease has been established.
+     * CacheManager separately guards downloads, pinned files, speculative
+     * prefetch and active byte-range leases.
+     */
+    fun isCacheProtectedPlaybackFile(fileId: Int): Boolean {
+        if (fileId <= 0) return false
+        return activeSessions.any { session ->
+            !session.isStopped() && session.currentItem?.fileId?.let { currentId ->
+                currentId == fileId ||
+                    com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
+                        .resolveEffectiveFileId(currentId) == fileId
+            } == true
+        }
+    }
+
+    /**
      * Keep the active video's TDLib window through Media3 DataSource reopens.
      *
      * isFileActive() grants access to queued media as well, but only the current
