@@ -27,7 +27,7 @@ class ExtrasEmbedRequestTest {
             ExtrasEmbedServer.XXIKU to
                 "https://player.xxiku.com/embed/movie/1084242",
             ExtrasEmbedServer.EMBED_HEAVEN to
-                "https://player.embedheaven.st/movie/1084242?autoplay=0"
+                "https://player.embedheaven.st/movie/1084242"
         )
         for ((server, url) in expected) {
             val selected = original.forServer(server)
@@ -51,7 +51,7 @@ class ExtrasEmbedRequestTest {
         )
         val alternate = original.forServer(ExtrasEmbedServer.EMBED_HEAVEN)
         assertEquals(
-            "https://player.embedheaven.st/tv/1399/0/3?autoplay=0",
+            "https://player.embedheaven.st/tv/1399/0/3",
             alternate.url
         )
         assertEquals(0, alternate.season)

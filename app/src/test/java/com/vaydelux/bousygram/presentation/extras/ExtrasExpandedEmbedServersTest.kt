@@ -10,7 +10,7 @@ class ExtrasExpandedEmbedServersTest {
     @Test fun fullCatalogsAreRegisteredWithoutReplacingLegacyEntries() {
         // 50 upstream TMDB entries include CineSrc; Bousygram has two additional legacy entries.
         assertEquals(52, ExtrasEmbedServer.entries.size)
-        assertEquals(6, ExtrasAnimeEmbedServer.entries.size)
+        assertEquals(7, ExtrasAnimeEmbedServer.entries.size)
         assertFalse(ExtrasEmbedServer.SUPEREMBED_VIP.selectable)
         assertEquals(51, ExtrasEmbedServer.entries.count { it.selectable })
     }
@@ -54,6 +54,15 @@ class ExtrasExpandedEmbedServersTest {
         assertEquals("https://player.xxiku.com/embed/anime/16498/4", anime.url)
         assertEquals(16498, anime.anilistId)
         assertEquals(0, anime.tmdbId)
+    }
+
+    @Test fun embedHeavenAnimeIsSelectableWithoutChangingAniListIdentity() {
+        val anime = ExtrasEmbedRequest.anime(21, episode = 1, title = "Anime")
+            .forServer(ExtrasAnimeEmbedServer.EMBED_HEAVEN)
+        assertEquals("https://player.embedheaven.st/anime/21/1", anime.url)
+        assertEquals(21, anime.anilistId)
+        assertEquals(0, anime.tmdbId)
+        assertEquals(ExtrasAnimeEmbedServer.EMBED_HEAVEN, anime.animeServer)
     }
 
     @Test fun animeEpisodeRoutesUseAnilistIdentity() {
