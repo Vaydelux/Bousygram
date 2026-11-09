@@ -67,10 +67,17 @@ object TelegramCachePruner {
             )
         }
 
-        val beforeStats = storageStats(context, tdLibCacheDir)
+        // One post-prune directory snapshot is enough for the Settings result.
+        // The cleanup engine already measures cache pressure before deletions;
+        // avoid a redundant pre-prune storageStats() traversal.
+        val startedAt = System.nanoTime()
         val result = CacheManager.pruneTrackedCacheNow()
         val stats = storageStats(context, tdLibCacheDir)
         val remainsOverLimit = stats.tdLibCacheBytes > cacheLimitBytes
+        val elapsedMs = ((System.nanoTime() - startedAt).coerceAtLeast(0L)) / 1_000_000L
+        Log.i(TAG, "Safe cache prune durationMs=$elapsedMs deletedFiles=${result.deletedFiles} " +
+            "freedBytes=${result.freedBytes} remainingBytes=${stats.tdLibCacheBytes} " +
+            "quotaBytes=$cacheLimitBytes")
         return TelegramCachePruneResult(
             deletedFiles = result.deletedFiles,
             freedBytes = result.freedBytes,
@@ -79,7 +86,6 @@ object TelegramCachePruner {
             note = when {
                 remainsOverLimit -> "Cache is still above the configured limit. Pinned, recent, active, and untracked data was preserved."
                 result.deletedFiles > 0 -> "Pinned and actively playing media were preserved."
-                beforeStats.tdLibCacheBytes > cacheLimitBytes -> "The cache is now within the configured limit."
                 else -> "TDLib cache is within the configured limit."
             }
         )
