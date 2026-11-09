@@ -351,7 +351,15 @@ object CacheManager {
         // An unavailable/empty directory must never hide known tracked bytes.
         val diskBytes = directorySizeOrZero(File(BousygramApp.instance.filesDir, "tdlib_files"))
         val measuredCachePressureBytes = cacheQuotaPressureBytes(diskBytes, totalSize)
-        val initiallyOverLimit = measuredCachePressureBytes > cacheLimit
+        val initiallyOverLimit = needsCacheEviction(measuredCachePressureBytes, cacheLimit)
+        if (!initiallyOverLimit) {
+            // The cache is already within its (possibly low-storage) target.
+            // Proactively deleting freshly watched media causes avoidable
+            // re-downloads, flash writes and playback startup latency.
+            return TrackedCacheCleanupResult(
+                0, 0L, totalSize, cacheLimit, initiallyOverLimit = false
+            )
+        }
 
         var deletedFiles = 0
         var freedBytes = 0L
@@ -386,12 +394,19 @@ object CacheManager {
                     !file.local.path.isNullOrBlank() && file.local.downloadedSize > 0L
             }
 
+        // Apply the same recent-use grace to watched and non-watched media.
+        // Previously the watched pass ignored the grace entirely, deleting
+        // just-finished episodes while playback could soon resume or replay.
+        val oldEnoughCandidates = safeCandidates.filter { (id, _) ->
+            canEvictCacheByAccessAge(accessTime[id], now, RECENT_ACCESS_PROTECTION_MS)
+        }
         val plannedDeletions = mutableListOf<Pair<Int, Long>>()
         var plannedTotal = measuredCachePressureBytes
 
-        // Phase 1: Evict watched/completed media first
-        val watchedCandidates = safeCandidates.filter { (id, _) -> isWatched(id) }
+        // Phase 1: Prefer watched/completed media only while above quota.
+        val watchedCandidates = oldEnoughCandidates.filter { (id, _) -> isWatched(id) }
         for ((fileId, file) in watchedCandidates) {
+            if (plannedTotal <= cacheLimit) break
             val fileSize = file.local.downloadedSize.coerceAtLeast(0L)
             if (fileSize > 0L) {
                 plannedDeletions += fileId to fileSize
@@ -402,11 +417,9 @@ object CacheManager {
 
         // Phase 2: If still above dynamic quota, evict oldest accessed files
         if (plannedTotal > cacheLimit) {
-            val remainingCandidates = safeCandidates
-                .filterNot { (id, _) -> plannedDeletions.any { it.first == id } }
-                .filter { (id, _) ->
-                    accessTime[id]?.let { now - it >= RECENT_ACCESS_PROTECTION_MS } ?: true
-                }
+            val plannedIds = plannedDeletions.mapTo(mutableSetOf()) { it.first }
+            val remainingCandidates = oldEnoughCandidates
+                .filterNot { (id, _) -> id in plannedIds }
                 .sortedBy { (id, _) -> accessTime[id] ?: 0L }
 
             for ((fileId, file) in remainingCandidates) {
