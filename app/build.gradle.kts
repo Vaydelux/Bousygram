@@ -530,6 +530,7 @@ tasks.register("verifyPrivateMediaCastReleaseGate") {
         "generateDebugBuildConfig",
         "generateReleaseBuildConfig",
         "generateHardenedReleaseBuildConfig",
+        "processDebugMainManifest",
         "processReleaseMainManifest",
         "processHardenedReleaseMainManifest"
     )
@@ -542,6 +543,9 @@ tasks.register("verifyPrivateMediaCastReleaseGate") {
     ).get().asFile
     val hardenedConfig = layout.buildDirectory.file(
         "generated/source/buildConfig/hardenedRelease/com/vaydelux/bousygram/BuildConfig.java"
+    ).get().asFile
+    val debugManifest = layout.buildDirectory.file(
+        "intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml"
     ).get().asFile
     val releaseManifest = layout.buildDirectory.file(
         "intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml"
@@ -567,6 +571,19 @@ tasks.register("verifyPrivateMediaCastReleaseGate") {
         listOf(debugConfig, releaseConfig, hardenedConfig).forEach { config ->
             require(config.isFile && "CRASH_REPORTING_ENABLED = false" in config.readText()) {
                 "External crash reporting must remain disabled in ${config.absolutePath}."
+            }
+        }
+        // Engine Lab is exported in debug for authorized ADB diagnostics.
+        // Every variant must require the privileged DUMP caller permission,
+        // and production variants must also explicitly disable the Activity.
+        listOf(debugManifest, releaseManifest, hardenedManifest).forEach { manifestFile ->
+            val manifest = manifestFile.readText()
+            require(
+                Regex(
+                    """<activity\b(?=[^>]*android:name="com\.vaydelux\.bousygram\.presentation\.debug\.EngineLabActivity")(?=[^>]*android:permission="android\.permission\.DUMP")[^>]*>"""
+                ).containsMatchIn(manifest)
+            ) {
+                "EngineLabActivity must require android.permission.DUMP in ${manifestFile.absolutePath}."
             }
         }
         listOf(releaseManifest, hardenedManifest).forEach { manifestFile ->
