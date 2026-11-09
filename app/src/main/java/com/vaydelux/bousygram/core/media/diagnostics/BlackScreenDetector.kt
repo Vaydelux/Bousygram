@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.media.diagnostics
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.vaydelux.bousygram.data.store.PlaybackDiagnostics
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
@@ -28,7 +29,9 @@ data class BlackScreenDiagnostic(
  * Executes recovery actions in accordance with the Phase 3 Decision Table.
  */
 class BlackScreenDetector(
-    private val clock: () -> Long = { System.currentTimeMillis() }
+    // System time can jump with NTP/timezone corrections on Android TV.
+    // Rendering watchdog deadlines must run on an elapsed monotonic clock.
+    private val clock: () -> Long = { SystemClock.elapsedRealtime() }
 ) {
     companion object {
         private const val TAG = "BlackScreenDetector"
@@ -36,8 +39,17 @@ class BlackScreenDetector(
         const val MIN_AUDIO_PROGRESSION_MS = 1_500L
     }
 
-    private var playingStartedAtMs: Long = 0L
+    private var playingStartedAtMs: Long? = null
     private var initialAudioPositionMs: Long = -1L
+    private var lastAudioPositionMs: Long? = null
+    private var lastSampleElapsedMs: Long? = null
+
+    private fun resetWatchWindow() {
+        playingStartedAtMs = null
+        initialAudioPositionMs = -1L
+        lastAudioPositionMs = null
+        lastSampleElapsedMs = null
+    }
     private var hasSwitchedToTextureView: Boolean = false
     private var hasSwitchedToMpvHw: Boolean = false
     private var hasSwitchedToMpvSw: Boolean = false
@@ -64,8 +76,7 @@ class BlackScreenDetector(
      * but the same stage cannot be repeated indefinitely.
      */
     fun rearmAfterTransition() {
-        playingStartedAtMs = 0L
-        initialAudioPositionMs = -1L
+        resetWatchWindow()
         recoveryTriggered = false
         simulatedFailure = false
         lastDiagnostic = null
@@ -129,27 +140,39 @@ class BlackScreenDetector(
         }
 
         if (!isPlaying || isBuffering) {
-            playingStartedAtMs = 0L
-            initialAudioPositionMs = -1L
+            resetWatchWindow()
             return BlackScreenRecoveryAction.NONE
         }
 
         if (hasFirstFrame || renderedFrameCount > 0L) {
             // Video is rendering successfully
-            playingStartedAtMs = 0L
-            initialAudioPositionMs = -1L
+            resetWatchWindow()
             return BlackScreenRecoveryAction.NONE
         }
 
-        // Playing, not buffering, but NO first frame rendered yet
-        if (playingStartedAtMs == 0L) {
+        // A seek can jump the native timeline forward by hours in a single
+        // callback; this is not audio output progressing while video is black.
+        // Reset the watch window before deciding whether a decoder has stalled.
+        val positionMs = currentPositionMs.coerceAtLeast(0L)
+        val lastClock = lastSampleElapsedMs
+        val lastPosition = lastAudioPositionMs
+        val discontinuity = lastClock != null && lastPosition != null &&
+            playbackTimelineDiscontinuity(
+                previousPositionMs = lastPosition,
+                currentPositionMs = positionMs,
+                elapsedMs = now - lastClock
+            )
+        lastAudioPositionMs = positionMs
+        lastSampleElapsedMs = now
+        val startedAt = playingStartedAtMs
+        if (startedAt == null || discontinuity || now < startedAt) {
             playingStartedAtMs = now
-            initialAudioPositionMs = currentPositionMs
+            initialAudioPositionMs = positionMs
             return BlackScreenRecoveryAction.NONE
         }
 
-        val elapsed = now - playingStartedAtMs
-        val audioAdvanced = (currentPositionMs - initialAudioPositionMs).coerceAtLeast(0L)
+        val elapsed = now - startedAt
+        val audioAdvanced = (positionMs - initialAudioPositionMs).coerceAtLeast(0L)
 
         // Case 1 & Case 6: Black screen with advancing audio > 3.5s
         if (elapsed >= BLACK_SCREEN_TIMEOUT_MS && audioAdvanced >= MIN_AUDIO_PROGRESSION_MS && !recoveryTriggered) {
