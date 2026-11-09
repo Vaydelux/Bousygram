@@ -11,7 +11,13 @@ class PlaybackEngineOwner(
     initialEngine: PlayerEngine,
     private val onOwnerThread: (() -> Unit) -> Unit = AccountMediaResources::onPlayerThread,
     private val reportReplacementCleanupFailure: (Throwable) -> Unit = { error ->
-        Log.w("PlaybackEngineOwner", "Retired native engine cleanup failed after handoff", error)
+        // Native exceptions may contain private playback URLs or local paths.
+        // Preserve the failure in injected test/diagnostic reporters, but never
+        // dump the raw Throwable into Android logcat on a user's device.
+        Log.w(
+            "PlaybackEngineOwner",
+            "Retired native engine cleanup failed (${error.javaClass.simpleName}); details redacted"
+        )
     }
 ) : MutableState<PlayerEngine> {
     private val state = mutableStateOf(initialEngine)
