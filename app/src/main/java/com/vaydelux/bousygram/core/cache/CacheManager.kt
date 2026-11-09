@@ -527,31 +527,66 @@ object CacheManager {
     // --- Internal Blocking Helpers ---
 
     private fun getFilesBlocking(fileIds: List<Int>, account: AccountSnapshot): Map<Int, TdApi.File> {
-        if (fileIds.isEmpty()) return emptyMap()
-        if (!AccountSession.isCurrent(account)) return emptyMap()
+        if (fileIds.isEmpty() || !AccountSession.isCurrent(account)) return emptyMap()
         val client = TdLibClient.client
         val results = ConcurrentHashMap<Int, TdApi.File>()
-        val latch = CountDownLatch(fileIds.size)
-        fileIds.forEach { fileId ->
+        // One 4s budget across the entire sweep. The old implementation sent
+        // up to 256 requests concurrently, competing with active video reads.
+        val startedNs = System.nanoTime()
+        for (batch in cacheTdLibRequestBatches(fileIds)) {
+            if (!AccountSession.isCurrent(account)) break
+            val remainingNs = cacheTdLibRemainingNanos(startedNs, System.nanoTime(), TD_API_TIMEOUT_MS)
+            if (remainingNs <= 0L) break
+            val latch = CountDownLatch(batch.size)
+            val accepting = AtomicBoolean(true)
+            var completed = false
             try {
-                if (!AccountSession.isCurrent(account)) { latch.countDown(); return@forEach }
-                client.send(TdApi.GetFile(fileId)) { response ->
-                    if (!AccountSession.isCurrent(account)) { latch.countDown(); return@send }
-                    when (response) {
-                        is TdApi.File -> results[fileId] = response
-                        is TdApi.Error -> {
-                            prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }
-                            Log.d(TAG, "Dropping stale cache tracking fileId=$fileId (${response.code})")
+                batch.forEach { fileId ->
+                    try {
+                        if (!AccountSession.isCurrent(account)) {
+                            latch.countDown()
+                            return@forEach
                         }
+                        client.send(TdApi.GetFile(fileId)) { response ->
+                            try {
+                                if (accepting.get() && AccountSession.isCurrent(account)) {
+                                    when (response) {
+                                        is TdApi.File -> results[fileId] = response
+                                        is TdApi.Error -> {
+                                            prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }
+                                            Log.d(TAG, "Dropping stale cache tracking fileId=$fileId (${response.code})")
+                                        }
+                                    }
+                                }
+                            } finally {
+                                latch.countDown()
+                            }
+                        }
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Could not request TDLib file status fileId=$fileId", error)
+                        latch.countDown()
                     }
-                    latch.countDown()
                 }
-            } catch (error: Exception) {
-                Log.w(TAG, "Could not request TDLib file status fileId=$fileId", error)
-                latch.countDown()
+                completed = try {
+                    // Include batch submission time in the single shared deadline.
+                    val waitNs = cacheTdLibRemainingNanos(
+                        startedNs, System.nanoTime(), TD_API_TIMEOUT_MS
+                    )
+                    if (waitNs > 0L) latch.await(waitNs, TimeUnit.NANOSECONDS)
+                    else false
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    false
+                }
+            } finally {
+                // Ignore late callbacks after a timed-out batch/account swap.
+                accepting.set(false)
+            }
+            if (!completed) {
+                Log.w(TAG, "TDLib cache status batch timed out; deferring remaining files")
+                break
             }
         }
-        latch.await(TD_API_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         return results.toMap()
     }
 
@@ -569,39 +604,68 @@ object CacheManager {
             FocusPrefetchManager.isPrefetching(fileId)
 
     private fun deleteFilesBlocking(fileIds: List<Int>, account: AccountSnapshot): Set<Int> {
-        if (fileIds.isEmpty()) return emptySet()
-        if (!AccountSession.isCurrent(account)) return emptySet()
+        if (fileIds.isEmpty() || !AccountSession.isCurrent(account)) return emptySet()
         val client = TdLibClient.client
         val eligibleFileIds = fileIds.filterNot(::isTrackedFileDeletionProtected)
         if (eligibleFileIds.isEmpty()) return emptySet()
         val confirmed = ConcurrentHashMap.newKeySet<Int>()
-        val latch = CountDownLatch(eligibleFileIds.size)
-        eligibleFileIds.forEach { fileId ->
+        val startedNs = System.nanoTime()
+        // Limit native deletion requests too. Recheck every file immediately
+        // before issuance: the queued episode may now be the playing video.
+        for (batch in cacheTdLibRequestBatches(eligibleFileIds)) {
+            if (!AccountSession.isCurrent(account)) break
+            val remainingNs = cacheTdLibRemainingNanos(startedNs, System.nanoTime(), TD_API_TIMEOUT_MS)
+            if (remainingNs <= 0L) break
+            val latch = CountDownLatch(batch.size)
+            val accepting = AtomicBoolean(true)
+            var completed = false
             try {
-                // A queued file may become the currently playing one between
-                // the candidate scan and issuing TDLib's async delete request.
-                if (!AccountSession.isCurrent(account) ||
-                    isTrackedFileDeletionProtected(fileId)
-                ) {
-                    latch.countDown()
-                    return@forEach
-                }
-                client.send(TdApi.DeleteFile(fileId)) { response ->
-                    if (!AccountSession.isCurrent(account)) { latch.countDown(); return@send }
-                    if (response is TdApi.Ok) {
-                        confirmed.add(fileId)
-                        prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }
-                    } else if (response is TdApi.Error) {
-                        Log.w(TAG, "TDLib refused cache eviction fileId=$fileId code=${response.code} message=${response.message}")
+                batch.forEach { fileId ->
+                    try {
+                        if (!AccountSession.isCurrent(account) ||
+                            isTrackedFileDeletionProtected(fileId)
+                        ) {
+                            latch.countDown()
+                            return@forEach
+                        }
+                        client.send(TdApi.DeleteFile(fileId)) { response ->
+                            try {
+                                if (accepting.get() && AccountSession.isCurrent(account)) {
+                                    if (response is TdApi.Ok) {
+                                        confirmed.add(fileId)
+                                        prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }
+                                    } else if (response is TdApi.Error) {
+                                        Log.w(TAG, "TDLib refused cache eviction fileId=$fileId code=${response.code} message=${response.message}")
+                                    }
+                                }
+                            } finally {
+                                latch.countDown()
+                            }
+                        }
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Could not request TDLib cache eviction fileId=$fileId", error)
+                        latch.countDown()
                     }
-                    latch.countDown()
                 }
-            } catch (error: Exception) {
-                Log.w(TAG, "Could not request TDLib cache eviction fileId=$fileId", error)
-                latch.countDown()
+                completed = try {
+                    // Include batch submission time in the single shared deadline.
+                    val waitNs = cacheTdLibRemainingNanos(
+                        startedNs, System.nanoTime(), TD_API_TIMEOUT_MS
+                    )
+                    if (waitNs > 0L) latch.await(waitNs, TimeUnit.NANOSECONDS)
+                    else false
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    false
+                }
+            } finally {
+                accepting.set(false)
+            }
+            if (!completed) {
+                Log.w(TAG, "TDLib cache deletion batch timed out; deferring remaining files")
+                break
             }
         }
-        latch.await(TD_API_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         return confirmed.toSet()
     }
 
