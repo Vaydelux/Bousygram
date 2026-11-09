@@ -208,7 +208,8 @@ object FocusPrefetchManager {
         val deadline = android.os.SystemClock.elapsedRealtime() + TS_POSTER_HEAD_BUDGET_MS
         do {
             if (!kotlin.coroutines.coroutineContext.isActive ||
-                PlaybackSessionController.isVideoPlaying()
+                PlaybackSessionController.isVideoPlaying() ||
+                StoragePressureMonitor.isLow()
             ) return
             val step = if (collectContiguousTsHead) {
                 min(TS_POSTER_STEP_BYTES.toLong(), endExclusive - cursor).toInt()
