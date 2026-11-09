@@ -51,6 +51,25 @@ internal fun libVlcUnexpectedPauseAction(
     else -> LibVlcUnexpectedPauseAction.FAIL
 }
 
+/**
+ * A short restart/rebuffer loop must retain its bounded failure budget. Only
+ * sustained native Playing with actual timeline progress restores the budget
+ * so a separate interruption much later in a long movie can recover.
+ */
+internal const val LIBVLC_STABLE_RECOVERY_WINDOW_MS = 15_000L
+internal const val LIBVLC_STABLE_RECOVERY_PROGRESS_MS = 5_000L
+
+internal fun shouldRestoreLibVlcPauseRetryBudget(
+    playRequested: Boolean,
+    prepared: Boolean,
+    nativePlaying: Boolean,
+    retriesSoFar: Int,
+    stableElapsedMs: Long,
+    timelineProgressMs: Long
+): Boolean = playRequested && prepared && nativePlaying && retriesSoFar > 0 &&
+    stableElapsedMs >= LIBVLC_STABLE_RECOVERY_WINDOW_MS &&
+    timelineProgressMs >= LIBVLC_STABLE_RECOVERY_PROGRESS_MS
+
 /** Seek timestamps are native milliseconds; never overflow or exceed known duration. */
 internal fun boundedLibVlcSeekMs(requestedMs: Long, durationMs: Long): Long =
     if (durationMs > 0L) requestedMs.coerceIn(0L, durationMs)
