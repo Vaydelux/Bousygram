@@ -114,6 +114,32 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
     // LibVLC pause() toggles; command once until acknowledged or re-armed by Play.
     @Volatile private var pauseCommandPending = false
     private val unexpectedPauseRetries = AtomicInteger(0)
+    // Invalidate delayed retry-budget resets after another Pause or media swap.
+    private val pauseRetryResetEpoch = AtomicLong(0L)
+
+    private fun schedulePauseRetryBudgetReset() {
+        val retries = unexpectedPauseRetries.get()
+        if (retries <= 0) return
+        val generation = mediaGeneration.get()
+        val epoch = pauseRetryResetEpoch.incrementAndGet()
+        val startPosition = timestampMs
+        eventHandler.postDelayed({
+            if (generation != mediaGeneration.get() || epoch != pauseRetryResetEpoch.get() ||
+                released.get() || stoppedByOwner
+            ) return@postDelayed
+            val nativePlaying = runCatching { nativePlayer.isPlaying }.getOrDefault(false)
+            if (shouldRestoreLibVlcPauseRetryBudget(
+                    playRequested = wantedPlayback,
+                    prepared = filePrepared,
+                    nativePlaying = nativePlaying,
+                    retriesSoFar = unexpectedPauseRetries.get(),
+                    stableElapsedMs = LIBVLC_STABLE_RECOVERY_WINDOW_MS,
+                    timelineProgressMs = (timestampMs - startPosition).coerceAtLeast(0L)
+                )
+            ) unexpectedPauseRetries.compareAndSet(retries, 0)
+        }, LIBVLC_STABLE_RECOVERY_WINDOW_MS)
+    }
+
     @Volatile private var timestampMs = 0L
     @Volatile private var knownDurationMs = 0L
 
@@ -223,6 +249,9 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                                     .getOrDefault(-1L).coerceAtLeast(0L)
                                 refreshTracks()
                                 updateNativeVideoLayout(force = true)
+                                // Do not reset on a single Playing event. Prove
+                                // stable timeline progress first to avoid loops.
+                                schedulePauseRetryBudgetReset()
                             }
                         }
                     }
@@ -236,6 +265,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
                     }
                 }
                 MediaPlayer.Event.Paused -> {
+                    pauseRetryResetEpoch.incrementAndGet()
                     pauseCommandPending = false
                     playing = false
                     when (libVlcUnexpectedPauseAction(
@@ -407,6 +437,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
             "Experimental LibVLC accepts account-authorized loopback streams only"
         }
         mediaGeneration.incrementAndGet()
+        pauseRetryResetEpoch.incrementAndGet()
         stoppedByOwner = false
         pauseCommandPending = false
         unexpectedPauseRetries.set(0)
@@ -558,6 +589,7 @@ class LibVlcPlayerEngine(context: Context) : PlayerEngine {
         playing = false
         filePrepared = false
         unexpectedPauseRetries.set(0)
+        pauseRetryResetEpoch.incrementAndGet()
         runCatching { nativePlayer.stop() }
         activeTracks.value = emptyList()
         dimensions.value = 0 to 0
