@@ -558,6 +558,9 @@ data class TelegramCacheStorageStats(
     val tdLibCacheBytes: Long,
     val cacheLimitBytes: Long
 ) {
+    /** Cache-like measured locations, unlike persistent app files or databases. */
+    val measuredCacheBytes: Long get() = appCacheBytes + tdLibCacheBytes
+    /** App-data directories only; package APK and any external user storage excluded. */
     val totalBytes: Long get() = appCacheBytes + appFilesBytes + tdLibCacheBytes
 }
 
