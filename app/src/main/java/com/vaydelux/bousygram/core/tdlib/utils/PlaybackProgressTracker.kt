@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import com.vaydelux.bousygram.app.BousygramApp
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
+import com.vaydelux.bousygram.core.account.privatePlaybackProgressPreferenceName
 import com.vaydelux.bousygram.data.repository.ContinueWatchingRepository
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
 
@@ -15,7 +16,6 @@ import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
  * The old file remains untouched until an explicit, verifiable migration strategy exists.
  */
 object PlaybackProgressTracker {
-    private const val PREF_NAME = "playback_resume_positions"
     private const val END_THRESHOLD_MS = 5_000
 
     private val lock = Any()
@@ -26,10 +26,8 @@ object PlaybackProgressTracker {
         cached = null
     }
 
-    internal fun accountPreferenceName(accountId: Long): String {
-        require(accountId > 0L)
-        return "${PREF_NAME}_account_$accountId"
-    }
+    internal fun accountPreferenceName(accountId: Long): String =
+        privatePlaybackProgressPreferenceName(accountId)
 
     private fun preferencesFor(owner: AccountSnapshot): SharedPreferences = synchronized(lock) {
         val previous = cached
