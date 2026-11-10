@@ -835,11 +835,12 @@ fun PlayerScreen(
         queue.getOrNull(queueIndex)?.let { item ->
             runCatching {
                 val last = playerEngine.currentPositionMs
-                if (last > 0L) {
+                // Ended videos are marked completed. Do not recreate resume history
+                // from a final decoder position (including unknown-duration TS).
+                if (last > 0L && lastHandledEndedTrackIndex != queueIndex) {
                     PlaybackProgressTracker.saveMessagePosition(
                         item.chatId, item.messageId, last.toInt(), duration,
-                        item.fileId, item.title
-                    )
+                        item.fileId, item.title, expectedOwner = playbackAccountOwner)
                 }
             }.onFailure { Log.w("BousygramPlayer", "Unable to persist exit position", it) }
         }
@@ -866,8 +867,7 @@ fun PlayerScreen(
                 runCatching {
                     PlaybackProgressTracker.saveMessagePosition(
                         old.chatId, old.messageId, lastPosition.toInt(),
-                        duration, old.fileId, old.title
-                    )
+                        duration, old.fileId, old.title, expectedOwner = playbackAccountOwner)
                 }.onFailure { Log.w("PlayerScreen", "Could not persist episode progress", it) }
             }
         },
@@ -1181,7 +1181,9 @@ fun PlayerScreen(
                     if (reachedEnd) {
                         lastHandledEndedTrackIndex = queueIndex
                         commitPlaybackTelemetry(fatalError = null)
-                        PlaybackProgressTracker.clearMessagePosition(current.chatId, current.messageId)
+                        PlaybackProgressTracker.clearMessagePosition(
+                            current.chatId, current.messageId, expectedOwner = playbackAccountOwner
+                        )
                         val watchNextOwner = playbackAccountOwner
                         if (watchNextOwner != null &&
                             com.vaydelux.bousygram.core.account.AccountSession.isCurrent(watchNextOwner)
@@ -1191,9 +1193,7 @@ fun PlayerScreen(
                             val watchNextId = com.vaydelux.bousygram.core.tv.watchNextProviderId(
                                 watchNextOwner.accountId, current.chatId, current.messageId, current.fileId
                             )
-                            scope.launch {
-                                WatchNextManager.removeFromWatchNext(context, watchNextId)
-                            }
+                            WatchNextManager.scheduleRemoveFromWatchNext(context, watchNextId)
                         }
                         if (playbackSession.hasNext) {
                             autoNextCountdown = 5
@@ -1396,8 +1396,7 @@ fun PlayerScreen(
                                 activeLifecycleEngine.currentPositionMs.toInt(),
                                 activeLifecycleDuration,
                                 current.fileId,
-                                current.title
-                            )
+                                current.title, expectedOwner = playbackAccountOwner)
                         }
                     }
                 }
@@ -1454,18 +1453,23 @@ fun PlayerScreen(
                     )
                 )
             }
-            if (current != null && activeLifecycleEngine.currentPositionMs > 0) {
+            if (current != null && activeLifecycleEngine.currentPositionMs > 0 &&
+                lastHandledEndedTrackIndex != activeLifecycleQueueIndex
+            ) {
                 PlaybackProgressTracker.saveMessagePosition(
                     current.chatId,
                     current.messageId,
                     activeLifecycleEngine.currentPositionMs.toInt(),
                     activeLifecycleDuration,
                     current.fileId,
-                    current.title
-                )
-                scope.launch {
-                    WatchNextManager.updateProgress(
+                    current.title, expectedOwner = playbackAccountOwner)
+                // A Compose-scoped launch is cancelled as the screen disposes.
+                // The independent IO owner also checks the original account generation
+                // before committing private media metadata to the TV launcher.
+                playbackAccountOwner?.let { owner ->
+                    WatchNextManager.scheduleProgressUpdate(
                         context = context,
+                        owner = owner,
                         chatId = current.chatId,
                         messageId = current.messageId,
                         fileId = current.fileId,
@@ -1664,7 +1668,8 @@ fun PlayerScreen(
             handoffPositionMs = handoffResumePositionMs,
             lastConfirmedMs = lastGoodPosition,
             savedResumeMs = PlaybackProgressTracker.getMessagePosition(
-                item.chatId, item.messageId, duration
+                item.chatId, item.messageId, duration,
+                expectedOwner = playbackAccountOwner
             ).toLong()
         )
         playbackSession.onPreparing(item)
@@ -2067,8 +2072,7 @@ fun PlayerScreen(
                     position.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                     duration,
                     current.fileId,
-                    current.title
-                )
+                    current.title, expectedOwner = playbackAccountOwner)
             }
 
             val currentItem = queue.getOrNull(queueIndex)
