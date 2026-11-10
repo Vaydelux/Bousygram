@@ -897,6 +897,19 @@ fun PlayerScreen(
     fun skipNext(): Boolean = moveToTrack(playbackSession.currentIndex.value + 1)
     fun skipPrevious(): Boolean = moveToTrack(playbackSession.currentIndex.value - 1)
 
+    // The native MediaSession must NOT be rebuilt on every Compose state change.
+    // Its callbacks still need current Cast, duration and seek/pause/queue closures.
+    val mediaSessionCastState by rememberUpdatedState(castState)
+    val mediaSessionDuration by rememberUpdatedState(duration)
+    val mediaSessionTrackedSeek by rememberUpdatedState<(Long) -> Boolean> { target ->
+        performTrackedSeek(target)
+    }
+    val mediaSessionPause by rememberUpdatedState<(Boolean) -> Unit> { user ->
+        pauseLocalPlayback(userInitiated = user)
+    }
+    val mediaSessionNext by rememberUpdatedState<() -> Boolean> { skipNext() }
+    val mediaSessionPrevious by rememberUpdatedState<() -> Boolean> { skipPrevious() }
+
     val mediaSessionBridge = remember(playerEngine) {
         val boundEngine = playerEngine
         fun acceptsCommand(): Boolean =
@@ -908,7 +921,7 @@ fun PlayerScreen(
             onPlayRequested = {
                 scope.launch {
                     if (!acceptsCommand()) return@launch
-                    if (castState.connected) {
+                    if (mediaSessionCastState.connected) {
                         CastSessionController.play()
                     } else {
                         explicitlyPaused = false
@@ -926,8 +939,8 @@ fun PlayerScreen(
             onPauseRequested = {
                 scope.launch {
                     if (!acceptsCommand()) return@launch
-                    if (castState.connected) CastSessionController.pause()
-                    else pauseLocalPlayback(userInitiated = true)
+                    if (mediaSessionCastState.connected) CastSessionController.pause()
+                    else mediaSessionPause(true)
                     hudVisible = true
                     hudInteractionTick++
                 }
@@ -935,26 +948,26 @@ fun PlayerScreen(
             onSeekAbsoluteRequested = { targetMs ->
                 scope.launch {
                     if (!acceptsCommand()) return@launch
-                    if (castState.connected) CastSessionController.seekTo(targetMs)
-                    else performTrackedSeek(targetMs)
+                    if (mediaSessionCastState.connected) CastSessionController.seekTo(targetMs)
+                    else mediaSessionTrackedSeek(targetMs)
                 }
             },
             onSeekIncrement = { deltaMs ->
                 scope.launch {
                     if (!acceptsCommand()) return@launch
-                    val base = if (castState.connected) castState.positionMs else boundEngine.currentPositionMs
-                    val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
+                    val base = if (mediaSessionCastState.connected) mediaSessionCastState.positionMs else boundEngine.currentPositionMs
+                    val knownDuration = playerSeekDurationMs(mediaSessionDuration, mediaSessionCastState.durationMs, mediaSessionCastState.connected)
                     val target = relativePlayerSeekTarget(base, deltaMs, knownDuration)
-                    if (castState.connected) CastSessionController.seekTo(target)
-                    else performTrackedSeek(target)
+                    if (mediaSessionCastState.connected) CastSessionController.seekTo(target)
+                    else mediaSessionTrackedSeek(target)
                     // Decoder confirmation, not a speculative seek, owns the UI timeline.
                 }
             },
             onSkipNext = {
-                scope.launch { if (acceptsCommand()) skipNext() }
+                scope.launch { if (acceptsCommand()) mediaSessionNext() }
             },
             onSkipPrevious = {
-                scope.launch { if (acceptsCommand()) skipPrevious() }
+                scope.launch { if (acceptsCommand()) mediaSessionPrevious() }
             }
         )
     }
