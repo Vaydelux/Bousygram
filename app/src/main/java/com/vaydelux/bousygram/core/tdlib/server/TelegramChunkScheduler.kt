@@ -1102,7 +1102,7 @@ internal object TelegramChunkScheduler {
         val prefix = knownPrefixBytes(currentFile, window?.offset ?: request.offset)
         val contiguousEnd = saturatingPrefetchEnd(
             saturatingPrefetchEnd(window?.offset ?: request.offset, prefix),
-            PLAYBACK_WINDOW_BYTES
+            PLAYBACK_WINDOW_BYTES.toLong()
         )
         val isOutside = requiresPlaybackWindowReposition(request.offset, window?.offset, contiguousEnd)
         if (isOutside) {
@@ -1113,7 +1113,7 @@ internal object TelegramChunkScheduler {
 
             // Cancel any in-flight deferred requests that are outside the new playhead window
             val newPlayheadStart = request.offset
-            val newPlayheadEnd = saturatingPrefetchEnd(request.offset, PLAYBACK_WINDOW_BYTES)
+            val newPlayheadEnd = saturatingPrefetchEnd(request.offset, PLAYBACK_WINDOW_BYTES.toLong())
             activeRequests.entries.removeIf { (key, deferred) ->
                 if (key.fileId == request.fileId && (key.offset < newPlayheadStart || key.offset >= newPlayheadEnd)) {
                     deferred.cancel()
