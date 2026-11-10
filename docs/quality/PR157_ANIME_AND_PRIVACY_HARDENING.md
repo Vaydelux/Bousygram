@@ -8,6 +8,7 @@ Scope: targeted fixes and regression coverage; not a full seven-phase certificat
 1. **Anime server unavailable before page load:** `ExtrasMediaForgeScreen` immediately created an unverified default anime WebView. Some external pages can remain black or enter HTML fullscreen, covering the native server picker. Prior code did not surface top-level WebView HTTP/TLS/page load failures.
 2. **Revoked-account resume positions not purged:** `PlaybackProgressTracker` persisted positions in a separate `playback_resume_positions_account_{id}` preferences file that `AccountPrivateDataPurger` did not clear/delete.
 3. **Potential asynchronous write/purge race:** Continue Watching wrote through a coroutine-owned `AtomicFile` mutex. The synchronous account-invalidation handler previously cleared the in-memory state without waiting for an active write to finish.
+4. **Android TV launcher watch history:** `WatchNextManager` writes account-qualified Telegram titles and progress to the system launcher provider, outside app-private storage. No revoked-account purge was wired into the private-data cleanup, and debug logs included account/chat media identifiers.
 
 No claim is made that an unverified third-party provider has working media or holds streaming rights.
 
@@ -18,11 +19,12 @@ No claim is made that an unverified third-party provider has working media or ho
 - MediaForge WebBridge forwards sanitized, main-frame-only HTTP/TLS/connection failure statuses. It does **not** print raw provider URLs, inspect prohibited DRM, or change native media authorization.
 - Account progress preference names have one canonical helper. Revoked-account cleanup clears and deletes that account's resume preference document without altering other accounts.
 - Account progress invalidation now drains the `AtomicFile` ledger behind its mutex with a bounded timeout. If persistence cannot be safely drained, invalidation fails closed rather than pretending deletion is complete.
+- Android TV Watch Next cleanup removes only the revoked account's launcher entries, and diagnostics no longer print private account/media IDs. Launcher providers may decline the operation: removal is best-effort, not an attested deletion.
 - `ARCHITECTURE.md` now reflects the actual LibVLC new-install default and the separate Extras boundary.
 
 ## Added regression coverage
 
-- JVM: account path mapping, invalid IDs, and deterministic write-in-progress/logout barrier.
+- JVM: account path mapping, invalid IDs, deterministic write-in-progress/logout barrier, and account-exact external Watch Next ID matching.
 - Android instrumentation: actual preference deletion/account isolation, Anime chooser before page load, fullscreen recovery buttons, and Menu-key escape from the virtual cursor.
 - Existing TV and Telegram media suites are unchanged.
 
@@ -37,6 +39,7 @@ These gates prove compilation, selected behavior on emulator, unit correctness, 
 | Priority | Risk / workstream | Next evidence or change |
 | --- | --- | --- |
 | P1 | Third-party Anime source blank page despite successful HTTP response | Test authorized providers on ARM32/ARM64 hardware; document provider availability separately. Do not treat arbitrary HTML as a native playable stream |
+| P1 | Android TV launcher refuses external Watch Next deletions | Validate the TV provider response on supported hardware; explicitly report unsupported/failed purge instead of claiming certified removal |
 | P1 | Account-specific storage beyond known current stores | Complete on-device file-tree and preference inventory across logout/restart and authorization loss |
 | P1 | Playback cross-engine seek, pause, subtitles | Real-device media fixture matrix with repeated engine transitions, explicit pause and audio focus |
 | P1 | Long-session ARM32 memory/storage | Repeatable physical PSS, disk usage, cache I/O and playback rebuffer soak compared with the baseline |
