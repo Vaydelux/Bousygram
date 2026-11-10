@@ -252,6 +252,11 @@ fun PlayerScreen(
         queueIndexForRequest(queue, request.chatId, request.messageId, request.fileId).coerceAtLeast(0)
     }
 
+    // Pin private launcher history to the verified account that opened this player.
+    // An old engine callback after logout must never resolve a newly signed-in account.
+    val playbackAccountOwner = remember(request) {
+        com.vaydelux.bousygram.core.account.AccountSession.current()
+    }
     val playbackSession = remember(request) {
         PlaybackSessionController.start(
             queue = queue,
@@ -1121,8 +1126,10 @@ fun PlayerScreen(
                         lastHandledEndedTrackIndex = queueIndex
                         commitPlaybackTelemetry(fatalError = null)
                         PlaybackProgressTracker.clearMessagePosition(current.chatId, current.messageId)
-                        val watchNextOwner = com.vaydelux.bousygram.core.account.AccountSession.current()
-                        if (watchNextOwner != null) {
+                        val watchNextOwner = playbackAccountOwner
+                        if (watchNextOwner != null &&
+                            com.vaydelux.bousygram.core.account.AccountSession.isCurrent(watchNextOwner)
+                        ) {
                             // Insertion and EOF removal must use the same exact account-scoped
                             // launcher key. Do not issue a cross-account deletion after logout.
                             val watchNextId = com.vaydelux.bousygram.core.tv.watchNextProviderId(
