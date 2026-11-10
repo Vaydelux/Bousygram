@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.core.account
 
 import android.content.Context
 import com.vaydelux.bousygram.core.media.diagnostics.EngineVerdictStore
+import com.vaydelux.bousygram.core.tv.WatchNextManager
 import java.io.File
 
 /** Exact account-specific stores, never the global TDLib database or another account's data. */
@@ -61,6 +62,9 @@ internal object AccountPrivateDataPurger {
         // The globally bounded recovery store contains account-scoped media keys.
         // Revoke only this account's records; another account may still be active later.
         EngineVerdictStore.clearAccount(context, accountId)
+        // Launcher recommendations are outside app-private storage. Best-effort removal
+        // is scoped to the revoked account; a TV provider may decline deletion.
+        WatchNextManager.clearRevokedAccountRows(context, accountId)
         val db = context.getDatabasePath(names.roomDatabaseName)
         check(context.deleteDatabase(names.roomDatabaseName) || !db.exists()) {
             "Unable to erase account media index"
