@@ -86,6 +86,7 @@ import com.vaydelux.mediaforge.core.MediaForgeSdk
 import com.vaydelux.mediaforge.core.MediaForgeSessionInspection
 import com.vaydelux.mediaforge.core.MediaForgeSessionRequest
 import com.vaydelux.mediaforge.players.MediaForgeMedia3
+import com.vaydelux.mediaforge.players.MediaForgeMedia3Controls
 import com.vaydelux.mediaforge.players.MediaForgeGuardedProgressiveSource
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
 import kotlinx.coroutines.CancellationException
@@ -1198,6 +1199,7 @@ private fun ExtrasMediaForgeNativePlayer(
     val player = remember(media, caption?.url, context, initialPositionMs, initiallyPlayRequested) {
         MediaForgeMedia3.newPlayer(context)
     }
+    val controls = remember(player) { MediaForgeMedia3Controls(player) }
     val foregroundIntent = remember(player) { ExtrasForegroundPlaybackIntent() }
     // A changed caption/source creates a new player; stale errors must not bleed across it.
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
@@ -1217,7 +1219,7 @@ private fun ExtrasMediaForgeNativePlayer(
                             reachedEnd = player.playbackState == Player.STATE_ENDED
                         )
                     )
-                    player.pause()
+                    controls.pause()
                 }
                 Lifecycle.Event.ON_START -> {
                     if (foregroundIntent.onForeground() &&
@@ -1226,7 +1228,7 @@ private fun ExtrasMediaForgeNativePlayer(
                             hasPlaybackError = playbackError != null,
                             reachedEnd = player.playbackState == Player.STATE_ENDED
                         )
-                    ) player.play()
+                    ) controls.play()
                 }
                 else -> Unit
             }
@@ -1240,15 +1242,14 @@ private fun ExtrasMediaForgeNativePlayer(
         }
         player.addListener(listener)
         player.setMediaItem(MediaForgeMedia3.mediaItem(media, caption))
-        if (initialPositionMs > 0L) player.seekTo(initialPositionMs)
+        if (initialPositionMs > 0L) controls.seekTo(initialPositionMs)
         player.prepare()
         player.playWhenReady = initiallyPlayRequested && initiallyForeground
         onDispose {
             foregroundIntent.cancel()
             lifecycleOwner.lifecycle.removeObserver(observer)
             player.removeListener(listener)
-            player.stop()
-            player.release()
+            controls.release()
         }
     }
     Column(Modifier.fillMaxSize().background(Color.Black)) {
@@ -1292,10 +1293,10 @@ private fun ExtrasMediaForgeNativePlayer(
                         if (lifecycleOwner.lifecycle.currentState
                                 .isAtLeast(Lifecycle.State.STARTED)
                         ) {
-                            player.play()
+                            controls.play()
                         } else {
                             foregroundIntent.onBackground(true)
-                            player.pause()
+                            controls.pause()
                         }
                     }
                 ) { Text("Retry playback") }

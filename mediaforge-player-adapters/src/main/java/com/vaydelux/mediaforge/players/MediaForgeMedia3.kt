@@ -73,3 +73,35 @@ interface MediaForgeNativeAdapter {
     fun pause()
     fun release()
 }
+
+/**
+ * Real Media3 implementation of the shared control contract.
+ * The host retains the surface/listener lifecycle; this wrapper ensures
+ * released players cannot receive late Play/Pause/Seek callbacks.
+ */
+class MediaForgeMedia3Controls(
+    private val player: ExoPlayer
+) : MediaForgePlaybackControls {
+    private val releaseLease = MediaForgeReleaseLease()
+
+    override fun play() {
+        if (releaseLease.isOpen()) player.play()
+    }
+
+    override fun pause() {
+        if (releaseLease.isOpen()) player.pause()
+    }
+
+    override fun seekTo(positionMs: Long) {
+        if (releaseLease.isOpen()) player.seekTo(positionMs.coerceAtLeast(0L))
+    }
+
+    override fun release() {
+        if (!releaseLease.tryRelease()) return
+        try {
+            player.stop()
+        } finally {
+            player.release()
+        }
+    }
+}
