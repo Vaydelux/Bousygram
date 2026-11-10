@@ -20,7 +20,7 @@ class MediaForgeSessionTest {
 
     private fun sdk(
         inspect: suspend (StreamCandidate, List<CaptionCandidate>) -> InspectionResult
-    ) = MediaForgeSdk(MediaForgeInspector(inspect))
+    ) = MediaForgeSdk(MediaForgeInspector { stream, captions -> inspect(stream, captions) })
 
     private fun approved(candidate: StreamCandidate) = InspectionResult.Playable(
         InspectedMedia(candidate, emptyList(), 206)
