@@ -21,8 +21,18 @@ object PlaybackProgressTracker {
     private val lock = Any()
     private var cached: Pair<AccountSnapshot, SharedPreferences>? = null
 
-    /** Drop access to the previous account immediately on auth transitions. */
+    /**
+     * SharedPreferences.edit { } uses apply() by default. A pending async write
+     * could reach disk after logout deletes the revoked account's XML. Commit an
+     * explicit clear of the cached account to drain preceding apply() writes before
+     * the account-specific purge runs. A failed commit must block reauthentication.
+     */
     fun invalidateAccountResources() = synchronized(lock) {
+        cached?.let { (_, preferences) ->
+            check(preferences.edit().clear().commit()) {
+                "Unable to drain revoked-account playback position writes"
+            }
+        }
         cached = null
     }
 
