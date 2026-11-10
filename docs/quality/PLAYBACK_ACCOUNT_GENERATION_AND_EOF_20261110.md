@@ -19,12 +19,12 @@ Baseline: `1746da95b2e0fe728c902917f5ede09060d6c9b8`.
 - `PlayerScreen` passes the pinned owner to all five message-progress write points, its resume read, and natural-EOF completion. An invalidated player cannot publish to a subsequently logged-in identity.
 - `WatchNextManager.updateProgress` **requires** a verified owner argument; there is no implicit `AccountSession.current()` fallback. The screen schedules the update through the manager's independent, already-existing IO scope; the queued task checks ownership again on execution and at the account-serialized launcher write.
 - Natural-EOF Watch Next removal now survives Compose disposal. Shared `shouldPersistSessionExitProgress` policy prevents a confirmed completed item from being rewritten as an unfinished video during Back/disposal, without suppressing legitimate in-progress checkpoints.
-- The `BousygramApp` invalidation handler now synchronously calls `PlaybackProgressTracker.invalidateAccountResources()`, which commits a clear to drain all queued legacy `apply()` writes before the account's XML is deleted. If the commit fails, `AccountSession.invalidate()` fails closed and a new account cannot activate. Normal periodic progress writes remain asynchronous to avoid ARM32 playback UI stalls.
+- The `BousygramApp` invalidation handler now synchronously calls `PlaybackProgressTracker.invalidateAccountResources()`, which makes a **no-change commit** to drain queued legacy `apply()` writes before any subsequent confirmed account purge. This does **not** clear watch history during transient identity-verification failures. Only `AccountPrivateDataPurger` clears/deletes the account's XML after verified logout/revocation. If the drain fails, account invalidation fails closed. Normal periodic writes remain asynchronous to avoid ARM32 UI stalls.
 - No changes to Telegram media-byte ownership, engine selection, decoder retry loops, login flow, Extras/MediaForge isolation or app theme.
 
 ## Tests
 
-- Android instrumentation: synthetic accounts, real account-scoped SharedPreferences, logout drain, verified revoked XML deletion, login to a different account, delayed old-player write, current-player write and delayed old-player completion; the stale operations cannot recreate revoked files or touch the active account's progress.
+- Android instrumentation: synthetic accounts, real SharedPreferences, non-destructive invalidation/drain, separately verified account purge and XML deletion, login to another account, delayed old-player writes and EOF. Stale operations cannot recreate revoked files or touch active-account progress.
 - JVM: deterministic generation isolation even for a **same-account relogin**; EOF progress suppression for active versus retired episode.
 - Existing Gradle Android Enterprise tests, emulator media/remote regression suite, TDLib generation and supported debug APK ABI matrix required on the exact PR SHA before merge.
 
