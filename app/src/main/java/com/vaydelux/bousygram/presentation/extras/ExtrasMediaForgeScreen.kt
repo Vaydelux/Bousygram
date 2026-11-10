@@ -7,6 +7,7 @@ import android.widget.FrameLayout
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -898,7 +900,9 @@ private fun ExtrasServerPicker(
     options: List<ExtrasServerOption>,
     onSelected: (String) -> Unit,
     isTv: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    pickerTitle: String = "Choose a web server",
+    compactOptions: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier) {
@@ -911,17 +915,19 @@ private fun ExtrasServerPicker(
             Text("Server: $label  ▾", maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (expanded) {
-            Dialog(onDismissRequest = { expanded = false }) {
+            Dialog(
+                onDismissRequest = { expanded = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
                 val listState = rememberLazyListState()
                 val selectedFocus = remember { FocusRequester() }
-                // Include group header rows when calculating the selected row.
+                var focusedKey by remember { mutableStateOf<String?>(null) }
+                // Include section headers when restoring the selected option.
                 val selectedPosition = remember(options, selectedKey) {
                     val selected = options.indexOfFirst { it.key == selectedKey }
                     if (selected < 0) 0
                     else selected + options.take(selected + 1).map { it.group }.distinct().size
                 }
-                // The server picker lives in another Android window. Ensure an
-                // already selected server is reachable by D-pad without 50 taps.
                 LaunchedEffect(selectedPosition) {
                     listState.scrollToItem(selectedPosition)
                     withFrameNanos { }
@@ -930,43 +936,130 @@ private fun ExtrasServerPicker(
                         selectedFocus.requestFocus()
                     }
                 }
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.widthIn(min = 260.dp, max = if (isTv) 530.dp else 390.dp)
+                // Height must be constrained by the *actual dialog window*.
+                // A fixed 460.dp list plus title/description overflows 720p TVs
+                // and smaller phone landscapes. The weighted list scrolls
+                // independently while header and Close stay accessible.
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxSize()
+                        .padding(horizontal = if (isTv) 22.dp else 12.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Choose a web server", style = MaterialTheme.typography.titleMedium)
-                        Text("Third-party sources are not verified for availability or licensing.",
-                            style = MaterialTheme.typography.labelSmall)
-                        androidx.compose.foundation.lazy.LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp)
+                    val maxPanelHeight = (maxHeight * 0.94f)
+                        .coerceAtMost(if (isTv) 650.dp else 540.dp)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth()
+                            .widthIn(max = if (isTv) 680.dp else 460.dp)
+                            .heightIn(max = maxPanelHeight)
+                            .testTag("extras-server-dialog"),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        shadowElevation = 24.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(if (isTv) 18.dp else 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            options.groupBy { it.group }.forEach { (group, candidates) ->
-                                item(key = "group:$group") {
-                                    Text(group, style = MaterialTheme.typography.labelLarge,
-                                        modifier = Modifier.padding(vertical = 8.dp))
-                                }
-                                items(candidates, key = { it.key }) { candidate ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text((if (candidate.key == selectedKey) "✓  " else "") + candidate.label,
-                                                    fontSize = if (isTv) 19.sp else 16.sp)
-                                                Text(candidate.description,
-                                                    style = MaterialTheme.typography.labelSmall, maxLines = 2)
-                                            }
-                                        },
-                                        onClick = {
-                                            expanded = false
-                                            if (candidate.key != selectedKey) onSelected(candidate.key)
-                                        },
-                                        modifier = Modifier.heightIn(min = if (isTv) 64.dp else 48.dp)
-                                            .then(if (candidate.key == selectedKey)
-                                                Modifier.focusRequester(selectedFocus) else Modifier)
-                                            .semantics { selected = candidate.key == selectedKey }
-                                            .testTag(candidate.key)
-                                    )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    pickerTitle,
+                                    modifier = Modifier.weight(1f),
+                                    style = if (isTv) MaterialTheme.typography.titleLarge
+                                        else MaterialTheme.typography.titleMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                OutlinedButton(
+                                    onClick = { expanded = false },
+                                    modifier = Modifier.testTag("extras-server-close")
+                                ) { Text("Close") }
+                            }
+                            Text(
+                                "${options.size} servers · Third-party availability and licensing are unverified.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2
+                            )
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxWidth()
+                                    .weight(1f, fill = false)
+                                    .testTag("extras-server-options"),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                options.groupBy { it.group }.forEach { (group, candidates) ->
+                                    item(key = "group:$group") {
+                                        Text(
+                                            group,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(
+                                                horizontal = 12.dp, vertical = 6.dp
+                                            )
+                                        )
+                                    }
+                                    items(candidates, key = { it.key }) { candidate ->
+                                        val isSelected = candidate.key == selectedKey
+                                        val isFocused = candidate.key == focusedKey
+                                        val shape = RoundedCornerShape(12.dp)
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Text(
+                                                        (if (isSelected) "✓  " else "") + candidate.label,
+                                                        fontSize = if (isTv) 19.sp else 16.sp,
+                                                        color = if (isSelected)
+                                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                                        else MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    // Anime descriptions are identical for every
+                                                    // provider; repeating them crowds the picker.
+                                                    if (!compactOptions) {
+                                                        Text(
+                                                            candidate.description,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            onClick = {
+                                                expanded = false
+                                                if (!isSelected) onSelected(candidate.key)
+                                            },
+                                            modifier = Modifier
+                                                .background(
+                                                    if (isSelected)
+                                                        MaterialTheme.colorScheme.primaryContainer
+                                                    else Color.Transparent,
+                                                    shape
+                                                )
+                                                .border(
+                                                    if (isFocused) 2.dp else 1.dp,
+                                                    if (isFocused) MaterialTheme.colorScheme.primary
+                                                    else Color.Transparent,
+                                                    shape
+                                                )
+                                                .heightIn(min = if (isTv) 60.dp else 48.dp)
+                                                .onFocusChanged {
+                                                    if (it.isFocused) focusedKey = candidate.key
+                                                    else if (focusedKey == candidate.key) focusedKey = null
+                                                }
+                                                .then(if (isSelected)
+                                                    Modifier.focusRequester(selectedFocus) else Modifier)
+                                                .semantics { selected = isSelected }
+                                                .testTag(candidate.key)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1019,7 +1112,7 @@ internal fun ExtrasAnimeEmbedServerDropdown(
     }
     ExtrasServerPicker(server.label, "extras-anime-server-" + server.name.lowercase(),
         options, { key -> onSelected(ExtrasAnimeEmbedServer.entries.first { "extras-anime-server-" + it.name.lowercase() == key }) },
-        isTv, modifier)
+        isTv, modifier, pickerTitle = "Choose anime server", compactOptions = true)
 }
 
 /**

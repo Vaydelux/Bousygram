@@ -8,7 +8,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -17,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -73,6 +76,29 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         }
         compose.onNodeWithTag("extras-anime-open-selected-server").performClick()
         compose.runOnIdle { assertEquals(true, launched) }
+    }
+
+    @Test fun animeServerDialogKeepsScrollableChoicesWithinPanelAndCanClose() {
+        compose.setContent {
+            BousygramTheme {
+                ExtrasAnimeEmbedServerDropdown(
+                    server = ExtrasAnimeEmbedServer.FILMU,
+                    isTv = true,
+                    onSelected = {}
+                )
+            }
+        }
+        compose.onNodeWithTag("extras-server-dropdown").performClick()
+        compose.onNodeWithTag("extras-server-dialog").assertIsDisplayed()
+        compose.onNodeWithTag("extras-server-options").assertIsDisplayed()
+        val panel = compose.onNodeWithTag("extras-server-dialog")
+            .fetchSemanticsNode().boundsInRoot
+        val list = compose.onNodeWithTag("extras-server-options")
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("The server list should stay inside the dialog panel", list.bottom <= panel.bottom + 1f)
+        assertTrue("The server list should start inside the dialog panel", list.top >= panel.top - 1f)
+        compose.onNodeWithTag("extras-server-close").performClick()
+        compose.onNodeWithTag("extras-server-dropdown").assertIsDisplayed()
     }
 
     @Test fun fullscreenAlwaysHasNativeAnimeServerRecoveryControls() {
