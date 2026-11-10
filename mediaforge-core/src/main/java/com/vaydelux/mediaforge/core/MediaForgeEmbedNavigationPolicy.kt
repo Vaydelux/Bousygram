@@ -31,40 +31,45 @@ object MediaForgeEmbedNavigationPolicy {
                 targetPath.startsWith("/embed/"))
         if (!pathAllowed) return false
 
-        // Preserve the title ID + type for legacy query-based /embed pages.
-        // A repeated parameter must not be treated as a missing parameter.
+        // Only the server selector may change. Compare the *full* identity
+        // parameter set, including absence: a newly introduced season/episode
+        // must not silently switch the title selected by the host application.
         if (originalPath == "/embed") {
-            val originalId = singleParam(original, "id")
-            val originalType = singleParam(original, "type")
-            if (originalId != null || originalType != null) {
-                if (originalId.isNullOrEmpty() || originalType.isNullOrEmpty()) return false
-                if (originalId != singleParam(target, "id") ||
-                    originalType != singleParam(target, "type")
-                ) return false
-            }
+            val identity = setOf("id", "type")
+            val selected = protectedParameters(original, identity) ?: return false
+            val requested = protectedParameters(target, identity) ?: return false
+            if (selected != requested) return false
+            if (selected.isNotEmpty() &&
+                (selected["id"].isNullOrBlank() || selected["type"].isNullOrBlank())
+            ) return false
         }
 
-        // Title-bound routes can change server selection, not the episode
-        // which the host user selected. Duplicates are rejected explicitly.
         if (titleBound) {
-            for (key in listOf("s", "e", "season", "episode")) {
-                val originalValue = singleParam(original, key)
-                if (originalValue != null && originalValue != singleParam(target, key))
-                    return false
-                if (originalValue == null && occurrences(original, key) > 1)
-                    return false
-            }
+            val episode = setOf("s", "e", "season", "episode")
+            val selected = protectedParameters(original, episode) ?: return false
+            val requested = protectedParameters(target, episode) ?: return false
+            if (selected != requested) return false
         }
         return true
     }
 
-    private fun occurrences(uri: URI, key: String): Int =
-        uri.rawQuery.orEmpty().split('&').count { it.substringBefore('=') == key }
-
-    private fun singleParam(uri: URI, key: String): String? {
-        if (occurrences(uri, key) != 1) return null
-        return uri.rawQuery.orEmpty().split('&')
-            .first { it.substringBefore('=') == key }
-            .substringAfter('=', "")
+    /**
+     * Reject duplicate identity keys, including encoded and case variants.
+     * Preserve the exact selected values (rather than normalizing signed
+     * provider queries). Semicolon separation is recognized because some
+     * server-side frameworks treat it like '&'.
+     */
+    private fun protectedParameters(uri: URI, keys: Set<String>): Map<String, String>? {
+        val parameters = LinkedHashMap<String, String>()
+        for (field in uri.rawQuery.orEmpty().split('&', ';')) {
+            if (field.isEmpty()) continue
+            val rawKey = field.substringBefore('=')
+            val key = runCatching { java.net.URLDecoder.decode(rawKey, "UTF-8") }
+                .getOrNull()?.lowercase(java.util.Locale.ROOT) ?: return null
+            if (key !in keys) continue
+            if (parameters.containsKey(key)) return null
+            parameters[key] = field.substringAfter('=', "")
+        }
+        return parameters
     }
 }

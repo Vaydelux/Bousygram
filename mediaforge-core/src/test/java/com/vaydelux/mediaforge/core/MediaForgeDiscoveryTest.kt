@@ -129,6 +129,42 @@ class MediaForgeDiscoveryTest {
             "https://embed.example.org/movie/43"))
     }
 
+    @Test fun embedNavigationRejectsIntroducedOrDisguisedEpisodeAndTitleKeys() {
+        fun permitted(selected: String, requested: String): Boolean =
+            MediaForgeEmbedNavigationPolicy.allows(java.net.URI(selected), requested)
+
+        val pathEpisode = "https://embed.example.org/embed/tv/1399/1/2"
+        assertTrue(permitted(pathEpisode, "$pathEpisode?server=2"))
+        assertFalse(permitted(pathEpisode, "$pathEpisode?e=3"))
+        assertFalse(permitted(pathEpisode, "$pathEpisode?s=9&episode=4"))
+
+        val queryEpisode = "https://embed.example.org/embed/tv/1399?s=1&e=2"
+        assertTrue(permitted(queryEpisode, "$queryEpisode&server=2"))
+        assertFalse(permitted(queryEpisode, "$queryEpisode&%65=3"))
+        assertFalse(permitted(queryEpisode, "$queryEpisode&E=3"))
+        assertFalse(permitted(queryEpisode, "$queryEpisode;e=3"))
+        assertFalse(permitted(
+            "https://embed.example.org/embed/tv/1399?s=1",
+            "https://embed.example.org/embed/tv/1399?s=1&episode=99"
+        ))
+
+        val legacy = "https://embed.example.org/embed?id=550&type=movie"
+        assertTrue(permitted(legacy, "$legacy&server=4"))
+        assertFalse(permitted(legacy, "$legacy&%69d=551"))
+        assertFalse(permitted(legacy, "$legacy&TYPE=tv"))
+        assertFalse(permitted(
+            "https://embed.example.org/embed", legacy
+        ))
+        assertTrue(permitted(
+            "https://embed.example.org/embed",
+            "https://embed.example.org/embed?server=4"
+        ))
+        assertFalse(permitted(
+            "https://embed.example.org/embed?id=&type=movie",
+            "https://embed.example.org/embed?id=&type=movie"
+        ))
+    }
+
     @Test fun unsafeUrlsRejected() {
         assertNull(MediaForgeClassifier.stream("http://example.org/master.m3u8"))
         assertNull(MediaForgeClassifier.stream("https://127.0.0.1/secret.mp4"))
