@@ -361,6 +361,16 @@ class PlaybackHelpersTest {
         ))
     }
 
+    @Test
+    fun credibleNativeEofPreventsResumeFromBeingRecreatedOnBackOrDisposal() {
+        // Unknown-duration MPEG-TS can report genuine EOF with a final
+        // timestamp that is below a percentage-based completion threshold.
+        assertFalse(shouldPersistSessionExitProgress(completedTrackIndex = 2, activeTrackIndex = 2))
+        assertFalse(shouldPersistSessionExitProgress(completedTrackIndex = 0, activeTrackIndex = 0))
+        assertTrue(shouldPersistSessionExitProgress(completedTrackIndex = -1, activeTrackIndex = 0))
+        assertTrue(shouldPersistSessionExitProgress(completedTrackIndex = 1, activeTrackIndex = 2))
+    }
+
     private fun queueItem(chatId: Long, messageId: Long, fileId: Int, title: String) = PlaybackQueueItem(
         chatId = chatId,
         messageId = messageId,
