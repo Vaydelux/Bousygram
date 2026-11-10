@@ -11,6 +11,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -46,6 +48,7 @@ class MediaForgeProbeReliabilityTest {
                             .protocol(Protocol.HTTP_1_1)
                             .code(200)
                             .message("OK")
+                            .body("fixture".toResponseBody("text/plain".toMediaType()))
                             .build()
                     )
                 }.apply { isDaemon = true; start() }
