@@ -845,17 +845,6 @@ private fun ExtrasMediaForgePlayerScreen(
                     if (parent is FrameLayout) parent.removeAllViews()
                 }
             )
-            // Always draw trusted recovery controls above the untrusted HTML surface.
-            Box(Modifier.align(Alignment.TopCenter)) {
-                ExtrasFullscreenRecoveryControls(
-                    isAnime = request.anilistId > 0,
-                    onExitFullscreen = { bridge.dismissFullscreen() },
-                    onChooseAnimeServer = {
-                        bridge.dismissFullscreen()
-                        onChooseAnimeServer()
-                    }
-                )
-            }
             if (cursorEnabled && isAndroidTv) {
                 ExtrasVirtualCursor(
                     target = videoView,
@@ -869,7 +858,22 @@ private fun ExtrasMediaForgePlayerScreen(
                     },
                     onConfirm = { bridge.click(videoView, pointerX.toFloat(), pointerY.toFloat()) },
                     isActive = true,
-                    tag = "extras-fullscreen-virtual-cursor"
+                    tag = "extras-fullscreen-virtual-cursor",
+                    onMenu = {
+                        bridge.dismissFullscreen()
+                        if (request.anilistId > 0) onChooseAnimeServer()
+                    }
+                )
+            }
+            // Always draw trusted recovery controls above the untrusted HTML surface.
+            Box(Modifier.align(Alignment.TopCenter)) {
+                ExtrasFullscreenRecoveryControls(
+                    isAnime = request.anilistId > 0,
+                    onExitFullscreen = { bridge.dismissFullscreen() },
+                    onChooseAnimeServer = {
+                        bridge.dismissFullscreen()
+                        onChooseAnimeServer()
+                    }
                 )
             }
         }
@@ -1031,7 +1035,8 @@ internal fun ExtrasVirtualCursor(
     onDelta: (Int, Int) -> Unit,
     onConfirm: () -> Unit,
     isActive: Boolean,
-    tag: String
+    tag: String,
+    onMenu: (() -> Unit)? = null
 ) {
     val focus = remember { FocusRequester() }
     // The HTML5 fullscreen window / WebView may attach after composition.
@@ -1071,6 +1076,10 @@ internal fun ExtrasVirtualCursor(
                     AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> {
                         if (repeat == 0) onConfirm()
                         true
+                    }
+                    AndroidKeyEvent.KEYCODE_MENU -> {
+                        if (repeat == 0) onMenu?.invoke()
+                        onMenu != null
                     }
                     else -> false
                 }
