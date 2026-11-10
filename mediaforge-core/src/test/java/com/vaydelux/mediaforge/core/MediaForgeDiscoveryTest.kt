@@ -62,6 +62,8 @@ class MediaForgeDiscoveryTest {
         assertFalse(client.followSslRedirects)
         assertEquals(java.net.Proxy.NO_PROXY, client.proxy)
         assertTrue(client.networkInterceptors.isNotEmpty())
+        assertEquals(8, client.dispatcher.maxRequests)
+        assertEquals(4, client.dispatcher.maxRequestsPerHost)
         try {
             client.dns.lookup("127.0.0.1")
             fail("Private loopback host must not resolve")
