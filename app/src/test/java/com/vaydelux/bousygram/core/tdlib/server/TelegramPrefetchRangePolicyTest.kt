@@ -59,7 +59,8 @@ class TelegramPrefetchRangePolicyTest {
             boundedPlaybackWindowBytes(1024L, 1_000_000L, 0.0, false))
         assertEquals(4L * 1024L * 1024L,
             boundedPlaybackWindowBytes(0L, 0L, Double.NaN, true))
-        assertEquals(48L * 1024L * 1024L,
+        // Bad network samples fall back to the guarded 1.5 Mbps floor.
+        assertEquals(8_437_500L,
             boundedPlaybackWindowBytes(0L, 0L, Double.POSITIVE_INFINITY, false))
     }
 
