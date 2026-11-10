@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,14 +12,17 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 
 /**
  * No unverified third-party anime page is loaded until the user explicitly selects
@@ -48,33 +52,51 @@ internal fun ExtrasAnimeSourceChooser(
                 Text("Back to anime")
             }
         }
-        Text(request.title, style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "Choose an anime web server before opening the player.",
-            style = MaterialTheme.typography.titleMedium
+        BousygramPageHeading(
+            eyebrow = "Extras  /  Anime",
+            title = request.title,
+            subtitle = "Choose a source before opening an external player.",
+            compact = !isTv
         )
-        ExtrasAnimeEmbedServerDropdown(
-            server = selected,
-            onSelected = onSelect,
-            isTv = isTv,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            "AniList #${request.anilistId} · Episode ${request.episode ?: 1}. " +
-                "These external servers are not verified for availability or licensing.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Button(
-            onClick = onOpen,
-            modifier = Modifier.fillMaxWidth().heightIn(min = if (isTv) 56.dp else 48.dp)
-                .testTag("extras-anime-open-selected-server")
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Text("Open ${selected.label} web player")
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(if (isTv) 24.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    "PLAYBACK SOURCE",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                ExtrasAnimeEmbedServerDropdown(
+                    server = selected,
+                    onSelected = onSelect,
+                    isTv = isTv,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "AniList #${request.anilistId} · Episode ${request.episode ?: 1}. " +
+                        "External sources are not verified for availability or licensing.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = onOpen,
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(min = if (isTv) 56.dp else 48.dp)
+                        .testTag("extras-anime-open-selected-server")
+                ) {
+                    Text("Open ${selected.label} web player")
+                }
+            }
         }
         Text(
             "If a provider shows a blank page, use Choose server to return here. " +
-                "A valid embed URL does not guarantee that a playable stream exists.",
+                "An embed URL does not guarantee that a playable stream exists.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -90,7 +112,7 @@ internal fun ExtrasFullscreenRecoveryControls(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {

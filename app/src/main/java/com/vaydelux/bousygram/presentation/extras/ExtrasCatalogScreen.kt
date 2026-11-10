@@ -84,6 +84,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -401,17 +402,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Column(Modifier.fillMaxWidth().padding(horizontal = if (metrics.isCompact) 12.dp else 26.dp, vertical = 10.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = if (metrics.isCompact) 16.dp else 32.dp, vertical = 14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = {
                         if (detailItem != null) goBackFromDetails() else onExit()
                     }) { Text("← Back") }
-                    Column(Modifier.weight(1f)) {
-                        Text(if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
-                            style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Catalog metadata · TMDB / AniList · optional Web sources",
-                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    BousygramPageHeading(
+                        eyebrow = "Bousygram  /  Extras",
+                        title = if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
+                        subtitle = "Movies, series, anime and Live TV",
+                        compact = metrics.isCompact,
+                        modifier = Modifier.weight(1f)
+                    )
                     TextButton(onClick = { showCredits = true }) { Text("Credits") }
                 }
                 if (detailItem == null) {
@@ -476,7 +478,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             )
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
-                .padding(horizontal = if (metrics.isCompact) 12.dp else 26.dp)) {
+                .padding(horizontal = if (metrics.isCompact) 16.dp else 32.dp)) {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = { text ->
