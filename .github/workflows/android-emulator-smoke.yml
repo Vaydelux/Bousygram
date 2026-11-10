@@ -101,6 +101,10 @@ jobs:
           target: aosp_atd
           arch: x86_64
           profile: pixel_4
+          # Default pixel_4 userdata requested 7.37 GB on Ubuntu 24.04 while
+          # only 6.38 GB remained after the exact-source Gradle + FFmpeg build.
+          # 3 GiB is sufficient for the synthetic decoder fixtures/UI tests.
+          disk-size: 3072M
           emulator-boot-timeout: 600
           disable-animations: true
           script: bash tools/ci/run_emulator_smoke.sh
