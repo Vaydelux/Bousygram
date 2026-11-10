@@ -147,6 +147,8 @@ fun TvHybridHomeDashboard(
     val cardWidth: Dp = if (compact) 180.dp else 224.dp
 
     val continueWatchingRail by ContinueWatchingRepository.railItems.collectAsStateWithLifecycle()
+    // One content-free subscription serves every visible card; do not poll per card.
+    val progressRevision by ContinueWatchingRepository.progressRevision.collectAsStateWithLifecycle()
 
     val continueItem = remember(featuredVideos, lastPlayedFileId, continueWatchingRail) {
         val topRail = continueWatchingRail.firstOrNull()
@@ -190,7 +192,7 @@ fun TvHybridHomeDashboard(
         if (activeHeroMedia == null) false
         else favoriteKeys.contains("${activeHeroMedia.chatId}:${activeHeroMedia.messageId}")
     }
-    val hasHeroResume = remember(activeHeroMedia, continueWatchingRail) {
+    val hasHeroResume = remember(activeHeroMedia, continueWatchingRail, progressRevision) {
         if (activeHeroMedia == null) false
         else PlaybackProgressTracker.hasResume(activeHeroMedia.chatId, activeHeroMedia.messageId, activeHeroMedia.fileId) ||
                 continueWatchingRail.any { it.chatId == activeHeroMedia.chatId && it.messageId == activeHeroMedia.messageId }
@@ -706,7 +708,8 @@ fun TvHybridHomeDashboard(
                                 onClick = { onVideoSelected(episode) },
                                 cardWidth = cardWidth,
                                 onFocusChanged = { if (it) { focusedMediaForBackdrop = episode; onVideoFocused(episode) } },
-                                onOpenDetails = { detailMediaItem = episode; showDetailsDialog = true }
+                                onOpenDetails = { detailMediaItem = episode; showDetailsDialog = true },
+                                progressRevision = progressRevision
                             )
                         }
                     }
@@ -777,7 +780,8 @@ fun TvHybridHomeDashboard(
                                                     onVideoFocused(item)
                                                 }
                                             },
-                                            onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                            onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
+                                            progressRevision = progressRevision
                                         )
                                     }
                                 }
@@ -844,7 +848,8 @@ fun TvHybridHomeDashboard(
                                                 onVideoFocused(item)
                                             }
                                         },
-                                        onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                        onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
+                                        progressRevision = progressRevision
                                     )
                                 }
                             }
@@ -907,7 +912,8 @@ fun TvHybridHomeDashboard(
                                                             onVideoFocused(item)
                                                         }
                                                     },
-                                                    onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                                    onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
+                                                    progressRevision = progressRevision
                                                 )
                                             }
                                         }
@@ -946,7 +952,8 @@ fun TvHybridHomeDashboard(
                                                     onVideoFocused(item)
                                                 }
                                             },
-                                            onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                            onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
+                                            progressRevision = progressRevision
                                         )
                                     }
                                 }
@@ -1029,7 +1036,8 @@ fun TvHybridHomeDashboard(
                                         onClick = { onVideoSelected(item) },
                                         cardWidth = cardWidth,
                                         onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
-                                        onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                        onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
+                                        progressRevision = progressRevision
                                     )
                                 }
                             }
@@ -1073,7 +1081,8 @@ fun TvHybridHomeDashboard(
                                         onClick = { onVideoSelected(item) },
                                         cardWidth = cardWidth,
                                         onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
-                                        onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                        onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
+                                        progressRevision = progressRevision
                                     )
                                 }
                             }
@@ -1153,7 +1162,8 @@ fun TvHybridHomeDashboard(
                                                     onClick = { onVideoSelected(item) },
                                                     cardWidth = cardWidth,
                                                     onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
-                                                    onOpenDetails = { detailMediaItem = item; showDetailsDialog = true }
+                                                    onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
+                                                    progressRevision = progressRevision
                                                 )
                                             }
                                         }
@@ -1526,7 +1536,8 @@ fun ModernVideoCard(
     modifier: Modifier = Modifier,
     cardWidth: Dp = 220.dp,
     onFocusChanged: (Boolean) -> Unit = {},
-    onOpenDetails: (() -> Unit)? = null
+    onOpenDetails: (() -> Unit)? = null,
+    progressRevision: Long = 0L
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
@@ -1562,13 +1573,18 @@ fun ModernVideoCard(
             ?: media.durationSeconds.takeIf { it > 0 }?.times(1000L)
             ?: 0L
     }
-    val isWatched = remember(media.chatId, media.messageId, durationMs) {
-        PlaybackProgressTracker.isWatched(media.chatId, media.messageId, durationMs)
+    val indicators = remember(media.chatId, media.messageId, durationMs, progressRevision) {
+        val accountEntry = ContinueWatchingRepository.getEntry(media.chatId, media.messageId)
+        tvCardPlaybackIndicators(
+            entry = accountEntry,
+            fallbackResumeMs = if (accountEntry == null) {
+                PlaybackProgressTracker.getMessagePosition(media.chatId, media.messageId, durationMs).toLong()
+            } else 0L,
+            knownDurationMs = durationMs
+        )
     }
-    val positionMs = remember(media.chatId, media.messageId, durationMs) {
-        PlaybackProgressTracker.getMessagePosition(media.chatId, media.messageId, durationMs)
-    }
-    val progress = if (durationMs > 0L && positionMs > 0) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+    val isWatched = indicators.watched
+    val progress = indicators.resumeFraction
 
     Column(
         modifier = modifier
@@ -1678,7 +1694,7 @@ fun ModernVideoCard(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(6.dp)
-                            .size(40.dp)
+                            .size(48.dp)
                             .border(
                                 if (detailsFocused) 3.dp else 1.dp,
                                 if (detailsFocused) colors.primary else colors.outlineVariant,

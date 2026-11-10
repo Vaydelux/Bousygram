@@ -11,6 +11,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -187,11 +188,17 @@ object ContinueWatchingRepository {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val _railItems = MutableStateFlow<List<ContinueWatchingEntry>>(emptyList())
     val railItems: StateFlow<List<ContinueWatchingEntry>> = _railItems.asStateFlow()
+    // A bounded home rail excludes completed entries. Keep a content-free revision
+    // so visible cards can update their Watched and Resume states when completion
+    // changes without requiring one Flow subscription per card or polling disk.
+    private val _progressRevision = MutableStateFlow(0L)
+    val progressRevision: StateFlow<Long> = _progressRevision.asStateFlow()
     private val ledger = AccountProgressLedger(AccountProgressFiles(), AccountSession::isCurrent) { owner, rows ->
         AccountSession.runIfCurrent(owner) {
             _railItems.value = rows.filter { !it.completed && it.positionMs >= MIN_RESUME_MS &&
                 (it.durationMs <= 0 || it.positionMs < (it.durationMs * 0.90).toLong()) }
                 .sortedByDescending { it.updatedAt }.take(12)
+            _progressRevision.update { it + 1L }
         }
     }
 
@@ -199,6 +206,7 @@ object ContinueWatchingRepository {
     fun invalidateAccountResources() {
         // Revoke visible history immediately, even if the disk worker later fails to drain.
         _railItems.value = emptyList()
+        _progressRevision.update { it + 1L }
         // AccountSession invalidation is synchronous. Its private-data purge must not race
         // an in-flight write that could recreate continue_watching.json after deletion.
         // Never silently succeed when the storage worker cannot be drained.
