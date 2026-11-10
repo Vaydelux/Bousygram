@@ -18,6 +18,11 @@ on:
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/layout/**'
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/components/**'
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/settings/**'
+      # Extras hosts the MediaForge SDK and has emulator D-pad/WebView tests.
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/extras/**'
+      - 'mediaforge-core/**'
+      - 'mediaforge-webbridge/**'
+      - 'mediaforge-player-adapters/**'
       - 'app/src/main/java/com/vaydelux/bousygram/app/MainActivity.kt'
       - 'app/src/androidTest/**'
       - 'tools/ci/generate_playback_fixtures.sh'
