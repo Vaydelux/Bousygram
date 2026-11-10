@@ -30,9 +30,9 @@ enum class BousygramThemePreset(
     val outline: Color
 ) {
     DARK(
-        "dark", "Midnight blue", "Cinematic navy, ice cyan, and Chow gold",
-        Color(0xFF37D7F2), Color(0xFF82C3FF), Color(0xFFFFC67D),
-        Color(0xFF061426), Color(0xFF0D223A), Color(0xFF19354F), Color(0xFF68809B)
+        "dark", "Midnight", "Premium graphite-navy, clean cyan and subtle warm highlights",
+        Color(0xFF66E0F2), Color(0xFF96BFFF), Color(0xFFF4C58D),
+        Color(0xFF080F19), Color(0xFF121D2B), Color(0xFF203248), Color(0xFF788EA5)
     ),
     HIGH_CONTRAST(
         "high_contrast", "High contrast", "Bright focus indicators and enhanced text contrast",
@@ -113,41 +113,37 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
             onError = Color.White
         )
     }
-    val highContrast = preset == BousygramThemePreset.HIGH_CONTRAST
     return darkColorScheme(
-    primary = preset.primary,
-    onPrimary = Color(0xFF071014),
-    // Opaque semantic containers retain contrast even over video surfaces.
-    primaryContainer = Color(0xFF123D56),
-    onPrimaryContainer = Color(0xFFF8FBFF),
-    secondary = preset.secondary,
-    onSecondary = Color(0xFF06120F),
-    secondaryContainer = Color(0xFF1B3A56),
-    onSecondaryContainer = Color(0xFFF3FFFB),
-    tertiary = preset.tertiary,
-    onTertiary = Color(0xFF17110A),
-    tertiaryContainer = Color(0xFF52351E),
-    onTertiaryContainer = Color(0xFFFFF8EF),
-    background = preset.background,
-    onBackground = if (highContrast) Color.White else Color(0xFFF4F7FC),
-    surface = preset.surface,
-    onSurface = if (highContrast) Color.White else Color(0xFFF4F7FC),
-    surfaceVariant = preset.surfaceVariant,
-    onSurfaceVariant = if (highContrast) Color(0xFFE7EBF1) else Color(0xFFB4C0D2),
-    surfaceContainerLowest = preset.background,
-    // Foreground labels must never inherit the underlying video/image colors.
-    // Opaque surfaces protect readable contrast in dark and high-contrast modes.
-    surfaceContainerLow = preset.surface,
-    surfaceContainer = preset.surface,
-    surfaceContainerHigh = preset.surfaceVariant,
-    surfaceContainerHighest = preset.surfaceVariant,
-    outline = preset.outline,
-    outlineVariant = preset.outline.copy(alpha = 0.46f),
-    error = Color(0xFFFF6B80),
-    onError = Color(0xFF2B0000),
-    errorContainer = Color(0xFF5C1824),
-    onErrorContainer = Color(0xFFFFD9DF)
-)
+        primary = preset.primary,
+        onPrimary = Color(0xFF07151B),
+        primaryContainer = Color(0xFF153C4B),
+        onPrimaryContainer = Color(0xFFF1FCFF),
+        secondary = preset.secondary,
+        onSecondary = Color(0xFF081726),
+        secondaryContainer = Color(0xFF233A56),
+        onSecondaryContainer = Color(0xFFF3F7FF),
+        tertiary = preset.tertiary,
+        onTertiary = Color(0xFF251706),
+        tertiaryContainer = Color(0xFF46321F),
+        onTertiaryContainer = Color(0xFFFFF3E0),
+        background = preset.background,
+        onBackground = Color(0xFFF4F7FC),
+        surface = preset.surface,
+        onSurface = Color(0xFFF4F7FC),
+        surfaceVariant = preset.surfaceVariant,
+        onSurfaceVariant = Color(0xFFC2CCDA),
+        surfaceContainerLowest = preset.background,
+        surfaceContainerLow = Color(0xFF0D1825),
+        surfaceContainer = Color(0xFF142131),
+        surfaceContainerHigh = Color(0xFF1B2C40),
+        surfaceContainerHighest = Color(0xFF23364B),
+        outline = preset.outline,
+        outlineVariant = Color(0xFF44596D),
+        error = Color(0xFFFF6B80),
+        onError = Color(0xFF2B0000),
+        errorContainer = Color(0xFF5C1824),
+        onErrorContainer = Color(0xFFFFD9DF)
+    )
 }
 
 private val BousygramTypography = Typography(

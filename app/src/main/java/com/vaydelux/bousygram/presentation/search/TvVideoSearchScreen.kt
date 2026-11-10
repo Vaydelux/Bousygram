@@ -77,6 +77,7 @@ import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.components.NoSearchResultsEmptyState
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.RecentSearchesSection
 import com.vaydelux.bousygram.presentation.media.buildPlaybackRequest
 import com.vaydelux.bousygram.presentation.media.playableVideos
@@ -195,18 +196,19 @@ fun TvVideoSearchScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (adaptive.isCompact) 16.dp else 42.dp)
+                    .padding(if (adaptive.isCompact) 16.dp else 32.dp)
             ) {
-                Text(
-                    text = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
+                BousygramPageHeading(
+                    eyebrow = "Telegram media  /  Discover",
+                    title = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
                         "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
                     } else {
                         "Search Telegram videos"
                     },
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = if (adaptive.isCompact) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineLarge
+                    subtitle = "Find the right video across your accessible Telegram sources.",
+                    compact = adaptive.isCompact
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(18.dp))
                 if (adaptive.isCompact) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         SearchField(

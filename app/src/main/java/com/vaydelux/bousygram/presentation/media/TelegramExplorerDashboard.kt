@@ -1,6 +1,10 @@
 package com.vaydelux.bousygram.presentation.media
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -52,6 +57,9 @@ import com.vaydelux.bousygram.domain.model.VideoChatItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
+import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.media.vm.BrowseRestoration
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerPosition
@@ -105,11 +113,11 @@ fun TelegramExplorerDashboard(
     modifier: Modifier = Modifier
 ) {
     val adaptive = rememberAdaptiveMetrics()
-    val gap = if (adaptive.isTv) 14.dp else 10.dp
+    val gap = if (adaptive.isTv) 18.dp else 12.dp
     val cardMin = when {
-        adaptive.isTv -> 190.dp
-        adaptive.isTabletLayout -> 166.dp
-        else -> 140.dp
+        adaptive.isTv -> 224.dp
+        adaptive.isTabletLayout -> 176.dp
+        else -> 142.dp
     }
     val directory = remember(sources, position.section) {
         explorerSources(sources, position.section)
@@ -179,81 +187,119 @@ fun TelegramExplorerDashboard(
             }
     }
 
+    val colors = MaterialTheme.colorScheme
     Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = if (adaptive.isTv) 28.dp else 14.dp, vertical = 12.dp),
+        modifier = modifier.fillMaxSize().background(colors.background)
+            .padding(
+                horizontal = if (adaptive.isTv) BousygramUiTokens.tvPagePadding
+                    else BousygramUiTokens.phonePagePadding,
+                vertical = if (adaptive.isTv) 18.dp else 14.dp
+            ),
         verticalArrangement = Arrangement.spacedBy(gap)
     ) {
-        // A single oversized action row clips on compact phones. Keep TV/tablet
-        // actions on one line; use two comfortable touch rows on phones.
+        // The shell already displays the Bousygram brand; use this area
+        // for screen identity and the user's available library actions.
         if (adaptive.isTv || adaptive.isTabletLayout) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Bousygram",
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelSmall)
-                    Text("Your library", color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                BousygramPageHeading(
+                    eyebrow = "Telegram media",
+                    title = "Your library",
+                    subtitle = "Saved media, channels and communities.",
+                    compact = false,
+                    modifier = Modifier.weight(1f)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (hasResume) OutlinedButton(
+                        onClick = onResume,
+                        modifier = Modifier.heightIn(min = 52.dp)
+                    ) { Text("▶ Continue") }
+                    OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 52.dp)) {
+                        Text("Search")
+                    }
+                    OutlinedButton(onClick = onFavorites, modifier = Modifier.heightIn(min = 52.dp)) {
+                        Text("Favorites")
+                    }
+                    OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 52.dp)) {
+                        Text("Settings")
+                    }
                 }
-                if (hasResume) OutlinedButton(onClick = onResume, modifier = Modifier.heightIn(min = 48.dp)) { Text("Continue") }
+            }
+        } else {
+            BousygramPageHeading(
+                eyebrow = "Telegram media",
+                title = "Your library",
+                subtitle = "Saved media, channels and communities.",
+                compact = true
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (hasResume) OutlinedButton(onClick = onResume, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("▶ Continue")
+                }
                 OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
                 OutlinedButton(onClick = onFavorites, modifier = Modifier.heightIn(min = 48.dp)) { Text("Favorites") }
                 OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Settings") }
             }
-        } else {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Bousygram", color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelSmall)
-                    Text("Your library", color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
-                OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Settings") }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (hasResume) OutlinedButton(onClick = onResume, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Continue") }
-                OutlinedButton(onClick = onFavorites, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Favorites") }
-            }
         }
-        // Fixed, equal-width tabs; the explorer scrolls vertically instead.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Auto-width section pills avoid cramming "Saved messages" into
+        // three tiny equal-width tabs on compact phones.
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .testTag("telegram-library-sections"),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             ExplorerSection.entries.forEach { section ->
                 val label = when (section) {
-                    ExplorerSection.SAVED -> "Saved Messages"
+                    ExplorerSection.SAVED -> if (adaptive.isPhoneLayout) "Saved" else "Saved messages"
                     ExplorerSection.CHANNELS -> "Channels"
                     ExplorerSection.GROUPS -> "Groups"
                 }
-                val active = section == position.section
-                val detailCount = when (section) {
-                    ExplorerSection.SAVED -> 0
+                val count = when (section) {
+                    ExplorerSection.SAVED -> null
                     ExplorerSection.CHANNELS -> channelCount
                     ExplorerSection.GROUPS -> groupCount
                 }
-                val tabTitle = if (section != ExplorerSection.SAVED && !adaptive.isPhoneLayout) {
-                    "$label · $detailCount"
-                } else label
+                val title = if (count != null && !adaptive.isPhoneLayout) "$label  $count" else label
+                val active = section == position.section
                 var tabFocused by remember(section) { mutableStateOf(false) }
                 OutlinedButton(
                     onClick = { if (!active) onSelectTab(section) },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                        .border(
-                            if (tabFocused) 3.dp else 1.dp,
-                            if (tabFocused || active) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.outlineVariant,
-                            RoundedCornerShape(18.dp)
-                        )
-                        .semantics { this.selected = active }
-                        .onFocusChanged { tabFocused = it.isFocused },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                    modifier = Modifier.heightIn(min = if (adaptive.isTv) 56.dp else 48.dp)
+                        .widthIn(min = if (adaptive.isTv) 155.dp else 94.dp)
+                        .semantics { selected = active }
+                        .onFocusChanged { tabFocused = it.isFocused }
+                        .testTag("telegram-library-tab-" + section.name.lowercase()),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(
+                        if (tabFocused) 3.dp else 1.dp,
+                        if (tabFocused) colors.primary
+                        else if (active) colors.primary.copy(alpha = 0.65f)
+                        else colors.outlineVariant
                     ),
-                    contentPadding = PaddingValues(horizontal = 3.dp, vertical = if (adaptive.isTv) 11.dp else 13.dp)
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = when {
+                            active -> colors.primaryContainer
+                            tabFocused -> colors.surfaceContainerHighest
+                            else -> colors.surfaceContainerLow
+                        },
+                        contentColor = if (active) colors.onPrimaryContainer else colors.onSurface
+                    ),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
                 ) {
                     Text(
-                        tabTitle,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = if (adaptive.isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelMedium
+                        title, maxLines = 1,
+                        style = if (adaptive.isTv) MaterialTheme.typography.titleSmall
+                            else MaterialTheme.typography.labelLarge,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
                     )
                 }
             }
@@ -280,16 +326,17 @@ fun TelegramExplorerDashboard(
             else -> "${videos.size} media shown"
         }
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer
+            modifier = Modifier.fillMaxWidth().testTag("telegram-library-collection"),
+            shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+            color = colors.surfaceContainerLow,
+            border = BorderStroke(1.dp, colors.outlineVariant)
         ) {
             Column(
                 modifier = Modifier.padding(
-                    horizontal = if (adaptive.isTv) 20.dp else 14.dp,
-                    vertical = if (adaptive.isTv) 18.dp else 12.dp
+                    horizontal = if (adaptive.isTv) 22.dp else 16.dp,
+                    vertical = if (adaptive.isTv) 16.dp else 14.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!showSources && position.section != ExplorerSection.SAVED) {
@@ -350,12 +397,20 @@ fun TelegramExplorerDashboard(
                             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                         }
                     }
-                    Text(collectionStatus, style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (privacyMode) {
-                        Text("· Privacy mode", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary)
+                    BousygramStatusPill(
+                        collectionStatus,
+                        accent = !isLoading && !isLoadingSources && !isLoadingTopics
+                    )
+                    if (privacyMode && !adaptive.isPhoneLayout) {
+                        BousygramStatusPill("Privacy mode")
                     }
+                }
+                if (privacyMode && adaptive.isPhoneLayout) {
+                    Text(
+                        "Privacy mode enabled",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant
+                    )
                 }
                 if (showTopics) {
                     Row(
@@ -394,7 +449,7 @@ fun TelegramExplorerDashboard(
                         state = folderGrid, columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap),
-                        contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 36.dp)
+                        contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
                     ) {
                         items(directory, key = { "chat:" + it.chatId }) { source ->
                             ExplorerFolderCard(
@@ -428,7 +483,7 @@ fun TelegramExplorerDashboard(
                         columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap),
-                        contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 36.dp)
+                        contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
                     ) {
                         items(topics, key = { "topic:" + selectedChatId + ":" + it.id }) { topic ->
                             ExplorerFolderCard(
@@ -461,7 +516,7 @@ fun TelegramExplorerDashboard(
                     state = gridState, columns = GridCells.Adaptive(cardMin),
                     horizontalArrangement = Arrangement.spacedBy(gap),
                     verticalArrangement = Arrangement.spacedBy(gap),
-                    contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 40.dp)
+                    contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
                 ) {
                     items(videos, key = { it.chatId.toString() + ":" + it.messageId }) { item ->
                         MediaPosterCard(
@@ -571,14 +626,14 @@ private fun ExplorerFolderCard(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     val accent = MaterialTheme.colorScheme.primary
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = if (isTv) 164.dp else 148.dp)
+            .heightIn(min = if (isTv) 182.dp else 164.dp)
             .border(
-                if (focused) 3.dp else 1.dp,
+                if (focused) BousygramUiTokens.tvFocusOutline else 1.dp,
                 if (focused) accent else MaterialTheme.colorScheme.outlineVariant,
                 shape
             )
@@ -590,12 +645,12 @@ private fun ExplorerFolderCard(
             .semantics { contentDescription = "$title, $subtitle. $detail" },
         shape = shape,
         color = if (focused) MaterialTheme.colorScheme.surfaceContainerHighest
-            else MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = if (focused) 6.dp else 1.dp
+            else MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = if (focused) 3.dp else 0.dp
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(if (isTv) 18.dp else 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -610,7 +665,7 @@ private fun ExplorerFolderCard(
                         symbol,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
                 Text(

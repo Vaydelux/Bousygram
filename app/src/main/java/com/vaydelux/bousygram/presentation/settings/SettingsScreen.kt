@@ -52,6 +52,7 @@ import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramChip
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
@@ -134,7 +135,7 @@ fun SettingsScreen(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(if (adaptive.isCompact) 16.dp else 28.dp),
+                .padding(if (adaptive.isCompact) 16.dp else 32.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             if (!adaptive.isCompact) {
@@ -142,16 +143,11 @@ fun SettingsScreen(
                     modifier = Modifier.width(280.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text(
-                        "Settings",
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        "Zero-configuration controls and preferences.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium
+                    BousygramPageHeading(
+                        eyebrow = "Bousygram  /  Preferences",
+                        title = "Settings",
+                        subtitle = "Appearance, playback and privacy controls.",
+                        compact = false
                     )
                     Spacer(Modifier.height(8.dp))
                     BousygramButton("Back", onBack, modifier = Modifier.fillMaxWidth())
@@ -178,11 +174,12 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                "Settings",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
+                            BousygramPageHeading(
+                                eyebrow = "Bousygram  /  Preferences",
+                                title = "Settings",
+                                subtitle = "Personalize your experience.",
+                                compact = true,
+                                modifier = Modifier.weight(1f)
                             )
                             BousygramButton("Back", onBack)
                         }

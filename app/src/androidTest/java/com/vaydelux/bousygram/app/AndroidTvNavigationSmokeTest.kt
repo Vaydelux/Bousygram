@@ -45,7 +45,7 @@ class AndroidTvNavigationSmokeTest {
         assertTrue(output, output.contains("Status: ok"))
 
         val device = UiDevice.getInstance(instrumentation)
-        assertTrue("Dashboard heading should be visible", device.wait(Until.hasObject(By.text("Bousygram")), 5_000))
+        assertTrue("Dashboard heading should be visible", device.wait(Until.hasObject(By.text("Your library")), 5_000))
         assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Saved Messages")), 5_000))
 
         repeat(4) { device.pressDPadDown() }
@@ -53,7 +53,7 @@ class AndroidTvNavigationSmokeTest {
         device.pressDPadCenter()
         device.pressKeyCode(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
         device.pressBack()
-        assertTrue("Dashboard should remain alive after D-pad input", device.hasObject(By.text("Bousygram")))
+        assertTrue("Dashboard should remain alive after D-pad input", device.hasObject(By.text("Your library")))
     }
 
     private fun android.app.Instrumentation.runShellCommand(command: String): String =

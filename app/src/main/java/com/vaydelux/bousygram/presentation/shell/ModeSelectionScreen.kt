@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +37,7 @@ import androidx.compose.ui.res.painterResource
 import com.vaydelux.bousygram.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -47,9 +51,9 @@ fun BousygramModeSelection(
     onExtras: () -> Unit
 ) {
     Surface(color = MaterialTheme.colorScheme.background) {
-        Box(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 32.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 22.dp), contentAlignment = Alignment.Center) {
             Column(
-                modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth(),
+                modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
@@ -58,15 +62,24 @@ fun BousygramModeSelection(
                     contentDescription = "Bousygram media logo",
                     modifier = Modifier.size(82.dp)
                 )
-                Text("Bousygram", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 Text(
-                    "Your media. Your way.",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    "BOUSYGRAM  /  MEDIA HUB",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Choose how you want to explore.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    "Your screen. Your library.",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text("Bousygram", style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Choose an experience to get started.",
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
@@ -105,39 +118,53 @@ private fun ModeOption(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(20.dp)
-    val modifier = Modifier
-        .fillMaxWidth()
-        .testTag(modeTag)
-        .onFocusChanged { focused = it.isFocused }
-        .border(
-            if (focused) 3.dp else 1.dp,
-            if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-            shape
-        )
-    if (primary) {
-        Button(
-            modifier = modifier,
-            shape = shape,
-            onClick = onClick,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(24.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag(modeTag)
+            .border(
+                if (focused) 3.dp else 1.dp,
+                if (focused) colors.primary
+                else if (primary) colors.primary.copy(alpha = 0.55f)
+                else colors.outlineVariant,
+                shape
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(role = Role.Button, onClick = onClick),
+        shape = shape,
+        color = if (focused) colors.surfaceContainerHighest else colors.surfaceContainer,
+        tonalElevation = if (focused) 4.dp else 0.dp
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text(subtitle, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall)
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (primary) colors.primaryContainer else colors.secondaryContainer
+            ) {
+                Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (primary) "▶" else "✦",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = if (primary) colors.onPrimaryContainer
+                            else colors.onSecondaryContainer
+                    )
+                }
             }
-        }
-    } else {
-        OutlinedButton(
-            modifier = modifier,
-            shape = shape,
-            onClick = onClick,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text(subtitle, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    title, style = MaterialTheme.typography.titleLarge,
+                    color = colors.onSurface, fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    subtitle, style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant
+                )
             }
+            Text("›", style = MaterialTheme.typography.headlineSmall,
+                color = if (focused) colors.primary else colors.onSurfaceVariant)
         }
     }
 }
