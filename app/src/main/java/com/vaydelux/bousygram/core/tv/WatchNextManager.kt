@@ -29,6 +29,20 @@ import kotlinx.coroutines.launch
 internal fun isRevokedAccountWatchNextId(id: String, accountId: Long): Boolean =
     accountId > 0L && id.startsWith("bousy_account_${accountId}_")
 
+/**
+ * The launcher key must be identical at creation, natural EOF removal, and
+ * account cleanup. A missing account prefix leaves stale Watch Next entries.
+ */
+internal fun watchNextProviderId(
+    accountId: Long,
+    chatId: Long,
+    messageId: Long,
+    fileId: Int?
+): String {
+    require(accountId > 0L && chatId != 0L && messageId > 0L)
+    return "bousy_account_${accountId}_${chatId}_${messageId}_$fileId"
+}
+
 object WatchNextManager {
     private const val TAG = "WatchNextManager"
     private const val MIN_ENGAGEMENT_MILLIS = 10_000L // 10s minimum before adding to Continue Watching
@@ -108,7 +122,7 @@ object WatchNextManager {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@withContext
         if (durationMs <= 0 || currentPositionMs < MIN_ENGAGEMENT_MILLIS) return@withContext
 
-        val internalId = "bousy_account_${owner.accountId}_${chatId}_${messageId}_$fileId"
+        val internalId = watchNextProviderId(owner.accountId, chatId, messageId, fileId)
         val ratio = currentPositionMs.toDouble() / durationMs.toDouble()
 
         if (ratio >= COMPLETION_RATIO_THRESHOLD) {
