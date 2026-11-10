@@ -8,15 +8,23 @@ import androidx.media3.session.MediaSession as Media3Session
 
 /**
  * Universal MediaSession bridge providing OS-level media controls, Android TV remote keys,
- * HDMI-CEC, and Google Assistant voice command compatibility across both ExoPlayer and libmpv engines.
+ * HDMI-CEC, and Google Assistant voice command compatibility across Media3 ExoPlayer, libmpv and LibVLC engines.
  */
 class UniversalMediaSessionBridge(
     context: Context,
     private val playerEngine: PlayerEngine,
+    onPlayRequested: () -> Unit,
+    onPauseRequested: () -> Unit,
+    onSeekAbsoluteRequested: (Long) -> Unit,
     private val onSeekIncrement: (Long) -> Unit,
     private val onSkipNext: () -> Unit,
     private val onSkipPrevious: () -> Unit
 ) {
+    private val transportCommands = ExternalPlayerTransportCommands(
+        requestPlay = onPlayRequested,
+        requestPause = onPauseRequested,
+        requestSeek = onSeekAbsoluteRequested
+    )
     private var media3Session: Media3Session? = null
     private var platformSession: android.media.session.MediaSession? = null
 
@@ -30,13 +38,15 @@ class UniversalMediaSessionBridge(
                     Log.w("MediaSessionBridge", "Failed to initialize Media3 session: ${e.message}")
                 }
             }
-            is MpvPlayerEngine -> {
+            is MpvPlayerEngine, is LibVlcPlayerEngine -> {
                 runCatching {
-                    platformSession = android.media.session.MediaSession(context, "BousygramMpvMediaSession").apply {
+                    platformSession = android.media.session.MediaSession(context, "BousygramNativeMediaSession").apply {
                         setCallback(object : android.media.session.MediaSession.Callback() {
-                            override fun onPlay() { playerEngine.play() }
-                            override fun onPause() { playerEngine.pause() }
-                            override fun onSeekTo(pos: Long) { playerEngine.seekTo(pos) }
+                            // Direct calls to the native decoder bypass the screen's explicit
+                            // Pause and seek-index checks. Always route to the playback owner.
+                            override fun onPlay() { transportCommands.onPlay() }
+                            override fun onPause() { transportCommands.onPause() }
+                            override fun onSeekTo(pos: Long) { transportCommands.onSeekTo(pos) }
                             override fun onFastForward() { onSeekIncrement(10_000L) }
                             override fun onRewind() { onSeekIncrement(-10_000L) }
                             override fun onSkipToNext() { onSkipNext() }

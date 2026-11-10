@@ -897,21 +897,77 @@ fun PlayerScreen(
     fun skipNext(): Boolean = moveToTrack(playbackSession.currentIndex.value + 1)
     fun skipPrevious(): Boolean = moveToTrack(playbackSession.currentIndex.value - 1)
 
+    // The native MediaSession must NOT be rebuilt on every Compose state change.
+    // Its callbacks still need current Cast, duration and seek/pause/queue closures.
+    val mediaSessionCastState by rememberUpdatedState(castState)
+    val mediaSessionDuration by rememberUpdatedState(duration)
+    val mediaSessionTrackedSeek by rememberUpdatedState<(Long) -> Boolean> { target ->
+        performTrackedSeek(target)
+    }
+    val mediaSessionPause by rememberUpdatedState<(Boolean) -> Unit> { user ->
+        pauseLocalPlayback(userInitiated = user)
+    }
+    val mediaSessionNext by rememberUpdatedState<() -> Boolean> { skipNext() }
+    val mediaSessionPrevious by rememberUpdatedState<() -> Boolean> { skipPrevious() }
+
     val mediaSessionBridge = remember(playerEngine) {
+        val boundEngine = playerEngine
+        fun acceptsCommand(): Boolean =
+            !playbackSession.isStopped() && engineOwner.value === boundEngine
+
         UniversalMediaSessionBridge(
             context = context,
-            playerEngine = playerEngine,
+            playerEngine = boundEngine,
+            onPlayRequested = {
+                scope.launch {
+                    if (!acceptsCommand()) return@launch
+                    if (mediaSessionCastState.connected) {
+                        CastSessionController.play()
+                    } else {
+                        explicitlyPaused = false
+                        if (audioFocusController.request(boundEngine, userRequested = true)) {
+                            boundEngine.play()
+                            isPlaying = boundEngine.isPlaying
+                        } else {
+                            toastFeedbackText = "Audio is in use by another app. Try Play again."
+                        }
+                    }
+                    hudVisible = true
+                    hudInteractionTick++
+                }
+            },
+            onPauseRequested = {
+                scope.launch {
+                    if (!acceptsCommand()) return@launch
+                    if (mediaSessionCastState.connected) CastSessionController.pause()
+                    else mediaSessionPause(true)
+                    hudVisible = true
+                    hudInteractionTick++
+                }
+            },
+            onSeekAbsoluteRequested = { targetMs ->
+                scope.launch {
+                    if (!acceptsCommand()) return@launch
+                    if (mediaSessionCastState.connected) CastSessionController.seekTo(targetMs)
+                    else mediaSessionTrackedSeek(targetMs)
+                }
+            },
             onSeekIncrement = { deltaMs ->
-                val target = relativePlayerSeekTarget(playerEngine.currentPositionMs, deltaMs, duration)
-                performTrackedSeek(target)
-                // The decoder's position callback confirms seeking. A speculative
-                // target here made unseekable TS appear to jump before snapping to 0:00.
+                scope.launch {
+                    if (!acceptsCommand()) return@launch
+                    val base = if (mediaSessionCastState.connected) mediaSessionCastState.positionMs else boundEngine.currentPositionMs
+                    val knownDuration = playerSeekDurationMs(mediaSessionDuration, mediaSessionCastState.durationMs, mediaSessionCastState.connected)
+                    val target = relativePlayerSeekTarget(base, deltaMs, knownDuration)
+                    if (mediaSessionCastState.connected) CastSessionController.seekTo(target)
+                    else mediaSessionTrackedSeek(target)
+                    // Decoder confirmation, not a speculative seek, owns the UI timeline.
+                }
             },
             onSkipNext = {
-                skipNext()
+                scope.launch { if (acceptsCommand()) mediaSessionNext() }
             },
             onSkipPrevious = {
-                skipPrevious()
+                scope.launch { if (acceptsCommand()) mediaSessionPrevious() }
             }
         )
     }
