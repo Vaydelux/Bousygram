@@ -26,7 +26,7 @@ Extras is an independent catalogue/WebView/native-media path and does not reuse 
 
 ## Private progress lifecycle
 
-Legacy playback positions use account-scoped SharedPreferences (separate from the atomic Continue Watching ledger). Authorization invalidation drains outstanding Continue Watching writes before revoked-account data is purged. The purger clears/deletes the account's progress preferences, Room database, account files, and generated account media cache. Never delete TDLib native files directly while the client is active.
+Legacy playback positions use account-scoped SharedPreferences (separate from the atomic Continue Watching ledger). Authorization invalidation drains outstanding Continue Watching writes before revoked-account data is purged. The purger clears/deletes the account's progress preferences, Room database, account files, and generated account media cache. It also requests scoped removal of the account's Android TV Watch Next rows, which live in an external launcher provider; unsupported providers can refuse removal. Never delete TDLib native files directly while the client is active.
 
 ## Compatibility
 
