@@ -105,6 +105,10 @@ jobs:
         shell: bash
         run: bash tools/ci/test_debug_preview_publication.sh
 
+      - name: Verify authenticated debug release reference fixtures
+        shell: bash
+        run: bash tools/ci/test_debug_release_refs.sh
+
       - name: Verify branch archive/prune policy fixtures
         shell: bash
         run: bash tools/ci/test_branch_prune_policy.sh

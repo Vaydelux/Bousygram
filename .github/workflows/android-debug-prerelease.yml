@@ -139,11 +139,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]] || exit 1
-          git fetch origin main --force
-          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || {
-            echo '::error::CI source is no longer on main.' >&2
-            exit 1
-          }
+          # checkout has persist-credentials=false. Use GH_TOKEN-backed REST
+          # ancestry validation rather than unauthenticated git fetch.
+          bash tools/ci/verify_debug_release_main.sh "$RELEASE_SHA" "$GITHUB_REPOSITORY"
 
       - name: Download exact CI-verified ARM APK matrix
         if: steps.source.outputs.ready == 'true'
@@ -182,17 +180,8 @@ jobs:
           # Example: v1.0.0-debug.20261030T090834Z
           tag="$(bash tools/ci/debug_prerelease_tag.sh "$VERSION" "$CI_CREATED_AT")"
           readable_date="$(date -u -d "$CI_CREATED_AT" +'%Y-%m-%d %H:%M:%S UTC')"
-          git fetch origin --tags --force
-          if git show-ref --verify --quiet "refs/tags/$tag"; then
-            [[ "$(git rev-parse "refs/tags/$tag^{}")" == "$SOURCE_SHA" ]] || {
-              echo '::error::Version tag already points to another commit.' >&2
-              exit 1
-            }
-          else
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              --raw-field "ref=refs/tags/$tag" \
-              --raw-field "sha=$SOURCE_SHA" >/dev/null
-          fi
+          # Immutable tag lookup and creation use GH_TOKEN, never git fetch.
+          bash tools/ci/ensure_debug_release_tag.sh "$tag" "$SOURCE_SHA" "$GITHUB_REPOSITORY"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Verified prerelease $tag already published; refusing to overwrite it."
             exit 0
