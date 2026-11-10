@@ -948,8 +948,8 @@ private fun ExtrasServerPicker(
                     val maxPanelHeight = (maxHeight * 0.94f)
                         .coerceAtMost(if (isTv) 650.dp else 540.dp)
                     Surface(
-                        modifier = Modifier.fillMaxWidth()
-                            .widthIn(max = if (isTv) 680.dp else 460.dp)
+                        modifier = Modifier.widthIn(max = if (isTv) 680.dp else 460.dp)
+                            .fillMaxWidth()
                             .heightIn(max = maxPanelHeight)
                             .testTag("extras-server-dialog"),
                         shape = RoundedCornerShape(18.dp),
