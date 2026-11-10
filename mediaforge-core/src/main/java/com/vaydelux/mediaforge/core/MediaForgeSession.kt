@@ -260,6 +260,9 @@ private class DefaultMediaForgeSession(
                             MediaForgeSessionInspection.Verified(result.media)
                         }
                     }
+                    else -> MediaForgeSessionInspection.Rejected(
+                        MediaForgeInspectionFailure.SOURCE_UNAVAILABLE
+                    )
                 }
             }
         } catch (cancelled: CancellationException) {
