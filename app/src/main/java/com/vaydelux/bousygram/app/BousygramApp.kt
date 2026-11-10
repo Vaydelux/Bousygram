@@ -24,6 +24,7 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramLogWrapper
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
 import com.vaydelux.bousygram.core.tdlib.utils.ThumbnailExtractor
+import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.presentation.extras.ExtrasCatalogApi
 import com.vaydelux.bousygram.data.store.ManagedAppConfiguration
 import com.vaydelux.bousygram.core.account.AccountSession
@@ -93,6 +94,10 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
             close { posterImageLoader?.memoryCache?.clear() }
             close { RecentSearchRepository.invalidateAccountResources() }
             close { ContinueWatchingRepository.invalidateAccountResources() }
+            // Drain pending SharedPreferences apply() writes and clear only the
+            // cached revoked account before TelegramAuthManager purges its files.
+            // Failure must block activation of another verified Telegram identity.
+            close { PlaybackProgressTracker.invalidateAccountResources() }
             close { AppDatabase.closeAccountDatabases() }
             failure?.let { throw IllegalStateException("Account resources could not be fully closed", it) }
         }
