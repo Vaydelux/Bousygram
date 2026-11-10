@@ -48,10 +48,11 @@ class AccountPrivateDataPurgerInstrumentedTest {
             assertEquals(31_000, oldStore.getInt(key, -1))
 
             AccountSession.invalidate()
-            // Logout barrier drains all pending apply() writes before a purger
-            // removes the revoked account's file, even with decoder work pending.
-            assertFalse("Revoked preference cache must be cleared on logout", oldStore.contains(key))
+            // Invalidation drains pending apply() writes but must not erase history:
+            // a failed/temporary identity check is not confirmed revocation.
+            assertTrue("Drain must preserve data until a verified purge", oldStore.contains(key))
             AccountPrivateDataPurger.purge(context, revoked)
+            assertFalse("Confirmed purge must clear cached progress", oldStore.contains(key))
             val oldPreferenceFile = File(
                 context.applicationInfo.dataDir,
                 "shared_prefs/${privatePlaybackProgressPreferenceName(revoked)}.xml"
