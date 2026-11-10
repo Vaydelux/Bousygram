@@ -1,6 +1,9 @@
 package com.vaydelux.bousygram.presentation.media
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +36,7 @@ import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
@@ -59,7 +63,7 @@ fun FavoritesScreen(
     )
     val safeMode = remember { EnterprisePreferences.safeMode() }
     val adaptive = rememberAdaptiveMetrics()
-    val horizontalPadding = if (adaptive.isCompact) 16.dp else 28.dp
+    val horizontalPadding = if (adaptive.isCompact) 16.dp else 32.dp
 
     LaunchedEffect(viewModel) { viewModel.refresh() }
 
@@ -71,51 +75,32 @@ fun FavoritesScreen(
         Box(modifier = Modifier.fillMaxSize().padding(insets)) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(horizontal = horizontalPadding, vertical = if (adaptive.isCompact) 12.dp else 20.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp)
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column {
-                    Text(
-                        "Favorites",
-                        color = androidx.compose.material3.MaterialTheme.colorScheme.onBackground,
-                        style = if (adaptive.isCompact) {
-                            androidx.compose.material3.MaterialTheme.typography.headlineSmall
-                        } else {
-                            androidx.compose.material3.MaterialTheme.typography.headlineLarge
-                        }
-                    )
-                    Text(
-                        text = if (state.isLoading) "Loading your saved videos…" else "${state.items.size} saved ${if (state.items.size == 1) "video" else "videos"}",
-                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
-                    )
-                }
-                // Keep navigation available on phones and TVs; avoid crowding the phone title.
+                BousygramPageHeading(
+                    eyebrow = "Telegram media  /  Your collection",
+                    title = "Favorites",
+                    subtitle = if (state.isLoading) "Loading your saved videos…"
+                        else "${state.items.size} saved ${if (state.items.size == 1) "video" else "videos"}",
+                    compact = adaptive.isCompact
+                )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    BousygramButton("Back", onClick = { if (!launcher.cancel()) onBack() })
+                    BousygramButton("← Back", onClick = { if (!launcher.cancel()) onBack() })
                     BousygramButton("Search", onOpenSearch)
                     BousygramButton("Refresh", viewModel::refresh, enabled = !state.isLoading)
-                    if (!adaptive.isCompact && state.items.isNotEmpty()) {
+                    if (state.items.isNotEmpty()) {
                         BousygramButton(
-                            text = "▶ Play All",
+                            text = "▶ Play all",
                             onClick = { state.items.firstOrNull()?.let { launcher.launch(it, state.items) } },
                             selected = true,
                             enabled = !state.isLoading && !launcher.isPending
                         )
                     }
-                }
-                if (adaptive.isCompact && state.items.isNotEmpty()) {
-                    BousygramButton(
-                        text = "▶ Play All",
-                        onClick = { state.items.firstOrNull()?.let { launcher.launch(it, state.items) } },
-                        selected = true,
-                        enabled = !state.isLoading && !launcher.isPending,
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
             }
 
@@ -133,7 +118,7 @@ fun FavoritesScreen(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.isLoading && state.items.isEmpty() -> BrowseGridShimmerSkeleton(
-                        columns = GridCells.Adaptive(minSize = if (adaptive.isCompact) 160.dp else 240.dp),
+                        columns = GridCells.Adaptive(minSize = if (adaptive.isCompact) 142.dp else 224.dp),
                         modifier = Modifier.fillMaxSize(),
                         itemCount = if (adaptive.isCompact) 6 else 9
                     )
@@ -152,7 +137,7 @@ fun FavoritesScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                     else -> LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = if (adaptive.isCompact) 160.dp else 240.dp),
+                        columns = GridCells.Adaptive(minSize = if (adaptive.isCompact) 142.dp else 224.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         contentPadding = PaddingValues(bottom = 24.dp)
@@ -207,8 +192,9 @@ private fun FavoriteGridItem(
             onClick = onPlay,
             modifier = Modifier.fillMaxWidth()
         )
-        TextButton(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
-            Text("Remove", color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+        TextButton(onClick = onRemove, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text("Remove from favorites",
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
