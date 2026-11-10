@@ -326,16 +326,17 @@ fun TelegramExplorerDashboard(
             else -> "${videos.size} media shown"
         }
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer
+            modifier = Modifier.fillMaxWidth().testTag("telegram-library-collection"),
+            shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+            color = colors.surfaceContainerLow,
+            border = BorderStroke(1.dp, colors.outlineVariant)
         ) {
             Column(
                 modifier = Modifier.padding(
-                    horizontal = if (adaptive.isTv) 20.dp else 14.dp,
-                    vertical = if (adaptive.isTv) 18.dp else 12.dp
+                    horizontal = if (adaptive.isTv) 22.dp else 16.dp,
+                    vertical = if (adaptive.isTv) 16.dp else 14.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!showSources && position.section != ExplorerSection.SAVED) {
@@ -396,12 +397,20 @@ fun TelegramExplorerDashboard(
                             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                         }
                     }
-                    Text(collectionStatus, style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (privacyMode) {
-                        Text("· Privacy mode", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary)
+                    BousygramStatusPill(
+                        collectionStatus,
+                        accent = !isLoading && !isLoadingSources && !isLoadingTopics
+                    )
+                    if (privacyMode && !adaptive.isPhoneLayout) {
+                        BousygramStatusPill("Privacy mode")
                     }
+                }
+                if (privacyMode && adaptive.isPhoneLayout) {
+                    Text(
+                        "Privacy mode enabled",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant
+                    )
                 }
                 if (showTopics) {
                     Row(
@@ -440,7 +449,7 @@ fun TelegramExplorerDashboard(
                         state = folderGrid, columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap),
-                        contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 36.dp)
+                        contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
                     ) {
                         items(directory, key = { "chat:" + it.chatId }) { source ->
                             ExplorerFolderCard(
@@ -474,7 +483,7 @@ fun TelegramExplorerDashboard(
                         columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap),
-                        contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 36.dp)
+                        contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
                     ) {
                         items(topics, key = { "topic:" + selectedChatId + ":" + it.id }) { topic ->
                             ExplorerFolderCard(
@@ -507,7 +516,7 @@ fun TelegramExplorerDashboard(
                     state = gridState, columns = GridCells.Adaptive(cardMin),
                     horizontalArrangement = Arrangement.spacedBy(gap),
                     verticalArrangement = Arrangement.spacedBy(gap),
-                    contentPadding = PaddingValues(6.dp, 8.dp, 6.dp, 40.dp)
+                    contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
                 ) {
                     items(videos, key = { it.chatId.toString() + ":" + it.messageId }) { item ->
                         MediaPosterCard(
@@ -617,14 +626,14 @@ private fun ExplorerFolderCard(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     val accent = MaterialTheme.colorScheme.primary
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = if (isTv) 164.dp else 148.dp)
+            .heightIn(min = if (isTv) 182.dp else 164.dp)
             .border(
-                if (focused) 3.dp else 1.dp,
+                if (focused) BousygramUiTokens.tvFocusOutline else 1.dp,
                 if (focused) accent else MaterialTheme.colorScheme.outlineVariant,
                 shape
             )
@@ -636,12 +645,12 @@ private fun ExplorerFolderCard(
             .semantics { contentDescription = "$title, $subtitle. $detail" },
         shape = shape,
         color = if (focused) MaterialTheme.colorScheme.surfaceContainerHighest
-            else MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = if (focused) 6.dp else 1.dp
+            else MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = if (focused) 3.dp else 0.dp
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(if (isTv) 18.dp else 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -656,7 +665,7 @@ private fun ExplorerFolderCard(
                         symbol,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
                 Text(
