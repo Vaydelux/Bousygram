@@ -22,15 +22,18 @@ object PlaybackProgressTracker {
     private var cached: Pair<AccountSnapshot, SharedPreferences>? = null
 
     /**
-     * SharedPreferences.edit { } uses apply() by default. A pending async write
-     * could reach disk after logout deletes the revoked account's XML. Commit an
-     * explicit clear of the cached account to drain preceding apply() writes before
-     * the account-specific purge runs. A failed commit must block reauthentication.
+     * SharedPreferences.edit { } uses asynchronous apply() for UI responsiveness.
+     * A synchronous no-change commit waits for preceding apply() disk writes before
+     * the separately confirmed logout/revocation purger removes its account XML.
+     *
+     * Do NOT clear here: AccountSession.invalidate() also runs after recoverable
+     * identity-verification failures, where previous watch history must survive.
+     * Only AccountPrivateDataPurger may erase a verified revoked account's store.
      */
     fun invalidateAccountResources() = synchronized(lock) {
         cached?.let { (_, preferences) ->
-            check(preferences.edit().clear().commit()) {
-                "Unable to drain revoked-account playback position writes"
+            check(preferences.edit().commit()) {
+                "Unable to drain previous-account playback position writes"
             }
         }
         cached = null
