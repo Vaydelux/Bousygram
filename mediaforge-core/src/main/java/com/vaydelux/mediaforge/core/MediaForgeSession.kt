@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import java.util.UUID
 
 /**
  * Host-level request for one user-selected external embed.
@@ -117,6 +118,7 @@ private class DefaultMediaForgeSession(
     private val lock = Any()
     private val discovery = MediaForgeDiscovery(request.maxStreams, request.maxCaptions)
     private val idsByUrl = LinkedHashMap<String, String>()
+    private val sessionPrefix = UUID.randomUUID().toString()
     private var nextId = 0L
     private var generation = 0L
     private var inspectionEpoch = 0L
@@ -134,7 +136,7 @@ private class DefaultMediaForgeSession(
         idsByUrl.keys.retainAll(activeUrls)
         val streams = observed.streams.map { stream ->
             // Never reuse an ID after eviction, reload, or provider switch.
-            val id = idsByUrl.getOrPut(stream.url) { "mf-" + (++nextId) }
+            val id = idsByUrl.getOrPut(stream.url) { sessionPrefix + "-mf-" + (++nextId) }
             MediaForgeStreamOption(id, stream.format, stream.host)
         }
         return MediaForgeSessionSnapshot(streams, observed.captions)
