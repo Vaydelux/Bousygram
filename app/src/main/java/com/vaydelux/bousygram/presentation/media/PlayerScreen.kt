@@ -898,20 +898,63 @@ fun PlayerScreen(
     fun skipPrevious(): Boolean = moveToTrack(playbackSession.currentIndex.value - 1)
 
     val mediaSessionBridge = remember(playerEngine) {
+        val boundEngine = playerEngine
+        fun acceptsCommand(): Boolean =
+            !playbackSession.isStopped() && engineOwner.value === boundEngine
+
         UniversalMediaSessionBridge(
             context = context,
-            playerEngine = playerEngine,
+            playerEngine = boundEngine,
+            onPlayRequested = {
+                scope.launch {
+                    if (!acceptsCommand()) return@launch
+                    if (castState.connected) {
+                        CastSessionController.play()
+                    } else {
+                        explicitlyPaused = false
+                        if (audioFocusController.request(boundEngine, userRequested = true)) {
+                            boundEngine.play()
+                            isPlaying = boundEngine.isPlaying
+                        } else {
+                            toastFeedbackText = "Audio is in use by another app. Try Play again."
+                        }
+                    }
+                    hudVisible = true
+                    hudInteractionTick++
+                }
+            },
+            onPauseRequested = {
+                scope.launch {
+                    if (!acceptsCommand()) return@launch
+                    if (castState.connected) CastSessionController.pause()
+                    else pauseLocalPlayback(userInitiated = true)
+                    hudVisible = true
+                    hudInteractionTick++
+                }
+            },
+            onSeekAbsoluteRequested = { targetMs ->
+                scope.launch {
+                    if (!acceptsCommand()) return@launch
+                    if (castState.connected) CastSessionController.seekTo(targetMs)
+                    else performTrackedSeek(targetMs)
+                }
+            },
             onSeekIncrement = { deltaMs ->
-                val target = relativePlayerSeekTarget(playerEngine.currentPositionMs, deltaMs, duration)
-                performTrackedSeek(target)
-                // The decoder's position callback confirms seeking. A speculative
-                // target here made unseekable TS appear to jump before snapping to 0:00.
+                scope.launch {
+                    if (!acceptsCommand()) return@launch
+                    val base = if (castState.connected) castState.positionMs else boundEngine.currentPositionMs
+                    val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
+                    val target = relativePlayerSeekTarget(base, deltaMs, knownDuration)
+                    if (castState.connected) CastSessionController.seekTo(target)
+                    else performTrackedSeek(target)
+                    // Decoder confirmation, not a speculative seek, owns the UI timeline.
+                }
             },
             onSkipNext = {
-                skipNext()
+                scope.launch { if (acceptsCommand()) skipNext() }
             },
             onSkipPrevious = {
-                skipPrevious()
+                scope.launch { if (acceptsCommand()) skipPrevious() }
             }
         )
     }
