@@ -10,6 +10,8 @@ Baseline: `1746da95b2e0fe728c902917f5ede09060d6c9b8`.
 2. **Android TV launcher update can adopt the wrong account.** `WatchNextManager.updateProgress` likewise resolved the current account on the IO callback, not the account that opened the player. It could publish old Telegram titles/positions under a newly authenticated account.
 3. **Compose disposal cancels its own cleanup task.** `PlayerScreen` launched Android TV Watch Next updates/removal on a screen-owned coroutine while the screen was being disposed, so the task could be canceled before a TV launcher provider request.
 4. **Natural EOF can recreate resume history.** A confirmed EOF marks a video completed, but `exitPlayback` and `onDispose` could immediately save the retired decoder's final position again, reopening an unfinished entry for unknown-duration MPEG-TS.
+5. **Legacy preference I/O could outlive invalidation.** The legacy resume store uses `SharedPreferences.edit { }` (asynchronous `apply()`). The previous process-lifetime account invalidation handler drained the JSON ledger but did not drain and clear these pending preference writes before revoked-account XML deletion.
+6. **Emulator fixture setup failure:** the initial PR emulator run compiled the APKs, then Ubuntu 26.04 APT failed to locate `ffmpeg`. Pinning the emulator workflow to the supported `ubuntu-24.04` runner fixes this test-environment dependency rather than bypassing instrumentation.
 
 ## Small, reviewable corrections
 
@@ -17,11 +19,12 @@ Baseline: `1746da95b2e0fe728c902917f5ede09060d6c9b8`.
 - `PlayerScreen` passes the pinned owner to all five message-progress write points, its resume read, and natural-EOF completion. An invalidated player cannot publish to a subsequently logged-in identity.
 - `WatchNextManager.updateProgress` **requires** a verified owner argument; there is no implicit `AccountSession.current()` fallback. The screen schedules the update through the manager's independent, already-existing IO scope; the queued task checks ownership again on execution and at the account-serialized launcher write.
 - Natural-EOF Watch Next removal now survives Compose disposal. Shared `shouldPersistSessionExitProgress` policy prevents a confirmed completed item from being rewritten as an unfinished video during Back/disposal, without suppressing legitimate in-progress checkpoints.
+- The `BousygramApp` invalidation handler now synchronously calls `PlaybackProgressTracker.invalidateAccountResources()`, which commits a clear to drain all queued legacy `apply()` writes before the account's XML is deleted. If the commit fails, `AccountSession.invalidate()` fails closed and a new account cannot activate. Normal periodic progress writes remain asynchronous to avoid ARM32 playback UI stalls.
 - No changes to Telegram media-byte ownership, engine selection, decoder retry loops, login flow, Extras/MediaForge isolation or app theme.
 
 ## Tests
 
-- Android instrumentation: synthetic accounts, real account-scoped SharedPreferences, logout, login to a different account, delayed old-player write, current-player write and delayed old-player completion; the stale operations cannot touch the active account's progress.
+- Android instrumentation: synthetic accounts, real account-scoped SharedPreferences, logout drain, verified revoked XML deletion, login to a different account, delayed old-player write, current-player write and delayed old-player completion; the stale operations cannot recreate revoked files or touch the active account's progress.
 - JVM: deterministic generation isolation even for a **same-account relogin**; EOF progress suppression for active versus retired episode.
 - Existing Gradle Android Enterprise tests, emulator media/remote regression suite, TDLib generation and supported debug APK ABI matrix required on the exact PR SHA before merge.
 
