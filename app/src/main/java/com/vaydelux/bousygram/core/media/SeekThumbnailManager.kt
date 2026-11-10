@@ -25,14 +25,15 @@ internal fun seekPreviewCacheBudgetKiB(heapMaxBytes: Long, isLowRam: Boolean): I
 /** Pick the closest actually decoded frame, not an index guessed from how many
  * extraction attempts happened to succeed. Missing frame buckets remain missing.
  */
-internal fun nearestSeekPreviewIndex(
-    timestampsMs: List<Long>, targetMs: Long, durationMs: Long
+private inline fun <T> nearestSeekPreviewIndexBy(
+    entries: List<T>, targetMs: Long, durationMs: Long, timestampMs: (T) -> Long
 ): Int? {
-    if (durationMs <= 0L || timestampsMs.isEmpty()) return null
+    if (durationMs <= 0L || entries.isEmpty()) return null
     val target = targetMs.coerceIn(0L, durationMs)
     var closestIndex = -1
     var distance = Long.MAX_VALUE
-    timestampsMs.forEachIndexed { index, timestamp ->
+    entries.forEachIndexed { index, entry ->
+        val timestamp = timestampMs(entry)
         if (timestamp !in 0L..durationMs) return@forEachIndexed
         val gap = if (timestamp > target) timestamp - target else target - timestamp
         if (gap < distance) {
@@ -40,11 +41,15 @@ internal fun nearestSeekPreviewIndex(
             closestIndex = index
         }
     }
-    // Eight coarse frames are useful as approximate previews, not as a
-    // promise of frame accuracy at an arbitrary requested timestamp.
+    // Coarse frames are approximate previews; do not promise accuracy
+    // when no decoded frame is close to the requested timestamp.
     val toleranceMs = (durationMs / 16L).coerceAtLeast(5_000L)
     return closestIndex.takeIf { it >= 0 && distance <= toleranceMs }
 }
+
+internal fun nearestSeekPreviewIndex(
+    timestampsMs: List<Long>, targetMs: Long, durationMs: Long
+): Int? = nearestSeekPreviewIndexBy(timestampsMs, targetMs, durationMs) { it }
 
 /** Cache up to eight timestamp-identified local video frames, not network URLs. */
 object SeekThumbnailManager {
@@ -89,7 +94,7 @@ object SeekThumbnailManager {
 
     fun getSnapshotAt(key: String, positionMs: Long, durationMs: Long): Bitmap? {
         val frames = scopedKey(key)?.let(memoryCache::get) ?: return null
-        val index = nearestSeekPreviewIndex(frames.map { it.timestampMs }, positionMs, durationMs)
+        val index = nearestSeekPreviewIndexBy(frames, positionMs, durationMs) { it.timestampMs }
             ?: return null
         return frames.getOrNull(index)?.bitmap
     }
