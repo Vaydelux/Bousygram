@@ -94,9 +94,9 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
             close { posterImageLoader?.memoryCache?.clear() }
             close { RecentSearchRepository.invalidateAccountResources() }
             close { ContinueWatchingRepository.invalidateAccountResources() }
-            // Drain pending SharedPreferences apply() writes and clear only the
-            // cached revoked account before TelegramAuthManager purges its files.
-            // Failure must block activation of another verified Telegram identity.
+            // Drain pending SharedPreferences apply() writes before a separately
+            // confirmed logout purge. A transient identity verification failure
+            // must not erase the user's history; failure still blocks activation.
             close { PlaybackProgressTracker.invalidateAccountResources() }
             close { AppDatabase.closeAccountDatabases() }
             failure?.let { throw IllegalStateException("Account resources could not be fully closed", it) }
