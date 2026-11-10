@@ -212,6 +212,11 @@ object WatchNextManager {
         }
     }
 
+    /** Natural EOF can dispose Compose immediately; removal must outlive that screen. */
+    fun scheduleRemoveFromWatchNext(context: Context, internalId: String) {
+        scope.launch { removeFromWatchNext(context.applicationContext, internalId) }
+    }
+
     suspend fun removeFromWatchNext(context: Context, internalId: String) = withContext(Dispatchers.IO) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@withContext
         runCatching {
