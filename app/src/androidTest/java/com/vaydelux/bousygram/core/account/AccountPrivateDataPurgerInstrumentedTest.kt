@@ -1,7 +1,7 @@
 package com.vaydelux.bousygram.core.account
 
 import android.content.Context
-import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,8 +12,18 @@ import java.io.File
 /** Uses synthetic account IDs and never touches an authenticated TDLib identity. */
 @RunWith(AndroidJUnit4::class)
 class AccountPrivateDataPurgerInstrumentedTest {
+    @Test fun firstLoginWithoutProgressDocumentCanBePurged() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val untouched = 99101003L
+        val name = privatePlaybackProgressPreferenceName(untouched)
+        context.deleteSharedPreferences(name)
+        AccountPrivateDataPurger.purge(context, untouched)
+        val file = File(context.applicationInfo.dataDir, "shared_prefs/$name.xml")
+        assertFalse(file.exists())
+    }
+
     @Test fun logoutRemovesPlaybackPreferencesWithoutDeletingAnotherAccountsProgress() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
         val revoked = 99101001L
         val retained = 99101002L
         val revokedName = privatePlaybackProgressPreferenceName(revoked)
