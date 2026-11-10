@@ -156,7 +156,7 @@ object WatchNextManager {
 
         if (ratio >= COMPLETION_RATIO_THRESHOLD) {
             // Video is practically finished, remove from Watch Next
-            removeFromWatchNext(context, internalId)
+            removeFromWatchNext(context, internalId, owner)
             return@withContext
         }
 
@@ -212,21 +212,31 @@ object WatchNextManager {
         }
     }
 
-    /** Natural EOF can dispose Compose immediately; removal must outlive that screen. */
-    fun scheduleRemoveFromWatchNext(context: Context, internalId: String) {
-        scope.launch { removeFromWatchNext(context.applicationContext, internalId) }
+    /** Natural EOF may outlive Compose, but never the verified account generation. */
+    fun scheduleRemoveFromWatchNext(context: Context, owner: AccountSnapshot, internalId: String) {
+        if (!AccountSession.isCurrent(owner)) return
+        scope.launch { removeFromWatchNext(context.applicationContext, internalId, owner) }
     }
 
-    suspend fun removeFromWatchNext(context: Context, internalId: String) = withContext(Dispatchers.IO) {
+    suspend fun removeFromWatchNext(
+        context: Context,
+        internalId: String,
+        expectedOwner: AccountSnapshot? = AccountSession.current()
+    ) = withContext(Dispatchers.IO) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@withContext
+        val owner = expectedOwner ?: return@withContext
         runCatching {
-            val rows = context.contentResolver.delete(
-                TvContract.WatchNextPrograms.CONTENT_URI,
-                "${TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID} = ?",
-                arrayOf(internalId)
-            )
-            Log.d(TAG, "Removed $rows Android TV Watch Next rows")
-        }.onFailure { e ->
+            // An asynchronous EOF from account A must not remove a new Watch Next
+            // entry after that same account reauthenticates with a new generation.
+            AccountSession.runIfCurrent(owner) {
+                val rows = context.contentResolver.delete(
+                    TvContract.WatchNextPrograms.CONTENT_URI,
+                    "${TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID} = ?",
+                    arrayOf(internalId)
+                )
+                Log.d(TAG, "Removed $rows Android TV Watch Next rows")
+            }
+        }.onFailure {
             Log.d(TAG, "Watch Next removal was unavailable on this device")
         }
     }
