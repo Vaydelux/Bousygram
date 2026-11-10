@@ -44,8 +44,20 @@ object PlaybackProgressTracker {
      * The account-generation check and final preference operation are serialized with
      * logout. A delayed callback cannot write using a newly authenticated identity.
      */
-    private fun <T> withCurrentAccount(default: T, block: (SharedPreferences, AccountSnapshot) -> T): T {
-        val owner = AccountSession.current() ?: return default
+    private fun <T> withCurrentAccount(default: T, block: (SharedPreferences, AccountSnapshot) -> T): T =
+        withAccountSnapshot(AccountSession.current(), default, block)
+
+    /**
+     * Player callbacks pin the account generation at player creation. Checking the
+     * currently signed-in account at write time would adopt a different user's
+     * storage if an old decoder callback finishes after account switching.
+     */
+    private fun <T> withAccountSnapshot(
+        expectedOwner: AccountSnapshot?,
+        default: T,
+        block: (SharedPreferences, AccountSnapshot) -> T
+    ): T {
+        val owner = expectedOwner ?: return default
         var result = default
         AccountSession.runIfCurrent(owner) {
             result = block(preferencesFor(owner), owner)
@@ -88,10 +100,11 @@ object PlaybackProgressTracker {
         durationMs: Long = 0L,
         fileId: Int = 0,
         title: String = "",
-        thumbnailPath: String? = null
+        thumbnailPath: String? = null,
+        expectedOwner: AccountSnapshot? = AccountSession.current()
     ) {
         if (chatId == 0L || messageId == 0L) return
-        withCurrentAccount(Unit) { prefs, owner ->
+        withAccountSnapshot(expectedOwner, Unit) { prefs, owner ->
             val isCompleted = durationMs > 0L && positionMs >= (durationMs * 0.90f).toLong()
             if (isCompleted || (durationMs > 0L && positionMs >= durationMs - END_THRESHOLD_MS)) {
                 prefs.edit { remove(messageKey(chatId, messageId)) }
@@ -112,9 +125,14 @@ object PlaybackProgressTracker {
         }
     }
 
-    fun getMessagePosition(chatId: Long, messageId: Long, durationMs: Long = 0L): Int {
+    fun getMessagePosition(
+        chatId: Long,
+        messageId: Long,
+        durationMs: Long = 0L,
+        expectedOwner: AccountSnapshot? = AccountSession.current()
+    ): Int {
         if (chatId == 0L || messageId == 0L) return 0
-        return withCurrentAccount(0) { prefs, _ ->
+        return withAccountSnapshot(expectedOwner, 0) { prefs, _ ->
             val key = messageKey(chatId, messageId)
             val pos = prefs.getInt(key, 0)
             if (pos <= 0) 0
@@ -125,9 +143,13 @@ object PlaybackProgressTracker {
         }
     }
 
-    fun clearMessagePosition(chatId: Long, messageId: Long) {
+    fun clearMessagePosition(
+        chatId: Long,
+        messageId: Long,
+        expectedOwner: AccountSnapshot? = AccountSession.current()
+    ) {
         if (chatId == 0L || messageId == 0L) return
-        withCurrentAccount(Unit) { prefs, owner ->
+        withAccountSnapshot(expectedOwner, Unit) { prefs, owner ->
             prefs.edit { remove(messageKey(chatId, messageId)) }
             ContinueWatchingRepository.markCompleted(chatId, messageId, owner)
             OfflineCacheManager.triggerCacheCleanupIfNeeded()
