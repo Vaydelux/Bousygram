@@ -26,7 +26,7 @@ internal fun shouldCancelCacheAheadForSeek(
     seekWindow: LongRange
 ): Boolean = activeEndExclusive <= seekWindow.first || activeOffset > seekWindow.last
 
-/** 
+/**
  * Bounded adaptive playback runway for progressive native/TDLib streams.
  * Compute the mean encoded byte rate in floating point only after inputs
  * are validated. This prevents overflow of totalSize * 8000 for enormous
