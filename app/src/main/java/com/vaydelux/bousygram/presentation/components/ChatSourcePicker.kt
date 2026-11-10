@@ -45,7 +45,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import com.vaydelux.bousygram.domain.model.ChatSourceKind
 import com.vaydelux.bousygram.domain.model.SAVED_MESSAGES_TITLE
@@ -199,9 +200,12 @@ fun AllChatsPickerDialog(
     val gridState = rememberLazyGridState()
     // Avoid a fixed-height source list that can crowd a landscape phone or
     // become lost inside oversized TV dialogs. Only presentation sizing changes.
-    val configuration = LocalConfiguration.current
-    val shortScreen = configuration.screenHeightDp < 520
-    val dialogMaxHeight = minOf((configuration.screenHeightDp - 28).coerceAtLeast(240), 660).dp
+    val containerSize = LocalWindowInfo.current.containerSize
+    val density = LocalDensity.current
+    val windowWidth = with(density) { containerSize.width.toDp() }
+    val windowHeight = with(density) { containerSize.height.toDp() }
+    val shortScreen = windowHeight < 520.dp
+    val dialogMaxHeight = (windowHeight - 28.dp).coerceIn(240.dp, 660.dp)
     val visibleChats = remember(chats, query, filter, pinnedChatIds) {
         chats.asSequence()
             .filter { chat ->
@@ -277,7 +281,7 @@ fun AllChatsPickerDialog(
                 }
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(
-                        minSize = if (configuration.screenWidthDp < 550) 188.dp else 218.dp
+                        minSize = if (windowWidth < 550.dp) 188.dp else 218.dp
                     ),
                     state = gridState,
                     modifier = Modifier.fillMaxWidth().weight(1f)
