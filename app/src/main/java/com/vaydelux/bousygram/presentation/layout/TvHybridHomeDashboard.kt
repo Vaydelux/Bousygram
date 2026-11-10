@@ -709,7 +709,7 @@ fun TvHybridHomeDashboard(
                                 cardWidth = cardWidth,
                                 onFocusChanged = { if (it) { focusedMediaForBackdrop = episode; onVideoFocused(episode) } },
                                 onOpenDetails = { detailMediaItem = episode; showDetailsDialog = true },
-                                    progressRevision = progressRevision
+                                progressRevision = progressRevision
                             )
                         }
                     }
@@ -781,7 +781,7 @@ fun TvHybridHomeDashboard(
                                                 }
                                             },
                                             onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
-                                                    progressRevision = progressRevision
+                                            progressRevision = progressRevision
                                         )
                                     }
                                 }
@@ -849,7 +849,7 @@ fun TvHybridHomeDashboard(
                                             }
                                         },
                                         onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
-                                                    progressRevision = progressRevision
+                                        progressRevision = progressRevision
                                     )
                                 }
                             }
@@ -953,7 +953,7 @@ fun TvHybridHomeDashboard(
                                                 }
                                             },
                                             onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
-                                                    progressRevision = progressRevision
+                                            progressRevision = progressRevision
                                         )
                                     }
                                 }
@@ -1037,7 +1037,7 @@ fun TvHybridHomeDashboard(
                                         cardWidth = cardWidth,
                                         onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
                                         onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
-                                                    progressRevision = progressRevision
+                                        progressRevision = progressRevision
                                     )
                                 }
                             }
@@ -1082,7 +1082,7 @@ fun TvHybridHomeDashboard(
                                         cardWidth = cardWidth,
                                         onFocusChanged = { if (it) { focusedMediaForBackdrop = item; onVideoFocused(item) } },
                                         onOpenDetails = { detailMediaItem = item; showDetailsDialog = true },
-                                                    progressRevision = progressRevision
+                                        progressRevision = progressRevision
                                     )
                                 }
                             }
