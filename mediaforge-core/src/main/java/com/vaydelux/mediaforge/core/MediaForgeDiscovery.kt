@@ -69,6 +69,12 @@ object MediaForgeClassifier {
 
 /** Bounded thread-safe registry; does not sniff DRM, decode media, or capture HTTP bodies. */
 class MediaForgeDiscovery(private val maxStreams: Int = 20, private val maxCaptions: Int = 30) {
+    init {
+        require(maxStreams in 1..100 && maxCaptions in 1..100) {
+            "MediaForge discovery budgets must be between 1 and 100"
+        }
+    }
+
     private val streams = LinkedHashMap<String, StreamCandidate>()
     private val captions = LinkedHashMap<String, CaptionCandidate>()
 

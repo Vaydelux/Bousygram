@@ -81,10 +81,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.InspectedMedia
-import com.vaydelux.mediaforge.core.InspectionResult
-import com.vaydelux.mediaforge.core.MediaForgeDiscovery
-import com.vaydelux.mediaforge.core.MediaForgeResolver
-import com.vaydelux.mediaforge.core.MediaSnapshot
+import com.vaydelux.mediaforge.core.MediaForgeInspectionFailure
+import com.vaydelux.mediaforge.core.MediaForgeSdk
+import com.vaydelux.mediaforge.core.MediaForgeSessionInspection
+import com.vaydelux.mediaforge.core.MediaForgeSessionRequest
 import com.vaydelux.mediaforge.players.MediaForgeMedia3
 import com.vaydelux.mediaforge.players.MediaForgeGuardedProgressiveSource
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
@@ -229,10 +229,13 @@ private fun ExtrasMediaForgePlayerScreen(
     selectedAnimeServer: ExtrasAnimeEmbedServer,
     onAnimeServerSelected: (ExtrasAnimeEmbedServer) -> Unit
 ) {
-    val discovery = remember(request.url) { MediaForgeDiscovery() }
-    val resolver = remember { MediaForgeResolver() }
+    // One SDK session owns each user's selected Extras embed.
+    val sdk = remember { MediaForgeSdk() }
+    val session = remember(request.url) {
+        sdk.openSession(MediaForgeSessionRequest(embedUrl = request.url))
+    }
     val scope = rememberCoroutineScope()
-    var snapshot by remember(request.url) { mutableStateOf(MediaSnapshot(emptyList(), emptyList())) }
+    var snapshot by remember(request.url) { mutableStateOf(session.snapshot()) }
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
@@ -256,10 +259,14 @@ private fun ExtrasMediaForgePlayerScreen(
     var busy by remember { mutableStateOf(false) }
     var inspectionGeneration by remember { mutableIntStateOf(0) }
     var status by remember { mutableStateOf("Play the embedded media to discover available sources.") }
+    // Keep the session alive while native playback temporarily replaces WebView.
+    DisposableEffect(session) {
+        onDispose { session.close() }
+    }
     val bridge = remember(request.url, webGeneration) {
         MediaForgeWebBridge(
             onMediaResource = { url ->
-                if (discovery.observe(url)) snapshot = discovery.snapshot()
+                if (session.observe(url)) snapshot = session.snapshot()
             },
             onNavigationBlocked = {
                 status = "Blocked a navigation outside the selected embed."
@@ -279,8 +286,8 @@ private fun ExtrasMediaForgePlayerScreen(
                 approved = null
                 selectedCaption = null
                 showSubtitlePicker = false
-                discovery.clear()
-                snapshot = discovery.snapshot()
+                session.clear()
+                snapshot = session.snapshot()
                 webView = null
                 immersiveWeb = false
                 cursorEnabled = false
@@ -301,8 +308,8 @@ private fun ExtrasMediaForgePlayerScreen(
         approved = null
         selectedCaption = null
         showSubtitlePicker = false
-        discovery.clear()
-        snapshot = discovery.snapshot()
+        session.clear()
+        snapshot = session.snapshot()
         status = "Play the embedded media to discover fresh sources."
         webGeneration += 1
         nativeMedia = null
@@ -382,7 +389,7 @@ private fun ExtrasMediaForgePlayerScreen(
             inspectionGeneration += 1
             inspectionJob?.cancel()
             bridge.close()
-            discovery.clear()
+            session.clear()
         }
     }
 
@@ -524,8 +531,8 @@ private fun ExtrasMediaForgePlayerScreen(
                             busy = false
                             approved = null
                             selectedCaption = null
-                            discovery.clear()
-                            snapshot = discovery.snapshot()
+                            session.clear()
+                            snapshot = session.snapshot()
                             status = "Reloading embedded player…"
                             if (webView != null) webView?.reload() else webGeneration += 1
                         },
@@ -539,8 +546,8 @@ private fun ExtrasMediaForgePlayerScreen(
                             busy = false
                             approved = null
                             selectedCaption = null
-                            discovery.clear()
-                            snapshot = discovery.snapshot()
+                            session.clear()
+                            snapshot = session.snapshot()
                             status = "Detected sources cleared."
                         },
                         modifier = Modifier.testTag("extras-clear-sources")
@@ -641,15 +648,27 @@ private fun ExtrasMediaForgePlayerScreen(
                             status = "Checking source availability…"
                             inspectionJob = scope.launch {
                                 try {
-                                    when (val result = resolver.inspect(candidate, snapshot.captions)) {
-                                        is InspectionResult.Playable -> {
+                                    when (val result = session.inspect(candidate.id)) {
+                                        is MediaForgeSessionInspection.Verified -> {
                                             if (generation == inspectionGeneration) {
                                                 approved = result.media
                                                 status = "Native playback may be available. Select Play natively."
                                             }
                                         }
-                                        is InspectionResult.Unavailable -> {
-                                            if (generation == inspectionGeneration) status = result.reason
+                                        is MediaForgeSessionInspection.Rejected -> {
+                                            if (generation == inspectionGeneration) {
+                                                status = when (result.reason) {
+                                                    MediaForgeInspectionFailure.SESSION_CLOSED ->
+                                                        "The media session was closed. Reload the player."
+                                                    MediaForgeInspectionFailure.SUPERSEDED ->
+                                                        "Source selection changed. Select a current source."
+                                                    MediaForgeInspectionFailure.NOT_OBSERVED ->
+                                                        "That source is no longer available. Reload sources."
+                                                    MediaForgeInspectionFailure.SOURCE_UNAVAILABLE,
+                                                    MediaForgeInspectionFailure.UNSAFE_RESULT ->
+                                                        "Unable to verify source. Continue in WebView or try another source."
+                                                }
+                                            }
                                         }
                                     }
                                 } catch (cancelled: CancellationException) {
