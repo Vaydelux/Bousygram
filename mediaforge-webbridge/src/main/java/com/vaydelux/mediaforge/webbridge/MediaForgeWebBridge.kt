@@ -18,6 +18,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
+import com.vaydelux.mediaforge.core.MediaForgeEmbedNavigationPolicy
 import com.vaydelux.mediaforge.core.MediaForgeClassifier
 import com.vaydelux.mediaforge.core.StreamFormat
 import java.util.Collections
@@ -36,9 +37,14 @@ object MediaForgeWebRequestPolicy {
     fun blockNetworkSubresource(url: String): Boolean {
         val scheme = url.substringBefore(':', missingDelimiterValue = "").lowercase(Locale.ROOT)
         return when (scheme) {
-            "http" -> true
             "https" -> MediaForgeUrlPolicy.safeHttpsUrl(url) == null
-            else -> false
+            // These are browser-local document/media representations.
+            // Chromium does not call this hook for every blob/javascript
+            // request, so this is not a complete browser network firewall.
+            "about", "data", "blob" -> false
+            // Fail closed for file:, content:, intent:, FTP and unknown
+            // external protocols if Chromium does surface them here.
+            else -> true
         }
     }
 }
@@ -73,7 +79,6 @@ class MediaForgeWebBridge(
         check(open.get()) { "A closed MediaForge WebBridge cannot create a new WebView" }
         val approved = MediaForgeUrlPolicy.safeHttpsUrl(embedUrl)
             ?: throw IllegalArgumentException("Invalid external embed URL")
-        val embedHost = approved.host
         val webView = WebView(context)
         webView.settings.apply {
             javaScriptEnabled = true
@@ -107,48 +112,10 @@ class MediaForgeWebBridge(
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (!request.isForMainFrame) return false
-                val target = MediaForgeUrlPolicy.safeHttpsUrl(request.url.toString())
-                // CineSrc/XXIKU use /embed/ routes; EmbedHeaven uses
-                // /movie/{id} or /tv/{id}/{season}/{episode}. Keep navigation
-                // on the selected provider and title, including query changes
-                // that the embedded player may make for its own server picker.
-                val sourcePath = approved.path.orEmpty()
-                val targetPath = target?.path.orEmpty()
-                // For explicit /embed/{type}/{TMDB-or-AniList-id} routes, never
-                // let an internal server-selector navigation swap the chosen
-                // title/episode by changing the path. Non-title embed helpers
-                // retain their prior same-provider navigation compatibility.
-                val titleBoundPath = Regex(
-                    "^/embed/(movie|tv|anime)/[0-9]+(?:/[0-9]+)*$"
-                ).matches(sourcePath)
-                val allowedPath = targetPath == sourcePath ||
-                    (!titleBoundPath && sourcePath.startsWith("/embed/") &&
-                        targetPath.startsWith("/embed/"))
-                // Provider-side selectors can change query options, but the
-                // legacy /embed?id=550&type=movie route must never silently
-                // switch to a different TMDB title or content type.
-                fun param(query: String?, name: String): String? =
-                    query.orEmpty().split('&')
-                        .filter { it.startsWith("$name=") }
-                        .singleOrNull()?.substringAfter('=')
-                val sourceId = param(approved.rawQuery, "id")
-                val sourceType = param(approved.rawQuery, "type")
-                val legacyIdentityLocked = if (sourcePath == "/embed" &&
-                    sourceId != null && sourceType != null
-                ) {
-                    sourceId == param(target?.rawQuery, "id") &&
-                        sourceType == param(target?.rawQuery, "type")
-                } else true
-                // A source with explicit episode query parameters must stay on
-                // that episode when the provider changes its server setting.
-                val episodeIdentityLocked = if (titleBoundPath) {
-                    listOf("s", "e", "season", "episode").all { key ->
-                        val original = param(approved.rawQuery, key)
-                        original == null || original == param(target?.rawQuery, key)
-                    }
-                } else true
-                val allowed = target != null && target.host.equals(embedHost, true) &&
-                    allowedPath && legacyIdentityLocked && episodeIdentityLocked
+                // One shared SDK policy owns title/episode/provider identity.
+                val allowed = MediaForgeEmbedNavigationPolicy.allows(
+                    approved, request.url.toString()
+                )
                 if (!allowed) onNavigationBlocked?.invoke()
                 return !allowed
             }

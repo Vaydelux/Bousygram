@@ -57,3 +57,12 @@ Existing MediaForge WebBridge, Media3, LibVLC, Android Enterprise and emulator t
 2. Improve the WebView provider-origin strategy and supply-chain controls.
 3. Add per-session network limits and redacted telemetry.
 4. Publish a separately versioned mediaforge-api/AAR after testing binary compatibility and an independent sample host.
+
+## Phase 2 — common transport and navigation policy (November 2026)
+
+- All native MediaForge probe and Media3 requests now inherit a common *per-network-hop* interceptor. It rejects non-HTTPS and credential-bearing Cookie, Authorization, Proxy-Authorization, X-Api-Key and X-Telegram-Token headers before network transmission; Range/If-Range and signed query URLs remain supported.
+- WebView main-frame provider/title/episode navigation rules are centralized in a pure core policy with JVM regression tests; the existing WebBridge calls that policy. The original user-selected provider host and fixed episode remain locked.
+- The WebView interception hook blocks file:, content:, intent:, ftp: and unknown resource schemes it actually encounters. Browser-local about:, data: and blob: behavior is preserved; WebView file/content access settings remain disabled.
+- These defenses do **not** guarantee that WebView enforces DNS pinning or intercepts every HTTP redirect or blob/javascript resource. Chromium does not call shouldInterceptRequest for every scheme and redirects may be invisible to that callback. The browser remains untrusted and separate from guarded native media requests.
+- Tests are deliberately offline: no third-party streaming website, browser cookies, secrets or real Telegram accounts are needed.
+
