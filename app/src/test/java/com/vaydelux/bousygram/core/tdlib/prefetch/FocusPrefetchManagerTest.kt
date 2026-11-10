@@ -97,6 +97,38 @@ class FocusPrefetchManagerTest {
     }
 
     @Test
+    fun staleFocusLossForDifferentMessageSharingFileIdCannotCancelNewPrefetch() = runBlocking {
+        val previous = createMediaItem(fileId = 903, title = "First message.mkv")
+        val current = createMediaItem(
+            fileId = 903, title = "Second message.mkv",
+            chatId = 2000L, messageId = 9999L
+        )
+
+        FocusPrefetchManager.onCardFocused(previous)
+        Thread.sleep(100)
+        FocusPrefetchManager.onCardFocused(current)
+        // The former card's focus-loss event can arrive after the new focus.
+        FocusPrefetchManager.onCardFocusLost(previous)
+        Thread.sleep(600)
+
+        assertEquals(
+            "Focus-loss from another message must not cancel current 400ms dwell",
+            1, gateway.downloadRecords.count { it.fileId == 903 }
+        )
+    }
+
+    @Test
+    fun currentCardFocusLossStillCancelsItsDebounce() = runBlocking {
+        val item = createMediaItem(fileId = 904, title = "Focused.mkv")
+
+        FocusPrefetchManager.onCardFocused(item)
+        FocusPrefetchManager.onCardFocusLost(item)
+        Thread.sleep(550)
+
+        assertTrue(gateway.downloadRecords.none { it.fileId == 904 })
+    }
+
+    @Test
     fun testPrefetchDownloadsFirst2MbAtLowPriority() = runBlocking {
         val item = createMediaItem(
             fileId = 201,
@@ -227,10 +259,12 @@ class FocusPrefetchManagerTest {
         title: String,
         fileName: String? = null,
         mimeType: String? = null,
-        fileSizeBytes: Long = 10L * 1024L * 1024L
+        fileSizeBytes: Long = 10L * 1024L * 1024L,
+        chatId: Long = 1000L,
+        messageId: Long = fileId.toLong()
     ): MediaItem = MediaItem(
-        chatId = 1000L,
-        messageId = fileId.toLong(),
+        chatId = chatId,
+        messageId = messageId,
         date = 0,
         type = MediaType.Video,
         title = title,

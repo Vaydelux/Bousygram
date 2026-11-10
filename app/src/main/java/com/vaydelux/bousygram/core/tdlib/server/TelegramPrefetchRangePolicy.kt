@@ -16,6 +16,16 @@ internal fun saturatingPrefetchEnd(offset: Long, length: Long): Long {
     return if (start > Long.MAX_VALUE - count) Long.MAX_VALUE else start + count
 }
 
+/**
+ * Download ranges use exclusive ends; seek windows use inclusive ends.
+ * Adjacent ranges with no shared bytes must not keep obsolete prefetch alive.
+ */
+internal fun shouldCancelCacheAheadForSeek(
+    activeOffset: Long,
+    activeEndExclusive: Long,
+    seekWindow: LongRange
+): Boolean = activeEndExclusive <= seekWindow.first || activeOffset > seekWindow.last
+
 /** Inclusive seek window shared by the pre-cache engine and chunk scheduler. */
 internal fun prefetchSeekWindow(targetOffset: Long, windowBytes: Long): LongRange {
     val target = targetOffset.coerceAtLeast(0L)

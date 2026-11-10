@@ -33,6 +33,16 @@ class TelegramPrefetchRangePolicyTest {
         assertEquals(0L, prefetchOffsetForPosition(1L, -10L, -1L))
     }
 
+    @Test fun cacheAheadSeekCancellationUsesExclusiveRangeEnd() {
+        val window = 100L..200L
+        assertTrue(shouldCancelCacheAheadForSeek(0L, 100L, window))
+        assertTrue(shouldCancelCacheAheadForSeek(201L, 220L, window))
+        assertEquals(false, shouldCancelCacheAheadForSeek(99L, 101L, window))
+        assertEquals(false, shouldCancelCacheAheadForSeek(200L, 201L, window))
+        assertEquals(false, shouldCancelCacheAheadForSeek(100L, 200L, window))
+        assertEquals(false, shouldCancelCacheAheadForSeek(Long.MAX_VALUE - 8L, Long.MAX_VALUE, (Long.MAX_VALUE - 8L)..Long.MAX_VALUE))
+    }
+
     @Test fun rangeEndsAndSeekWindowsCannotWrap() {
         assertEquals(Long.MAX_VALUE, saturatingPrefetchEnd(Long.MAX_VALUE - 8L, 32L))
         assertEquals(128L, saturatingPrefetchEnd(96L, 32L))

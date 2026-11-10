@@ -112,7 +112,14 @@ object FocusPrefetchManager {
     }
 
     fun onCardFocusLost(item: MediaItem) {
-        if (focusedItem?.fileId == item.fileId) {
+        // A stale Compose/D-pad focus-loss callback can arrive after focus
+        // already moved to a *different message that shares the same file ID*.
+        // Only the exact focused Telegram card may cancel its prefetch.
+        val focused = focusedItem ?: return
+        if (focused.fileId == item.fileId &&
+            focused.chatId == item.chatId &&
+            focused.messageId == item.messageId
+        ) {
             onFocusCleared()
         }
     }
