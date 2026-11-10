@@ -108,6 +108,7 @@ import com.vaydelux.bousygram.data.database.RecentSearchQuery
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.SeriesGroup
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.media.mediaDisplayLabels
 import java.io.File
 import kotlin.math.cos
@@ -564,7 +565,8 @@ fun TvTopNavBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 28.dp, vertical = 14.dp),
+            .background(colors.surfaceContainerLow)
+            .padding(horizontal = 28.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -630,7 +632,7 @@ fun TvTopNavBar(
                             .background(
                                 when {
                                     focused -> colors.primary.copy(alpha = 0.22f)
-                                    isSelected -> colors.onSurface.copy(alpha = 0.08f)
+                                    isSelected -> colors.primaryContainer
                                     else -> Color.Transparent
                                 }
                             )
@@ -652,7 +654,8 @@ fun TvTopNavBar(
                                     if (dest == ShellDestination.Search) onOpenSearch() else onSelect(dest)
                                 }
                             )
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .heightIn(min = 48.dp)
+                            .padding(horizontal = 18.dp, vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -676,13 +679,13 @@ fun TvTopNavBar(
         val isProfileSelected = selected == ShellDestination.Me || selected == ShellDestination.Settings
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .background(
                     when {
                         profileFocused -> colors.primary.copy(alpha = 0.22f)
                         isProfileSelected -> colors.onSurface.copy(alpha = 0.08f)
-                        else -> colors.surfaceVariant
+                        else -> colors.surfaceContainerHigh
                     }
                 )
                 .border(
@@ -875,7 +878,7 @@ fun BousygramScaffold(
 ) {
     val colors = MaterialTheme.colorScheme
     val backgroundBrush = Brush.verticalGradient(
-        listOf(colors.background, colors.surface.copy(alpha = 0.55f), colors.background)
+        listOf(colors.background, colors.surfaceContainerLow, colors.background)
     )
     Box(
         modifier = modifier
@@ -897,13 +900,13 @@ fun TvFocusSurface(
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     val interaction = remember { MutableInteractionSource() }
     // Respect Android's global animation setting and keep focus transitions fast.
     val motionDisabled = android.os.Build.VERSION.SDK_INT >= 26 &&
         !android.animation.ValueAnimator.areAnimatorsEnabled()
     val scale by animateFloatAsState(
-        targetValue = if (motionDisabled) 1f else if (focused) 1.025f else 1f,
+        targetValue = if (motionDisabled) 1f else if (focused) 1.018f else 1f,
         animationSpec = tween(durationMillis = if (motionDisabled) 0 else 145),
         label = "focusScale"
     )
@@ -911,15 +914,14 @@ fun TvFocusSurface(
         targetValue = when {
             focused -> colors.primary
             selected -> colors.secondary
-            else -> colors.outlineVariant.copy(alpha = 0.5f)
+            else -> colors.outlineVariant.copy(alpha = 0.7f)
         },
         label = "focusBorder"
     )
     val surface = when {
-        selected && focused -> colors.primary.copy(alpha = 0.38f)
-        selected -> colors.primary.copy(alpha = 0.24f)
-        focused -> colors.surfaceVariant.copy(alpha = 0.98f)
-        else -> colors.surface.copy(alpha = 0.82f)
+        selected -> colors.primaryContainer
+        focused -> colors.surfaceContainerHighest
+        else -> colors.surfaceContainerLow
     }
     Surface(
         modifier = modifier
@@ -929,7 +931,7 @@ fun TvFocusSurface(
                 scaleY = scale
             }
             .border(
-                width = if (focused) 3.5.dp else if (selected) 2.dp else 1.dp,
+                width = if (focused) BousygramUiTokens.tvFocusOutline else if (selected) 2.dp else 1.dp,
                 color = border,
                 shape = shape
             )

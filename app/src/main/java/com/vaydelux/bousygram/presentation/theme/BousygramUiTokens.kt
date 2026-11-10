@@ -11,8 +11,14 @@ object BousygramUiTokens {
     val touchTarget = 48.dp
     val tvFocusOutline = 3.dp
     val compactSpacing = 8.dp
-    val cardCorner = 18.dp
-    val panelCorner = 22.dp
+    val contentSpacing = 16.dp
+    val sectionSpacing = 24.dp
+    val phonePagePadding = 16.dp
+    val tvPagePadding = 32.dp
+    val cardCorner = 20.dp
+    val panelCorner = 24.dp
+    val compactControlHeight = 48.dp
+    val tvControlHeight = 56.dp
     const val hudFadeInMs = 210
     const val hudFadeOutMs = 240
     const val hudHideAfterInteractionMs = 4_000L
