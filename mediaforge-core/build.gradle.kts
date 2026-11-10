@@ -11,7 +11,8 @@ android {
     }
 }
 dependencies {
-    implementation(libs.kotlinx.coroutines.android)
+    // The public session API exposes StateFlow; keep its type on the AAR API path.
+    api(libs.kotlinx.coroutines.android)
     implementation("com.squareup.okhttp3:okhttp:4.12.1")
     testImplementation(libs.junit)
 }
