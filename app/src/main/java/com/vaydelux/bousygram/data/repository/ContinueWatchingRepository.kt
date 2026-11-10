@@ -73,7 +73,8 @@ internal class AccountProgressLedger(
         return loaded?.takeIf { it.first == owner }?.second.orEmpty()
     }
 
-    fun invalidate() { loaded = null }
+    /** Logout barrier: wait until an active AtomicFile write has finished before purging disk. */
+    suspend fun invalidateAndDrain() = mutex.withLock { loaded = null }
     private fun key(chatId: Long, messageId: Long) = "$chatId:$messageId"
 }
 
@@ -195,7 +196,16 @@ object ContinueWatchingRepository {
     }
 
     suspend fun activateAccount(owner: AccountSnapshot) { ledger.load(owner) }
-    fun invalidateAccountResources() { ledger.invalidate(); _railItems.value = emptyList() }
+    fun invalidateAccountResources() {
+        // Revoke visible history immediately, even if the disk worker later fails to drain.
+        _railItems.value = emptyList()
+        // AccountSession invalidation is synchronous. Its private-data purge must not race
+        // an in-flight write that could recreate continue_watching.json after deletion.
+        // Never silently succeed when the storage worker cannot be drained.
+        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+            kotlinx.coroutines.withTimeout(2_500L) { ledger.invalidateAndDrain() }
+        }
+    }
 
     fun saveProgress(chatId: Long, messageId: Long, fileId: Int, title: String, thumbnailPath: String? = null,
         positionMs: Long, durationMs: Long, owner: AccountSnapshot? = AccountSession.current()) {

@@ -89,6 +89,31 @@ class MediaForgeVirtualMouseInstrumentedTest {
         }
     }
 
+    @Test fun remoteMenuKeyCanEscapeFullscreenVirtualCursor() {
+        var returnedToServers = 0
+        compose.setContent {
+            BousygramTheme {
+                ExtrasVirtualCursor(
+                    target = null,
+                    widthPx = 360,
+                    heightPx = 240,
+                    xPx = 100,
+                    yPx = 100,
+                    onDelta = { _, _ -> },
+                    onConfirm = {},
+                    isActive = true,
+                    tag = "mediaforge-pointer-menu",
+                    onMenu = { returnedToServers += 1 }
+                )
+            }
+        }
+        val cursor = compose.onNodeWithTag("mediaforge-pointer-menu")
+        cursor.assertExists()
+        cursor.performSemanticsAction(SemanticsActions.RequestFocus)
+        cursor.performKeyInput { pressKey(Key.Menu) }
+        compose.runOnIdle { assertEquals(1, returnedToServers) }
+    }
+
     @Test fun pointerNeverMovesOutsideWebViewBounds() {
         val bridge = MediaForgeWebBridge(onMediaResource = {})
         try {

@@ -14,6 +14,9 @@ class AccountPrivateDataPathsTest {
         assertEquals(File(root, "accounts/111"), first.accountDirectory)
         assertEquals("bousygram_account_111.db", first.roomDatabaseName)
         assertEquals("account_111_enterprise", first.preferencesName)
+        assertEquals("playback_resume_positions_account_111", first.playbackProgressPreferencesName)
+        assertEquals("playback_resume_positions_account_222", second.playbackProgressPreferencesName)
+        assertTrue(first.playbackProgressPreferencesName != second.playbackProgressPreferencesName)
         assertTrue(first.accountDirectory != second.accountDirectory)
         assertTrue(first.roomDatabaseName != second.roomDatabaseName)
     }
@@ -40,5 +43,6 @@ class AccountPrivateDataPathsTest {
     @Test fun unknownAccountIdsCannotBePurged() {
         assertThrows(IllegalArgumentException::class.java) { privateDataPaths(File("sandbox"), 0L) }
         assertThrows(IllegalArgumentException::class.java) { privateDataPaths(File("sandbox"), -1L) }
+        assertThrows(IllegalArgumentException::class.java) { privatePlaybackProgressPreferenceName(0L) }
     }
 }
