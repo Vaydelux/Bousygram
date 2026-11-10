@@ -16,6 +16,43 @@ internal fun saturatingPrefetchEnd(offset: Long, length: Long): Long {
     return if (start > Long.MAX_VALUE - count) Long.MAX_VALUE else start + count
 }
 
+/**
+ * Download ranges use exclusive ends; seek windows use inclusive ends.
+ * Adjacent ranges with no shared bytes must not keep obsolete prefetch alive.
+ */
+internal fun shouldCancelCacheAheadForSeek(
+    activeOffset: Long,
+    activeEndExclusive: Long,
+    seekWindow: LongRange
+): Boolean = activeEndExclusive <= seekWindow.first || activeOffset > seekWindow.last
+
+/**
+ * Bounded adaptive playback runway for progressive native/TDLib streams.
+ * Compute the mean encoded byte rate in floating point only after inputs
+ * are validated. This prevents overflow of totalSize * 8000 for enormous
+ * metadata and still clamps to the same established cellular/Wi-Fi budgets.
+ */
+internal fun boundedPlaybackWindowBytes(
+    totalSize: Long,
+    durationMs: Long,
+    measuredThroughputBytesPerSecond: Double,
+    isCellular: Boolean
+): Long {
+    val seconds = if (isCellular) 15.0 else 45.0
+    val minCap = if (isCellular) 4L * 1024L * 1024L else 8L * 1024L * 1024L
+    val maxCap = if (isCellular) 16L * 1024L * 1024L else 48L * 1024L * 1024L
+    val requestedBytes = if (durationMs > 1_000L && totalSize > 0L) {
+        totalSize.toDouble() * seconds * 1_000.0 / durationMs.toDouble()
+    } else {
+        // Preserve existing 1.5–12 Mbps fallback when stream duration is unknown.
+        val safeThroughput = measuredThroughputBytesPerSecond
+            .takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+        val bitsPerSecond = (safeThroughput * 8.0).coerceIn(1_500_000.0, 12_000_000.0)
+        bitsPerSecond * seconds / 8.0
+    }
+    return requestedBytes.toLong().coerceIn(minCap, maxCap)
+}
+
 /** Inclusive seek window shared by the pre-cache engine and chunk scheduler. */
 internal fun prefetchSeekWindow(targetOffset: Long, windowBytes: Long): LongRange {
     val target = targetOffset.coerceAtLeast(0L)

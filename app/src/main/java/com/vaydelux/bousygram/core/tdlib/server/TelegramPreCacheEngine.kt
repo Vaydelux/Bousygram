@@ -140,7 +140,7 @@ object TelegramPreCacheEngine {
         if (active != null) {
             if (active.job.isActive &&
                 offset >= active.offset &&
-                offset + MIN_CACHE_AHEAD_SHIFT_BYTES < active.endExclusive
+                saturatingPrefetchEnd(offset, MIN_CACHE_AHEAD_SHIFT_BYTES) < active.endExclusive
             ) {
                 return
             }
@@ -174,7 +174,7 @@ object TelegramPreCacheEngine {
         val active = activeCacheAheadJobs[fileId]
         if (active != null) {
             val validWindow = prefetchSeekWindow(newOffset, windowBytes)
-            if (active.endExclusive < validWindow.first || active.offset > validWindow.last) {
+            if (shouldCancelCacheAheadForSeek(active.offset, active.endExclusive, validWindow)) {
                 active.job.cancel()
                 activeCacheAheadJobs.remove(fileId, active)
             }
