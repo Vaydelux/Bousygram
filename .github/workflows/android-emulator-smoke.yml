@@ -40,7 +40,10 @@ concurrency:
 jobs:
   cast-emulator:
     name: Run Cast and media UI regressions on Android emulator
-    runs-on: ubuntu-latest
+    # Keep decoder fixture generation reproducible: ubuntu-latest advanced to
+    # a runner whose configured APT repositories did not offer ffmpeg, failing
+    # before emulator instrumentation on otherwise successful APK builds.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Check out exact source
