@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
@@ -106,8 +107,13 @@ object WatchNextManager {
         }
     }
 
-    suspend fun updateProgress(
+    /**
+     * Owns a small IO task independently from a Compose screen that is being
+     * disposed. The original verified account must remain active on execution.
+     */
+    fun scheduleProgressUpdate(
         context: Context,
+        owner: AccountSnapshot,
         chatId: Long,
         messageId: Long,
         fileId: Int?,
@@ -116,7 +122,30 @@ object WatchNextManager {
         durationMs: Long,
         thumbnailPath: String? = null
     ) {
-        val owner = AccountSession.current() ?: return
+        if (!AccountSession.isCurrent(owner)) return
+        val appContext = context.applicationContext
+        scope.launch {
+            updateProgress(
+                context = appContext, owner = owner,
+                chatId = chatId, messageId = messageId, fileId = fileId,
+                title = title, currentPositionMs = currentPositionMs,
+                durationMs = durationMs, thumbnailPath = thumbnailPath
+            )
+        }
+    }
+
+    suspend fun updateProgress(
+        context: Context,
+        owner: AccountSnapshot,
+        chatId: Long,
+        messageId: Long,
+        fileId: Int?,
+        title: String,
+        currentPositionMs: Long,
+        durationMs: Long,
+        thumbnailPath: String? = null
+    ) {
+        if (!AccountSession.isCurrent(owner)) return
         withContext(Dispatchers.IO) {
         if (!AccountSession.isCurrent(owner)) return@withContext
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@withContext
