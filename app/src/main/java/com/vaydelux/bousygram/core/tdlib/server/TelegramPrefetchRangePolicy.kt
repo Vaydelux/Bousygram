@@ -45,7 +45,9 @@ internal fun prefetchOffsetForPosition(totalSize: Long, positionMs: Long, durati
             else -> BigInteger.valueOf(remainder)
                 .multiply(BigInteger.valueOf(boundedPosition))
                 .divide(BigInteger.valueOf(durationMs))
-                .longValueExact()
+                // The quotient is bounded by totalSize (< Long.MAX_VALUE).
+                // BigInteger.longValueExact() is unavailable on Android API 26-30.
+                .toLong()
         }
         return (whole + fraction).coerceAtMost(maximum)
     }
