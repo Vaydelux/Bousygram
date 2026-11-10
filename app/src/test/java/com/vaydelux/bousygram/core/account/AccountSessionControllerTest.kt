@@ -59,6 +59,30 @@ class AccountSessionControllerTest {
     }
 
     @Test
+    fun latePlayerCallbackCannotPublishAcrossLogoutAndSameAccountRelogin() {
+        val session = AccountSessionController()
+        val firstOwner = session.activate(101L, session.generation())!!
+        val queuedProgressOwner = firstOwner
+        val committed = mutableListOf<AccountSnapshot>()
+        assertTrue(session.runIfCurrent(firstOwner) { committed += firstOwner })
+
+        session.invalidate()
+        val secondOwner = session.activate(101L, session.generation())!!
+        assertEquals(firstOwner.accountId, secondOwner.accountId)
+        assertFalse("New login must create a new generation", firstOwner == secondOwner)
+        assertFalse("Old player must not recreate progress after logout",
+            session.runIfCurrent(queuedProgressOwner) { committed += queuedProgressOwner })
+        assertTrue(session.runIfCurrent(secondOwner) { committed += secondOwner })
+        assertEquals(listOf(firstOwner, secondOwner), committed)
+
+        session.invalidate()
+        val differentOwner = session.activate(202L, session.generation())!!
+        assertFalse("Old account callback cannot write under a different account",
+            session.runIfCurrent(queuedProgressOwner) { committed += differentOwner })
+        assertEquals(listOf(firstOwner, secondOwner), committed)
+    }
+
+    @Test
     fun failureDoesNotSkipRemainingCleanupAndRetryMayRestoreAccess() {
         val session = AccountSessionController()
         val original = session.activate(101L, session.generation())!!

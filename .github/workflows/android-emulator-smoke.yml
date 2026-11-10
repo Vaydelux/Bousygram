@@ -40,7 +40,10 @@ concurrency:
 jobs:
   cast-emulator:
     name: Run Cast and media UI regressions on Android emulator
-    runs-on: ubuntu-latest
+    # Keep decoder fixture generation reproducible: ubuntu-latest advanced to
+    # a runner whose configured APT repositories did not offer ffmpeg, failing
+    # before emulator instrumentation on otherwise successful APK builds.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Check out exact source
@@ -87,6 +90,15 @@ jobs:
           bash tools/ci/generate_playback_fixtures.sh ci-artifacts/decoder-fixtures
           ( cd ci-artifacts/decoder-fixtures && sha256sum --check SHA256SUMS.txt )
 
+      - name: Reclaim unused hosted-runner space for emulator userdata
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Gradle compilation and FFmpeg fixture generation have already finished.
+          # These hosted Ubuntu toolchains are unrelated to Android tests.
+          sudo rm -rf -- /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL
+          df -h "$HOME"
+
       - name: Run media Cast, real-launch, D-pad, and adaptive player chrome instrumentation
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -98,6 +110,13 @@ jobs:
           target: aosp_atd
           arch: x86_64
           profile: pixel_4
+          # Default pixel_4 userdata requested 7.37 GB on Ubuntu 24.04 while
+          # only 6.38 GB remained after the exact-source Gradle + FFmpeg build.
+          # 3 GiB is sufficient for the synthetic decoder fixtures/UI tests.
+          disk-size: 3072M
+          # Emulator 37.2.13 ignored disk.dataPartition.size from config.ini;
+          # explicitly override the userdata partition at the emulator CLI.
+          emulator-options: -partition-size 3072 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           emulator-boot-timeout: 600
           disable-animations: true
           script: bash tools/ci/run_emulator_smoke.sh

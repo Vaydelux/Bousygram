@@ -24,6 +24,7 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramLogWrapper
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
 import com.vaydelux.bousygram.core.tdlib.utils.ThumbnailExtractor
+import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.presentation.extras.ExtrasCatalogApi
 import com.vaydelux.bousygram.data.store.ManagedAppConfiguration
 import com.vaydelux.bousygram.core.account.AccountSession
@@ -93,6 +94,10 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
             close { posterImageLoader?.memoryCache?.clear() }
             close { RecentSearchRepository.invalidateAccountResources() }
             close { ContinueWatchingRepository.invalidateAccountResources() }
+            // Drain pending SharedPreferences apply() writes before a separately
+            // confirmed logout purge. A transient identity verification failure
+            // must not erase the user's history; failure still blocks activation.
+            close { PlaybackProgressTracker.invalidateAccountResources() }
             close { AppDatabase.closeAccountDatabases() }
             failure?.let { throw IllegalStateException("Account resources could not be fully closed", it) }
         }

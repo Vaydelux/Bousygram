@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
@@ -106,8 +107,13 @@ object WatchNextManager {
         }
     }
 
-    suspend fun updateProgress(
+    /**
+     * Owns a small IO task independently from a Compose screen that is being
+     * disposed. The original verified account must remain active on execution.
+     */
+    fun scheduleProgressUpdate(
         context: Context,
+        owner: AccountSnapshot,
         chatId: Long,
         messageId: Long,
         fileId: Int?,
@@ -116,7 +122,30 @@ object WatchNextManager {
         durationMs: Long,
         thumbnailPath: String? = null
     ) {
-        val owner = AccountSession.current() ?: return
+        if (!AccountSession.isCurrent(owner)) return
+        val appContext = context.applicationContext
+        scope.launch {
+            updateProgress(
+                context = appContext, owner = owner,
+                chatId = chatId, messageId = messageId, fileId = fileId,
+                title = title, currentPositionMs = currentPositionMs,
+                durationMs = durationMs, thumbnailPath = thumbnailPath
+            )
+        }
+    }
+
+    suspend fun updateProgress(
+        context: Context,
+        owner: AccountSnapshot,
+        chatId: Long,
+        messageId: Long,
+        fileId: Int?,
+        title: String,
+        currentPositionMs: Long,
+        durationMs: Long,
+        thumbnailPath: String? = null
+    ) {
+        if (!AccountSession.isCurrent(owner)) return
         withContext(Dispatchers.IO) {
         if (!AccountSession.isCurrent(owner)) return@withContext
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@withContext
@@ -127,7 +156,7 @@ object WatchNextManager {
 
         if (ratio >= COMPLETION_RATIO_THRESHOLD) {
             // Video is practically finished, remove from Watch Next
-            removeFromWatchNext(context, internalId)
+            removeFromWatchNext(context, internalId, owner)
             return@withContext
         }
 
@@ -183,16 +212,31 @@ object WatchNextManager {
         }
     }
 
-    suspend fun removeFromWatchNext(context: Context, internalId: String) = withContext(Dispatchers.IO) {
+    /** Natural EOF may outlive Compose, but never the verified account generation. */
+    fun scheduleRemoveFromWatchNext(context: Context, owner: AccountSnapshot, internalId: String) {
+        if (!AccountSession.isCurrent(owner)) return
+        scope.launch { removeFromWatchNext(context.applicationContext, internalId, owner) }
+    }
+
+    suspend fun removeFromWatchNext(
+        context: Context,
+        internalId: String,
+        expectedOwner: AccountSnapshot? = AccountSession.current()
+    ) = withContext(Dispatchers.IO) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@withContext
+        val owner = expectedOwner ?: return@withContext
         runCatching {
-            val rows = context.contentResolver.delete(
-                TvContract.WatchNextPrograms.CONTENT_URI,
-                "${TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID} = ?",
-                arrayOf(internalId)
-            )
-            Log.d(TAG, "Removed $rows Android TV Watch Next rows")
-        }.onFailure { e ->
+            // An asynchronous EOF from account A must not remove a new Watch Next
+            // entry after that same account reauthenticates with a new generation.
+            AccountSession.runIfCurrent(owner) {
+                val rows = context.contentResolver.delete(
+                    TvContract.WatchNextPrograms.CONTENT_URI,
+                    "${TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID} = ?",
+                    arrayOf(internalId)
+                )
+                Log.d(TAG, "Removed $rows Android TV Watch Next rows")
+            }
+        }.onFailure {
             Log.d(TAG, "Watch Next removal was unavailable on this device")
         }
     }

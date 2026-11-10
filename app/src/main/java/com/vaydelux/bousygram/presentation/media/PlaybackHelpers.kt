@@ -181,6 +181,16 @@ internal fun isCredibleNaturalPlaybackEnd(
     else -> positionMs >= 5_000L
 }
 
+/**
+ * A credible native EOF has already marked the media completed. Neither Back
+ * nor Compose disposal may re-create a resume checkpoint from the retired
+ * decoder's final position, including when MPEG-TS has no trusted duration.
+ */
+internal fun shouldPersistSessionExitProgress(
+    completedTrackIndex: Int,
+    activeTrackIndex: Int
+): Boolean = completedTrackIndex != activeTrackIndex
+
 /** Buffer completion starts playback only if the user has not explicitly paused. */
 internal fun shouldAutoResumeAfterReady(
     isReady: Boolean,
