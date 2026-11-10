@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,7 +20,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -40,10 +42,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import com.vaydelux.bousygram.domain.model.ChatSourceKind
 import com.vaydelux.bousygram.domain.model.SAVED_MESSAGES_TITLE
 import com.vaydelux.bousygram.domain.model.VideoChatItem
@@ -121,9 +124,9 @@ private fun SourceTab(
     emphasized: Boolean = false
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(999.dp)
+    val shape = RoundedCornerShape(16.dp)
     val borderColor = when {
-        focused -> MaterialTheme.colorScheme.tertiary
+        focused -> MaterialTheme.colorScheme.primary
         selected -> MaterialTheme.colorScheme.primary
         emphasized -> MaterialTheme.colorScheme.outline.copy(alpha = 0.8f)
         else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.56f)
@@ -138,15 +141,15 @@ private fun SourceTab(
                 this.selected = selected
             }
             .clip(shape)
-            .border(if (focused) 3.5.dp else if (selected) 2.dp else 1.dp, borderColor, shape)
+            .border(if (focused) 3.dp else if (selected) 2.dp else 1.dp, borderColor, shape)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
         shape = shape,
         color = when {
-            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-            focused -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
-            emphasized -> MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-            else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+            selected -> MaterialTheme.colorScheme.primaryContainer
+            focused -> MaterialTheme.colorScheme.surfaceContainerHighest
+            emphasized -> MaterialTheme.colorScheme.surfaceContainerHigh
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
         }
     ) {
         Column(
@@ -167,7 +170,7 @@ private fun SourceTab(
             }
             Text(
                 text = if (archived) "ARCHIVED · $category" else category,
-                color = if (selected || focused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1
             )
@@ -194,6 +197,11 @@ fun AllChatsPickerDialog(
     var filter by remember { mutableStateOf(SourceFilter.ALL) }
     // Keep scroll position and D-pad focus stable when TDLib adds chats during loading.
     val gridState = rememberLazyGridState()
+    // Avoid a fixed-height source list that can crowd a landscape phone or
+    // become lost inside oversized TV dialogs. Only presentation sizing changes.
+    val configuration = LocalConfiguration.current
+    val shortScreen = configuration.screenHeightDp < 520
+    val dialogMaxHeight = minOf((configuration.screenHeightDp - 28).coerceAtLeast(240), 660).dp
     val visibleChats = remember(chats, query, filter, pinnedChatIds) {
         chats.asSequence()
             .filter { chat ->
@@ -213,28 +221,52 @@ fun AllChatsPickerDialog(
             .toList()
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-        titleContentColor = MaterialTheme.colorScheme.onSurface,
-        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        title = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Choose a video source", style = MaterialTheme.typography.headlineSmall)
-                Text("Saved Messages, private chats, groups, and channels", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 760.dp)
+                .heightIn(max = dialogMaxHeight)
+                .testTag("telegram-chat-source-dialog"),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shadowElevation = 12.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(if (shortScreen) 12.dp else 20.dp),
+                verticalArrangement = Arrangement.spacedBy(if (shortScreen) 7.dp else 12.dp)
+            ) {
+                Text(
+                    "Choose a video source",
+                    style = if (shortScreen) MaterialTheme.typography.titleLarge
+                        else MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (!shortScreen) {
+                    Text(
+                        "Saved messages, private chats, groups and channels",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth()
+                        .testTag("telegram-chat-source-search"),
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
                     label = { Text("Search chats") },
-                    placeholder = { Text("Type a chat, group, or channel name") }
+                    placeholder = { Text("Chat, group, or channel name") }
                 )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
+                ) {
                     items(SourceFilter.entries, key = { it.name }) { item ->
                         FilterChip(
                             selected = filter == item,
@@ -244,11 +276,15 @@ fun AllChatsPickerDialog(
                     }
                 }
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 206.dp),
+                    columns = GridCells.Adaptive(
+                        minSize = if (configuration.screenWidthDp < 550) 188.dp else 218.dp
+                    ),
                     state = gridState,
-                    modifier = Modifier.fillMaxWidth().height(340.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                        .testTag("telegram-chat-source-grid"),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 6.dp)
                 ) {
                     if (isLoading) {
                         item(key = "loading-sources") {
@@ -259,7 +295,9 @@ fun AllChatsPickerDialog(
                             )
                         }
                     }
-                    if (filter == SourceFilter.ALL && SAVED_MESSAGES_TITLE.contains(query, ignoreCase = true)) {
+                    if (filter == SourceFilter.ALL &&
+                        SAVED_MESSAGES_TITLE.contains(query, ignoreCase = true)
+                    ) {
                         item(key = "saved-messages-dialog") {
                             SourcePickerRow(
                                 title = "Saved Messages",
@@ -283,7 +321,8 @@ fun AllChatsPickerDialog(
                         )
                     }
                     if (visibleChats.isEmpty() &&
-                        (filter != SourceFilter.ALL || !SAVED_MESSAGES_TITLE.contains(query, ignoreCase = true))
+                        (filter != SourceFilter.ALL ||
+                            !SAVED_MESSAGES_TITLE.contains(query, ignoreCase = true))
                     ) {
                         item(key = "empty-chats") {
                             Text(
@@ -294,10 +333,20 @@ fun AllChatsPickerDialog(
                         }
                     }
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .testTag("telegram-chat-source-close")
+                    ) { Text("Close") }
+                }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
-    )
+        }
+    }
 }
 
 
@@ -310,11 +359,11 @@ private fun SourcePickerRow(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(16.dp)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
+            .heightIn(min = 72.dp)
             .semantics {
                 role = Role.Button
                 contentDescription = "$title, $subtitle" +
@@ -323,14 +372,14 @@ private fun SourcePickerRow(
                 this.selected = selected
             }
             .clip(shape)
-            .border(if (focused) 3.dp else 1.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.56f), shape)
+            .border(if (focused) 3.dp else 1.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, shape)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
         shape = shape,
         color = when {
-            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-            focused -> MaterialTheme.colorScheme.surfaceVariant
-            else -> MaterialTheme.colorScheme.surface
+            selected -> MaterialTheme.colorScheme.primaryContainer
+            focused -> MaterialTheme.colorScheme.surfaceContainerHighest
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
         }
     ) {
         Row(
@@ -343,7 +392,7 @@ private fun SourcePickerRow(
                 Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             }
             if (pinned) Text("★", color = MaterialTheme.colorScheme.tertiary)
-            if (selected) Text("Selected", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelSmall)
+            if (selected) Text("Selected", color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
