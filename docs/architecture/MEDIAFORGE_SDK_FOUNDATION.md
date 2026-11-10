@@ -65,4 +65,3 @@ Existing MediaForge WebBridge, Media3, LibVLC, Android Enterprise and emulator t
 - The WebView interception hook blocks file:, content:, intent:, ftp: and unknown resource schemes it actually encounters. Browser-local about:, data: and blob: behavior is preserved; WebView file/content access settings remain disabled.
 - These defenses do **not** guarantee that WebView enforces DNS pinning or intercepts every HTTP redirect or blob/javascript resource. Chromium does not call shouldInterceptRequest for every scheme and redirects may be invisible to that callback. The browser remains untrusted and separate from guarded native media requests.
 - Tests are deliberately offline: no third-party streaming website, browser cookies, secrets or real Telegram accounts are needed.
-
