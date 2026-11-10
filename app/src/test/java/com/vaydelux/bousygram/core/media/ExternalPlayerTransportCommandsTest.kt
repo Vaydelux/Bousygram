@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.core.media
 
+import com.vaydelux.bousygram.presentation.media.shouldRestorePlayIntent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -17,7 +18,10 @@ class ExternalPlayerTransportCommandsTest {
         commands.onPause()
         assertTrue(explicitlyPaused)
         assertFalse(decoderPlaying)
-        assertFalse(shouldRestorePlayIntentForTest(explicitlyPaused))
+        assertFalse(shouldRestorePlayIntent(
+            isReady = true, explicitlyPaused = explicitlyPaused,
+            inForeground = true, castConnected = false, isPlaying = false
+        ))
         commands.onPlay()
         assertFalse(explicitlyPaused)
         assertTrue(decoderPlaying)
@@ -44,6 +48,4 @@ class ExternalPlayerTransportCommandsTest {
         assertEquals(0, playRequests)
     }
 
-    private fun shouldRestorePlayIntentForTest(explicitlyPaused: Boolean): Boolean =
-        !explicitlyPaused
 }
