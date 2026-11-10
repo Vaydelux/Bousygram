@@ -12,6 +12,7 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.net.http.SslError
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -59,7 +60,8 @@ class MediaForgeWebBridge(
     private val onNavigationBlocked: (() -> Unit)? = null,
     private val onFullscreenRequested: ((View) -> Unit)? = null,
     private val onFullscreenEnded: (() -> Unit)? = null,
-    private val onRendererGone: (() -> Unit)? = null
+    private val onRendererGone: (() -> Unit)? = null,
+    private val onPageLoadFailed: ((String) -> Unit)? = null
 ) {
     private val open = AtomicBoolean(true)
     private val main = Handler(Looper.getMainLooper())
@@ -152,8 +154,32 @@ class MediaForgeWebBridge(
                 return true
             }
 
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                error: WebResourceError
+            ) {
+                if (open.get() && request.isForMainFrame) {
+                    // Do not display provider URLs, tokens, or raw Chromium error descriptions.
+                    onPageLoadFailed?.invoke("The selected web server could not load. Choose another server or retry.")
+                }
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView,
+                request: WebResourceRequest,
+                errorResponse: WebResourceResponse
+            ) {
+                if (open.get() && request.isForMainFrame && errorResponse.statusCode >= 400) {
+                    onPageLoadFailed?.invoke("The selected web server is unavailable (HTTP ${errorResponse.statusCode}). Choose another server.")
+                }
+            }
+
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
                 handler.cancel()
+                if (open.get()) {
+                    onPageLoadFailed?.invoke("Cannot securely load this server. Choose another server.")
+                }
             }
         }
         webView.loadUrl(embedUrl)
