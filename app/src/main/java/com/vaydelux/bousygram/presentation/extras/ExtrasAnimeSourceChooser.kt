@@ -80,3 +80,29 @@ internal fun ExtrasAnimeSourceChooser(
         )
     }
 }
+
+/** Native controls remain reachable even when a provider takes HTML fullscreen. */
+@Composable
+internal fun ExtrasFullscreenRecoveryControls(
+    isAnime: Boolean,
+    onExitFullscreen: () -> Unit,
+    onChooseAnimeServer: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedButton(
+            onClick = onExitFullscreen,
+            modifier = Modifier.testTag("extras-embed-exit-html-fullscreen")
+        ) { Text("Exit fullscreen") }
+        if (isAnime) {
+            OutlinedButton(
+                onClick = onChooseAnimeServer,
+                modifier = Modifier.testTag("extras-anime-fullscreen-servers")
+            ) { Text("Choose server") }
+        }
+    }
+}
