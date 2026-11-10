@@ -40,6 +40,8 @@ class MediaForgeSessionTest {
         rejectsRequest { MediaForgeSessionRequest("https://127.0.0.1/embed") }
         rejectsRequest { MediaForgeSessionRequest(embed, maxStreams = 0) }
         rejectsRequest { MediaForgeSessionRequest(embed, maxCaptions = 101) }
+        rejectsRequest { MediaForgeSessionRequest(embed, inspectionTimeoutMillis = 999L) }
+        rejectsRequest { MediaForgeSessionRequest(embed, inspectionTimeoutMillis = 120_001L) }
         rejectsRequest { MediaForgeDiscovery(maxStreams = 0) }
         rejectsRequest { MediaForgeDiscovery(maxCaptions = 101) }
     }
@@ -188,4 +190,91 @@ class MediaForgeSessionTest {
         )
         session.close()
     }
+    @Test fun redactedDiagnosticsContainOnlyBoundedCounters() = runBlocking {
+        val session = sdk { candidate, _ -> approved(candidate) }
+            .openSession(MediaForgeSessionRequest(embed))
+        val signed = "https://cdn.example.org/secret.mp4?signature=never-log-this"
+        session.observe(signed)
+        session.observe("https://cdn.example.org/subtitle.vtt?secret=never-log-this")
+        val id = session.snapshot().streams.single().id
+        assertTrue(session.inspect(id) is MediaForgeSessionInspection.Verified)
+        assertEquals(
+            MediaForgeSessionInspection.Rejected(MediaForgeInspectionFailure.NOT_OBSERVED),
+            session.inspect("invalid-candidate-id")
+        )
+        val data = session.diagnostics()
+        assertEquals(1, data.observedStreams)
+        assertEquals(1, data.observedCaptions)
+        assertEquals(1L, data.inspectionsStarted)
+        assertEquals(1L, data.inspectionsVerified)
+        assertEquals(1L, data.inspectionsRejected)
+        assertEquals(MediaForgeInspectionFailure.NOT_OBSERVED, data.lastRejection)
+        assertFalse(data.inspectionActive)
+        assertFalse(data.toString().contains("never-log-this"))
+        assertFalse(data.toString().contains("https://"))
+        session.close()
+        assertEquals(0, session.diagnostics().observedStreams)
+        assertEquals(0, session.diagnostics().observedCaptions)
+    }
+
+    @Test fun stalledInspectionTimesOutAndReleasesItsPermit() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val session = sdk { _, _ ->
+            started.complete(Unit)
+            awaitCancellation()
+        }.openSession(MediaForgeSessionRequest(embed, inspectionTimeoutMillis = 1_000L))
+        session.observe(first)
+        val probe = async { session.inspect(session.snapshot().streams.single().id) }
+        withTimeout(5_000L) { started.await() }
+        assertEquals(
+            MediaForgeSessionInspection.Rejected(MediaForgeInspectionFailure.SOURCE_UNAVAILABLE),
+            withTimeout(5_000L) { probe.await() }
+        )
+        val data = session.diagnostics()
+        assertEquals(1L, data.inspectionsTimedOut)
+        assertEquals(1L, data.inspectionsRejected)
+        assertFalse(data.inspectionActive)
+        session.close()
+    }
+
+    @Test fun rapidSourceSwitchNeverRunsTwoInspectorsAtOnce() = runBlocking {
+        val firstStarted = CompletableDeferred<Unit>()
+        val running = AtomicInteger()
+        val maxRunning = AtomicInteger()
+        val session = sdk { candidate, _ ->
+            val now = running.incrementAndGet()
+            maxRunning.accumulateAndGet(now) { old, value -> maxOf(old, value) }
+            try {
+                if (candidate.url == first) {
+                    firstStarted.complete(Unit)
+                    awaitCancellation()
+                }
+                approved(candidate)
+            } finally {
+                running.decrementAndGet()
+            }
+        }.openSession(MediaForgeSessionRequest(embed))
+        session.observe(first)
+        session.observe(second)
+        val ids = session.snapshot().streams.map { it.id }
+        val initial = async { session.inspect(ids[0]) }
+        withTimeout(5_000L) { firstStarted.await() }
+        val subsequent = async { session.inspect(ids[1]) }
+        assertTrue(withTimeout(5_000L) {
+            subsequent.await()
+        } is MediaForgeSessionInspection.Verified)
+        assertEquals(
+            MediaForgeSessionInspection.Rejected(MediaForgeInspectionFailure.SUPERSEDED),
+            withTimeout(5_000L) { initial.await() }
+        )
+        assertEquals(1, maxRunning.get())
+        assertEquals(0, running.get())
+        val data = session.diagnostics()
+        assertEquals(2L, data.inspectionsStarted)
+        assertEquals(1L, data.inspectionsVerified)
+        assertTrue(data.inspectionsCancelled >= 1L)
+        assertFalse(data.inspectionActive)
+        session.close()
+    }
+
 }

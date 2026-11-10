@@ -19,6 +19,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Dns
+import okhttp3.Dispatcher
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -67,70 +69,15 @@ class MediaForgeResolver {
                     .get()
                     .build()
                 val call = PublicMediaTransport.client.newCall(request)
-                val response = suspendCancellableCoroutine<Response> { continuation ->
-                    continuation.invokeOnCancellation { call.cancel() }
-                    call.enqueue(object : Callback {
-                        override fun onFailure(call: Call, error: IOException) {
-                            if (continuation.isActive) continuation.resumeWithException(error)
-                        }
-                        override fun onResponse(call: Call, response: Response) {
-                            if (continuation.isActive) continuation.resume(response)
-                            else response.close()
-                        }
-                    })
+                // Read response bytes inside the cancellable callback, not
+                // after resuming at the headers: closing the session must
+                // interrupt even a stalled manifest/body transfer.
+                when (val hop = readCancellableProbeResponse(call) { response ->
+                    readHop(response, uri, currentUrl, stream, observedCaptions)
+                }) {
+                    is ProbeHop.Redirect -> currentUrl = hop.url
+                    is ProbeHop.Finished -> return@withContext hop.result
                 }
-                response.use { response ->
-                        val status = response.code
-                        if (status in 300..399) {
-                            val location = response.header("Location")
-                                ?: return@withContext InspectionResult.Unavailable("Missing redirect location")
-                            currentUrl = uri.resolve(location).toString()
-                        } else {
-                            if (status !in 200..299) {
-                                return@withContext InspectionResult.Unavailable(
-                                    "Media returned HTTP $status"
-                                )
-                            }
-                            val contentType = response.header("Content-Type")
-                                .orEmpty().lowercase(Locale.ROOT)
-                            if ("text/html" in contentType) {
-                                return@withContext InspectionResult.Unavailable("Media URL returned HTML")
-                            }
-                            val body = response.body?.byteStream()?.use { readBounded(it, 65_536) }
-                                ?: return@withContext InspectionResult.Unavailable("Empty response")
-                            if (body.isEmpty()) {
-                                return@withContext InspectionResult.Unavailable("Empty response")
-                            }
-                            val text = body.toString(Charsets.UTF_8).trimStart('\uFEFF')
-                            if (stream.format == StreamFormat.HLS &&
-                                !text.trimStart().startsWith("#EXTM3U")
-                            ) return@withContext InspectionResult.Unavailable("Invalid HLS manifest")
-                            if (stream.format == StreamFormat.DASH && !text.contains("<MPD")) {
-                                return@withContext InspectionResult.Unavailable("Invalid DASH manifest")
-                            }
-                            if (stream.format !in setOf(StreamFormat.HLS, StreamFormat.DASH) &&
-                                !MediaForgeSignature.isPlausible(stream.format, body)
-                            ) {
-                                return@withContext InspectionResult.Unavailable(
-                                    "Media response did not match the expected container format"
-                                )
-                            }
-
-                            val captions = observedCaptions
-                                .filter { MediaForgeUrlPolicy.safeHttpsUrl(it.url) != null }
-                                .take(30).toMutableList()
-                            if (stream.format == StreamFormat.HLS) {
-                                captions += MediaForgeHlsCaptions.parse(text, currentUrl)
-                            }
-                            return@withContext InspectionResult.Playable(
-                                InspectedMedia(
-                                    stream.copy(url = currentUrl, host = uri.host),
-                                    captions.distinctBy { it.url }.take(30),
-                                    status
-                                )
-                            )
-                        }
-                    }
             }
 
             InspectionResult.Unavailable("Too many redirects")
@@ -139,6 +86,65 @@ class MediaForgeResolver {
         } catch (_: Exception) {
             InspectionResult.Unavailable("Unable to verify source; continue in WebView")
         }
+    }
+
+    private fun readHop(
+        response: Response,
+        uri: URI,
+        currentUrl: String,
+        stream: StreamCandidate,
+        observedCaptions: List<CaptionCandidate>
+    ): ProbeHop {
+        val status = response.code
+        if (status in 300..399) {
+            val location = response.header("Location")
+                ?: return ProbeHop.Finished(
+                    InspectionResult.Unavailable("Missing redirect location")
+                )
+            return ProbeHop.Redirect(uri.resolve(location).toString())
+        }
+        if (status !in 200..299) {
+            return ProbeHop.Finished(InspectionResult.Unavailable("Media returned HTTP $status"))
+        }
+        val contentType = response.header("Content-Type")
+            .orEmpty().lowercase(Locale.ROOT)
+        if ("text/html" in contentType) {
+            return ProbeHop.Finished(InspectionResult.Unavailable("Media URL returned HTML"))
+        }
+        val body = response.body?.byteStream()?.use { readBounded(it, 65_536) }
+            ?: return ProbeHop.Finished(InspectionResult.Unavailable("Empty response"))
+        if (body.isEmpty()) return ProbeHop.Finished(InspectionResult.Unavailable("Empty response"))
+
+        // Only manifest formats require a UTF-8 decode; avoid converting
+        // binary MP4/WebM/TS payloads to large temporary strings on ARM32.
+        val manifest = if (stream.format == StreamFormat.HLS ||
+            stream.format == StreamFormat.DASH
+        ) body.toString(Charsets.UTF_8).trimStart('\uFEFF') else ""
+        if (stream.format == StreamFormat.HLS &&
+            !manifest.trimStart().startsWith("#EXTM3U")
+        ) return ProbeHop.Finished(InspectionResult.Unavailable("Invalid HLS manifest"))
+        if (stream.format == StreamFormat.DASH && !manifest.contains("<MPD")) {
+            return ProbeHop.Finished(InspectionResult.Unavailable("Invalid DASH manifest"))
+        }
+        if (stream.format !in setOf(StreamFormat.HLS, StreamFormat.DASH) &&
+            !MediaForgeSignature.isPlausible(stream.format, body)
+        ) return ProbeHop.Finished(InspectionResult.Unavailable(
+            "Media response did not match the expected container format"
+        ))
+
+        val captions = observedCaptions
+            .filter { MediaForgeUrlPolicy.safeHttpsUrl(it.url) != null }
+            .take(30).toMutableList()
+        if (stream.format == StreamFormat.HLS) {
+            captions += MediaForgeHlsCaptions.parse(manifest, currentUrl)
+        }
+        return ProbeHop.Finished(InspectionResult.Playable(
+            InspectedMedia(
+                stream.copy(url = currentUrl, host = uri.host),
+                captions.distinctBy { it.url }.take(30),
+                status
+            )
+        ))
     }
 
     private fun readBounded(input: InputStream, maximum: Int): ByteArray {
@@ -151,6 +157,41 @@ class MediaForgeResolver {
         }
         return bytes.toByteArray()
     }
+}
+
+private sealed interface ProbeHop {
+    data class Redirect(val url: String) : ProbeHop
+    data class Finished(val result: InspectionResult) : ProbeHop
+}
+
+/**
+ * Keep cancellation attached to the live OkHttp Call through the bounded
+ * response-body read, including stalled streams after successful headers.
+ * Any late response is closed without creating a leaked file descriptor.
+ */
+internal suspend fun <T> readCancellableProbeResponse(
+    call: Call,
+    read: (Response) -> T
+): T = suspendCancellableCoroutine { continuation ->
+    continuation.invokeOnCancellation { call.cancel() }
+    call.enqueue(object : Callback {
+        override fun onFailure(call: Call, error: IOException) {
+            if (continuation.isActive) continuation.resumeWithException(error)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            if (!continuation.isActive) {
+                response.close()
+                return
+            }
+            try {
+                val result = response.use(read)
+                if (continuation.isActive) continuation.resume(result)
+            } catch (error: Exception) {
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+        }
+    })
 }
 
 /**
@@ -252,6 +293,13 @@ private object PublicMediaTransport {
             }
         })
         .proxy(Proxy.NO_PROXY)
+        // A global bounded dispatcher covers probe, playlist, segment, key
+        // and subtitle requests. It is shared with the Media3 child client.
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 8
+            maxRequestsPerHost = 4
+        })
+        .connectionPool(ConnectionPool(4, 3, TimeUnit.MINUTES))
         .followRedirects(false)
         .followSslRedirects(false)
         .connectTimeout(5, TimeUnit.SECONDS)

@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.UUID
 
 /**
@@ -22,7 +25,9 @@ import java.util.UUID
 data class MediaForgeSessionRequest(
     val embedUrl: String,
     val maxStreams: Int = 20,
-    val maxCaptions: Int = 30
+    val maxCaptions: Int = 30,
+    /** Time limit includes waiting for the session's network permit. */
+    val inspectionTimeoutMillis: Long = 40_000L
 ) {
     init {
         require(MediaForgeUrlPolicy.safeHttpsUrl(embedUrl) != null) {
@@ -30,6 +35,9 @@ data class MediaForgeSessionRequest(
         }
         require(maxStreams in 1..100 && maxCaptions in 1..100) {
             "MediaForge discovery budgets must be between 1 and 100"
+        }
+        require(inspectionTimeoutMillis in 1_000L..120_000L) {
+            "MediaForge inspection timeout must be between 1 and 120 seconds"
         }
     }
 }
@@ -54,6 +62,23 @@ sealed interface MediaForgeSessionState {
 
     data object Closed : MediaForgeSessionState
 }
+
+/**
+ * Fixed-size, in-memory diagnostics. No URLs, query tokens, headers,
+ * subtitle labels, account IDs or provider errors are retained here.
+ * The SDK never uploads or logs these counters.
+ */
+data class MediaForgeSessionDiagnostics(
+    val observedStreams: Int,
+    val observedCaptions: Int,
+    val inspectionsStarted: Long,
+    val inspectionsVerified: Long,
+    val inspectionsRejected: Long,
+    val inspectionsCancelled: Long,
+    val inspectionsTimedOut: Long,
+    val inspectionActive: Boolean,
+    val lastRejection: MediaForgeInspectionFailure?
+)
 
 /** Fixed failure codes; never surface arbitrary network or provider errors. */
 enum class MediaForgeInspectionFailure {
@@ -104,6 +129,9 @@ interface MediaForgeSession : AutoCloseable {
     /** Invalidates prior candidate IDs and cancels any active inspection. */
     fun clear()
 
+    /** Fixed-size metrics with no stream or subtitle URLs. */
+    fun diagnostics(): MediaForgeSessionDiagnostics
+
     /** Only an ID emitted by this session can be inspected. Latest request wins. */
     suspend fun inspect(candidateId: String): MediaForgeSessionInspection
 
@@ -112,10 +140,13 @@ interface MediaForgeSession : AutoCloseable {
 }
 
 private class DefaultMediaForgeSession(
-    request: MediaForgeSessionRequest,
+    private val request: MediaForgeSessionRequest,
     private val inspector: MediaForgeInspector
 ) : MediaForgeSession {
     private val lock = Any()
+    // Cancellation plus an explicit permit keeps one active inspector per
+    // session even if the user rapidly switches source candidates.
+    private val inspectionPermit = Semaphore(1)
     private val discovery = MediaForgeDiscovery(request.maxStreams, request.maxCaptions)
     private val idsByUrl = LinkedHashMap<String, String>()
     private val sessionPrefix = UUID.randomUUID().toString()
@@ -124,6 +155,32 @@ private class DefaultMediaForgeSession(
     private var inspectionEpoch = 0L
     private var closed = false
     private var active: Deferred<InspectionResult>? = null
+    private var inspectionsStarted = 0L
+    private var inspectionsVerified = 0L
+    private var inspectionsRejected = 0L
+    private var inspectionsCancelled = 0L
+    private var inspectionsTimedOut = 0L
+    private var lastRejection: MediaForgeInspectionFailure? = null
+
+    private fun recordRejected(reason: MediaForgeInspectionFailure) {
+        inspectionsRejected++
+        lastRejection = reason
+    }
+
+    override fun diagnostics(): MediaForgeSessionDiagnostics = synchronized(lock) {
+        val counts = discovery.snapshot()
+        MediaForgeSessionDiagnostics(
+            observedStreams = counts.streams.size,
+            observedCaptions = counts.captions.size,
+            inspectionsStarted = inspectionsStarted,
+            inspectionsVerified = inspectionsVerified,
+            inspectionsRejected = inspectionsRejected,
+            inspectionsCancelled = inspectionsCancelled,
+            inspectionsTimedOut = inspectionsTimedOut,
+            inspectionActive = active != null,
+            lastRejection = lastRejection
+        )
+    }
 
     private val changes = MutableStateFlow<MediaForgeSessionState>(
         MediaForgeSessionState.Ready(0L, MediaForgeSessionSnapshot(emptyList(), emptyList()))
@@ -199,17 +256,25 @@ private class DefaultMediaForgeSession(
             }
         }
         if (selection == null) {
-            return@coroutineScope MediaForgeSessionInspection.Rejected(
-                synchronized(lock) {
-                    if (closed) MediaForgeInspectionFailure.SESSION_CLOSED
+            return@coroutineScope synchronized(lock) {
+                val reason = if (closed) MediaForgeInspectionFailure.SESSION_CLOSED
                     else MediaForgeInspectionFailure.NOT_OBSERVED
-                }
-            )
+                recordRejected(reason)
+                MediaForgeSessionInspection.Rejected(reason)
+            }
         }
 
         val task = async(Dispatchers.IO, start = CoroutineStart.LAZY) {
             try {
-                inspector.inspect(selection.stream, selection.captions)
+                val checked = withTimeoutOrNull(request.inspectionTimeoutMillis) {
+                    inspectionPermit.withPermit {
+                        inspector.inspect(selection.stream, selection.captions)
+                    }
+                }
+                if (checked == null) {
+                    synchronized(lock) { inspectionsTimedOut++ }
+                    InspectionResult.Unavailable("Inspection time budget exceeded")
+                } else checked
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -225,24 +290,25 @@ private class DefaultMediaForgeSession(
                 inspectionEpoch++
                 prior = active
                 active = task
+                inspectionsStarted++
                 inspectionEpoch
             }
         }
         if (epoch < 0L) {
             task.cancel()
-            return@coroutineScope MediaForgeSessionInspection.Rejected(
-                synchronized(lock) {
-                    if (closed) MediaForgeInspectionFailure.SESSION_CLOSED
+            return@coroutineScope synchronized(lock) {
+                val reason = if (closed) MediaForgeInspectionFailure.SESSION_CLOSED
                     else MediaForgeInspectionFailure.SUPERSEDED
-                }
-            )
+                recordRejected(reason)
+                MediaForgeSessionInspection.Rejected(reason)
+            }
         }
         prior?.cancel()
 
         try {
             val result = task.await()
             synchronized(lock) {
-                when {
+                val outcome = when {
                     closed -> MediaForgeSessionInspection.Rejected(
                         MediaForgeInspectionFailure.SESSION_CLOSED
                     )
@@ -264,16 +330,25 @@ private class DefaultMediaForgeSession(
                         MediaForgeInspectionFailure.SOURCE_UNAVAILABLE
                     )
                 }
+                when (outcome) {
+                    is MediaForgeSessionInspection.Verified -> inspectionsVerified++
+                    is MediaForgeSessionInspection.Rejected -> recordRejected(outcome.reason)
+                }
+                outcome
             }
         } catch (cancelled: CancellationException) {
             // Respect cancellation originating in the host; only convert a
             // cancellation initiated by this session into a typed response.
-            if (!currentCoroutineContext().isActive) throw cancelled
+            if (!currentCoroutineContext().isActive) {
+                synchronized(lock) { inspectionsCancelled++ }
+                throw cancelled
+            }
             synchronized(lock) {
-                MediaForgeSessionInspection.Rejected(
-                    if (closed) MediaForgeInspectionFailure.SESSION_CLOSED
+                inspectionsCancelled++
+                val reason = if (closed) MediaForgeInspectionFailure.SESSION_CLOSED
                     else MediaForgeInspectionFailure.SUPERSEDED
-                )
+                recordRejected(reason)
+                MediaForgeSessionInspection.Rejected(reason)
             }
         } finally {
             synchronized(lock) {
