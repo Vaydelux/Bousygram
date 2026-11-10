@@ -837,7 +837,7 @@ fun PlayerScreen(
                 val last = playerEngine.currentPositionMs
                 // Ended videos are marked completed. Do not recreate resume history
                 // from a final decoder position (including unknown-duration TS).
-                if (last > 0L && lastHandledEndedTrackIndex != queueIndex) {
+                if (last > 0L && shouldPersistSessionExitProgress(lastHandledEndedTrackIndex, queueIndex)) {
                     PlaybackProgressTracker.saveMessagePosition(
                         item.chatId, item.messageId, last.toInt(), duration,
                         item.fileId, item.title, expectedOwner = playbackAccountOwner)
@@ -1454,7 +1454,7 @@ fun PlayerScreen(
                 )
             }
             if (current != null && activeLifecycleEngine.currentPositionMs > 0 &&
-                lastHandledEndedTrackIndex != activeLifecycleQueueIndex
+                shouldPersistSessionExitProgress(lastHandledEndedTrackIndex, activeLifecycleQueueIndex)
             ) {
                 PlaybackProgressTracker.saveMessagePosition(
                     current.chatId,
