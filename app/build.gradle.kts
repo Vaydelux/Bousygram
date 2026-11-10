@@ -259,6 +259,15 @@ android {
 
 }
 
+// Room's annotation processor writes schema JSON outside the default Javac
+// class-output directory. Declare that directory as a debug Javac task output,
+// otherwise Gradle may restore compileDebugJavaWithJavac FROM-CACHE while omitting
+// the schema JSON. This previously failed exact-main Enterprise CI even though
+// Java/Kotlin compilation and the emulator checks passed.
+tasks.matching { it.name == "compileDebugJavaWithJavac" }.configureEach {
+    outputs.dir(file("schemas"))
+}
+
 secrets {
     propertiesFileName = ".env"
     defaultPropertiesFileName = ".env.example"
