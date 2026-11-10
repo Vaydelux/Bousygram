@@ -47,7 +47,7 @@ class MainActivitySmokeTest {
         assertSuccessfulActivityStart(launchMainActivity(instrumentation, preview = true))
 
         val device = UiDevice.getInstance(instrumentation)
-        assertTrue("Preview dashboard heading should be visible", device.wait(Until.hasObject(By.text("Bousygram")), 5_000))
+        assertTrue("Preview dashboard heading should be visible", device.wait(Until.hasObject(By.text("Your library")), 5_000))
         assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Saved Messages")), 5_000))
     }
 
@@ -71,7 +71,7 @@ class MainActivitySmokeTest {
         assertTrue(realOutput, realOutput.contains("Complete"))
         assertTrue(
             "Real mode chooser should replace the debug preview after onNewIntent",
-            device.wait(Until.hasObject(By.text("Choose how you want to explore.")), 10_000)
+            device.wait(Until.hasObject(By.text("Choose an experience to get started.")), 10_000)
         )
 
         val previewOutput = instrumentation.runShellCommand(
