@@ -48,6 +48,15 @@ class AccountPrivateDataPurgerInstrumentedTest {
             assertEquals(31_000, oldStore.getInt(key, -1))
 
             AccountSession.invalidate()
+            // Logout barrier drains all pending apply() writes before a purger
+            // removes the revoked account's file, even with decoder work pending.
+            assertFalse("Revoked preference cache must be cleared on logout", oldStore.contains(key))
+            AccountPrivateDataPurger.purge(context, revoked)
+            val oldPreferenceFile = File(
+                context.applicationInfo.dataDir,
+                "shared_prefs/${privatePlaybackProgressPreferenceName(revoked)}.xml"
+            )
+            assertFalse("Revoked account XML must be gone", oldPreferenceFile.exists())
             val ownerB = checkNotNull(AccountSession.activate(newAccount, AccountSession.generation()))
             // The source has been disposed/revoked; its delayed callback must not
             // borrow the current account, even if the file/chat IDs are identical.
@@ -58,6 +67,7 @@ class AccountPrivateDataPurgerInstrumentedTest {
             )
             val newStore = context.getSharedPreferences(newPrefs, Context.MODE_PRIVATE)
             assertFalse("Old playback must not recreate new-account progress", newStore.contains(key))
+            assertFalse("Late player callback must not re-create revoked XML", oldPreferenceFile.exists())
             PlaybackProgressTracker.saveMessagePosition(
                 chatId = -400L, messageId = 500L, positionMs = 55_000,
                 durationMs = 120_000L, fileId = 80, title = "Current account",
