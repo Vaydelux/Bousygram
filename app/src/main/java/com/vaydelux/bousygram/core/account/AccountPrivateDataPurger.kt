@@ -8,7 +8,8 @@ import java.io.File
 internal data class AccountPrivateDataPaths(
     val accountDirectory: File,
     val roomDatabaseName: String,
-    val preferencesName: String
+    val preferencesName: String,
+    val playbackProgressPreferencesName: String
 )
 
 internal fun privateDataPaths(filesDir: File, accountId: Long): AccountPrivateDataPaths {
@@ -16,8 +17,15 @@ internal fun privateDataPaths(filesDir: File, accountId: Long): AccountPrivateDa
     return AccountPrivateDataPaths(
         accountDirectory = File(File(filesDir, "accounts"), accountId.toString()),
         roomDatabaseName = "bousygram_account_${accountId}.db",
-        preferencesName = "account_${accountId}_enterprise"
+        preferencesName = "account_${accountId}_enterprise",
+        playbackProgressPreferencesName = privatePlaybackProgressPreferenceName(accountId)
     )
+}
+
+/** The legacy resume ledger is stored separately from the account's enterprise preferences. */
+internal fun privatePlaybackProgressPreferenceName(accountId: Long): String {
+    require(accountId > 0L) { "Only verified Telegram account IDs may select private progress" }
+    return "playback_resume_positions_account_$accountId"
 }
 
 /** Private generated poster and seek-preview images live under cacheDir, not filesDir. */
@@ -38,6 +46,12 @@ internal object AccountPrivateDataPurger {
         val names = privateDataPaths(context.filesDir, accountId)
         check(context.getSharedPreferences(names.preferencesName, Context.MODE_PRIVATE)
             .edit().clear().commit()) { "Unable to erase account preferences" }
+        // PlaybackProgressTracker writes positions to a separate account-scoped preferences
+        // document. Clear and delete it AFTER session invalidation drained in-flight writes.
+        val progressPrefs = names.playbackProgressPreferencesName
+        check(context.getSharedPreferences(progressPrefs, Context.MODE_PRIVATE)
+            .edit().clear().commit()) { "Unable to clear account playback positions" }
+        check(context.deleteSharedPreferences(progressPrefs)) { "Unable to erase account playback positions" }
         // The globally bounded recovery store contains account-scoped media keys.
         // Revoke only this account's records; another account may still be active later.
         EngineVerdictStore.clearAccount(context, accountId)
