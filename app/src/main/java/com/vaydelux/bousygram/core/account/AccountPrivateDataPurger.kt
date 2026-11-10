@@ -51,7 +51,13 @@ internal object AccountPrivateDataPurger {
         val progressPrefs = names.playbackProgressPreferencesName
         check(context.getSharedPreferences(progressPrefs, Context.MODE_PRIVATE)
             .edit().clear().commit()) { "Unable to clear account playback positions" }
-        check(context.deleteSharedPreferences(progressPrefs)) { "Unable to erase account playback positions" }
+        // deleteSharedPreferences may return false when no resume file ever existed;
+        // verify the actual file/backup state instead of treating an empty account as failure.
+        context.deleteSharedPreferences(progressPrefs)
+        val xml = File(File(context.applicationInfo.dataDir, "shared_prefs"), "$progressPrefs.xml")
+        check(!xml.exists() && !File(xml.path + ".bak").exists()) {
+            "Unable to erase account playback positions"
+        }
         // The globally bounded recovery store contains account-scoped media keys.
         // Revoke only this account's records; another account may still be active later.
         EngineVerdictStore.clearAccount(context, accountId)
