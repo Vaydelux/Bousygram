@@ -3,6 +3,8 @@ package com.vaydelux.bousygram.presentation.media
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -114,7 +117,7 @@ fun SeriesDetailScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(220.dp)
+                    .height(208.dp)
             ) {
                 if (!privacyMode && backdropPath != null) {
                     val model = if (backdropPath.startsWith("http")) backdropPath else File(backdropPath)
@@ -166,10 +169,11 @@ fun SeriesDetailScreen(
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -284,9 +288,9 @@ fun SeriesDetailScreen(
                 // Poster
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    shadowElevation = 8.dp,
+                    shadowElevation = 2.dp,
                     modifier = Modifier
                         .width(170.dp)
                         .fillMaxHeight()
@@ -375,23 +379,25 @@ fun SeriesDetailScreen(
                 }
             }
 
-            // Season Chips: [1] [2] [3]
+            // A season strip stays D-pad reachable even for long-running series.
             if (seasons.size > 1) {
-                Row(
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(vertical = 2.dp)
                 ) {
-                    Text(
-                        text = "Season:",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    seasons.forEach { seasonNum ->
-                        val isSelected = selectedSeason == seasonNum
+                    item {
+                        Text(
+                            text = "SEASONS",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                    items(seasons) { seasonNum ->
                         BousygramChip(
                             text = "Season $seasonNum",
-                            selected = isSelected,
+                            selected = selectedSeason == seasonNum,
                             onClick = { selectedSeason = seasonNum }
                         )
                     }
@@ -451,11 +457,11 @@ private fun EpisodeListRow(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(BousygramUiTokens.cardCorner))
             .border(
-                width = if (focused) 3.5.dp else 1.dp,
-                color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp)
+                width = if (focused) BousygramUiTokens.tvFocusOutline else 1.dp,
+                color = if (focused) colors.primary else colors.outlineVariant,
+                shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(
@@ -463,11 +469,11 @@ private fun EpisodeListRow(
                 indication = ripple(color = colors.primary),
                 onClick = onClick
             ),
-        shape = RoundedCornerShape(12.dp),
-        color = if (focused) colors.surfaceVariant else colors.surface
+        shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+        color = if (focused) colors.surfaceContainerHighest else colors.surfaceContainer
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -514,7 +520,7 @@ private fun EpisodeListRow(
             ) {
                 Text(
                     text = epTitle,
-                    color = if (focused) colors.primary else colors.onSurface,
+                    color = colors.onSurface,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 1,

@@ -106,7 +106,7 @@ fun AuthScreen(
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.09f),
                             MaterialTheme.colorScheme.background,
                             MaterialTheme.colorScheme.background
                         ),
@@ -264,10 +264,10 @@ private fun EnterpriseBrandHeader(
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .border(
                     width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f),
+                    color = MaterialTheme.colorScheme.outlineVariant,
                     shape = RoundedCornerShape(999.dp)
                 )
                 .padding(horizontal = 14.dp, vertical = 6.dp),
@@ -319,8 +319,8 @@ private fun AuthModeSelector(
     Surface(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 2.dp
     ) {
         Row(
@@ -328,13 +328,13 @@ private fun AuthModeSelector(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             ModeTabItem(
-                label = "📱 Instant QR Pair",
+                label = "QR code",
                 selected = currentMode == AuthMode.QR,
                 onClick = { onSelectMode(AuthMode.QR) },
                 modifier = Modifier.weight(1f)
             )
             ModeTabItem(
-                label = "📞 Phone Number",
+                label = "Phone number",
                 selected = currentMode == AuthMode.Phone,
                 onClick = { onSelectMode(AuthMode.Phone) },
                 modifier = Modifier.weight(1f)
@@ -354,8 +354,8 @@ private fun ModeTabItem(
     val shape = RoundedCornerShape(12.dp)
     val bgColor by animateColorAsState(
         targetValue = when {
-            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-            isFocused -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+            selected -> MaterialTheme.colorScheme.primaryContainer
+            isFocused -> MaterialTheme.colorScheme.surfaceContainerHigh
             else -> Color.Transparent
         },
         label = "tabBg"
@@ -372,14 +372,17 @@ private fun ModeTabItem(
             )
             .onFocusChanged { isFocused = it.isFocused }
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 12.dp),
+            .heightIn(min = 52.dp)
+            .padding(vertical = 12.dp, horizontal = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (selected || isFocused) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected || isFocused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                else if (isFocused) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             maxLines = 1
         )
@@ -400,7 +403,7 @@ private fun AuthPrimaryCard(
         modifier = modifier
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), cardShape)
             .shadow(elevation = 12.dp, shape = cardShape),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainer,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = cardShape
     ) {
@@ -415,7 +418,7 @@ private fun AuthPrimaryCard(
             ) {
                 Surface(
                     shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                    color = MaterialTheme.colorScheme.primaryContainer,
                     border = androidx.compose.foundation.BorderStroke(
                         0.5.dp,
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.40f)
@@ -425,8 +428,8 @@ private fun AuthPrimaryCard(
                         text = stepBadgeText(state.step),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     )
                 }
 
@@ -464,8 +467,8 @@ private fun AuthPrimaryCard(
                     state.message.contains("wait", ignoreCase = true)
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = if (isError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
-                    else MaterialTheme.colorScheme.surfaceVariant,
+                    color = if (isError) MaterialTheme.colorScheme.errorContainer
+                    else MaterialTheme.colorScheme.surfaceContainerHigh,
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
                         if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant
@@ -474,7 +477,8 @@ private fun AuthPrimaryCard(
                 ) {
                     Text(
                         text = state.message.orEmpty(),
-                        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                        color = if (isError) MaterialTheme.colorScheme.onErrorContainer
+                            else MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(12.dp)
                     )
@@ -711,7 +715,7 @@ private fun QrPairingStation(
         modifier = modifier
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), stationShape)
             .shadow(elevation = 12.dp, shape = stationShape),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainer,
         shape = stationShape
     ) {
         Column(
@@ -744,7 +748,7 @@ private fun QrPairingStation(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -786,12 +790,12 @@ private fun QrStepRow(step: String, instruction: String) {
             modifier = Modifier
                 .size(22.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = step,
-                color = MaterialTheme.colorScheme.secondary,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
             )
@@ -937,11 +941,11 @@ private fun ModernAuthTextField(
             focusedTextColor = MaterialTheme.colorScheme.onSurface,
             unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
             focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             cursorColor = MaterialTheme.colorScheme.primary,
-            focusedBorderColor = MaterialTheme.colorScheme.secondary,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-            focusedLabelColor = MaterialTheme.colorScheme.secondary,
+            focusedLabelColor = MaterialTheme.colorScheme.primary,
             unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
         ),
         shape = RoundedCornerShape(14.dp)
@@ -963,8 +967,8 @@ private fun PrimaryAction(
             .height(52.dp)
             .onFocusChanged { isFocused = it.isFocused }
             .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) MaterialTheme.colorScheme.secondary else Color.Transparent,
+                width = if (isFocused) 3.dp else 0.dp,
+                color = if (isFocused) MaterialTheme.colorScheme.onPrimary else Color.Transparent,
                 shape = RoundedCornerShape(16.dp)
             ),
         onClick = onClick,
