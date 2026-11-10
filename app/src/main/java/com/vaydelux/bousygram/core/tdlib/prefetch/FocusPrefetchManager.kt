@@ -77,19 +77,22 @@ object FocusPrefetchManager {
         val previous = focusedItem
         val generation = AccountSession.generation()
         // Compose can re-emit focus for the same card during recomposition.
-        // Preserve the pending debounce (or active prefetch) rather than
-        // postponing the 400 ms runway indefinitely. Never reuse focus across
-        // account generations or distinct Telegram messages sharing a file ID.
+        // Preserve this focus dwell even after its first prefetch finishes:
+        // duplicate Compose callbacks must not trigger a second download.
+        // Distinct messages and account generations are never interchangeable.
         if (focusedGeneration == generation &&
             previous?.fileId == fileId &&
             previous.chatId == item.chatId &&
-            previous.messageId == item.messageId &&
-            (debounceJob?.isActive == true || activePrefetchJobs.containsKey(fileId))
+            previous.messageId == item.messageId
         ) return
         cancelCurrentDebounce()
-        if (previous?.fileId != fileId) {
-            previous?.fileId?.let { cancelPrefetch(it) }
-        }
+        if (previous != null && (
+                focusedGeneration != generation ||
+                    previous.fileId != fileId ||
+                    previous.chatId != item.chatId ||
+                    previous.messageId != item.messageId
+            )
+        ) previous.fileId?.let { cancelPrefetch(it) }
 
         focusedItem = item
         focusedGeneration = generation

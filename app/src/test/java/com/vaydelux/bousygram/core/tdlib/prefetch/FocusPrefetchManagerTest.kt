@@ -81,6 +81,22 @@ class FocusPrefetchManagerTest {
     }
 
     @Test
+    fun duplicateFocusAfterCompletedHeadDoesNotStartAnotherDownload() = runBlocking {
+        val item = createMediaItem(fileId = 902, title = "Repeated after completion.mkv")
+
+        FocusPrefetchManager.onCardFocused(item)
+        Thread.sleep(600)
+        assertEquals(1, gateway.downloadRecords.count { it.fileId == 902 })
+        FocusPrefetchManager.onCardFocused(item)
+        Thread.sleep(600)
+        assertEquals(
+            "Duplicate focus after completion must not fetch the same head again",
+            1,
+            gateway.downloadRecords.count { it.fileId == 902 }
+        )
+    }
+
+    @Test
     fun testPrefetchDownloadsFirst2MbAtLowPriority() = runBlocking {
         val item = createMediaItem(
             fileId = 201,
