@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.tdlib.prefetch
 
 import android.util.Log
+import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
@@ -54,6 +55,9 @@ object FocusPrefetchManager {
     @Volatile
     private var focusedItem: MediaItem? = null
 
+    @Volatile
+    private var focusedGeneration: Long = Long.MIN_VALUE
+
     private val activePrefetchJobs = ConcurrentHashMap<Int, Job>()
 
     fun onCardFocused(item: MediaItem) {
@@ -71,14 +75,27 @@ object FocusPrefetchManager {
         }
 
         val previous = focusedItem
-        // Repeated focus events for the same card must not accumulate old
-        // debounce jobs, which can race to download the same file.
+        val generation = AccountSession.generation()
+        // Compose can re-emit focus for the same card during recomposition.
+        // Preserve this focus dwell even after its first prefetch finishes:
+        // duplicate Compose callbacks must not trigger a second download.
+        // Distinct messages and account generations are never interchangeable.
+        if (focusedGeneration == generation &&
+            previous?.fileId == fileId &&
+            previous.chatId == item.chatId &&
+            previous.messageId == item.messageId
+        ) return
         cancelCurrentDebounce()
-        if (previous?.fileId != fileId) {
-            previous?.fileId?.let { cancelPrefetch(it) }
-        }
+        if (previous != null && (
+                focusedGeneration != generation ||
+                    previous.fileId != fileId ||
+                    previous.chatId != item.chatId ||
+                    previous.messageId != item.messageId
+            )
+        ) previous.fileId?.let { cancelPrefetch(it) }
 
         focusedItem = item
+        focusedGeneration = generation
 
         // Debounce: trigger prefetch only when focus is held for >400 ms
         debounceJob = scope.launch {
@@ -104,11 +121,13 @@ object FocusPrefetchManager {
         cancelCurrentDebounce()
         focusedItem?.fileId?.let { cancelPrefetch(it) }
         focusedItem = null
+        focusedGeneration = Long.MIN_VALUE
     }
 
     fun cancelAll() {
         cancelCurrentDebounce()
         focusedItem = null
+        focusedGeneration = Long.MIN_VALUE
         val activeIds = activePrefetchJobs.keys().toList()
         activeIds.forEach { cancelPrefetch(it) }
     }
@@ -140,7 +159,10 @@ object FocusPrefetchManager {
             val lease = TelegramChunkScheduler.acquireLease(
                 fileId = fileId,
                 offset = 0L,
-                length = item.fileSizeBytes.coerceAtLeast(PREFETCH_CHUNK_BYTES),
+                // The focus lease covers only the startup head, not the entire
+                // movie. It must describe the bounded work actually requested.
+                length = if (item.fileSizeBytes > 0L)
+                    min(item.fileSizeBytes, PREFETCH_CHUNK_BYTES) else PREFETCH_CHUNK_BYTES,
                 consumer = TelegramStreamConsumer.Prefetch,
                 priority = LOW_PRIORITY
             )
