@@ -65,6 +65,22 @@ class FocusPrefetchManagerTest {
     }
 
     @Test
+    fun repeatedFocusForSameCardDoesNotStarveDebouncedPrefetch() = runBlocking {
+        val item = createMediaItem(fileId = 901, title = "Repeated focus.mkv")
+
+        FocusPrefetchManager.onCardFocused(item)
+        Thread.sleep(350)
+        // A redundant Compose focus callback should not restart the 400ms timer.
+        FocusPrefetchManager.onCardFocused(item)
+        Thread.sleep(300)
+
+        assertTrue(
+            "The original focus dwell should have started prefetch",
+            gateway.downloadRecords.any { it.fileId == 901 }
+        )
+    }
+
+    @Test
     fun testPrefetchDownloadsFirst2MbAtLowPriority() = runBlocking {
         val item = createMediaItem(
             fileId = 201,
