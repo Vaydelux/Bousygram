@@ -48,6 +48,53 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         compose.onNodeWithTag("extras-server-xxiku").assertIsSelected()
     }
 
+    @Test fun animeSourceIsSelectableBeforeAnyWebViewIsCreated() {
+        var picked = ExtrasAnimeEmbedServer.FILMU
+        var launched = false
+        compose.setContent {
+            BousygramTheme {
+                var current by remember { mutableStateOf(ExtrasAnimeEmbedServer.FILMU) }
+                ExtrasAnimeSourceChooser(
+                    request = ExtrasEmbedRequest.anime(21, episode = 2, title = "Anime fixture"),
+                    selected = current,
+                    isTv = true,
+                    onSelect = { current = it; picked = it },
+                    onOpen = { launched = true },
+                    onBack = {}
+                )
+            }
+        }
+        compose.onNodeWithTag("extras-anime-server-chooser").assertExists()
+        compose.onNodeWithTag("extras-server-dropdown").assertExists().performClick()
+        compose.onNodeWithTag("extras-anime-server-xxiku").assertExists().performClick()
+        compose.runOnIdle {
+            assertEquals(ExtrasAnimeEmbedServer.XXIKU, picked)
+            assertEquals(false, launched)
+        }
+        compose.onNodeWithTag("extras-anime-open-selected-server").performClick()
+        compose.runOnIdle { assertEquals(true, launched) }
+    }
+
+    @Test fun fullscreenAlwaysHasNativeAnimeServerRecoveryControls() {
+        var exited = false
+        var returnedToPicker = false
+        compose.setContent {
+            BousygramTheme {
+                ExtrasFullscreenRecoveryControls(
+                    isAnime = true,
+                    onExitFullscreen = { exited = true },
+                    onChooseAnimeServer = { returnedToPicker = true }
+                )
+            }
+        }
+        compose.onNodeWithTag("extras-embed-exit-html-fullscreen").assertExists().performClick()
+        compose.onNodeWithTag("extras-anime-fullscreen-servers").assertExists().performClick()
+        compose.runOnIdle {
+            assertEquals(true, exited)
+            assertEquals(true, returnedToPicker)
+        }
+    }
+
     @Test fun narrowPhoneStillShowsSourceSelector() {
         compose.setContent {
             BousygramTheme {
