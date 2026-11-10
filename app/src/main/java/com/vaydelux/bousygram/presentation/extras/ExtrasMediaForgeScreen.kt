@@ -193,6 +193,11 @@ internal fun ExtrasMediaForgeScreen(
     var useLegacyEmbedHeaven by remember(request.tmdbId, request.season, request.episode) {
         mutableStateOf(request.legacyEmbedHeaven)
     }
+    // Anime is never auto-opened on an unverified default provider. The server picker
+    // must be reachable before WebView is created, including on low-memory TVs.
+    var animeServerConfirmed by remember(request.anilistId, request.season, request.episode) {
+        mutableStateOf(request.anilistId <= 0)
+    }
     val selectedRequest = remember(request, selectedServer, selectedAnimeServer, useLegacyEmbedHeaven) {
         when {
             request.liveChannelSlug != null -> request
@@ -205,17 +210,29 @@ internal fun ExtrasMediaForgeScreen(
     // Each provider owns a distinct untrusted browsing session. Disposing the
     // keyed subtree destroys the old WebView, native engine, detected URLs,
     // pending inspections, and TV pointer before a replacement can be loaded.
-    key(selectedRequest.url) {
-        ExtrasMediaForgePlayerScreen(
-            request = selectedRequest,
-            onBack = onBack,
-            isAndroidTv = isAndroidTv,
-            selectedServer = selectedServer,
-            onServerSelected = { selectedServer = it; useLegacyEmbedHeaven = false },
-            onLegacyEmbedHeavenToggle = { useLegacyEmbedHeaven = it },
-            selectedAnimeServer = selectedAnimeServer,
-            onAnimeServerSelected = { selectedAnimeServer = it }
+    if (request.anilistId > 0 && !animeServerConfirmed) {
+        ExtrasAnimeSourceChooser(
+            request = request,
+            selected = selectedAnimeServer,
+            isTv = isAndroidTv,
+            onSelect = { selectedAnimeServer = it },
+            onOpen = { animeServerConfirmed = true },
+            onBack = onBack
         )
+    } else {
+        key(selectedRequest.url) {
+            ExtrasMediaForgePlayerScreen(
+                request = selectedRequest,
+                onBack = onBack,
+                isAndroidTv = isAndroidTv,
+                selectedServer = selectedServer,
+                onServerSelected = { selectedServer = it; useLegacyEmbedHeaven = false },
+                onLegacyEmbedHeavenToggle = { useLegacyEmbedHeaven = it },
+                selectedAnimeServer = selectedAnimeServer,
+                onAnimeServerSelected = { selectedAnimeServer = it },
+                onChooseAnimeServer = { animeServerConfirmed = false }
+            )
+        }
     }
 }
 
@@ -228,7 +245,8 @@ private fun ExtrasMediaForgePlayerScreen(
     onServerSelected: (ExtrasEmbedServer) -> Unit,
     onLegacyEmbedHeavenToggle: (Boolean) -> Unit,
     selectedAnimeServer: ExtrasAnimeEmbedServer,
-    onAnimeServerSelected: (ExtrasAnimeEmbedServer) -> Unit
+    onAnimeServerSelected: (ExtrasAnimeEmbedServer) -> Unit,
+    onChooseAnimeServer: () -> Unit
 ) {
     // One SDK session owns each user's selected Extras embed.
     val sdk = remember { MediaForgeSdk() }
@@ -260,6 +278,7 @@ private fun ExtrasMediaForgePlayerScreen(
     var busy by remember { mutableStateOf(false) }
     var inspectionGeneration by remember { mutableIntStateOf(0) }
     var status by remember { mutableStateOf("Play the embedded media to discover available sources.") }
+    var webLoadFailed by remember(request.url) { mutableStateOf(false) }
     // Keep the session alive while native playback temporarily replaces WebView.
     DisposableEffect(session) {
         onDispose { session.close() }
@@ -271,6 +290,10 @@ private fun ExtrasMediaForgePlayerScreen(
             },
             onNavigationBlocked = {
                 status = "Blocked a navigation outside the selected embed."
+            },
+            onPageLoadFailed = { message ->
+                status = message
+                webLoadFailed = true
             },
             onFullscreenRequested = { view ->
                 htmlFullscreenView = view
@@ -294,6 +317,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 cursorEnabled = false
                 htmlFullscreenView = null
                 status = "Embedded browser stopped. Select Reload player to try again."
+                webLoadFailed = true
             }
         )
     }
@@ -535,6 +559,7 @@ private fun ExtrasMediaForgePlayerScreen(
                             session.clear()
                             snapshot = session.snapshot()
                             status = "Reloading embedded player…"
+                            webLoadFailed = false
                             if (webView != null) webView?.reload() else webGeneration += 1
                         },
                         modifier = Modifier.testTag("extras-embed-reload")
@@ -599,6 +624,27 @@ private fun ExtrasMediaForgePlayerScreen(
                         if (webView === view) webView = null
                     }
                 )
+            }
+            if (webLoadFailed) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(status, color = MaterialTheme.colorScheme.onSurface)
+                    if (request.anilistId > 0) {
+                        OutlinedButton(
+                            onClick = onChooseAnimeServer,
+                            modifier = Modifier.testTag("extras-anime-recover-server")
+                        ) { Text("Choose another server") }
+                    }
+                    OutlinedButton(onClick = {
+                        webLoadFailed = false
+                        status = "Reloading embedded player…"
+                        webView?.reload()
+                    }, modifier = Modifier.testTag("extras-embed-retry-load")) { Text("Retry page") }
+                }
             }
             if (cursorEnabled && isAndroidTv) {
                 ExtrasVirtualCursor(
@@ -799,6 +845,28 @@ private fun ExtrasMediaForgePlayerScreen(
                     if (parent is FrameLayout) parent.removeAllViews()
                 }
             )
+            // Some providers enter HTML fullscreen automatically and cover the ordinary
+            // server picker. Keep native recovery/navigation ABOVE that untrusted surface.
+            Row(
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { bridge.dismissFullscreen() },
+                    modifier = Modifier.testTag("extras-embed-exit-html-fullscreen")
+                ) { Text("Exit fullscreen") }
+                if (request.anilistId > 0) {
+                    OutlinedButton(
+                        onClick = {
+                            bridge.dismissFullscreen()
+                            onChooseAnimeServer()
+                        },
+                        modifier = Modifier.testTag("extras-anime-fullscreen-servers")
+                    ) { Text("Choose server") }
+                }
+            }
             if (cursorEnabled && isAndroidTv) {
                 ExtrasVirtualCursor(
                     target = videoView,
