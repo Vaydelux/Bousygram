@@ -610,7 +610,7 @@ internal object TelegramChunkScheduler {
             }
             if (fresh &&
                 offset >= existing.offset &&
-                offset + readLimit <= existing.endExclusive
+                saturatingPrefetchEnd(offset, readLimit.toLong()) <= existing.endExclusive
             ) {
                 approved = null
                 return@compute existing.copy(startedAtMs = now)
@@ -618,7 +618,7 @@ internal object TelegramChunkScheduler {
             approved = downloadLimit
             DownloadWindow(
                 offset = offset,
-                endExclusive = offset + downloadLimit.toLong(),
+                endExclusive = saturatingPrefetchEnd(offset, downloadLimit.toLong()),
                 priority = priority,
                 purpose = purpose,
                 startedAtMs = now
@@ -734,7 +734,8 @@ internal object TelegramChunkScheduler {
             val covering = activeRequests.entries.firstOrNull { (activeKey, _) ->
                 activeKey.fileId == key.fileId &&
                     activeKey.offset <= key.offset &&
-                    activeKey.offset + activeKey.limit >= key.offset + key.limit
+                    saturatingPrefetchEnd(activeKey.offset, activeKey.limit.toLong()) >=
+                        saturatingPrefetchEnd(key.offset, key.limit.toLong())
             }
             if (covering != null) {
                 PlaybackTelemetryRecorder.recordDeduplicatedRequest(key.fileId)
@@ -912,7 +913,7 @@ internal object TelegramChunkScheduler {
     private fun prefetchAhead(fileId: Int, offset: Long, length: Int) {
         if (isPlaybackBusy(fileId)) return // Open-ended playback owns TDLib's download window.
         val totalSize = fileSizes[fileId] ?: 0L
-        val nextOffset = offset + length
+        val nextOffset = saturatingPrefetchEnd(offset, length.toLong())
         // Media3 may deliver hundreds of short sequential reads while an existing
         // 4-MiB cache-ahead job is active. Avoid launching overlapping TDLib jobs
         // for every short read; playback still has its own high-priority request.
@@ -1078,22 +1079,20 @@ internal object TelegramChunkScheduler {
         val isCellular = com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular
         val durationMs = fileDurationsMs[fileId] ?: 0L
         val totalSize = fileSizes[fileId] ?: 0L
-        val bitrateBps = if (durationMs > 1_000L && totalSize > 0L) {
-            (totalSize * 8_000L) / durationMs
-        } else {
-            (ewmaThroughputBps * 8.0).toLong().coerceIn(1_500_000L, 12_000_000L)
-        }
-        val targetSeconds = if (isCellular) 15.0 else 45.0
-        val targetBytes = ((bitrateBps * targetSeconds) / 8.0).toLong()
-        val minCap = if (isCellular) 4L * 1024L * 1024L else 8L * 1024L * 1024L
-        val maxCap = if (isCellular) 16L * 1024L * 1024L else 48L * 1024L * 1024L
-        return targetBytes.coerceIn(minCap, maxCap)
+        return boundedPlaybackWindowBytes(
+            totalSize = totalSize,
+            durationMs = durationMs,
+            measuredThroughputBytesPerSecond = ewmaThroughputBps,
+            isCellular = isCellular
+        )
     }
 
     private suspend fun handleSeek(request: TelegramChunkRequest) {
         val window = downloadWindows[request.fileId]
         val saved = savedTails[request.fileId]
-        if (saved != null && request.offset >= saved.offset && request.offset < saved.offset + saved.bytes.size) return
+        if (saved != null && request.offset >= saved.offset &&
+            request.offset < saturatingPrefetchEnd(saved.offset, saved.bytes.size.toLong())
+        ) return
         // Matroska extractors commonly seek to Cues near EOF during startup. Previously
         // *all* tail seeks were skipped here, even when MKV had not prefetched any tail
         // bytes. The caller would then wait for bytes never requested from TDLib.
@@ -1101,7 +1100,10 @@ internal object TelegramChunkScheduler {
         // a missing tail range must be requested just like any other random access.
         val currentFile = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
         val prefix = knownPrefixBytes(currentFile, window?.offset ?: request.offset)
-        val contiguousEnd = (window?.offset ?: request.offset) + prefix + PLAYBACK_WINDOW_BYTES
+        val contiguousEnd = saturatingPrefetchEnd(
+            saturatingPrefetchEnd(window?.offset ?: request.offset, prefix),
+            PLAYBACK_WINDOW_BYTES
+        )
         val isOutside = requiresPlaybackWindowReposition(request.offset, window?.offset, contiguousEnd)
         if (isOutside) {
             Log.d(TAG, "Seek detected fileId=${request.fileId} offset=${request.offset}; cancelling stale in-flight downloads")
@@ -1111,7 +1113,7 @@ internal object TelegramChunkScheduler {
 
             // Cancel any in-flight deferred requests that are outside the new playhead window
             val newPlayheadStart = request.offset
-            val newPlayheadEnd = request.offset + PLAYBACK_WINDOW_BYTES
+            val newPlayheadEnd = saturatingPrefetchEnd(request.offset, PLAYBACK_WINDOW_BYTES)
             activeRequests.entries.removeIf { (key, deferred) ->
                 if (key.fileId == request.fileId && (key.offset < newPlayheadStart || key.offset >= newPlayheadEnd)) {
                     deferred.cancel()
@@ -1215,7 +1217,7 @@ internal object TelegramChunkScheduler {
         if (prefix <= 0L) return false
         if (minNeededBytes <= 0) return prefix > 0L
         if (prefix >= minNeededBytes) return true
-        if (knownTotal > 0L && offset + prefix >= knownTotal) return true
+        if (knownTotal > 0L && saturatingPrefetchEnd(offset, prefix) >= knownTotal) return true
         return false
     }
 
@@ -1351,7 +1353,8 @@ internal object TelegramChunkScheduler {
         val available = min(limit.toLong(), prefix).toInt()
         val isCompleted = file?.isDownloadingCompleted == true
         val knownTotal = fileSizes[fileId] ?: (if (file != null) (if (file.size > 0L) file.size else if (file.expectedSize > 0L) file.expectedSize else 0L) else 0L)
-        val isAtOrPastEnd = knownTotal > 0L && offset + available >= knownTotal
+        val isAtOrPastEnd = knownTotal > 0L &&
+            saturatingPrefetchEnd(offset, available.toLong()) >= knownTotal
         val enough = available >= limit ||
             isCompleted ||
             isAtOrPastEnd ||

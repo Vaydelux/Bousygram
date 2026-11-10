@@ -43,6 +43,26 @@ class TelegramPrefetchRangePolicyTest {
         assertEquals(false, shouldCancelCacheAheadForSeek(Long.MAX_VALUE - 8L, Long.MAX_VALUE, (Long.MAX_VALUE - 8L)..Long.MAX_VALUE))
     }
 
+    @Test fun adaptiveWindowPreservesNormalBitrateAndCapsExtremeMetadata() {
+        val size = 1_024L * 1024L * 1024L
+        val duration = 3_600_000L
+        val expectedWifi = (size.toDouble() * 45_000.0 / duration.toDouble()).toLong()
+        assertEquals(expectedWifi, boundedPlaybackWindowBytes(size, duration, 500_000.0, false))
+        val expectedCell = (size.toDouble() * 15_000.0 / duration.toDouble()).toLong()
+        assertEquals(expectedCell, boundedPlaybackWindowBytes(size, duration, 500_000.0, true))
+
+        assertEquals(48L * 1024L * 1024L,
+            boundedPlaybackWindowBytes(Long.MAX_VALUE, 1_001L, 0.0, false))
+        assertEquals(16L * 1024L * 1024L,
+            boundedPlaybackWindowBytes(Long.MAX_VALUE, 1_001L, 0.0, true))
+        assertEquals(8L * 1024L * 1024L,
+            boundedPlaybackWindowBytes(1024L, 1_000_000L, 0.0, false))
+        assertEquals(4L * 1024L * 1024L,
+            boundedPlaybackWindowBytes(0L, 0L, Double.NaN, true))
+        assertEquals(48L * 1024L * 1024L,
+            boundedPlaybackWindowBytes(0L, 0L, Double.POSITIVE_INFINITY, false))
+    }
+
     @Test fun rangeEndsAndSeekWindowsCannotWrap() {
         assertEquals(Long.MAX_VALUE, saturatingPrefetchEnd(Long.MAX_VALUE - 8L, 32L))
         assertEquals(128L, saturatingPrefetchEnd(96L, 32L))
