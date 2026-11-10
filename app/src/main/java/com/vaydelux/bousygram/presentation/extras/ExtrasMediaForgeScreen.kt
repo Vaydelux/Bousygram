@@ -642,7 +642,8 @@ private fun ExtrasMediaForgePlayerScreen(
                     OutlinedButton(onClick = {
                         webLoadFailed = false
                         status = "Reloading embedded player…"
-                        webView?.reload()
+                        // A dead Chromium renderer has no reusable WebView or bridge.
+                        if (webView != null) webView?.reload() else webGeneration += 1
                     }, modifier = Modifier.testTag("extras-embed-retry-load")) { Text("Retry page") }
                 }
             }
