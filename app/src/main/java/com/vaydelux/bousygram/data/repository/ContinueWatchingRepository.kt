@@ -197,13 +197,14 @@ object ContinueWatchingRepository {
 
     suspend fun activateAccount(owner: AccountSnapshot) { ledger.load(owner) }
     fun invalidateAccountResources() {
+        // Revoke visible history immediately, even if the disk worker later fails to drain.
+        _railItems.value = emptyList()
         // AccountSession invalidation is synchronous. Its private-data purge must not race
         // an in-flight write that could recreate continue_watching.json after deletion.
         // Never silently succeed when the storage worker cannot be drained.
         kotlinx.coroutines.runBlocking(Dispatchers.IO) {
             kotlinx.coroutines.withTimeout(2_500L) { ledger.invalidateAndDrain() }
         }
-        _railItems.value = emptyList()
     }
 
     fun saveProgress(chatId: Long, messageId: Long, fileId: Int, title: String, thumbnailPath: String? = null,
