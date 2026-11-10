@@ -1121,11 +1121,16 @@ fun PlayerScreen(
                         lastHandledEndedTrackIndex = queueIndex
                         commitPlaybackTelemetry(fatalError = null)
                         PlaybackProgressTracker.clearMessagePosition(current.chatId, current.messageId)
-                        scope.launch {
-                            WatchNextManager.removeFromWatchNext(
-                                context,
-                                "bousy_${current.chatId}_${current.messageId}_${current.fileId}"
+                        val watchNextOwner = com.vaydelux.bousygram.core.account.AccountSession.current()
+                        if (watchNextOwner != null) {
+                            // Insertion and EOF removal must use the same exact account-scoped
+                            // launcher key. Do not issue a cross-account deletion after logout.
+                            val watchNextId = com.vaydelux.bousygram.core.tv.watchNextProviderId(
+                                watchNextOwner.accountId, current.chatId, current.messageId, current.fileId
                             )
+                            scope.launch {
+                                WatchNextManager.removeFromWatchNext(context, watchNextId)
+                            }
                         }
                         if (playbackSession.hasNext) {
                             autoNextCountdown = 5
