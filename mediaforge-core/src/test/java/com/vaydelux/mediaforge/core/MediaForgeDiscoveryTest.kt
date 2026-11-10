@@ -1,6 +1,7 @@
 package com.vaydelux.mediaforge.core
 
 import org.junit.Assert.*
+import okhttp3.Request
 import org.junit.Test
 
 class MediaForgeDiscoveryTest {
@@ -67,6 +68,63 @@ class MediaForgeDiscoveryTest {
         } catch (_: java.net.UnknownHostException) {
             // Expected: network transport never connects to a private address.
         }
+    }
+
+    @Test fun nativeTransportRejectsCredentialHeadersButAllowsSignedUrls() {
+        fun request(url: String, header: String? = null): Request {
+            val b = Request.Builder().url(url).get()
+            header?.let { b.header(it, "private-value") }
+            return b.build()
+        }
+        val safeUrl = "https://cdn.example.org/movie.m3u8?signature=short-lived"
+        assertTrue(MediaForgeOutboundRequestPolicy.allows(request(safeUrl)))
+        assertTrue(MediaForgeOutboundRequestPolicy.allows(
+            request(safeUrl, "Range")
+        ))
+        assertFalse(MediaForgeOutboundRequestPolicy.allows(
+            request("http://cdn.example.org/movie.m3u8")
+        ))
+        for (name in listOf(
+            "Cookie", "Cookie2", "Authorization", "Proxy-Authorization",
+            "X-Api-Key", "X-Telegram-Token"
+        )) {
+            assertFalse("Native media must not forward $name",
+                MediaForgeOutboundRequestPolicy.allows(request(safeUrl, name)))
+        }
+        val client = MediaForgePlaybackTransport.client
+        assertTrue(client.networkInterceptors.isNotEmpty())
+    }
+
+    @Test fun embedNavigationKeepsProviderTitleAndEpisodeIdentity() {
+        fun permitted(origin: String, destination: String): Boolean =
+            MediaForgeEmbedNavigationPolicy.allows(
+                java.net.URI(origin), destination
+            )
+        val tv = "https://embed.example.org/embed/tv/1399?s=1&e=2"
+        assertTrue(permitted(tv,
+            "https://embed.example.org/embed/tv/1399?s=1&e=2&server=4"))
+        assertFalse(permitted(tv,
+            "https://embed.example.org/embed/tv/1399?s=1&e=3"))
+        assertFalse(permitted(tv,
+            "https://other.example.org/embed/tv/1399?s=1&e=2"))
+        assertFalse(permitted(tv,
+            "https://embed.example.org/embed/tv/1399?s=1&e=2&e=3"))
+        assertFalse(permitted(tv, "http://embed.example.org/embed/tv/1399"))
+        val legacy = "https://embed.example.org/embed?id=550&type=movie"
+        assertTrue(permitted(legacy,
+            "https://embed.example.org/embed?id=550&type=movie&server=2"))
+        assertFalse(permitted(legacy,
+            "https://embed.example.org/embed?id=551&type=movie"))
+        assertFalse(permitted(legacy,
+            "https://embed.example.org/embed?id=550&id=551&type=movie"))
+        assertFalse(permitted(
+            "https://embed.example.org/embed?id=550&id=551&type=movie",
+            "https://embed.example.org/embed?id=550&id=551&type=movie"
+        ))
+        assertTrue(permitted("https://embed.example.org/movie/42",
+            "https://embed.example.org/movie/42?server=2"))
+        assertFalse(permitted("https://embed.example.org/movie/42",
+            "https://embed.example.org/movie/43"))
     }
 
     @Test fun unsafeUrlsRejected() {

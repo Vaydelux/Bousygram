@@ -224,6 +224,22 @@ internal object PublicNetworkPolicy {
     }
 }
 
+/**
+ * Every native media request, including redirected HLS/DASH segment and
+ * subtitle traffic, must be HTTPS and must not carry browser/Telegram secrets.
+ * Signed URLs are permitted but must stay in-memory; never log request URLs.
+ */
+internal object MediaForgeOutboundRequestPolicy {
+    private val forbiddenHeaders = setOf(
+        "cookie", "cookie2", "authorization", "proxy-authorization",
+        "x-api-key", "x-telegram-token"
+    )
+
+    fun allows(request: Request): Boolean =
+        MediaForgeUrlPolicy.safeHttpsUrl(request.url.toString()) != null &&
+            request.headers.names().none { it.lowercase(Locale.ROOT) in forbiddenHeaders }
+}
+
 private object PublicMediaTransport {
     val client: OkHttpClient = OkHttpClient.Builder()
         .dns(object : Dns {
@@ -241,6 +257,14 @@ private object PublicMediaTransport {
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .callTimeout(25, TimeUnit.SECONDS)
+        .addNetworkInterceptor { chain ->
+            // Network interceptors are run for each actual HTTP request,
+            // including each hop of a redirected media/CDN request.
+            if (!MediaForgeOutboundRequestPolicy.allows(chain.request())) {
+                throw IOException("Unsafe or credential-bearing media request blocked")
+            }
+            chain.proceed(chain.request())
+        }
         .build()
 }
 
@@ -266,12 +290,8 @@ object MediaForgePlaybackTransport {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(0, TimeUnit.SECONDS)
-        .addNetworkInterceptor { chain ->
-            if (MediaForgeUrlPolicy.safeHttpsUrl(chain.request().url.toString()) == null) {
-                throw IOException("Unsafe media or redirect destination")
-            }
-            chain.proceed(chain.request())
-        }
+        // Inherits the common native network interceptor above; do not
+        // maintain a weaker independent policy for player segment requests.
         .build()
 }
 

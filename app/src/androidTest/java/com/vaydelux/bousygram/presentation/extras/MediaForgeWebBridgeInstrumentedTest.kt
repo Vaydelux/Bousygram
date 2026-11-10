@@ -114,7 +114,12 @@ class MediaForgeWebBridgeInstrumentedTest {
             "https://local.example.org./private",
             "https://[::1]/private",
             "https://user:password@cdn.example.org/segment.mp4",
-            "https://cdn.example.org:8443/segment.mp4"
+            "https://cdn.example.org:8443/segment.mp4",
+            "file:///data/data/com.example.app/private.db",
+            "content://com.example.provider/private",
+            "ftp://127.0.0.1/file",
+            "intent://example.invalid/#Intent;scheme=https;end",
+            "android-app://com.other.app/private"
         )) {
             assertTrue("WebView must refuse network request: $url",
                 MediaForgeWebRequestPolicy.blockNetworkSubresource(url))
@@ -151,6 +156,16 @@ class MediaForgeWebBridgeInstrumentedTest {
                     view, fakeRequest("https://router.localdomain/fixture.mp4")
                 )
                 assertEquals(403, unsafe?.statusCode)
+                for (schemeUrl in listOf(
+                    "file:///data/local/tmp/secret.txt",
+                    "content://com.other.provider/private",
+                    "intent://example.invalid/#Intent;scheme=https;end"
+                )) {
+                    assertEquals("Browser resource must be denied: $schemeUrl", 403,
+                        view.webViewClient.shouldInterceptRequest(
+                            view, fakeRequest(schemeUrl)
+                        )?.statusCode)
+                }
                 // Keep the browser's normal HTTPS path intact; interception is
                 // only used for policy-denied initial network requests.
                 val public = view.webViewClient.shouldInterceptRequest(
