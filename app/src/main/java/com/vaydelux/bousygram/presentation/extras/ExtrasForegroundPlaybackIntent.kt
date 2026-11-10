@@ -1,5 +1,8 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import com.vaydelux.mediaforge.players.MediaForgeForegroundResumeGate
+import com.vaydelux.mediaforge.players.MediaForgePlaybackTransition
+
 /**
  * Remember Play only across a transient activity stop.
  * Buffering is not a pause: callers pass playWhenReady / native Play intent,
@@ -8,10 +11,10 @@ package com.vaydelux.bousygram.presentation.extras
  * A stopped player must never resume on an unrelated foreground event.
  */
 internal class ExtrasForegroundPlaybackIntent {
-    private var resumePending = false
+    private val gate = MediaForgeForegroundResumeGate()
 
     fun onBackground(playRequested: Boolean) {
-        resumePending = playRequested
+        gate.onBackground(playRequested)
     }
 
     /**
@@ -20,18 +23,16 @@ internal class ExtrasForegroundPlaybackIntent {
      * This is not a request to unpause a player that was explicitly paused.
      */
     fun onInitialAttach(playRequested: Boolean, inForeground: Boolean) {
-        if (!inForeground) onBackground(playRequested)
+        gate.onInitialAttach(playRequested, inForeground)
     }
 
     /** Return the one-shot intent and immediately consume it. */
     fun onForeground(): Boolean {
-        val resume = resumePending
-        resumePending = false
-        return resume
+        return gate.onForeground()
     }
 
     fun cancel() {
-        resumePending = false
+        gate.cancel()
     }
 }
 
@@ -69,4 +70,6 @@ internal fun shouldPreserveExtrasMedia3Resume(
     playWhenReady: Boolean,
     hasPlaybackError: Boolean,
     reachedEnd: Boolean
-): Boolean = playWhenReady && !hasPlaybackError && !reachedEnd
+): Boolean = MediaForgePlaybackTransition.mayResume(
+    playWhenReady, hasPlaybackError, reachedEnd
+)

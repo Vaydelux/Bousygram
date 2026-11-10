@@ -65,3 +65,9 @@ Existing MediaForge WebBridge, Media3, LibVLC, Android Enterprise and emulator t
 - The WebView interception hook blocks file:, content:, intent:, ftp: and unknown resource schemes it actually encounters. Browser-local about:, data: and blob: behavior is preserved; WebView file/content access settings remain disabled.
 - These defenses do **not** guarantee that WebView enforces DNS pinning or intercepts every HTTP redirect or blob/javascript resource. Chromium does not call shouldInterceptRequest for every scheme and redirects may be invisible to that callback. The browser remains untrusted and separate from guarded native media requests.
 - Tests are deliberately offline: no third-party streaming website, browser cookies, secrets or real Telegram accounts are needed.
+
+## Phase 3 — Unified playback contract (November 2026)
+
+The `mediaforge-player-adapters` module owns a shared `MediaForgePlaybackControls` interface (Play, Pause, Seek, idempotent Release), `MediaForgePlaybackTransition` and `MediaForgeForegroundResumeGate`. Bousygram Extras uses these contracts for Media3 and LibVLC. The transition contract carries **user Play intent** and optional unacknowledged handoff position, preserving explicit Pause and avoiding unsolicited autoplay after a decoder error or natural end. `MediaForgeMedia3Controls` guards late commands after release, while the existing LibVLC session implements the same interface and retains native audio focus, surface, subtitle and range-FD ownership.
+
+This is an incremental contract extraction: **the SDK does not yet own Compose video surfaces or engine construction for LibVLC**, and it does not claim that both engines have identical track/seek capabilities. Real-device ARM32/ARM64 qualification remains mandatory before production release. The experimental LibVLC feature flag is unchanged.

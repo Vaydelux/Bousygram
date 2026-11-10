@@ -71,6 +71,7 @@ import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.players.MediaForgeGuardedProgressiveSource
 import com.vaydelux.mediaforge.players.MediaForgeRangeMetricsSnapshot
+import com.vaydelux.mediaforge.players.MediaForgePlaybackControls
 import com.vaydelux.bousygram.core.media.LibVlcUnexpectedPauseAction
 import com.vaydelux.bousygram.core.media.libVlcUnexpectedPauseAction
 import org.videolan.libvlc.LibVLC
@@ -95,7 +96,7 @@ internal class ExtrasLibVlcSession(
     private val initiallyPlayRequested: Boolean,
     private val onStatus: (String) -> Unit,
     private val onControls: (ExtrasLibVlcControlState) -> Unit
-) {
+) : MediaForgePlaybackControls {
     private val released = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val audioManager = context.applicationContext
@@ -374,7 +375,7 @@ internal class ExtrasLibVlcSession(
         scheduleProgress()
     }
 
-    fun play() {
+    override fun play() {
         if (released.get() || !initialized || !inForeground) return
         // A second Play during buffering must not reset native pause-recovery
         // state, retrigger the decoder, or restart the startup stopwatch.
@@ -436,7 +437,7 @@ internal class ExtrasLibVlcSession(
         if (latencyProbe.hasPendingSeek) scheduleProgress()
     }
 
-    fun pause() {
+    override fun pause() {
         focusRecovery.cancel()
         pauseForAudioFocus()
         if (!released.get() && !hasPlaybackError && !reachedEnd) onStatus("Paused")
@@ -472,7 +473,7 @@ internal class ExtrasLibVlcSession(
         publishControls()
     }
 
-    fun seekTo(positionMs: Long) {
+    override fun seekTo(positionMs: Long) {
         if (released.get()) return
         val seek = runCatching {
             if (!player.isSeekable) null
@@ -513,7 +514,7 @@ internal class ExtrasLibVlcSession(
         handler.removeCallbacks(progressTicker)
     }
 
-    fun release() {
+    override fun release() {
         if (!released.compareAndSet(false, true)) return
         focusRecovery.cancel()
         inForeground = false
