@@ -122,7 +122,7 @@ object TelegramPreCacheEngine {
         if (fileId <= 0 || totalSize <= 0L || StoragePressureMonitor.isLow()) return
         // Playback has an open-ended high-priority window; avoid competing cache requests.
         if (TelegramChunkScheduler.isPlaybackBusy(fileId)) return
-        val offset = positionToOffset(totalSize, positionMs, durationMs)
+        val offset = prefetchOffsetForPosition(totalSize, positionMs, durationMs)
         val effectiveMax = if (com.vaydelux.bousygram.core.network.NetworkConnectivityObserver.isCellular) {
             4L * 1024L * 1024L
         } else {
@@ -173,14 +173,13 @@ object TelegramPreCacheEngine {
         if (fileId <= 0) return
         val active = activeCacheAheadJobs[fileId]
         if (active != null) {
-            val validStart = (newOffset - 2L * 1024L * 1024L).coerceAtLeast(0L)
-            val validEnd = newOffset + windowBytes
-            if (active.endExclusive < validStart || active.offset > validEnd) {
+            val validWindow = prefetchSeekWindow(newOffset, windowBytes)
+            if (active.endExclusive < validWindow.first || active.offset > validWindow.last) {
                 active.job.cancel()
                 activeCacheAheadJobs.remove(fileId, active)
             }
         }
-        TelegramChunkScheduler.cancelOutOfWindowChunks(fileId, newOffset, windowBytes)
+        TelegramChunkScheduler.cancelOutOfWindowChunks(fileId, newOffset.coerceAtLeast(0L), windowBytes.coerceAtLeast(0L))
     }
 
     fun stopCaching(fileId: Int, cancelTdLibDownload: Boolean = true) {
@@ -233,12 +232,5 @@ object TelegramPreCacheEngine {
             Log.w(TAG, "Could not issue CancelDownloadFile for fileId=$fileId: ${t.message}")
         }
     }
-
-    private fun positionToOffset(totalSize: Long, positionMs: Long, durationMs: Long): Long =
-        if (durationMs > 0L) {
-            ((positionMs.coerceAtLeast(0L) * totalSize) / durationMs).coerceIn(0L, totalSize - 1)
-        } else {
-            min((positionMs.coerceAtLeast(0L) / 1000L) * 512_000L, totalSize - 1)
-        }
 
 }

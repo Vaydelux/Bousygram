@@ -803,7 +803,7 @@ internal object TelegramChunkScheduler {
                 purpose == TelegramChunkPurpose.BackgroundFull ||
                 purpose == TelegramChunkPurpose.Priming
             if (speculative && StoragePressureMonitor.isLow()) return@launch
-            val endExclusive = offset.coerceAtLeast(0L) + length
+            val endExclusive = saturatingPrefetchEnd(offset, length)
             var currentOffset = offset.coerceAtLeast(0L)
             var failures = 0
             markState(
@@ -893,15 +893,14 @@ internal object TelegramChunkScheduler {
      */
     fun cancelOutOfWindowChunks(fileId: Int, targetOffset: Long, windowBytes: Long = 32L * 1024L * 1024L) {
         val effectiveId = resolveEffectiveFileId(fileId)
-        val validStart = (targetOffset - 2L * 1024L * 1024L).coerceAtLeast(0L)
-        val validEnd = targetOffset + windowBytes
+        val validWindow = prefetchSeekWindow(targetOffset, windowBytes)
 
         activePrefetchRanges[effectiveId]?.let { list ->
             synchronized(list) {
                 val it = list.iterator()
                 while (it.hasNext()) {
                     val (range, job) = it.next()
-                    if (range.last < validStart || range.first > validEnd) {
+                    if (range.last < validWindow.first || range.first > validWindow.last) {
                         job.cancel()
                         it.remove()
                     }
