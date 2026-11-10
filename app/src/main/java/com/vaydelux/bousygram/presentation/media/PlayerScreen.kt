@@ -1193,7 +1193,7 @@ fun PlayerScreen(
                             val watchNextId = com.vaydelux.bousygram.core.tv.watchNextProviderId(
                                 watchNextOwner.accountId, current.chatId, current.messageId, current.fileId
                             )
-                            WatchNextManager.scheduleRemoveFromWatchNext(context, watchNextId)
+                            WatchNextManager.scheduleRemoveFromWatchNext(context, watchNextOwner, watchNextId)
                         }
                         if (playbackSession.hasNext) {
                             autoNextCountdown = 5
