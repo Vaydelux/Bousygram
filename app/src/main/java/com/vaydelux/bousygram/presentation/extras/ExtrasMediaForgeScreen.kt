@@ -845,27 +845,16 @@ private fun ExtrasMediaForgePlayerScreen(
                     if (parent is FrameLayout) parent.removeAllViews()
                 }
             )
-            // Some providers enter HTML fullscreen automatically and cover the ordinary
-            // server picker. Keep native recovery/navigation ABOVE that untrusted surface.
-            Row(
-                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
-                    .padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { bridge.dismissFullscreen() },
-                    modifier = Modifier.testTag("extras-embed-exit-html-fullscreen")
-                ) { Text("Exit fullscreen") }
-                if (request.anilistId > 0) {
-                    OutlinedButton(
-                        onClick = {
-                            bridge.dismissFullscreen()
-                            onChooseAnimeServer()
-                        },
-                        modifier = Modifier.testTag("extras-anime-fullscreen-servers")
-                    ) { Text("Choose server") }
-                }
+            // Always draw trusted recovery controls above the untrusted HTML surface.
+            Box(Modifier.align(Alignment.TopCenter)) {
+                ExtrasFullscreenRecoveryControls(
+                    isAnime = request.anilistId > 0,
+                    onExitFullscreen = { bridge.dismissFullscreen() },
+                    onChooseAnimeServer = {
+                        bridge.dismissFullscreen()
+                        onChooseAnimeServer()
+                    }
+                )
             }
             if (cursorEnabled && isAndroidTv) {
                 ExtrasVirtualCursor(
