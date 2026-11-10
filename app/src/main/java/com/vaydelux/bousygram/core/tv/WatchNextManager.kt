@@ -25,12 +25,46 @@ import kotlinx.coroutines.launch
  * [TvContract.WatchNextPrograms] (API 26+).
  * Safe on non-TV devices; silently skips when provider is unavailable.
  */
+/** Never match account 11 when clearing account 1; the trailing separator is mandatory. */
+internal fun isRevokedAccountWatchNextId(id: String, accountId: Long): Boolean =
+    accountId > 0L && id.startsWith("bousy_account_${accountId}_")
+
 object WatchNextManager {
     private const val TAG = "WatchNextManager"
     private const val MIN_ENGAGEMENT_MILLIS = 10_000L // 10s minimum before adding to Continue Watching
     private const val COMPLETION_RATIO_THRESHOLD = 0.95 // 95% watched removes from Continue Watching
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var cleanupJob: Job? = null
+
+    /**
+     * Revoked Telegram titles/positions can also exist in the external Android TV
+     * launcher provider, outside filesDir. Delete only this account's owned rows.
+     * TV OEMs may disallow query/deletion; a failure here cannot be treated as
+     * guaranteed deletion and must not delete another account's programmes.
+     */
+    fun clearRevokedAccountRows(context: Context, accountId: Long) {
+        require(accountId > 0L) { "Only verified Telegram account IDs may be purged" }
+        if (!context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)) return
+        runCatching {
+            context.contentResolver.query(
+                TvContract.WatchNextPrograms.CONTENT_URI,
+                arrayOf(TvContract.WatchNextPrograms._ID, TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID),
+                null, null, null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    if (isRevokedAccountWatchNextId(cursor.getString(1).orEmpty(), accountId)) {
+                        context.contentResolver.delete(
+                            TvContract.buildWatchNextProgramUri(cursor.getLong(0)),
+                            null, null
+                        )
+                    }
+                }
+            }
+        }.onFailure {
+            // Do not print the provider's exception message; it may contain content URIs.
+            Log.w(TAG, "Android TV launcher did not confirm revoked-account history cleanup")
+        }
+    }
 
     fun scheduleAccountCleanup(context: Context) {
         val generation = AccountSession.generation()
@@ -124,13 +158,13 @@ object WatchNextManager {
             AccountSession.runIfCurrent(owner) { if (existingId != null) {
                 val updateUri = TvContract.buildWatchNextProgramUri(existingId)
                 contentResolver.update(updateUri, values, null, null)
-                Log.d(TAG, "Updated WatchNext program id=$existingId internalId=$internalId pos=$currentPositionMs/$durationMs")
+                Log.d(TAG, "Updated Android TV Watch Next program")
             } else {
                 val insertedUri = contentResolver.insert(TvContract.WatchNextPrograms.CONTENT_URI, values)
-                Log.d(TAG, "Inserted WatchNext program uri=$insertedUri internalId=$internalId")
+                Log.d(TAG, "Inserted Android TV Watch Next program")
             } }
         }.onFailure { e ->
-            Log.d(TAG, "WatchNext update skipped or unavailable on this device: ${e.message}")
+            Log.d(TAG, "Watch Next update was unavailable on this device")
         }
         }
     }
@@ -143,9 +177,9 @@ object WatchNextManager {
                 "${TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID} = ?",
                 arrayOf(internalId)
             )
-            Log.d(TAG, "Removed $rows rows from WatchNext for internalId=$internalId")
+            Log.d(TAG, "Removed $rows Android TV Watch Next rows")
         }.onFailure { e ->
-            Log.d(TAG, "WatchNext remove skipped: ${e.message}")
+            Log.d(TAG, "Watch Next removal was unavailable on this device")
         }
     }
 }
