@@ -86,8 +86,9 @@ fun BousygramThemeGallery(
                                 }
                             }
                             Text(
-                                text = preset.displayName +
-                                    if (isSelected) " · Selected" else "",
+                                // Selection is already announced via semantics and
+                                // focus styling; avoid clipping titles such as High contrast.
+                                text = preset.displayName,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 style = if (metrics.isTv) MaterialTheme.typography.titleMedium
                                     else MaterialTheme.typography.labelLarge,
