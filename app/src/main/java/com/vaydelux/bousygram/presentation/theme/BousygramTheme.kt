@@ -39,6 +39,21 @@ enum class BousygramThemePreset(
         Color(0xFFB3A2FF), Color(0xFF82F2E4), Color(0xFFFFD9AC),
         Color(0xFF0B0A1A), Color(0xFF18152D), Color(0xFF30284F), Color(0xFF988BC6)
     ),
+    OBSIDIAN(
+        "obsidian", "Obsidian", "Quiet graphite, silver and glacier-blue accents",
+        Color(0xFFDDE3EF), Color(0xFF8DE8FF), Color(0xFFF1C997),
+        Color(0xFF090C12), Color(0xFF151B24), Color(0xFF283140), Color(0xFF9FAAB9)
+    ),
+    EVERGREEN(
+        "evergreen", "Evergreen", "Deep forest green, mint and moonlight",
+        Color(0xFF91F2C6), Color(0xFFA6D8FF), Color(0xFFF0D28E),
+        Color(0xFF061712), Color(0xFF0D241C), Color(0xFF23483A), Color(0xFF95AD9F)
+    ),
+    EMBER(
+        "ember", "Ember", "Warm peach and rose over rich burgundy",
+        Color(0xFFFFB695), Color(0xFFFFD6A3), Color(0xFFFF95BF),
+        Color(0xFF190D13), Color(0xFF27171C), Color(0xFF533039), Color(0xFFC1A0A8)
+    ),
     HIGH_CONTRAST(
         "high_contrast", "High contrast", "Bright focus indicators and enhanced text contrast",
         Color(0xFFFFE66A), Color(0xFF7CE7FF), Color(0xFFFFB5EB),
@@ -55,6 +70,46 @@ enum class BousygramThemePreset(
         fun fromId(id: String?): BousygramThemePreset =
             entries.firstOrNull { it.id == id || (id == "midnight" && it == DARK) } ?: DARK
     }
+}
+
+/** Design-system semantic containers; hue variants never change component rules. */
+private data class BousygramDarkLayers(
+    val primaryContainer: Color,
+    val secondaryContainer: Color,
+    val tertiaryContainer: Color,
+    val surfaceLow: Color,
+    val surfaceBase: Color,
+    val surfaceHigh: Color,
+    val surfaceHighest: Color,
+    val outlineVariant: Color
+)
+
+private fun darkLayers(preset: BousygramThemePreset): BousygramDarkLayers = when (preset) {
+    BousygramThemePreset.AURORA -> BousygramDarkLayers(
+        Color(0xFF34275C), Color(0xFF173C3D), Color(0xFF46321F),
+        Color(0xFF130F27), Color(0xFF211B39), Color(0xFF2D264B),
+        Color(0xFF372D5A), Color(0xFF5B527B)
+    )
+    BousygramThemePreset.OBSIDIAN -> BousygramDarkLayers(
+        Color(0xFF293543), Color(0xFF173A45), Color(0xFF443020),
+        Color(0xFF101722), Color(0xFF19222C), Color(0xFF25303B),
+        Color(0xFF30404D), Color(0xFF4B5967)
+    )
+    BousygramThemePreset.EVERGREEN -> BousygramDarkLayers(
+        Color(0xFF173C2B), Color(0xFF153643), Color(0xFF433921),
+        Color(0xFF0A2018), Color(0xFF0F291F), Color(0xFF193A2B),
+        Color(0xFF234A37), Color(0xFF557363)
+    )
+    BousygramThemePreset.EMBER -> BousygramDarkLayers(
+        Color(0xFF5C3029), Color(0xFF563728), Color(0xFF59273E),
+        Color(0xFF211218), Color(0xFF30191F), Color(0xFF44262F),
+        Color(0xFF53313B), Color(0xFF77525A)
+    )
+    else -> BousygramDarkLayers(
+        Color(0xFF153C4B), Color(0xFF233A56), Color(0xFF46321F),
+        Color(0xFF0D1825), Color(0xFF142131), Color(0xFF1B2C40),
+        Color(0xFF23364B), Color(0xFF44596D)
+    )
 }
 
 internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
@@ -118,19 +173,19 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
             onError = Color.White
         )
     }
-    val aurora = preset == BousygramThemePreset.AURORA
+    val layers = darkLayers(preset)
     return darkColorScheme(
         primary = preset.primary,
         onPrimary = Color(0xFF07151B),
-        primaryContainer = if (aurora) Color(0xFF34275C) else Color(0xFF153C4B),
+        primaryContainer = layers.primaryContainer,
         onPrimaryContainer = Color(0xFFF1FCFF),
         secondary = preset.secondary,
         onSecondary = Color(0xFF081726),
-        secondaryContainer = if (aurora) Color(0xFF173C3D) else Color(0xFF233A56),
+        secondaryContainer = layers.secondaryContainer,
         onSecondaryContainer = Color(0xFFF3F7FF),
         tertiary = preset.tertiary,
         onTertiary = Color(0xFF251706),
-        tertiaryContainer = Color(0xFF46321F),
+        tertiaryContainer = layers.tertiaryContainer,
         onTertiaryContainer = Color(0xFFFFF3E0),
         background = preset.background,
         onBackground = Color(0xFFF4F7FC),
@@ -139,12 +194,12 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
         surfaceVariant = preset.surfaceVariant,
         onSurfaceVariant = Color(0xFFC2CCDA),
         surfaceContainerLowest = preset.background,
-        surfaceContainerLow = if (aurora) Color(0xFF130F27) else Color(0xFF0D1825),
-        surfaceContainer = if (aurora) Color(0xFF211B39) else Color(0xFF142131),
-        surfaceContainerHigh = if (aurora) Color(0xFF2D264B) else Color(0xFF1B2C40),
-        surfaceContainerHighest = if (aurora) Color(0xFF372D5A) else Color(0xFF23364B),
+        surfaceContainerLow = layers.surfaceLow,
+        surfaceContainer = layers.surfaceBase,
+        surfaceContainerHigh = layers.surfaceHigh,
+        surfaceContainerHighest = layers.surfaceHighest,
         outline = preset.outline,
-        outlineVariant = Color(0xFF44596D),
+        outlineVariant = layers.outlineVariant,
         error = Color(0xFFFF6B80),
         onError = Color(0xFF2B0000),
         errorContainer = Color(0xFF5C1824),
