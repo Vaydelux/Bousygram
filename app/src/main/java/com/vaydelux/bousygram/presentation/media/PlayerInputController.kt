@@ -72,7 +72,7 @@ interface PlayerInputActions {
  * 1. Controls Hidden: First D-pad press ONLY shows controls (OK -> Play/Pause, Up -> Seek Bar, Down -> Play/Pause).
  * 2. Media Keys: Act immediately regardless of HUD state and show brief indicator.
  * 3. Left/Right while hidden: each press seeks immediately by exactly 10 seconds.
- * 4. Controls Visible: Up/Down moves strictly between Seek Bar and Button row; never triggers action or menu.
+ * 4. Controls Visible: Up enters Seek Bar; Down returns to buttons from Seek Bar, then opens the queue drawer from buttons.
  * 5. Menus: Back closes menu and restores button focus; auto-hide timer is paused while menu is open.
  * 6. Back: Closes menu -> Hides controls -> Exits player. Never skips straight out.
  * 7. Auto-Next: 5-second countdown card, "Play Now" focused. Back cancels card and leaves finished video paused with controls visible.
@@ -228,6 +228,7 @@ class PlayerInputController(
                     }
                     // First press only shows controls (does not toggle play/pause).
                     isHudVisible = true
+                    currentFocusRow = 1
                     actions.showHud(PlayerFocusTarget.BUTTON_PLAY_PAUSE)
                     return true
                 }
@@ -288,8 +289,15 @@ class PlayerInputController(
                 return true // Never open menu or exit row!
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                activeMenu = PlayerMenuType.EPISODES
-                actions.openMenu(PlayerMenuType.EPISODES)
+                // When the seek bar owns focus, Down must return to the button
+                // row instead of unexpectedly opening the episode drawer.
+                if (currentFocusRow == 0) {
+                    currentFocusRow = 1
+                    actions.showHud(PlayerFocusTarget.BUTTON_PLAY_PAUSE)
+                } else {
+                    activeMenu = PlayerMenuType.EPISODES
+                    actions.openMenu(PlayerMenuType.EPISODES)
+                }
                 return true // Never skip track.
             }
             KeyEvent.KEYCODE_MENU,
