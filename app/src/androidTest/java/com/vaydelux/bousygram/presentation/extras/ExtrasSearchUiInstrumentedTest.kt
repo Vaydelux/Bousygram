@@ -1,5 +1,12 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertTrue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -145,6 +152,30 @@ class ExtrasSearchUiInstrumentedTest {
         rule.onNodeWithTag("extras-filter-panel-fixture").assertExists()
         rule.onNodeWithTag("extras-filter-toggle").performClick()
         rule.onNodeWithTag("extras-filter-panel-fixture").assertDoesNotExist()
+    }
+
+    @Test fun shortScreenCatalogViewportGivesResultsMostOfTheHeight() {
+        rule.setContent {
+            BousygramTheme {
+                Column(Modifier.width(340.dp).height(540.dp).testTag("extras-viewport-fixture")) {
+                    androidx.compose.material3.Text("Search")
+                    ExtrasFilterDisclosure(expanded = false, active = false, onToggle = {})
+                    ExtrasCatalogViewport {
+                        androidx.compose.material3.Text(
+                            "Visible media results",
+                            modifier = Modifier.testTag("extras-viewport-content")
+                        )
+                    }
+                }
+            }
+        }
+        rule.onNodeWithTag("extras-viewport-content").assertExists()
+        val overall = rule.onNodeWithTag("extras-viewport-fixture")
+            .fetchSemanticsNode().boundsInRoot.height
+        val results = rule.onNodeWithTag("extras-results-viewport")
+            .fetchSemanticsNode().boundsInRoot.height
+        assertTrue("Extras results lost viewport height ($results / $overall px)",
+            overall > 0f && results / overall >= 0.65f)
     }
 
     @Test fun compactDetailSkeletonHasAStablePlaceholderSurface() {
