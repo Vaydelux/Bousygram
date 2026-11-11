@@ -1,0 +1,34 @@
+name: One-time request for main debug APKs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/request-debug-apks-once.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-debug:
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the existing verified three-ABI debug prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; refusing to dispatch an outdated build"
+            exit 1
+          }
+          gh workflow run android-debug-prerelease.yml --ref main
+          {
+            echo "Requested Bousygram debug APK prerelease for main commit $GITHUB_SHA"
+            echo "Follow: https://github.com/$GITHUB_REPOSITORY/actions/workflows/android-debug-prerelease.yml"
+          } >> "$GITHUB_STEP_SUMMARY"
