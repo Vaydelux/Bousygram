@@ -31,6 +31,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -124,12 +125,17 @@ private fun ModeOption(
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusScale by animateFloatAsState(
-        targetValue = if (focused && android.animation.ValueAnimator.areAnimatorsEnabled()) 1.022f else 1f,
-        animationSpec = tween(durationMillis = if (android.animation.ValueAnimator.areAnimatorsEnabled()) 220 else 0, easing = FastOutSlowInEasing),
+        targetValue = if (focused && android.animation.ValueAnimator.areAnimatorsEnabled())
+            BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(
+            durationMillis = if (android.animation.ValueAnimator.areAnimatorsEnabled())
+                BousygramUiTokens.focusDurationMs else 0,
+            easing = FastOutSlowInEasing
+        ),
         label = "mode-focus"
     )
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     Surface(
         modifier = Modifier.fillMaxWidth().testTag(modeTag)
             .graphicsLayer { scaleX = focusScale; scaleY = focusScale }

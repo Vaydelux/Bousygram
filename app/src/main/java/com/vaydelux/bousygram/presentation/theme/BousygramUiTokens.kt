@@ -2,6 +2,8 @@ package com.vaydelux.bousygram.presentation.theme
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
 
 /**
  * Shared, semantic UI tokens for TV, phone, and tablet. All text uses the
@@ -17,6 +19,17 @@ object BousygramUiTokens {
     val tvPagePadding = 32.dp
     val cardCorner = 20.dp
     val panelCorner = 24.dp
+    val tabCorner = 14.dp
+    val cardGridPhone = 12.dp
+    val cardGridTv = 16.dp
+    val cardGridTablet = 14.dp
+    val cardMinPhone = 152.dp
+    val cardMinTablet = 184.dp
+    val cardMinTv = 208.dp
+    val folderMinPhone = 164.dp
+    val folderMinTv = 176.dp
+    val focusScale = 1.018f
+    const val focusDurationMs = 145
     val compactControlHeight = 48.dp
     val tvControlHeight = 56.dp
     const val hudFadeInMs = 210
@@ -31,6 +44,44 @@ object BousygramUiTokens {
     val mascotBlue = Color(0xFF2289F9)
     val chowGold = Color(0xFFFFC67D)
 }
+
+/**
+ * One visual scale for all Android builds. Only screen real estate and input
+ * affordance change; color, typography, card shape, and focus language do not.
+ * CPU ABI (armeabi-v7a vs arm64-v8a) must never choose UI resources.
+ */
+data class BousygramResponsiveTokens(
+    val pagePadding: Dp,
+    val gridGap: Dp,
+    val cardMinWidth: Dp,
+    val folderMinHeight: Dp,
+    val minControlHeight: Dp
+)
+
+fun bousygramResponsiveTokens(profile: DeviceProfile): BousygramResponsiveTokens =
+    when (profile) {
+        DeviceProfile.Tv -> BousygramResponsiveTokens(
+            pagePadding = BousygramUiTokens.tvPagePadding,
+            gridGap = BousygramUiTokens.cardGridTv,
+            cardMinWidth = BousygramUiTokens.cardMinTv,
+            folderMinHeight = BousygramUiTokens.folderMinTv,
+            minControlHeight = BousygramUiTokens.tvControlHeight
+        )
+        DeviceProfile.Tablet -> BousygramResponsiveTokens(
+            pagePadding = BousygramUiTokens.sectionSpacing,
+            gridGap = BousygramUiTokens.cardGridTablet,
+            cardMinWidth = BousygramUiTokens.cardMinTablet,
+            folderMinHeight = BousygramUiTokens.folderMinPhone,
+            minControlHeight = BousygramUiTokens.compactControlHeight
+        )
+        DeviceProfile.PhonePortrait, DeviceProfile.PhoneLandscape -> BousygramResponsiveTokens(
+            pagePadding = BousygramUiTokens.phonePagePadding,
+            gridGap = BousygramUiTokens.cardGridPhone,
+            cardMinWidth = BousygramUiTokens.cardMinPhone,
+            folderMinHeight = BousygramUiTokens.folderMinPhone,
+            minControlHeight = BousygramUiTokens.compactControlHeight
+        )
+    }
 
 /** WCAG relative contrast for *opaque* UI tokens; not a screen-reader heuristic. */
 internal fun themeContrastRatio(foreground: Color, background: Color): Double {
