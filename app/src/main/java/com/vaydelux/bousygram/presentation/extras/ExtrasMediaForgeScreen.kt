@@ -649,7 +649,14 @@ private fun ExtrasMediaForgePlayerScreen(
                     }, modifier = Modifier.testTag("extras-embed-retry-load")) { Text("Retry page") }
                 }
             }
-            if (request.anilistId > 0 && !webLoadFailed && slowEmbedHelp && !immersiveWeb) {
+            if (shouldOfferAnimeBlankPageHelp(
+                    isAnime = request.anilistId > 0,
+                    loadFailed = webLoadFailed,
+                    immersive = immersiveWeb,
+                    detectedVideo = snapshot.streams.isNotEmpty(),
+                    longLoad = slowEmbedHelp
+                )
+            ) {
                 Surface(
                     modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
