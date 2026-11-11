@@ -1,0 +1,55 @@
+name: Dispatch qualified Bousygram debug once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/dispatch-mediaforge-debug-once.yml"
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+jobs:
+  dispatch:
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Confirm validated media hardening and launch trusted debug prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          [[ "$(gh api "repos/$repo/pulls/176" --jq '.merged')" == true ]] || {
+            echo "::error::PR #176 has not merged"; exit 1;
+          }
+          merged_sha="$(gh api "repos/$repo/pulls/176" --jq '.merge_commit_sha')"
+          [[ "$merged_sha" == "316069abb4dfeb6967d628612de49a3816ad3d97" ]] || {
+            echo "::error::Unexpected PR #176 merge SHA: $merged_sha"; exit 1;
+          }
+          current_sha="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$GITHUB_SHA" == "$current_sha" ]] || {
+            echo "::error::Main moved; refusing stale build dispatch"; exit 1;
+          }
+
+          # Keep only main, but never delete any unexpected branch.
+          mapfile -t branches < <(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')
+          for branch in "${branches[@]}"; do
+            case "$branch" in
+              main) ;;
+              fix/mediaforge-embed-identity-lock-20261112)
+                gh api --method DELETE "repos/$repo/git/refs/heads/$branch"
+                ;;
+              *) echo "::error::Unrecognized branch $branch, leaving all other branches untouched"; exit 1 ;;
+            esac
+          done
+          [[ "$(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')" == main ]] || {
+            echo "::error::Expected only main before debug publication"; exit 1;
+          }
+
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
+          echo "Requested the trusted ARM32, ARM64 and universal debug prerelease from $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
