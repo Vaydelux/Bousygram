@@ -63,12 +63,30 @@ internal object ExtrasPagingWindow {
         maximumItems: Int
     ): Merge {
         require(maximumItems > 0)
-        // Preserve stable per-provider IDs, and the earlier position of a title
-        // when a backend repeats it on adjacent pages.
-        val unique = LinkedHashMap<Pair<ExtrasType, Int>, ExtrasItem>()
-        for (item in existing) unique[item.type to item.id] = item
-        for (item in incoming) unique[item.type to item.id] = item
-        val overflow = (unique.size - maximumItems).coerceAtLeast(0)
-        return Merge(unique.values.drop(overflow), overflow)
+        // Preserve each provider ID's first position and latest metadata.
+        // Keep only the bounded poster window strongly referenced, even if a
+        // provider returns an unexpectedly huge page on an ARM32 TV.
+        // Evicted keys are tracked without their poster payload so a later
+        // duplicate cannot re-enter at a different position.
+        val retained = LinkedHashMap<Pair<ExtrasType, Int>, ExtrasItem>()
+        val evicted = HashSet<Pair<ExtrasType, Int>>()
+        fun append(item: ExtrasItem) {
+            val key = item.type to item.id
+            if (retained.containsKey(key)) {
+                retained[key] = item
+                return
+            }
+            if (key in evicted) return
+            retained[key] = item
+            if (retained.size > maximumItems) {
+                val oldest = retained.entries.iterator()
+                val droppedKey = oldest.next().key
+                oldest.remove()
+                evicted.add(droppedKey)
+            }
+        }
+        existing.forEach(::append)
+        incoming.forEach(::append)
+        return Merge(retained.values.toList(), evicted.size)
     }
 }

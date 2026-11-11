@@ -1341,11 +1341,46 @@ fun PlayerScreen(
                         isReconnecting = true
                         isBuffering = true
                         playbackError = null
+                        val failedQueueIndex = queueIndex
+                        val failedReloadNonce = reloadNonce
                         scope.launch {
                             // The prepare effect re-resolves and applies the refreshed TDLib fileId.
                             delay(maxOf(autoRetryDelayMs(retryCount), 2_000L))
-                            if (queue.getOrNull(queueIndex)?.fileId == item.fileId && playbackError == null) {
-                                reloadNonce++
+                            val sameQueueItem = queueIndex == failedQueueIndex &&
+                                queue.getOrNull(failedQueueIndex)?.fileId == item.fileId
+                            val sameReload = reloadNonce == failedReloadNonce
+                            if (sameQueueItem && sameReload && playbackError == null &&
+                                !playbackSession.isStopped()
+                            ) {
+                                if (shouldRunDelayedPlaybackRetry(
+                                        sameQueueItem = sameQueueItem,
+                                        sameReload = sameReload,
+                                        sessionActive = true,
+                                        inForeground = lifecycleOwner.lifecycle.currentState
+                                            .isAtLeast(Lifecycle.State.RESUMED),
+                                        explicitlyPaused = explicitlyPaused,
+                                        castConnected = castState.connected,
+                                        audioFocusSuppressed = audioFocusController.isSuppressed
+                                    )
+                                ) {
+                                    reloadNonce++
+                                } else {
+                                    // A stale retry must not re-arm autoplay. Drop only this
+                                    // pending spinner; manual Pause and Cast retain ownership.
+                                    isReconnecting = false
+                                    isBuffering = false
+                                    if (!castState.connected) {
+                                        // Even a deliberate pause needs a visible Retry action:
+                                        // the decoder is in an error state and Play alone may
+                                        // not be able to re-prepare the failed MKV/TS stream.
+                                        playbackError = if (explicitlyPaused) {
+                                            "Playback paused after a video error. Choose Retry to resume."
+                                        } else {
+                                            "Playback was interrupted. Choose Retry when ready."
+                                        }
+                                        hudVisible = true
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -3489,8 +3524,8 @@ private fun TrackPickerOverlay(
     Surface(
         modifier = modifier
             .padding(if (isTv) 24.dp else if (compact) 12.dp else 28.dp)
-            .widthIn(max = if (isTv) 760.dp else 420.dp)
-            .fillMaxWidth(if (isTv) 0.72f else if (compact) 0.94f else 0.42f)
+            .widthIn(max = if (isTv) 880.dp else 420.dp)
+            .fillMaxWidth(if (isTv) 0.84f else if (compact) 0.94f else 0.42f)
             .focusGroup(),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -3619,6 +3654,25 @@ private fun TrackPickerOverlay(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = if (isTv) 16.sp else 12.sp
                 )
+                Text(
+                    "Subtitle preview · matches the selected text preset",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = if (isTv) 18.sp else 14.sp
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(subtitleAppearance.preset.backgroundColor),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        "Sample subtitle · 123",
+                        modifier = Modifier.padding(if (isTv) 20.dp else 12.dp),
+                        color = Color(subtitleAppearance.preset.textColor),
+                        fontSize = ((if (isTv) 21f else 17f) *
+                            subtitleAppearance.safePercent / 100f).sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 SubtitleColorPreset.entries.forEach { preset ->
                     TrackChoice(
                         label = "${preset.title} subtitles",
@@ -3634,7 +3688,7 @@ private fun TrackPickerOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    BousygramButton("A−", {
+                    BousygramButton(if (isTv) "A− Smaller" else "A−", {
                         onSubtitleAppearanceChange(
                             subtitleAppearance.changedPercent(subtitleAppearance.safePercent - 10)
                         )
@@ -3645,7 +3699,7 @@ private fun TrackPickerOverlay(
                         modifier = Modifier.weight(1f),
                         fontSize = if (isTv) 20.sp else 15.sp
                     )
-                    BousygramButton("A+", {
+                    BousygramButton(if (isTv) "A+ Larger" else "A+", {
                         onSubtitleAppearanceChange(
                             subtitleAppearance.changedPercent(subtitleAppearance.safePercent + 10)
                         )

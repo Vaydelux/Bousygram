@@ -114,6 +114,32 @@ class ExtrasPagingWindowTest {
         assertTrue(result.items.any { it.id == 115 })
     }
 
+    @Test fun evictedPostersDoNotReenterIfRepeatedAtEndOfHugePage() {
+        // A duplicate after the window evicts its first occurrence must not
+        // jump into the most-recent slots or inflate droppedResults.
+        val incoming = (1..1_000).map { item(it) } +
+            item(1).copy(title = "Repeated old poster") +
+            item(995).copy(title = "Updated recent poster")
+        val result = ExtrasPagingWindow.merge(emptyList(), incoming, 120)
+        assertEquals(880, result.removedFromFront)
+        assertEquals(120, result.items.size)
+        assertEquals(881, result.items.first().id)
+        assertEquals(1_000, result.items.last().id)
+        assertEquals("Updated recent poster", result.items.first { it.id == 995 }.title)
+        assertTrue(result.items.none { it.id == 1 })
+    }
+
+    @Test fun boundedMergeMatchesReferenceDeduplicationAcrossDuplicateHeavyPages() {
+        val incoming = (1..700).map { item(it % 220 + 1) }
+        val existing = (1..80).map { item(it) }
+        val reference = LinkedHashMap<Pair<ExtrasType, Int>, ExtrasItem>()
+        (existing + incoming).forEach { reference[it.type to it.id] = it }
+        val overflow = (reference.size - 120).coerceAtLeast(0)
+        val actual = ExtrasPagingWindow.merge(existing, incoming, 120)
+        assertEquals(overflow, actual.removedFromFront)
+        assertEquals(reference.values.drop(overflow).toList(), actual.items)
+    }
+
     @Test fun providerIdNeverCrossContaminatesDeduplication() {
         val result = ExtrasPagingWindow.merge(
             listOf(item(14, ExtrasType.MOVIES)),
