@@ -50,6 +50,15 @@ class UniformDesignMetricsTest {
         assertEquals(DeviceProfile.Tablet, resolveDeviceProfile(false, 1024.dp, 768.dp))
     }
 
+    @Test fun phoneLandscapeUsesCompactSideNavigationWhilePortraitRetainsBottomNavigation() {
+        assertTrue(shouldUseSideRail(DeviceProfile.Tablet, 1000.dp))
+        assertTrue(shouldUseSideRail(DeviceProfile.PhoneLandscape, 390.dp))
+        assertTrue(shouldUseSideRail(DeviceProfile.PhoneLandscape, 480.dp))
+        assertFalse(shouldUseSideRail(DeviceProfile.PhoneLandscape, 540.dp))
+        assertFalse(shouldUseSideRail(DeviceProfile.PhonePortrait, 390.dp))
+        assertFalse(shouldUseSideRail(DeviceProfile.Tv, 540.dp))
+    }
+
     @Test fun sharedVisualTokensVaryOnlyWithScreenRealEstateNotArchitecture() {
         val tv = bousygramResponsiveTokens(DeviceProfile.Tv)
         val tablet = bousygramResponsiveTokens(DeviceProfile.Tablet)
