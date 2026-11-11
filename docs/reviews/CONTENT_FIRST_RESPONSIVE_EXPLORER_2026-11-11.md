@@ -1,7 +1,7 @@
 # Bousygram — Content-first responsive Library
 
-**Date:** 2026-11-11  
-**Scope:** Telegram Home/Library browse screen, short Android TVs, Android portrait and landscape.  
+**Date:** 2026-11-11
+**Scope:** Telegram Home/Library browse screen, short Android TVs, Android portrait and landscape.
 **Architectural principle:** **Media first.** The selected source is contextual information, not an independent dashboard.
 
 ## Original failure (verified in source)
