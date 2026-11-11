@@ -3,8 +3,15 @@ name: Android Emulator Cast Smoke
 on:
   # Every mainline debug prerelease must have an exact-commit emulator check.
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'mediaforge-core/**'
+      - 'mediaforge-webbridge/**'
+      - 'mediaforge-player-adapters/**'
+      - 'tools/ci/run_emulator_smoke.sh'
+      - 'tools/ci/generate_playback_fixtures.sh'
+      - '.github/workflows/android-emulator-smoke.yml'
   pull_request:
     paths:
       - '.github/workflows/android-emulator-smoke.yml'
@@ -121,12 +128,13 @@ jobs:
           disable-animations: true
           script: bash tools/ci/run_emulator_smoke.sh
 
-      - name: Archive emulator smoke results
-        if: ${{ always() }}
+      - name: Archive emulator diagnostic artifacts only on failure
+        if: ${{ failure() }}
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-emulator-cast-smoke-${{ github.sha }}
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: warn
           path: |
             emulator-smoke-results.txt
