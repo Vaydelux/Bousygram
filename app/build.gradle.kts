@@ -193,6 +193,7 @@ android {
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
+            buildConfigField("boolean", "BOUNDED_FOREGROUND_STREAMING_EXPERIMENT", "false")
             manifestPlaceholders["engineLabEnabled"] = "false"
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
@@ -209,6 +210,7 @@ android {
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
+            buildConfigField("boolean", "BOUNDED_FOREGROUND_STREAMING_EXPERIMENT", "false")
             manifestPlaceholders["engineLabEnabled"] = "false"
             matchingFallbacks += listOf("release")
             if (hasReleaseSigning) {
