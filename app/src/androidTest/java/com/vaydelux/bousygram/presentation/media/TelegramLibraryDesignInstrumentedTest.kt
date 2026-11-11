@@ -81,6 +81,9 @@ class TelegramLibraryDesignInstrumentedTest {
             }
         }
         compose.onNodeWithText("Your library").assertExists()
+        // The Library used to paint an opaque flat layer over the premium shell.
+        // It must now use exactly the same cached backdrop as Extras/Settings.
+        compose.onNodeWithTag("bousygram-premium-backdrop").assertExists()
         compose.onNodeWithTag("telegram-library-collection").assertExists()
         compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
         compose.onNodeWithTag("telegram-library-tab-channels").performClick()
