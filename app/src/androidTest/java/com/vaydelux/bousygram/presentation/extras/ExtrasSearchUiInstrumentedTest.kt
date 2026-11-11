@@ -122,6 +122,30 @@ class ExtrasSearchUiInstrumentedTest {
         rule.onNodeWithTag("extras-loading-poster-0").assertExists()
     }
 
+    @Test fun optionalFiltersPreserveGridSpaceUntilExplicitlyExpanded() {
+        rule.setContent {
+            BousygramTheme {
+                var expanded by remember { mutableStateOf(false) }
+                androidx.compose.foundation.layout.Column {
+                    ExtrasFilterDisclosure(expanded, active = false, onToggle = {
+                        expanded = !expanded
+                    })
+                    if (expanded) {
+                        androidx.compose.material3.Text(
+                            "Advanced filters visible",
+                            modifier = androidx.compose.ui.Modifier.testTag("extras-filter-panel-fixture")
+                        )
+                    }
+                }
+            }
+        }
+        rule.onNodeWithTag("extras-filter-panel-fixture").assertDoesNotExist()
+        rule.onNodeWithTag("extras-filter-toggle").performClick()
+        rule.onNodeWithTag("extras-filter-panel-fixture").assertExists()
+        rule.onNodeWithTag("extras-filter-toggle").performClick()
+        rule.onNodeWithTag("extras-filter-panel-fixture").assertDoesNotExist()
+    }
+
     @Test fun compactDetailSkeletonHasAStablePlaceholderSurface() {
         rule.setContent {
             BousygramTheme { ExtrasDetailLoadingSkeleton(compact = true) }
