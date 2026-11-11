@@ -711,6 +711,64 @@ class TelegramChunkSchedulerTest {
     }
 
     @Test
+    fun optInForegroundWindowsNeverIssueOpenEndedDownloadAndHonorTailSeek() = runBlocking {
+        val fileId = 994
+        val size = 20 * 1024 * 1024
+        val bytes = ByteArray(size) { (it % 219).toByte() }
+        val gateway = FakeTelegramFileGateway(
+            bytes = bytes, completed = false,
+            downloadedPrefixSize = 128L * 1024L,
+            enforcePartialRanges = true
+        )
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.boundedForegroundWindowOverrideForTests = true
+        TelegramChunkScheduler.openPlayback(fileId, size.toLong(), isMp4 = true).join()
+
+        val initial = gateway.downloadRecords.single()
+        assertEquals(0L, initial.offset)
+        assertEquals(16 * 1024 * 1024, initial.limit)
+
+        // A player reopening the DataSource must NOT evict the first window.
+        TelegramChunkScheduler.openPlayback(fileId, size.toLong(), isMp4 = true).join()
+        assertEquals(1, gateway.downloadRecords.size)
+
+        // MKV Cues/MP4 moov can be near EOF, well beyond the first window.
+        val tailOffset = size - 4096L
+        val result = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(fileId, tailOffset, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+        assertTrue(result is TelegramChunkResult.Ready)
+        assertArrayEquals(bytes.copyOfRange(size - 4096, size),
+            (result as TelegramChunkResult.Ready).bytes)
+
+        val tailDownload = gateway.downloadRecords.last()
+        assertEquals(tailOffset, tailDownload.offset)
+        assertEquals(4096, tailDownload.limit)
+        assertTrue(gateway.cancelledFiles.contains(fileId))
+        assertTrue(gateway.downloadRecords.all { it.limit in 1..(16 * 1024 * 1024) })
+    }
+
+    @Test
+    fun optInForegroundWindowRetriesAfterTransientStartFailure() = runBlocking {
+        val fileId = 995
+        val bytes = ByteArray(128 * 1024) { 7 }
+        val gateway = FakeTelegramFileGateway(
+            bytes = bytes, completed = false,
+            downloadedPrefixSize = 128L * 1024L,
+            enforcePartialRanges = true
+        ).apply { failTransientFileIdOnce = fileId }
+        TelegramFileGatewayRegistry.installForTests(gateway)
+        TelegramChunkScheduler.boundedForegroundWindowOverrideForTests = true
+
+        TelegramChunkScheduler.openPlayback(fileId, bytes.size.toLong()).join()
+        assertFalse(TelegramChunkScheduler.hasDownloadWindowForTests(fileId))
+        TelegramChunkScheduler.openPlayback(fileId, bytes.size.toLong()).join()
+        assertTrue(TelegramChunkScheduler.hasDownloadWindowForTests(fileId))
+        assertEquals(2, gateway.downloadRecords.size)
+        assertTrue(gateway.downloadRecords.all { it.limit == bytes.size })
+    }
+
+    @Test
     fun foregroundLeaseRemainsBusyWithoutRecentChunkProgress() {
         val player = TelegramChunkScheduler.acquireLease(
             502, 0L, 4096L, TelegramStreamConsumer.ExoPlayer, TelegramChunkScheduler.PLAYBACK_PRIORITY
