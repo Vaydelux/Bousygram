@@ -1369,8 +1369,16 @@ fun PlayerScreen(
                                     // pending spinner; manual Pause and Cast retain ownership.
                                     isReconnecting = false
                                     isBuffering = false
-                                    if (!explicitlyPaused && !castState.connected) {
-                                        playbackError = "Playback was interrupted. Choose Retry when ready."
+                                    if (!castState.connected) {
+                                        // Even a deliberate pause needs a visible Retry action:
+                                        // the decoder is in an error state and Play alone may
+                                        // not be able to re-prepare the failed MKV/TS stream.
+                                        playbackError = if (explicitlyPaused) {
+                                            "Playback paused after a video error. Choose Retry to resume."
+                                        } else {
+                                            "Playback was interrupted. Choose Retry when ready."
+                                        }
+                                        hudVisible = true
                                     }
                                 }
                             }
