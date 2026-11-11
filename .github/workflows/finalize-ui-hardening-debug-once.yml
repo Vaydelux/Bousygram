@@ -1,0 +1,52 @@
+name: Finalize UI hardening and build qualified APKs once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/finalize-ui-hardening-debug-once.yml"
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+jobs:
+  cleanup-and-build:
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Verify merged hardening source, remove feature branch and trigger debug release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          [[ "$(gh api "repos/$repo/pulls/175" --jq '.merged')" == true ]] || {
+            echo "::error::PR #175 must be merged"; exit 1;
+          }
+          pr_sha="$(gh api "repos/$repo/pulls/175" --jq '.merge_commit_sha')"
+          [[ "$pr_sha" == "5f793c2771f1e2c464dc01b326fcb0fe2fe60f1d" ]] || {
+            echo "::error::Unexpected merge commit: $pr_sha"; exit 1;
+          }
+          current="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$GITHUB_SHA" ]] || {
+            echo "::error::Refusing stale main release dispatch"; exit 1;
+          }
+          mapfile -t branches < <(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')
+          for branch in "${branches[@]}"; do
+            case "$branch" in
+              main) ;;
+              fix/ui-functional-hardening-20261112)
+                gh api --method DELETE "repos/$repo/git/refs/heads/$branch"
+                ;;
+              *) echo "::error::Unexpected branch $branch; leaving it untouched"; exit 1 ;;
+            esac
+          done
+          [[ "$(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')" == main ]] || {
+            echo "::error::Expected only main after cleanup"; exit 1;
+          }
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
+          echo "Qualified ARM32, ARM64 and universal APK workflow requested from $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
