@@ -167,7 +167,7 @@ internal data class ExtrasEmbedRequest(
                 else ExtrasAnimeEmbedServer.FILMU
             return ExtrasEmbedRequest(
                 url = source.urlFor(anilistId, season, episode),
-                title = "$title · E$episode",
+                title = if (season == 1) "$title · E$episode" else "$title · S$season E$episode",
                 anilistId = anilistId, season = season, episode = episode,
                 animeServer = source
             )
