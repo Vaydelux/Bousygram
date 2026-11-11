@@ -50,6 +50,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -357,7 +362,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             onBack = { activeEmbed = null }
         )
     } else {
+    PremiumGridBackdrop {
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             Column(Modifier.fillMaxWidth().padding(horizontal = if (metrics.isCompact) 16.dp else 32.dp, vertical = 14.dp)) {
@@ -640,6 +647,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         }
     }
     }
+    }
 }
 
 /**
@@ -844,9 +852,15 @@ internal fun ExtrasPosterCard(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val focusScale by animateFloatAsState(
+        targetValue = if (focused) 1.025f else 1f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "poster-focus"
+    )
     Card(onClick = onClick,
         modifier = modifier.fillMaxWidth()
             .testTag("extras-poster-${item.type.name.lowercase()}-${item.id}")
+            .graphicsLayer { scaleX = focusScale; scaleY = focusScale }
             .onFocusChanged { focused = it.isFocused },
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(if (focused) 3.dp else 1.dp,
