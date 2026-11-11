@@ -53,6 +53,7 @@ import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
+import com.vaydelux.bousygram.presentation.components.BousygramThemeGallery
 import com.vaydelux.bousygram.presentation.components.BousygramChip
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
@@ -206,35 +207,13 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            // Large text and narrow phones must not clip theme choices.
-                            val isNarrow = with(androidx.compose.ui.platform.LocalDensity.current) {
-                                androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp() < 480.dp
-                            }
-                            @Composable
-                            fun ThemeChoices() {
-                                BousygramThemePreset.entries.forEach { preset ->
-                                    BousygramChip(
-                                        text = preset.displayName,
-                                        selected = themePreset == preset,
-                                        onClick = {
-                                            onThemePresetChange(preset)
-                                            EnterprisePreferences.setVisualThemeId(preset.id)
-                                        }
-                                    )
+                            BousygramThemeGallery(
+                                selected = themePreset,
+                                onSelect = { preset ->
+                                    onThemePresetChange(preset)
+                                    EnterprisePreferences.setVisualThemeId(preset.id)
                                 }
-                            }
-                            if (isNarrow) {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    ThemeChoices()
-                                }
-                            } else {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    ThemeChoices()
-                                }
-                            }
+                            )
                         }
                     }
                 }
