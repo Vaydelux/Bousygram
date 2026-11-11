@@ -7,7 +7,7 @@ adb install -r ci-artifacts/debug/Bousygram-debug.apk
 adb install -r ci-artifacts/debug/Bousygram-debug-androidTest.apk
 
 # Both ADB and the instrumentation test runner must report success.
-classes='com.vaydelux.bousygram.presentation.media.TelegramExplorerCompactHeaderInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramLibraryDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.UniformPremiumDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramThemeGalleryInstrumentedTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest'
+classes='com.vaydelux.bousygram.presentation.media.TelegramExplorerCompactHeaderInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramLibraryDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.UniformPremiumDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramThemeGalleryInstrumentedTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest'
 runner='com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner'
 
 set +e
@@ -19,5 +19,17 @@ if [[ "$result" -ne 0 ]] || ! grep -Eq '^OK \([0-9]+ tests?\)' explorer-ui-smoke
   echo "::error::Explorer UI instrumentation failed (exit $result)."
   exit 1
 fi
+
+# Screenshot files are produced by the Compose tests inside the debuggable
+# target app. Pull each into CI artifacts; a missing image fails visual QA.
+mkdir -p ci-artifacts/ui-evidence
+for name in telegram-library themes-midnight mode-selection; do
+  adb exec-out run-as com.vaydelux.bousygram cat "files/ui-evidence/${name}.png" \
+    > "ci-artifacts/ui-evidence/${name}.png"
+  test -s "ci-artifacts/ui-evidence/${name}.png" || {
+    echo "::error::Missing UI screenshot evidence for $name"
+    exit 1
+  }
+done
 
 echo 'Explorer UI, responsive viewport and D-pad navigation tests passed.'
