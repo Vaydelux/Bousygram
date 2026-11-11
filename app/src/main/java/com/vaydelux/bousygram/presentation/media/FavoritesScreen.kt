@@ -36,6 +36,8 @@ import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
+import com.vaydelux.bousygram.presentation.theme.bousygramResponsiveTokens
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.LoadingOverlay
@@ -63,13 +65,15 @@ fun FavoritesScreen(
     )
     val safeMode = remember { EnterprisePreferences.safeMode() }
     val adaptive = rememberAdaptiveMetrics()
-    val horizontalPadding = if (adaptive.isCompact) 16.dp else 32.dp
+    val responsive = bousygramResponsiveTokens(adaptive.profile)
+    val horizontalPadding = responsive.pagePadding
 
     LaunchedEffect(viewModel) { viewModel.refresh() }
 
+    PremiumGridBackdrop(modifier = modifier) {
     Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxSize(),
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { insets ->
         Box(modifier = Modifier.fillMaxSize().padding(insets)) {
@@ -118,7 +122,7 @@ fun FavoritesScreen(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.isLoading && state.items.isEmpty() -> BrowseGridShimmerSkeleton(
-                        columns = GridCells.Adaptive(minSize = if (adaptive.isCompact) 142.dp else 224.dp),
+                        columns = GridCells.Adaptive(minSize = responsive.cardMinWidth),
                         modifier = Modifier.fillMaxSize(),
                         itemCount = if (adaptive.isCompact) 6 else 9
                     )
@@ -137,9 +141,9 @@ fun FavoritesScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                     else -> LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = if (adaptive.isCompact) 142.dp else 224.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        columns = GridCells.Adaptive(minSize = responsive.cardMinWidth),
+                        horizontalArrangement = Arrangement.spacedBy(responsive.gridGap),
+                        verticalArrangement = Arrangement.spacedBy(responsive.gridGap),
                         contentPadding = PaddingValues(bottom = 24.dp)
                     ) {
                         items(state.items, key = { "${it.chatId}:${it.messageId}" }) { item ->
@@ -172,6 +176,7 @@ fun FavoritesScreen(
             )
         }
     }
+}
 }
 }
 
