@@ -81,15 +81,25 @@ class ExtrasExpandedEmbedServersTest {
         }
     }
 
+    @Test fun animeOpensCanonicalEmbedHeavenPlayerByDefaultLikeMoviesAndTv() {
+        val anime = ExtrasEmbedRequest.anime(21, episode = 4, title = "Series")
+        assertEquals(ExtrasAnimeEmbedServer.EMBED_HEAVEN, anime.animeServer)
+        assertEquals("https://player.embedheaven.st/anime/21/4", anime.url)
+        assertEquals(21, anime.anilistId)
+        assertEquals(4, anime.episode)
+        assertEquals(0, anime.tmdbId)
+        assertTrue(MediaForgeUrlPolicy.safeHttpsUrl(anime.url) != null)
+    }
+
     @Test fun switchingAnimeProvidersPreservesEpisodeAndSeparatesIds() {
         val anime = ExtrasEmbedRequest.anime(16498, episode = 4, title = "Test Anime")
-        assertEquals("https://embed.filmu.in/anime/16498/1/4", anime.url)
+        assertEquals("https://player.embedheaven.st/anime/16498/4", anime.url)
         val switched = anime.forServer(ExtrasAnimeEmbedServer.VIDY)
         assertEquals("https://vidy.st/anime/16498/4?color=DC2626", switched.url)
         assertEquals(16498, switched.anilistId)
         assertEquals(4, switched.episode)
         assertEquals(0, switched.tmdbId)
-        assertEquals(anime, switched.forServer(ExtrasAnimeEmbedServer.FILMU))
+        assertEquals(anime, switched.forServer(ExtrasAnimeEmbedServer.EMBED_HEAVEN))
     }
 
     @Test(expected = IllegalArgumentException::class)
