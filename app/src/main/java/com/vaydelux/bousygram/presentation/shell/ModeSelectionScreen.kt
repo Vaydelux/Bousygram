@@ -8,6 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -64,7 +67,7 @@ fun BousygramModeSelection(
     val horizontalCards = compact && metrics.widthDp >= 690.dp
     PremiumGridBackdrop {
         Box(
-            Modifier.fillMaxSize().padding(
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(
                 horizontal = if (metrics.isTv) 32.dp else 18.dp,
                 vertical = if (compact) 8.dp else 22.dp
             ),
@@ -252,7 +255,8 @@ private fun ModeOption(
 fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     PremiumGridBackdrop {
-        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(24.dp), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -290,7 +294,8 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
 @Composable
 fun TelegramStartupLoadingScreen(connectionStatus: String?) {
     PremiumGridBackdrop {
-        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(24.dp), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
