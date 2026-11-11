@@ -147,6 +147,8 @@ android {
         // Native LibVLC does not use MediaForge's guarded Media3 HTTP client.
         // No arbitrary third-party LibVLC playback in production builds.
         buildConfigField("boolean", "MEDIAFORGE_EXTRAS_LIBVLC_ENABLED", "false")
+        // This is intentionally off in ALL production variants.
+        buildConfigField("boolean", "BOUNDED_FOREGROUND_STREAMING_EXPERIMENT", "false")
     }
 
     androidResources {
@@ -177,6 +179,13 @@ android {
             // checkout must not depend on a repository-root debug.keystore.
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "true")
             buildConfigField("boolean", "MEDIAFORGE_EXTRAS_LIBVLC_ENABLED", "true")
+            // Explicit debug-only opt-in; normal CI, debug releases and production
+            // retain the proven open-ended foreground behavior.
+            val boundedTelegramPreview = providers.gradleProperty("boundedTelegramStreamingExperiment")
+                .orNull == "true"
+            buildConfigField(
+                "boolean", "BOUNDED_FOREGROUND_STREAMING_EXPERIMENT", boundedTelegramPreview.toString()
+            )
             manifestPlaceholders["engineLabEnabled"] = "true"
         }
         release {
@@ -184,6 +193,7 @@ android {
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
+            buildConfigField("boolean", "BOUNDED_FOREGROUND_STREAMING_EXPERIMENT", "false")
             manifestPlaceholders["engineLabEnabled"] = "false"
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
@@ -200,6 +210,7 @@ android {
             isShrinkResources = true
             buildConfigField("boolean", "LEGACY_STREAMING_FALLBACK_ENABLED", "false")
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
+            buildConfigField("boolean", "BOUNDED_FOREGROUND_STREAMING_EXPERIMENT", "false")
             manifestPlaceholders["engineLabEnabled"] = "false"
             matchingFallbacks += listOf("release")
             if (hasReleaseSigning) {

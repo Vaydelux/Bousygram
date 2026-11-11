@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
 import android.util.Log
+import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
@@ -159,6 +160,12 @@ internal object TelegramChunkScheduler {
 
     const val HEAD_BURST_BYTES = 2L * 1024L * 1024L
     const val TAIL_BURST_BYTES = 4L * 1024L * 1024L
+
+    // Debug Gradle opt-in only. Reset test override on every new account/session.
+    @Volatile internal var boundedForegroundWindowOverrideForTests = false
+    private fun boundedForegroundWindowsEnabled(): Boolean =
+        BuildConfig.DEBUG && (BuildConfig.BOUNDED_FOREGROUND_STREAMING_EXPERIMENT ||
+            boundedForegroundWindowOverrideForTests)
 
     // This is a startup fallback for cache runway estimates, not a measured rate.
     @Volatile private var ewmaThroughputBps: Double = 3_000_000.0
@@ -426,6 +433,7 @@ internal object TelegramChunkScheduler {
     }
 
     internal fun resetForTests() {
+        boundedForegroundWindowOverrideForTests = false
         scope.coroutineContext[Job]?.cancelChildren()
         playbackBusyUntilMs.clear()
         downloadWindows.clear()
@@ -663,9 +671,11 @@ internal object TelegramChunkScheduler {
             }
 
             markState(effectiveId, PlaybackCacheState.Preparing)
-            // A single open-ended download advances through the entire media
-            // while the session is active. Seek handling repositions it on demand.
-            val failure = issueOpenEnded(effectiveId, 0L)
+            // Legacy release/default stays open-ended. Only the explicit debug
+            // experiment starts finite TDLib windows driven by foreground reads.
+            val failure = if (boundedForegroundWindowsEnabled()) {
+                issueBoundedForegroundWindow(effectiveId, 0L)
+            } else issueOpenEnded(effectiveId, 0L)
             if (failure != null) {
                 PlaybackDiagnostics.recordStreamError("Unable to open playback window fileId=$effectiveId")
                 return@withLock
@@ -1013,9 +1023,13 @@ internal object TelegramChunkScheduler {
             if (playbackReady.contains(fileId)) return@withLock null
             touchPlayback(fileId)
             val window = downloadWindows[fileId]
-            val headOpen = window != null && window.offset == 0L && window.endExclusive >= OPEN_ENDED
+            val headOpen = window != null && window.offset == 0L &&
+                (if (boundedForegroundWindowsEnabled()) window.endExclusive > 0L
+                 else window.endExclusive >= OPEN_ENDED)
             if (!headOpen) {
-                val failure = issueOpenEnded(fileId, 0L)
+                val failure = if (boundedForegroundWindowsEnabled()) {
+                    issueBoundedForegroundWindow(fileId, 0L)
+                } else issueOpenEnded(fileId, 0L)
                 if (failure != null) return@withLock failure
             }
             playbackReady.add(fileId)
@@ -1055,6 +1069,23 @@ internal object TelegramChunkScheduler {
         val bytes = readRange(fileId, tailOffset, limit) ?: return null
         savedTails[fileId] = SavedTail(tailOffset, bytes)
         return null
+    }
+
+    /**
+     * Prototype: bound each TDLib DownloadFile command, not aggregate TDLib
+     * disk usage. Never delete active leases, pinned items or native data.
+     */
+    private suspend fun issueBoundedForegroundWindow(fileId: Int, offset: Long): TelegramChunkResult? {
+        val plan = ForegroundTelegramWindowPolicy.plan(
+            offset, fileSizes[fileId] ?: 0L, StoragePressureMonitor.freeBytes()
+        ) ?: return null // Do not issue downloads past known EOF.
+        rememberWindow(fileId, plan.offset, plan.endExclusive, TelegramChunkPurpose.Streaming)
+        val failure = startChunkDownload(
+            fileId, plan.offset, limit = plan.limit,
+            priority = PLAYBACK_PRIORITY, synchronous = false
+        ).failure
+        if (failure != null) clearDownloadWindow(fileId, plan.offset)
+        return failure
     }
 
     private suspend fun issueOpenEnded(fileId: Int, offset: Long): TelegramChunkResult? {
@@ -1104,7 +1135,16 @@ internal object TelegramChunkScheduler {
             saturatingPrefetchEnd(window?.offset ?: request.offset, prefix),
             PLAYBACK_WINDOW_BYTES.toLong()
         )
-        val isOutside = requiresPlaybackWindowReposition(request.offset, window?.offset, contiguousEnd)
+        val isOutside = if (boundedForegroundWindowsEnabled()) {
+            ForegroundTelegramWindowPolicy.needsWindow(
+                requestedOffset = request.offset,
+                requestedBytes = request.limit,
+                currentOffset = window?.offset,
+                currentEndExclusive = window?.endExclusive,
+                knownSize = fileSizes[request.fileId] ?: 0L,
+                downloadedPrefixBytes = prefix
+            )
+        } else requiresPlaybackWindowReposition(request.offset, window?.offset, contiguousEnd)
         if (isOutside) {
             Log.d(TAG, "Seek detected fileId=${request.fileId} offset=${request.offset}; cancelling stale in-flight downloads")
             PlaybackTelemetryRecorder.recordSupersededWindow(request.fileId)
@@ -1124,7 +1164,9 @@ internal object TelegramChunkScheduler {
             }
 
             coldStartFiles.add(request.fileId)
-            issueOpenEnded(request.fileId, request.offset)
+            if (boundedForegroundWindowsEnabled()) {
+                issueBoundedForegroundWindow(request.fileId, request.offset)
+            } else issueOpenEnded(request.fileId, request.offset)
         }
     }
 
@@ -1155,7 +1197,12 @@ internal object TelegramChunkScheduler {
             markState(request.fileId, PlaybackCacheState.Preparing)
             val anchor = downloadWindows[request.fileId]
             val offset = anchor?.offset ?: request.offset
-            val limit = if (anchor != null && anchor.endExclusive >= OPEN_ENDED) 0 else request.limit
+            val limit = when {
+                anchor != null && anchor.endExclusive >= OPEN_ENDED -> 0
+                boundedForegroundWindowsEnabled() && anchor != null ->
+                    (anchor.endExclusive - anchor.offset).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+                else -> request.limit
+            }
             startChunkDownload(request.fileId, offset, limit, PLAYBACK_PRIORITY, synchronous = false)
             ready = awaitPrefixReady(request.fileId, request.offset, neededBytes, timeoutMs = STALL_MS)
             file = latestFiles[request.fileId] ?: getFileStatus(request.fileId)
