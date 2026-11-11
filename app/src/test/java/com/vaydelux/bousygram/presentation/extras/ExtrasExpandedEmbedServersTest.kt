@@ -128,6 +128,25 @@ class ExtrasExpandedEmbedServersTest {
             ExtrasAnimeEmbedServer.FILMU.urlFor(16498, 2, 4))
     }
 
+    @Test fun nonDefaultAnimeSeasonStartsOnAnExplicitSeasonRoute() {
+        val request = ExtrasEmbedRequest.anime(16498, episode = 4, title = "Test", season = 2)
+        assertEquals(ExtrasAnimeEmbedServer.FILMU, request.animeServer)
+        assertEquals("https://embed.filmu.in/anime/16498/2/4", request.url)
+        assertEquals("Test · S2 E4", request.title)
+        assertEquals(2, request.season)
+        assertEquals(4, request.episode)
+        assertFalse(ExtrasAnimeEmbedServer.EMBED_HEAVEN.supportsSeason(2))
+        assertFalse(ExtrasAnimeEmbedServer.VIDY.supportsSeason(2))
+        assertTrue(ExtrasAnimeEmbedServer.FILMU.supportsSeason(2))
+        assertTrue(ExtrasAnimeEmbedServer.FMOV.supportsSeason(2))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun nonDefaultAnimeSeasonRefusesProviderThatWouldEraseTheSeason() {
+        ExtrasEmbedRequest.anime(16498, episode = 4, title = "Test", season = 2)
+            .forServer(ExtrasAnimeEmbedServer.XXIKU)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun tmdbServerDoesNotAcceptAnimeRequest() {
         ExtrasEmbedRequest.anime(12, 2, "Anime").forServer(ExtrasEmbedServer.CINESRC)
