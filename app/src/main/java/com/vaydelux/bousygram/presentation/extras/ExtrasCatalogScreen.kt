@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -35,8 +34,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -50,10 +47,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.graphicsLayer
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -89,6 +82,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
+import com.vaydelux.bousygram.presentation.components.TvFocusSurface
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -656,17 +652,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
  */
 @Composable
 internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
+    val metrics = rememberAdaptiveMetrics()
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
     ) {
         items(ExtrasType.entries.toList(), key = { it.name }) { tab ->
-            FilterChip(
-                selected = selectedTab == tab.ordinal,
+            BousygramSectionTab(
+                label = tab.label,
+                active = selectedTab == tab.ordinal,
+                isTv = metrics.isTv,
                 onClick = { onSelect(tab.ordinal) },
-                label = { Text(tab.label) },
-                modifier = Modifier.heightIn(min = 44.dp)
-                    .testTag("extras-tab-${tab.name.lowercase()}")
+                modifier = Modifier.testTag("extras-tab-${tab.name.lowercase()}")
             )
         }
     }
@@ -851,34 +848,38 @@ internal fun ExtrasPosterCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val focusScale by animateFloatAsState(
-        targetValue = if (focused && android.animation.ValueAnimator.areAnimatorsEnabled()) 1.014f else 1f,
-        animationSpec = tween(durationMillis = if (android.animation.ValueAnimator.areAnimatorsEnabled()) 220 else 0, easing = FastOutSlowInEasing),
-        label = "poster-focus"
-    )
-    Card(onClick = onClick,
+    TvFocusSurface(
+        onClick = onClick,
         modifier = modifier.fillMaxWidth()
             .testTag("extras-poster-${item.type.name.lowercase()}-${item.id}")
-            .graphicsLayer { scaleX = focusScale; scaleY = focusScale }
-            .onFocusChanged { focused = it.isFocused },
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(if (focused) 3.dp else 1.dp,
-            if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        ExtrasPosterArtwork(
-            url = item.poster,
-            contentDescription = item.title,
-            modifier = Modifier.fillMaxWidth().height(205.dp),
-            detail = false
-        )
-        Column(Modifier.padding(9.dp)) {
-            Text(item.title, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-            Text(listOf(item.year, item.rating.takeIf(String::isNotEmpty)?.let { "★ $it" })
-                .filterNotNull().joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+    ) { focused ->
+        Column {
+            ExtrasPosterArtwork(
+                url = item.poster,
+                contentDescription = item.title,
+                modifier = Modifier.fillMaxWidth().height(205.dp),
+                detail = false
+            )
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    item.title,
+                    maxLines = 2,
+                    minLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold
+                )
+                Text(
+                    listOf(item.year, item.rating.takeIf(String::isNotEmpty)?.let { "★ $it" })
+                        .filterNotNull().joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
