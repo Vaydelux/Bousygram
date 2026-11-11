@@ -732,6 +732,23 @@ class TelegramChunkSchedulerTest {
         TelegramChunkScheduler.openPlayback(fileId, size.toLong(), isMp4 = true).join()
         assertEquals(1, gateway.downloadRecords.size)
 
+        // A foreground request within the final 1 MiB advances the window
+        // before TDLib runs out of bytes; a second nearby read does not thrash.
+        val boundaryOffset = 15L * 1024L * 1024L + 512L * 1024L
+        val boundary = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(fileId, boundaryOffset, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+        assertTrue(boundary is TelegramChunkResult.Ready)
+        val advanced = gateway.downloadRecords.last()
+        assertEquals(boundaryOffset, advanced.offset)
+        assertEquals(size.toLong() - boundaryOffset, advanced.limit.toLong())
+        val countAfterAdvance = gateway.downloadRecords.size
+        val adjacent = TelegramChunkScheduler.fetchChunk(
+            TelegramChunkRequest(fileId, boundaryOffset + 4096L, 4096, 32, TelegramChunkPurpose.Streaming)
+        )
+        assertTrue(adjacent is TelegramChunkResult.Ready)
+        assertEquals(countAfterAdvance, gateway.downloadRecords.size)
+
         // MKV Cues/MP4 moov can be near EOF, well beyond the first window.
         val tailOffset = size - 4096L
         val result = TelegramChunkScheduler.fetchChunk(
