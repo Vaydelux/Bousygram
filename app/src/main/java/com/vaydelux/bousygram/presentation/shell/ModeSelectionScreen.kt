@@ -31,6 +31,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
+import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -63,11 +64,7 @@ fun BousygramModeSelection(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_bousygram_mascot),
-                    contentDescription = "Bousygram media logo",
-                    modifier = Modifier.size(82.dp)
-                )
+                BousygramBrandMark(size = 82.dp)
                 Text(
                     "BOUSYGRAM  /  MEDIA HUB",
                     style = MaterialTheme.typography.labelMedium,
@@ -202,11 +199,7 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                         .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(28.dp))
                         .padding(horizontal = 35.dp, vertical = 26.dp)
                 ) {
-                    Image(
-                        painter = painterResource(R.drawable.ic_bousygram_mascot),
-                        contentDescription = "Bousygram maintenance logo",
-                        modifier = Modifier.size(76.dp)
-                    )
+                    BousygramBrandMark(size = 76.dp)
                 }
                 Text("More to Explore", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(
@@ -239,11 +232,7 @@ fun TelegramStartupLoadingScreen(connectionStatus: String?) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_bousygram_mascot),
-                    contentDescription = "Bousygram startup logo",
-                    modifier = Modifier.size(88.dp)
-                )
+                BousygramBrandMark(size = 88.dp)
                 Text(
                     "Preparing Telegram Media",
                     style = MaterialTheme.typography.headlineSmall,
