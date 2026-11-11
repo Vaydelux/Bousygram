@@ -76,6 +76,15 @@ jobs:
           disable-animations: true
           script: bash tools/ci/run_explorer_ui_smoke.sh
 
+      - name: Upload device-rendered visual QA evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: explorer-ui-visual-evidence-${{ github.sha }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: ci-artifacts/ui-evidence/*.png
+
       - name: Upload focused UI test failure report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
