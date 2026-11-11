@@ -50,6 +50,15 @@ fun BousygramThemeGallery(
             ) {
                 themes.forEach { preset ->
                     val isSelected = selected == preset
+                    val tagline = when (preset) {
+                        BousygramThemePreset.DARK -> "Cyan · Navy"
+                        BousygramThemePreset.AURORA -> "Violet · Teal"
+                        BousygramThemePreset.OBSIDIAN -> "Silver · Graphite"
+                        BousygramThemePreset.EVERGREEN -> "Mint · Forest"
+                        BousygramThemePreset.EMBER -> "Peach · Rose"
+                        BousygramThemePreset.HIGH_CONTRAST -> "High visibility"
+                        BousygramThemePreset.LIGHT -> "Blue · Ice"
+                    }
                     TvFocusSurface(
                         onClick = { onSelect(preset) },
                         selected = isSelected,
@@ -87,10 +96,10 @@ fun BousygramThemeGallery(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = preset.description,
+                                text = tagline,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
-                                maxLines = if (metrics.isTv) 2 else 1,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
