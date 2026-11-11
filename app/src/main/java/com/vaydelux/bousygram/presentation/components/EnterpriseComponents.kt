@@ -568,7 +568,7 @@ fun TvTopNavBar(
         modifier = modifier
             .fillMaxWidth()
             .background(colors.surfaceContainerLow)
-            .padding(horizontal = 28.dp, vertical = 12.dp),
+            .padding(horizontal = 28.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -581,30 +581,7 @@ fun TvTopNavBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.surfaceVariant)
-                        .border(1.dp, colors.primary.copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .border(1.5.dp, colors.primary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "▶",
-                            color = colors.primary,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 1.dp)
-                        )
-                    }
-                }
+                BousygramBrandMark(size = 40.dp)
                 Text(
                     text = "Bousygram",
                     color = colors.onSurface,
@@ -733,21 +710,7 @@ fun PhoneTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.surfaceVariant)
-                    .border(1.dp, colors.primary.copy(alpha = 0.42f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "▶",
-                    color = colors.primary,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            BousygramBrandMark(size = 36.dp)
             Text(
                 text = "Bousygram",
                 color = colors.onSurface,
