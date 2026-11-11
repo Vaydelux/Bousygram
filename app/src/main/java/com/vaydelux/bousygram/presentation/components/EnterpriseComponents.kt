@@ -107,8 +107,12 @@ import org.drinkless.tdlib.TdApi
 import com.vaydelux.bousygram.data.database.RecentSearchQuery
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.SeriesGroup
+import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
+import com.vaydelux.bousygram.presentation.adaptive.shouldUseSideRail
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.MediaCardDensity
+import com.vaydelux.bousygram.presentation.theme.mediaCardDensity
 import com.vaydelux.bousygram.presentation.media.mediaDisplayLabels
 import java.io.File
 import kotlin.math.cos
@@ -411,7 +415,10 @@ fun BousygramAdaptiveShell(
                 }
             }
         }
-        adaptive.isTabletLayout -> {
+        shouldUseSideRail(adaptive.profile, adaptive.heightDp) -> {
+            // Short landscape phones gain an entire row of media by moving
+            // navigation into a slim side rail, instead of stacking both
+            // the top bar and bottom navigation around a 390dp viewport.
             Row(
                 modifier = modifier
                     .fillMaxSize()
@@ -423,7 +430,8 @@ fun BousygramAdaptiveShell(
                     onSelect = onSelect,
                     onOpenSearch = onOpenSearch,
                     onOpenProfile = onOpenSettings,
-                    focusRequester = navFocusRequester
+                    focusRequester = navFocusRequester,
+                    compact = adaptive.profile == DeviceProfile.PhoneLandscape
                 )
                 Box(
                     modifier = Modifier
@@ -471,7 +479,8 @@ fun TabletNavRail(
     onOpenSearch: () -> Unit,
     onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    compact: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     NavigationRail(
@@ -482,36 +491,16 @@ fun TabletNavRail(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)
+                modifier = Modifier.padding(
+                    top = if (compact) 2.dp else 16.dp,
+                    bottom = if (compact) 0.dp else 12.dp
+                )
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.primary.copy(alpha = 0.16f))
-                        .border(1.dp, colors.primary.copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .border(1.5.dp, colors.primary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "▶",
-                            color = colors.primary,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 1.dp)
-                        )
-                    }
-                }
+                BousygramBrandMark(size = if (compact) 28.dp else 40.dp)
             }
         }
     ) {
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(if (compact) 2.dp else 12.dp))
         ShellDestination.navItems.forEach { destination ->
             val isSelected = when (destination) {
                 ShellDestination.Home -> selected == ShellDestination.Home
@@ -566,7 +555,7 @@ fun TvTopNavBar(
         modifier = modifier
             .fillMaxWidth()
             .background(colors.surfaceContainerLow)
-            .padding(horizontal = 28.dp, vertical = 12.dp),
+            .padding(horizontal = 28.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -579,30 +568,7 @@ fun TvTopNavBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.surfaceVariant)
-                        .border(1.dp, colors.primary.copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .border(1.5.dp, colors.primary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "▶",
-                            color = colors.primary,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 1.dp)
-                        )
-                    }
-                }
+                BousygramBrandMark(size = 40.dp)
                 Text(
                     text = "Bousygram",
                     color = colors.onSurface,
@@ -731,21 +697,7 @@ fun PhoneTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.surfaceVariant)
-                    .border(1.dp, colors.primary.copy(alpha = 0.42f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "▶",
-                    color = colors.primary,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            BousygramBrandMark(size = 36.dp)
             Text(
                 text = "Bousygram",
                 color = colors.onSurface,
@@ -1053,6 +1005,9 @@ fun MediaPosterCard(
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
+    val adaptive = rememberAdaptiveMetrics()
+    val cardDensity = mediaCardDensity(adaptive.isTv, adaptive.widthDp, adaptive.heightDp)
+    val condensedCard = cardDensity != MediaCardDensity.STANDARD
     val miniThumbnail = rememberMiniThumbnail(
         media.chatId,
         media.messageId,
@@ -1170,6 +1125,11 @@ fun MediaPosterCard(
                 focused = it.isFocused
                 onFocusChanged(it.isFocused)
             }
+            .semantics {
+                contentDescription = if (privacyMode) "Private video, details hidden"
+                    else listOfNotNull(labels.title, labels.subtitle, labels.fileSizeLabel)
+                        .filter { it.isNotBlank() }.joinToString(", ")
+            }
     ) {
         Column {
             Box(
@@ -1263,38 +1223,50 @@ fun MediaPosterCard(
                     )
                 }
             }
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Column(
+                Modifier.padding(
+                    horizontal = if (condensedCard) 10.dp else 12.dp,
+                    vertical = if (condensedCard) 6.dp else 10.dp
+                )
+            ) {
                 Text(
                     text = if (privacyMode) "Private video" else labels.title,
                     color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = if (cardDensity == MediaCardDensity.SHORT_TV)
+                        MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
                     fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 2,
-                    minLines = 2,
+                    maxLines = if (cardDensity == MediaCardDensity.SHORT_LANDSCAPE) 1 else 2,
+                    minLines = if (cardDensity == MediaCardDensity.SHORT_LANDSCAPE) 1 else 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(3.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (privacyMode) "Details hidden" else labels.subtitle,
-                        color = if (focused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (!privacyMode && !labels.fileSizeLabel.isNullOrBlank()) {
-                        Spacer(Modifier.width(6.dp))
+                // The selected Telegram source is shown in the compact toolbar.
+                // Repeating source/size below every file hides a grid row on
+                // short TVs and landscape phones. TalkBack still reads details.
+                if (!condensedCard) {
+                    Spacer(Modifier.height(3.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = labels.fileSizeLabel,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
+                            text = if (privacyMode) "Details hidden" else labels.subtitle,
+                            color = if (focused) MaterialTheme.colorScheme.secondary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        if (!privacyMode && !labels.fileSizeLabel.isNullOrBlank()) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = labels.fileSizeLabel,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }

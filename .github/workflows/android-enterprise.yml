@@ -28,6 +28,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify mascot, launcher and favicon use canonical brand
+        shell: bash
+        run: bash tools/ci/verify_brand_identity.sh
+
       - name: Install workflow lint tools
         shell: bash
         run: |

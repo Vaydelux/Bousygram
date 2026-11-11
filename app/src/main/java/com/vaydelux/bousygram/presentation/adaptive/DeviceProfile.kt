@@ -69,6 +69,14 @@ internal fun resolveDeviceProfile(
     else -> DeviceProfile.PhonePortrait
 }
 
+/**
+ * A short landscape phone uses a rail so neither a top header nor a bottom
+ * navigation bar eats the available media height. Tablet rails remain standard.
+ */
+internal fun shouldUseSideRail(profile: DeviceProfile, heightDp: Dp): Boolean =
+    profile == DeviceProfile.Tablet ||
+        (profile == DeviceProfile.PhoneLandscape && heightDp < 520.dp)
+
 @Composable
 fun rememberAdaptiveMetrics(): AdaptiveMetrics {
     val context = LocalContext.current

@@ -1,0 +1,103 @@
+name: Android Explorer Responsive UI Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/**'
+      - 'app/src/androidTest/**'
+      - 'brand/**'
+      - 'tools/ci/run_explorer_ui_smoke.sh'
+      - '.github/workflows/android-explorer-ui-smoke.yml'
+  pull_request:
+    paths:
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/components/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/theme/**'
+      - 'app/src/androidTest/**'
+      - '.github/workflows/android-explorer-ui-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-explorer-responsive-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  explorer-ui:
+    name: Verify Library height and D-pad UI on emulator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install Android build dependencies
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Enable KVM acceleration when available
+        shell: bash
+        run: |
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod a+rw /dev/kvm
+          else
+            echo '::warning::KVM unavailable; emulator may run slowly.'
+          fi
+
+      - name: Build exact-source APK and UI tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
+          bash tools/ci/verify_debug_artifacts.sh
+
+      - name: Reclaim unused hosted-runner space for emulator userdata
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf -- /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL
+          df -h "$HOME"
+
+      - name: Run focused Library UI, phone-TV parity and navigation regression
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 3072M
+          emulator-options: -partition-size 3072 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: bash tools/ci/run_explorer_ui_smoke.sh
+
+      - name: Upload device-rendered visual QA evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: explorer-ui-visual-evidence-${{ github.sha }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: ci-artifacts/ui-evidence/*.png
+
+      - name: Upload focused UI test failure report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: explorer-ui-smoke-failure-${{ github.sha }}
+          retention-days: 2
+          if-no-files-found: ignore
+          path: explorer-ui-smoke-results.txt

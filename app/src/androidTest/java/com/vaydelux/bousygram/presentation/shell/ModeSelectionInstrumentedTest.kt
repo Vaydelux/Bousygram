@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.presentation.shell
 
+import com.vaydelux.bousygram.presentation.components.writeUiEvidence
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,7 @@ class ModeSelectionInstrumentedTest {
             }
         }
         composeRule.onNodeWithText("Bousygram").assertExists()
+        writeUiEvidence(composeRule, "mode-selection")
         composeRule.onNodeWithTag("mode-extras").performClick()
         composeRule.onNodeWithText("More to Explore").assertExists()
         composeRule.onNodeWithText("Back to Mode Selection").performClick()

@@ -83,6 +83,7 @@ import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
+import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
@@ -363,32 +364,47 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Column(Modifier.fillMaxWidth().padding(horizontal = if (metrics.isCompact) 16.dp else 32.dp, vertical = 14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = {
-                        if (detailItem != null) goBackFromDetails() else onExit()
-                    }) { Text("← Back") }
-                    BousygramPageHeading(
-                        eyebrow = "Bousygram  /  Extras",
-                        title = if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
-                        subtitle = "Movies, series and anime · one integrated playback experience",
-                        compact = metrics.isCompact,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(onClick = { showCredits = true }) { Text("Credits") }
+            Column(
+                Modifier.fillMaxWidth().padding(
+                    horizontal = if (metrics.isCompact) 16.dp else 32.dp,
+                    vertical = if (metrics.isTv || metrics.heightDp < 660.dp) 6.dp else 10.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (detailItem != null) goBackFromDetails() else onExit()
+                        },
+                        modifier = Modifier.heightIn(min = if (metrics.isTv) 52.dp else 44.dp)
+                    ) { Text("‹ Back", maxLines = 1) }
+                    BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
+                            style = if (metrics.isTv) MaterialTheme.typography.titleLarge
+                                else MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "Movies · TV shows · Anime",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                    TextButton(onClick = { showCredits = true }) {
+                        Text(if (metrics.widthDp < 430.dp) "Info" else "Credits", maxLines = 1)
+                    }
                 }
                 if (detailItem == null) {
-                    Spacer(Modifier.height(8.dp))
-                    // Keep every tab reachable on smaller phones and large font scales.
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(Modifier.weight(1f)) {
-                            ExtrasCatalogTabs(activeTabIndex, onSelect = { selectedTab = it })
-                        }
-                    }
+                    ExtrasCatalogTabs(activeTabIndex, onSelect = { selectedTab = it })
                 }
             }
         }
@@ -473,8 +489,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         onDismiss = { showSuggestions = false }
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                var filtersExpanded by rememberSaveable(type.name) { mutableStateOf(false) }
+                ExtrasFilterDisclosure(
+                    expanded = filtersExpanded,
+                    active = state.filters != ExtrasFilters(),
+                    onToggle = { filtersExpanded = !filtersExpanded }
+                )
+                if (filtersExpanded) {
+                    Spacer(Modifier.height(4.dp))
+                    LazyRow(
+                        modifier = Modifier.testTag("extras-filter-row"),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                     item {
                         ExtrasDropdown("Sort: ${state.filters.sort.label}",
                             ExtrasSort.entries.map { it.label }) { index ->
@@ -556,8 +582,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                 loading = true, hasMore = true))
                         }) { Text("Reset filters") }
                     }
+                    }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(6.dp))
                 if (state.error != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(state.error, color = MaterialTheme.colorScheme.error,
@@ -650,6 +677,35 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
  * Separately testable focusable TV tabs, no API/key required to compose.
  * Test tags are intentionally stable for DPAD/instrumentation smoke checks.
  */
+/** Optional filters stay reachable without stealing a permanent row of posters. */
+@Composable
+internal fun ExtrasFilterDisclosure(
+    expanded: Boolean,
+    active: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        OutlinedButton(
+            onClick = onToggle,
+            modifier = Modifier.heightIn(min = 44.dp).testTag("extras-filter-toggle")
+        ) {
+            Text(if (expanded) "Hide filters" else "Filters", maxLines = 1)
+        }
+        Text(
+            if (active) "Custom filters active" else "Sort, genre, year and more",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
 @Composable
 internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
     val metrics = rememberAdaptiveMetrics()
@@ -848,6 +904,9 @@ internal fun ExtrasPosterCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val metrics = rememberAdaptiveMetrics()
+    val shortViewport = metrics.heightDp < 650.dp
+    val posterHeight = if (shortViewport) 154.dp else 205.dp
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth()
@@ -857,7 +916,7 @@ internal fun ExtrasPosterCard(
             ExtrasPosterArtwork(
                 url = item.poster,
                 contentDescription = item.title,
-                modifier = Modifier.fillMaxWidth().height(205.dp),
+                modifier = Modifier.fillMaxWidth().height(posterHeight),
                 detail = false
             )
             Column(

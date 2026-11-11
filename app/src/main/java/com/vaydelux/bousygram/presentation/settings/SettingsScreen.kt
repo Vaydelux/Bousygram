@@ -53,6 +53,8 @@ import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
+import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
+import com.vaydelux.bousygram.presentation.components.BousygramThemeGallery
 import com.vaydelux.bousygram.presentation.components.BousygramChip
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
@@ -131,6 +133,8 @@ fun SettingsScreen(
         "off" to "Off"
     )
 
+    val showSidebar = !adaptive.isCompact &&
+        adaptive.widthDp >= 1100.dp && adaptive.heightDp >= 650.dp
     BousygramScaffold(modifier) {
         Row(
             modifier = Modifier
@@ -138,7 +142,7 @@ fun SettingsScreen(
                 .padding(if (adaptive.isCompact) 16.dp else 32.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            if (!adaptive.isCompact) {
+            if (showSidebar) {
                 Column(
                     modifier = Modifier.width(280.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -167,19 +171,20 @@ fun SettingsScreen(
                     .fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (adaptive.isCompact) {
+                if (!showSidebar) {
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            BousygramPageHeading(
-                                eyebrow = "Bousygram  /  Preferences",
-                                title = "Settings",
-                                subtitle = "Personalize your experience.",
-                                compact = true,
-                                modifier = Modifier.weight(1f)
+                            BousygramBrandMark(size = 36.dp)
+                            Text(
+                                text = "Settings",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             BousygramButton("Back", onBack)
                         }
@@ -206,35 +211,13 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            // Large text and narrow phones must not clip theme choices.
-                            val isNarrow = with(androidx.compose.ui.platform.LocalDensity.current) {
-                                androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp() < 480.dp
-                            }
-                            @Composable
-                            fun ThemeChoices() {
-                                BousygramThemePreset.entries.forEach { preset ->
-                                    BousygramChip(
-                                        text = preset.displayName,
-                                        selected = themePreset == preset,
-                                        onClick = {
-                                            onThemePresetChange(preset)
-                                            EnterprisePreferences.setVisualThemeId(preset.id)
-                                        }
-                                    )
+                            BousygramThemeGallery(
+                                selected = themePreset,
+                                onSelect = { preset ->
+                                    onThemePresetChange(preset)
+                                    EnterprisePreferences.setVisualThemeId(preset.id)
                                 }
-                            }
-                            if (isNarrow) {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    ThemeChoices()
-                                }
-                            } else {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    ThemeChoices()
-                                }
-                            }
+                            )
                         }
                     }
                 }

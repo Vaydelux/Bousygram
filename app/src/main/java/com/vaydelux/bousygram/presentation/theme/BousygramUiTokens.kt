@@ -83,6 +83,21 @@ fun bousygramResponsiveTokens(profile: DeviceProfile): BousygramResponsiveTokens
         )
     }
 
+/**
+ * The media grid's visible cards—not decorative headers—own scarce vertical space.
+ * A short TV keeps two readable title lines but omits duplicate source metadata
+ * (the source is already in the toolbar). A short landscape phone uses one line.
+ * Standard/portrait viewports keep all metadata visible.
+ */
+internal enum class MediaCardDensity { STANDARD, SHORT_TV, SHORT_LANDSCAPE }
+
+internal fun mediaCardDensity(isTv: Boolean, widthDp: Dp, heightDp: Dp): MediaCardDensity =
+    when {
+        isTv && heightDp < 660.dp -> MediaCardDensity.SHORT_TV
+        widthDp > heightDp && heightDp < 560.dp -> MediaCardDensity.SHORT_LANDSCAPE
+        else -> MediaCardDensity.STANDARD
+    }
+
 /** WCAG relative contrast for *opaque* UI tokens; not a screen-reader heuristic. */
 internal fun themeContrastRatio(foreground: Color, background: Color): Double {
     fun channel(value: Float): Double {

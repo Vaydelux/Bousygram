@@ -12,13 +12,31 @@ The Bousygram brand uses the **orange Chow Chow**, **cyan-to-blue circular halo*
 | Android pre-26 launcher | `app/src/main/res/mipmap-anydpi/ic_launcher.xml` | Uses the **same** mascot WebP; no stale density PNG duplicates |
 | Android API 26+ launcher | `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` | Same foreground, background and monochrome |
 | GitHub README | `brand/bousygram-mascot.webp` | Same artwork, not an unrelated stock image |
+| In-app TV, tablet and phone headers | `BousygramBrandMark` | Uses the exact approved mascot drawable; never a generic play icon |
 | Browser favicon | `brand/favicon.ico` | Multi-size ICO (16 and 32 px) derived from the approved mascot |
 
 Android's `AndroidManifest.xml` points to `@mipmap/ic_launcher`, which chooses the appropriate launcher implementation by API level. The app's TV banner is a separate wide asset; it must be visually reviewed on real launchers rather than stretched from the square icon.
 
+## Why launchers can still look slightly different
+
+The full-color mascot source is identical between the launcher and in-app
+headers. The favicon is a *downscaled* 16/32px derivative. Android launchers
+apply platform-specific adaptive-circle or squircle masks, and the Android TV
+launcher displays a separately composed **16:9 banner**. Consequently, the
+source design is unified, but the platform may crop it differently. Do not
+stretch a square favicon into a TV banner or pretend the different aspect
+ratios are pixel-identical.
+
+`tools/ci/verify_brand_identity.sh` enforces source equality between the
+README and Android mascot, verifies the launcher resource references,
+requires the canonical in-app component, and validates multi-size ICO frames.
+The verification does not claim pixel-identical cross-platform cropping;
+that requires the screenshot/device checklist in
+`docs/ci/UI_VISUAL_QUALIFICATION.md`.
+
 ## Design tokens
 
-`BousygramTheme.kt` defines the semantic Midnight blue, Daylight and High contrast palettes. `BousygramUiTokens.kt` owns shared focus, spacing, corner, motion, and brand-accent constants.
+`BousygramTheme.kt` defines seven semantic presets: Midnight, Aurora, Obsidian, Evergreen, Ember, Daylight and High Contrast. `BousygramUiTokens.kt` owns shared focus, spacing, corner, motion, and brand-accent constants.
 
 - **Navy:** #061426 — deep background
 - **Cyan:** #37D7F2 — identity and interactive accent in dark themes
