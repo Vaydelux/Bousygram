@@ -31,6 +31,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
+import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import androidx.compose.runtime.Composable
@@ -57,56 +58,117 @@ fun BousygramModeSelection(
     onTelegram: () -> Unit,
     onExtras: () -> Unit
 ) {
+    val metrics = rememberAdaptiveMetrics()
+    val compact = metrics.isTv || metrics.heightDp < 620.dp
+    val horizontalCards = compact && metrics.widthDp >= 690.dp
     PremiumGridBackdrop {
-        Box(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 22.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize().padding(
+                horizontal = if (metrics.isTv) 32.dp else 18.dp,
+                vertical = if (compact) 8.dp else 22.dp
+            ),
+            contentAlignment = Alignment.Center
+        ) {
             Column(
-                modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
+                modifier = Modifier.widthIn(max = if (horizontalCards) 1020.dp else 760.dp)
+                    .fillMaxWidth().verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)
             ) {
-                BousygramBrandMark(size = 82.dp)
-                Text(
-                    "BOUSYGRAM  /  MEDIA HUB",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    "Your screen. Your library.",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-                Text("Bousygram", style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    "Choose an experience to get started.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(8.dp))
-                ModeOption(
-                    title = "Telegram Media",
-                    subtitle = "Saved messages, channels, groups and your media library",
-                    onClick = onTelegram,
-                    primary = true,
-                    modeTag = "mode-telegram"
-                )
-                ModeOption(
-                    title = "Movies, TV Shows & Anime",
-                    subtitle = "Explore catalogs and optional external web playback",
-                    onClick = onExtras,
-                    primary = false,
-                    modeTag = "mode-extras"
-                )
-                Text(
-                    "TMDB and AniList supply title information. Extras uses separate, optional external web players and never accesses your Telegram media.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
+                if (compact) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        BousygramBrandMark(size = 56.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                "Bousygram",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Your screen. Your library.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    BousygramBrandMark(size = 82.dp)
+                    Text(
+                        "BOUSYGRAM  /  MEDIA HUB",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Your screen. Your library.",
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        "Bousygram",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Choose an experience to get started.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                if (horizontalCards) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        ModeOption(
+                            title = "Telegram Media",
+                            subtitle = "Saved messages, channels, groups and your media",
+                            onClick = onTelegram,
+                            primary = true,
+                            modeTag = "mode-telegram",
+                            modifier = Modifier.weight(1f)
+                        )
+                        ModeOption(
+                            title = "Movies, TV Shows & Anime",
+                            subtitle = "Explore catalogs and optional external playback",
+                            onClick = onExtras,
+                            primary = false,
+                            modeTag = "mode-extras",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else {
+                    ModeOption(
+                        title = "Telegram Media",
+                        subtitle = "Saved messages, channels, groups and your media library",
+                        onClick = onTelegram,
+                        primary = true,
+                        modeTag = "mode-telegram"
+                    )
+                    ModeOption(
+                        title = "Movies, TV Shows & Anime",
+                        subtitle = "Explore catalogs and optional external web playback",
+                        onClick = onExtras,
+                        primary = false,
+                        modeTag = "mode-extras"
+                    )
+                }
+                if (!compact) {
+                    Text(
+                        "TMDB and AniList provide metadata. External video playback is separate from Telegram.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
     }
@@ -118,7 +180,8 @@ private fun ModeOption(
     subtitle: String,
     primary: Boolean,
     modeTag: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusScale by animateFloatAsState(
@@ -134,7 +197,7 @@ private fun ModeOption(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     Surface(
-        modifier = Modifier.fillMaxWidth().testTag(modeTag)
+        modifier = modifier.fillMaxWidth().testTag(modeTag)
             .graphicsLayer { scaleX = focusScale; scaleY = focusScale }
             .border(
                 if (focused) 3.dp else 1.dp,
@@ -150,7 +213,7 @@ private fun ModeOption(
         tonalElevation = if (focused) 4.dp else 0.dp
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 22.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
