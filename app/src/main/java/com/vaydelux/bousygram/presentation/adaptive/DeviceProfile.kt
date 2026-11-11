@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.content.pm.PackageManager
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -71,6 +72,7 @@ internal fun resolveDeviceProfile(
 @Composable
 fun rememberAdaptiveMetrics(): AdaptiveMetrics {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val size = LocalWindowInfo.current.containerSize
     val widthDp = with(density) { size.width.toDp() }
@@ -79,7 +81,7 @@ fun rememberAdaptiveMetrics(): AdaptiveMetrics {
     val packageManager = context.packageManager
     val isTv = isTelevisionDevice(
         currentModeType = manager?.currentModeType,
-        configurationModeType = context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK,
+        configurationModeType = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK,
         hasLeanback = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK),
         hasTelevisionFeature = packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
     )
