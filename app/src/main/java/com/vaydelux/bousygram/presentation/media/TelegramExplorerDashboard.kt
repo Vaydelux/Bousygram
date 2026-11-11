@@ -243,7 +243,7 @@ fun TelegramExplorerDashboard(
             onFavorites = onFavorites,
             onSettings = onSettings
         )
-        Box(Modifier.fillMaxWidth().weight(1f)) {
+        Box(Modifier.fillMaxWidth().weight(1f).testTag("telegram-explorer-grid")) {
             when {
                 showSources -> {
                     if (directory.isEmpty()) {
