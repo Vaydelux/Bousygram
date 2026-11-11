@@ -11,8 +11,12 @@ import java.net.URI
  * defense for arbitrary browser traffic.
  */
 object MediaForgeEmbedNavigationPolicy {
-    private val fixedTitleRoute = Regex(
-        "^/embed/(movie|tv|anime)/[0-9]+(?:/[0-9]+)*$"
+    // Some providers put the title in the path; others keep a fixed path and
+    // pass the title/episode in the query. Both forms must preserve identity.
+    private val identityParameters = setOf(
+        "id", "tmdb", "tmdb_id", "tmdbid", "anilist", "anilist_id",
+        "anilistid", "video_id", "imdb", "imdb_id", "type",
+        "s", "e", "season", "episode"
     )
 
     fun allows(selectedEmbed: URI, requestedUrl: String): Boolean {
@@ -22,42 +26,31 @@ object MediaForgeEmbedNavigationPolicy {
             ?: return false
         if (!target.host.equals(original.host, ignoreCase = true)) return false
 
-        val originalPath = original.path.orEmpty()
-        val targetPath = target.path.orEmpty()
-        val titleBound = fixedTitleRoute.matches(originalPath)
+        // Do not permit an unrecognized /embed/{id} template to navigate to
+        // another ID merely because both paths start with /embed/. Compare raw
+        // paths so encoded separators/canonicalization cannot change identity.
+        if (target.rawPath != original.rawPath) return false
 
-        val pathAllowed = targetPath == originalPath ||
-            (!titleBound && originalPath.startsWith("/embed/") &&
-                targetPath.startsWith("/embed/"))
-        if (!pathAllowed) return false
+        // A fixed path such as /embed/movie?tmdb=550 or
+        // /embed/tv?tmdb=550&season=1&episode=2 has the SAME title guarantee
+        // as /embed/movie/550. Non-identity switches (server, subtitles,
+        // startAt, etc.) remain free to change on the selected host/path.
+        val selected = protectedParameters(original, identityParameters) ?: return false
+        val requested = protectedParameters(target, identityParameters) ?: return false
+        if (selected != requested) return false
 
-        // Only the server selector may change. Compare the *full* identity
-        // parameter set, including absence: a newly introduced season/episode
-        // must not silently switch the title selected by the host application.
-        if (originalPath == "/embed") {
-            val identity = setOf("id", "type")
-            val selected = protectedParameters(original, identity) ?: return false
-            val requested = protectedParameters(target, identity) ?: return false
-            if (selected != requested) return false
-            if (selected.isNotEmpty() &&
-                (selected["id"].isNullOrBlank() || selected["type"].isNullOrBlank())
-            ) return false
-        }
+        // Preserve existing stricter semantics for the original legacy route.
+        if (original.rawPath == "/embed" && selected.isNotEmpty() &&
+            (selected["id"].isNullOrBlank() || selected["type"].isNullOrBlank())
+        ) return false
 
-        if (titleBound) {
-            val episode = setOf("s", "e", "season", "episode")
-            val selected = protectedParameters(original, episode) ?: return false
-            val requested = protectedParameters(target, episode) ?: return false
-            if (selected != requested) return false
-        }
         return true
     }
 
     /**
      * Reject duplicate identity keys, including encoded and case variants.
-     * Preserve the exact selected values (rather than normalizing signed
-     * provider queries). Semicolon separation is recognized because some
-     * server-side frameworks treat it like '&'.
+     * Preserve exact selected values rather than normalizing signed queries.
+     * Semicolon separation is recognized because some frameworks treat it as '&'.
      */
     private fun protectedParameters(uri: URI, keys: Set<String>): Map<String, String>? {
         val parameters = LinkedHashMap<String, String>()
