@@ -188,7 +188,6 @@ fun TelegramExplorerDashboard(
             }
     }
 
-    val colors = MaterialTheme.colorScheme
     PremiumGridBackdrop(modifier = modifier) {
     Column(
         modifier = Modifier.fillMaxSize()
@@ -196,223 +195,54 @@ fun TelegramExplorerDashboard(
                 horizontal = design.pagePadding,
                 vertical = if (adaptive.isTv) 18.dp else 14.dp
             ),
-        verticalArrangement = Arrangement.spacedBy(gap)
+        verticalArrangement = Arrangement.spacedBy(if (adaptive.isTv) 8.dp else 10.dp)
     ) {
-        // The shell already displays the Bousygram brand; use this area
-        // for screen identity and the user's available library actions.
-        if (adaptive.isTv || adaptive.isTabletLayout) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                BousygramPageHeading(
-                    eyebrow = "Telegram media",
-                    title = "Your library",
-                    subtitle = "Saved media, channels and communities.",
-                    compact = false,
-                    modifier = Modifier.weight(1f)
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (hasResume) OutlinedButton(
-                        onClick = onResume,
-                        modifier = Modifier.heightIn(min = 52.dp)
-                    ) { Text("▶ Continue") }
-                    OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 52.dp)) {
-                        Text("Search")
-                    }
-                    OutlinedButton(onClick = onFavorites, modifier = Modifier.heightIn(min = 52.dp)) {
-                        Text("Favorites")
-                    }
-                    OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 52.dp)) {
-                        Text("Settings")
-                    }
-                }
-            }
-        } else {
-            BousygramPageHeading(
-                eyebrow = "Telegram media",
-                title = "Your library",
-                subtitle = "Saved media, channels and communities.",
-                compact = true
-            )
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (hasResume) OutlinedButton(onClick = onResume, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("▶ Continue")
-                }
-                OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = 48.dp)) { Text("Search") }
-                OutlinedButton(onClick = onFavorites, modifier = Modifier.heightIn(min = 48.dp)) { Text("Favorites") }
-                OutlinedButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Settings") }
-            }
-        }
-        // Auto-width section pills avoid cramming "Saved messages" into
-        // three tiny equal-width tabs on compact phones.
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                .testTag("telegram-library-sections"),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ExplorerSection.entries.forEach { section ->
-                val label = when (section) {
-                    ExplorerSection.SAVED -> if (adaptive.isPhoneLayout) "Saved" else "Saved messages"
-                    ExplorerSection.CHANNELS -> "Channels"
-                    ExplorerSection.GROUPS -> "Groups"
-                }
-                val count = when (section) {
-                    ExplorerSection.SAVED -> null
-                    ExplorerSection.CHANNELS -> channelCount
-                    ExplorerSection.GROUPS -> groupCount
-                }
-                val title = if (count != null && !adaptive.isPhoneLayout) "$label  $count" else label
-                val active = section == position.section
-                BousygramSectionTab(
-                    label = title,
-                    active = active,
-                    isTv = adaptive.isTv,
-                    onClick = { if (!active) onSelectTab(section) },
-                    modifier = Modifier.widthIn(min = if (adaptive.isTv) 150.dp else 94.dp)
-                        .testTag("telegram-library-tab-" + section.name.lowercase())
-                )
-            }
-        }
-        // Contextual collection header: concise on phones, comfortably readable on TV.
+        // Content-first toolbar: two compact rows instead of a full page hero,
+        // three separate navigation/action rows and an oversized collection panel.
+        // Preserve collection identity in one line so media remains above the fold.
         val folderTitle = when {
             position.section == ExplorerSection.SAVED -> "Saved Messages"
             showSources && position.section == ExplorerSection.CHANNELS -> "Your channels"
             showSources -> "Your groups"
             showTopics -> "Forum topics"
-            else -> selectedChatTitle
-        }
-        val folderDescription = when {
-            position.section == ExplorerSection.SAVED -> "Media saved to your own Telegram chat"
-            showSources && position.section == ExplorerSection.CHANNELS -> "Explore media from channels you follow"
-            showSources -> "Explore your groups and forum discussions"
-            showTopics -> "Choose a topic to browse its shared media"
-            else -> "Videos, audio and documents in this Telegram collection"
+            else -> selectedChatTitle.ifBlank { "Media" }
         }
         val collectionStatus = when {
             showSources -> explorerDirectoryStatus(position.section, directory.size, isLoadingSources)
-            showTopics -> if (isLoadingTopics) "${topics.size} topics found · Syncing" else "${topics.size} topics available"
-            isLoading -> "${videos.size} media shown · Loading"
-            else -> "${videos.size} media shown"
+            showTopics -> if (isLoadingTopics) "${topics.size} topics · Syncing"
+                else "${topics.size} topics"
+            isLoading -> "${videos.size} files · Loading"
+            else -> "${videos.size} files"
         }
-        Surface(
-            modifier = Modifier.fillMaxWidth().testTag("telegram-library-collection"),
-            shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
-            color = colors.surfaceContainerLow,
-            border = BorderStroke(1.dp, colors.outlineVariant)
-        ) {
-            Column(
-                modifier = Modifier.padding(
-                    horizontal = if (adaptive.isTv) 22.dp else 16.dp,
-                    vertical = if (adaptive.isTv) 16.dp else 14.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(9.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!showSources && position.section != ExplorerSection.SAVED) {
-                        OutlinedButton(
-                            onClick = onGoUp,
-                            modifier = Modifier.heightIn(min = 48.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                        ) { Text("‹ Back") }
-                    }
-                    Text(
-                        when (position.section) {
-                            ExplorerSection.SAVED -> "PERSONAL  /  SAVED"
-                            ExplorerSection.CHANNELS -> "TELEGRAM  /  CHANNELS"
-                            ExplorerSection.GROUPS -> "TELEGRAM  /  GROUPS"
-                        },
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            folderTitle,
-                            style = if (adaptive.isTv) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            folderDescription,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = if (adaptive.isPhoneLayout) 2 else 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    if (showSources && !isLoadingSources) {
-                        OutlinedButton(
-                            onClick = onRefreshSources,
-                            modifier = Modifier.heightIn(min = 48.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) { Text("Refresh") }
-                    }
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Reserve progress-icon width so asynchronous source updates do not
-                    // make the title shift horizontally on each loading transition.
-                    Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) {
-                        if ((showSources && isLoadingSources) || (showTopics && isLoadingTopics) || (showMedia && isLoading)) {
-                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                        }
-                    }
-                    BousygramStatusPill(
-                        collectionStatus,
-                        accent = !isLoading && !isLoadingSources && !isLoadingTopics
-                    )
-                    if (privacyMode && !adaptive.isPhoneLayout) {
-                        BousygramStatusPill("Privacy mode")
-                    }
-                }
-                if (privacyMode && adaptive.isPhoneLayout) {
-                    Text(
-                        "Privacy mode enabled",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.onSurfaceVariant
-                    )
-                }
-                if (showTopics) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = onBrowseAllMedia,
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                                .testTag("forum-browse-all-media"),
-                            contentPadding = PaddingValues(horizontal = 6.dp)
-                        ) { Text("Browse group media", maxLines = 2) }
-                        if (isLoadingTopics || errorMessage != null) {
-                            OutlinedButton(
-                                onClick = onRefreshTopics,
-                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                                    .testTag("forum-retry-topics"),
-                                contentPadding = PaddingValues(horizontal = 6.dp)
-                            ) { Text("Retry topics", maxLines = 2) }
-                        }
-                    }
-                }
-            }
-        }
+        TelegramExplorerCompactHeader(
+            section = position.section,
+            folderTitle = folderTitle,
+            collectionStatus = collectionStatus,
+            widthDp = adaptive.widthDp,
+            heightDp = adaptive.heightDp,
+            isTv = adaptive.isTv,
+            privacyMode = privacyMode,
+            isLoading = (showSources && isLoadingSources) ||
+                (showTopics && isLoadingTopics) || (showMedia && isLoading),
+            canGoUp = position.section != ExplorerSection.SAVED &&
+                position.level != ExplorerLevel.SOURCES,
+            showSources = showSources,
+            showTopics = showTopics,
+            hasResume = hasResume,
+            hasTopicError = errorMessage != null,
+            channelCount = channelCount,
+            groupCount = groupCount,
+            onSelectTab = onSelectTab,
+            onGoUp = onGoUp,
+            onBrowseAllMedia = onBrowseAllMedia,
+            onRefreshSources = onRefreshSources,
+            onRefreshTopics = onRefreshTopics,
+            onRefreshMedia = onRefreshMedia,
+            onResume = onResume,
+            onSearch = onSearch,
+            onFavorites = onFavorites,
+            onSettings = onSettings
+        )
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when {
                 showSources -> {
@@ -426,7 +256,7 @@ fun TelegramExplorerDashboard(
                         state = folderGrid, columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap),
-                        contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
+                        contentPadding = PaddingValues(3.dp, 4.dp, 3.dp, 16.dp)
                     ) {
                         items(directory, key = { "chat:" + it.chatId }) { source ->
                             ExplorerFolderCard(
@@ -460,7 +290,7 @@ fun TelegramExplorerDashboard(
                         columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),
                         verticalArrangement = Arrangement.spacedBy(gap),
-                        contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
+                        contentPadding = PaddingValues(3.dp, 4.dp, 3.dp, 16.dp)
                     ) {
                         items(topics, key = { "topic:" + selectedChatId + ":" + it.id }) { topic ->
                             ExplorerFolderCard(
@@ -493,7 +323,7 @@ fun TelegramExplorerDashboard(
                     state = gridState, columns = GridCells.Adaptive(cardMin),
                     horizontalArrangement = Arrangement.spacedBy(gap),
                     verticalArrangement = Arrangement.spacedBy(gap),
-                    contentPadding = PaddingValues(3.dp, 8.dp, 3.dp, 40.dp)
+                    contentPadding = PaddingValues(3.dp, 4.dp, 3.dp, 16.dp)
                 ) {
                     items(videos, key = { it.chatId.toString() + ":" + it.messageId }) { item ->
                         MediaPosterCard(
