@@ -23,6 +23,10 @@ internal enum class ExtrasAnimeEmbedServer(
      */
     val selectable: Boolean get() = template.contains("{episode}")
 
+    /** Non-default anime seasons must have an explicit season route. */
+    fun supportsSeason(season: Int): Boolean = season > 0 && selectable &&
+        (season == 1 || template.contains("{season}"))
+
     val description: String get() = when (this) {
         EMBED_HEAVEN -> "AniList episode route · unified movie/TV web player"
         VIDY, XXIKU -> "AniList episode route · external availability varies"
@@ -32,9 +36,7 @@ internal enum class ExtrasAnimeEmbedServer(
     fun urlFor(anilistId: Int, season: Int = 1, episode: Int = 1): String {
         require(season > 0 && episode > 0) { "Anime selectors are one-based" }
         require(selectable) { "Anime source does not encode an episode ID" }
-        require(season == 1 || template.contains("{season}")) {
-            "This anime source cannot identify a non-default season"
-        }
+        require(supportsSeason(season)) { "This anime source cannot identify the selected season" }
         return ExtrasEmbedUrlTemplates.build(template, anilistId, season, episode, queryParams)
     }
 }
