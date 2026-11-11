@@ -3516,8 +3516,8 @@ private fun TrackPickerOverlay(
     Surface(
         modifier = modifier
             .padding(if (isTv) 24.dp else if (compact) 12.dp else 28.dp)
-            .widthIn(max = if (isTv) 760.dp else 420.dp)
-            .fillMaxWidth(if (isTv) 0.72f else if (compact) 0.94f else 0.42f)
+            .widthIn(max = if (isTv) 880.dp else 420.dp)
+            .fillMaxWidth(if (isTv) 0.84f else if (compact) 0.94f else 0.42f)
             .focusGroup(),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -3646,6 +3646,25 @@ private fun TrackPickerOverlay(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = if (isTv) 16.sp else 12.sp
                 )
+                Text(
+                    "Subtitle preview · matches the selected text preset",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = if (isTv) 18.sp else 14.sp
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(subtitleAppearance.preset.backgroundColor),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        "Sample subtitle · 123",
+                        modifier = Modifier.padding(if (isTv) 20.dp else 12.dp),
+                        color = Color(subtitleAppearance.preset.textColor),
+                        fontSize = ((if (isTv) 21f else 17f) *
+                            subtitleAppearance.safePercent / 100f).sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 SubtitleColorPreset.entries.forEach { preset ->
                     TrackChoice(
                         label = "${preset.title} subtitles",
@@ -3661,7 +3680,7 @@ private fun TrackPickerOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    BousygramButton("A−", {
+                    BousygramButton(if (isTv) "A− Smaller" else "A−", {
                         onSubtitleAppearanceChange(
                             subtitleAppearance.changedPercent(subtitleAppearance.safePercent - 10)
                         )
@@ -3672,7 +3691,7 @@ private fun TrackPickerOverlay(
                         modifier = Modifier.weight(1f),
                         fontSize = if (isTv) 20.sp else 15.sp
                     )
-                    BousygramButton("A+", {
+                    BousygramButton(if (isTv) "A+ Larger" else "A+", {
                         onSubtitleAppearanceChange(
                             subtitleAppearance.changedPercent(subtitleAppearance.safePercent + 10)
                         )
