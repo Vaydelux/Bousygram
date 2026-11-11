@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -36,7 +37,12 @@ internal class ExtrasHttpTransport(
     suspend fun execute(url: String, body: String?, maxBytes: Int): ExtrasHttpResult =
         supervisorScope {
             require(maxBytes in 1..4_000_000)
-            val connection = openConnection(URL(url))
+            // This transport carries only public catalog metadata. Reject
+            // HTTP, local/private hosts and unexpected ports before opening
+            // even a test-injected connection. Redirects stay disabled.
+            val approved = MediaForgeUrlPolicy.safeHttpsUrl(url)
+                ?: throw IllegalArgumentException("Public HTTPS catalog URL required")
+            val connection = openConnection(approved.toURL())
             val request = async(Dispatchers.IO) {
                 try {
                     connection.connectTimeout = 6_000
