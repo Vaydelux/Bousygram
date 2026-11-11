@@ -53,6 +53,7 @@ import com.vaydelux.bousygram.data.store.SelectedPlayerEngine
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
+import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.BousygramThemeGallery
 import com.vaydelux.bousygram.presentation.components.BousygramChip
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
@@ -132,6 +133,8 @@ fun SettingsScreen(
         "off" to "Off"
     )
 
+    val showSidebar = !adaptive.isCompact &&
+        adaptive.widthDp >= 1100.dp && adaptive.heightDp >= 650.dp
     BousygramScaffold(modifier) {
         Row(
             modifier = Modifier
@@ -139,7 +142,7 @@ fun SettingsScreen(
                 .padding(if (adaptive.isCompact) 16.dp else 32.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            if (!adaptive.isCompact) {
+            if (showSidebar) {
                 Column(
                     modifier = Modifier.width(280.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -168,19 +171,20 @@ fun SettingsScreen(
                     .fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (adaptive.isCompact) {
+                if (!showSidebar) {
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            BousygramPageHeading(
-                                eyebrow = "Bousygram  /  Preferences",
-                                title = "Settings",
-                                subtitle = "Personalize your experience.",
-                                compact = true,
-                                modifier = Modifier.weight(1f)
+                            BousygramBrandMark(size = 36.dp)
+                            Text(
+                                text = "Settings",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             BousygramButton("Back", onBack)
                         }
