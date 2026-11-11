@@ -83,6 +83,7 @@ import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
+import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
@@ -363,32 +364,47 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            Column(Modifier.fillMaxWidth().padding(horizontal = if (metrics.isCompact) 16.dp else 32.dp, vertical = 14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = {
-                        if (detailItem != null) goBackFromDetails() else onExit()
-                    }) { Text("← Back") }
-                    BousygramPageHeading(
-                        eyebrow = "Bousygram  /  Extras",
-                        title = if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
-                        subtitle = "Movies, series and anime · one integrated playback experience",
-                        compact = metrics.isCompact,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(onClick = { showCredits = true }) { Text("Credits") }
+            Column(
+                Modifier.fillMaxWidth().padding(
+                    horizontal = if (metrics.isCompact) 16.dp else 32.dp,
+                    vertical = if (metrics.isTv || metrics.heightDp < 660.dp) 6.dp else 10.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (detailItem != null) goBackFromDetails() else onExit()
+                        },
+                        modifier = Modifier.heightIn(min = if (metrics.isTv) 52.dp else 44.dp)
+                    ) { Text("‹ Back", maxLines = 1) }
+                    BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
+                            style = if (metrics.isTv) MaterialTheme.typography.titleLarge
+                                else MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "Movies · TV shows · Anime",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                    TextButton(onClick = { showCredits = true }) {
+                        Text(if (metrics.widthDp < 430.dp) "Info" else "Credits", maxLines = 1)
+                    }
                 }
                 if (detailItem == null) {
-                    Spacer(Modifier.height(8.dp))
-                    // Keep every tab reachable on smaller phones and large font scales.
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(Modifier.weight(1f)) {
-                            ExtrasCatalogTabs(activeTabIndex, onSelect = { selectedTab = it })
-                        }
-                    }
+                    ExtrasCatalogTabs(activeTabIndex, onSelect = { selectedTab = it })
                 }
             }
         }
