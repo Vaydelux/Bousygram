@@ -48,7 +48,13 @@ class MainActivitySmokeTest {
 
         val device = UiDevice.getInstance(instrumentation)
         assertTrue("Preview dashboard heading should be visible", device.wait(Until.hasObject(By.text("Your library")), 5_000))
-        assertTrue("Library navigation should be visible", device.wait(Until.hasObject(By.text("Saved Messages")), 5_000))
+        // The compact browser intentionally combines the selected source and
+        // file count in one line; the actual navigation controls are separate.
+        assertTrue("Saved section should be reachable", device.wait(Until.hasObject(By.text("Saved")), 5_000))
+        assertTrue("Channels section should be reachable", device.wait(Until.hasObject(By.text("Channels")), 5_000))
+        assertTrue("Groups section should be reachable", device.wait(Until.hasObject(By.text("Groups")), 5_000))
+        assertTrue("Selected collection context should be visible",
+            device.wait(Until.hasObject(By.textContains("Saved Messages")), 5_000))
     }
 
     /** Regression: Android can reuse the task's top Activity for a new launch intent. */
