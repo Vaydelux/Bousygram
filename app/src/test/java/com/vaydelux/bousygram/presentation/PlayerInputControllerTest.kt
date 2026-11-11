@@ -147,6 +147,24 @@ class PlayerInputControllerTest {
     }
 
     @Test
+    fun visibleDownFromSeekBarRestoresButtonFocusBeforeOpeningQueue() {
+        controller.isHudVisible = true
+        controller.currentFocusRow = 0
+
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_DOWN))
+        assertEquals(1, controller.currentFocusRow)
+        assertEquals(PlayerMenuType.NONE, controller.activeMenu)
+        assertEquals(PlayerFocusTarget.BUTTON_PLAY_PAUSE, lastFocusTarget)
+        assertFalse(recordedActions.contains("openMenu:EPISODES"))
+
+        currentTimeMs += 120L
+        assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_DOWN))
+        assertEquals(PlayerMenuType.EPISODES, controller.activeMenu)
+        assertTrue(recordedActions.contains("openMenu:EPISODES"))
+        assertFalse(recordedActions.contains("skipNext"))
+    }
+
+    @Test
     fun visibleDownOpensRelatedTray_backClosesWithoutExitingVideo() {
         controller.isHudVisible = true
         assertTrue(sendKey(KeyEvent.KEYCODE_DPAD_DOWN))
