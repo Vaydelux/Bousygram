@@ -107,17 +107,16 @@ internal data class ExtrasEmbedRequest(
     val episode: Int? = null,
     val server: ExtrasEmbedServer = ExtrasEmbedServer.CINESRC,
     val anilistId: Int = 0,
-    val animeServer: ExtrasAnimeEmbedServer = ExtrasAnimeEmbedServer.FILMU,
-    val liveChannelSlug: String? = null,
+    val animeServer: ExtrasAnimeEmbedServer = ExtrasAnimeEmbedServer.EMBED_HEAVEN,
     val legacyEmbedHeaven: Boolean = false
 ) {
     init {
-        val identityCount = listOf(tmdbId > 0, anilistId > 0, liveChannelSlug != null).count { it }
-        require(identityCount == 1) { "Expected exactly one catalog or live channel identity" }
-        if (liveChannelSlug != null) {
-            require(season == null && episode == null &&
-                url == ExtrasEmbedHeavenRoutes.live(liveChannelSlug)) {
-                "Invalid live channel request"
+        require((tmdbId > 0) != (anilistId > 0)) {
+            "Expected exactly one TMDB or AniList identity"
+        }
+        if (anilistId > 0) {
+            require((season ?: 1) > 0 && (episode ?: 0) > 0) {
+                "Anime requires a positive episode number"
             }
         }
         if (legacyEmbedHeaven) {
@@ -151,13 +150,6 @@ internal data class ExtrasEmbedRequest(
     }
 
     companion object {
-        fun live(channelSlug: String): ExtrasEmbedRequest =
-            ExtrasEmbedRequest(
-                url = ExtrasEmbedHeavenRoutes.live(channelSlug),
-                title = "Live TV · " + channelSlug,
-                liveChannelSlug = channelSlug
-            )
-
         fun movie(tmdbId: Int, title: String): ExtrasEmbedRequest =
             ExtrasEmbedRequest(ExtrasEmbedServer.CINESRC.urlFor(tmdbId), title, tmdbId)
 
@@ -169,7 +161,7 @@ internal data class ExtrasEmbedRequest(
 
         fun anime(anilistId: Int, episode: Int, title: String, season: Int = 1): ExtrasEmbedRequest =
             ExtrasEmbedRequest(
-                url = ExtrasAnimeEmbedServer.FILMU.urlFor(anilistId, season, episode),
+                url = ExtrasAnimeEmbedServer.EMBED_HEAVEN.urlFor(anilistId, season, episode),
                 title = "$title · E$episode",
                 anilistId = anilistId, season = season, episode = episode
             )
@@ -186,23 +178,23 @@ internal fun ExtrasMediaForgeScreen(
     onBack: () -> Unit,
     isAndroidTv: Boolean
 ) {
-    var selectedServer by remember(request.tmdbId, request.anilistId, request.liveChannelSlug, request.season, request.episode) {
+    var selectedServer by remember(request.tmdbId, request.anilistId, request.season, request.episode) {
         mutableStateOf(request.server)
     }
-    var selectedAnimeServer by remember(request.tmdbId, request.anilistId, request.liveChannelSlug, request.season, request.episode) {
+    var selectedAnimeServer by remember(request.tmdbId, request.anilistId, request.season, request.episode) {
         mutableStateOf(request.animeServer)
     }
     var useLegacyEmbedHeaven by remember(request.tmdbId, request.season, request.episode) {
         mutableStateOf(request.legacyEmbedHeaven)
     }
-    // Anime is never auto-opened on an unverified default provider. The server picker
-    // must be reachable before WebView is created, including on low-memory TVs.
+    // Mirror movie/TV playback: enter the shared player immediately. A native
+    // chooser remains available for manual recovery when an external anime
+    // provider fails (including silent/blank upstream pages).
     var animeServerConfirmed by remember(request.anilistId, request.season, request.episode) {
-        mutableStateOf(request.anilistId <= 0)
+        mutableStateOf(true)
     }
     val selectedRequest = remember(request, selectedServer, selectedAnimeServer, useLegacyEmbedHeaven) {
         when {
-            request.liveChannelSlug != null -> request
             request.anilistId > 0 -> request.forServer(selectedAnimeServer)
             selectedServer == ExtrasEmbedServer.EMBED_HEAVEN &&
                 request.season == null && useLegacyEmbedHeaven -> request.forLegacyEmbedHeaven()
@@ -279,8 +271,21 @@ private fun ExtrasMediaForgePlayerScreen(
     var inspectionJob by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
     var inspectionGeneration by remember { mutableIntStateOf(0) }
-    var status by remember { mutableStateOf("Play the embedded media to discover available sources.") }
+    var status by remember(request.url) {
+        mutableStateOf("Loading the selected web player. If the picture stays blank, choose another server.")
+    }
     var webLoadFailed by remember(request.url) { mutableStateOf(false) }
+    // A blank HTML document may return HTTP 200 and never trigger onReceivedError.
+    // Offer native recovery without guessing that absent network observations
+    // imply playback failure (DRM/MSE pages need not expose media URLs).
+    var slowEmbedHelp by remember(request.url) { mutableStateOf(false) }
+    LaunchedEffect(request.url, webGeneration, webLoadFailed) {
+        slowEmbedHelp = false
+        if (!webLoadFailed) {
+            kotlinx.coroutines.delay(15_000L)
+            slowEmbedHelp = true
+        }
+    }
     // Keep the session alive while native playback temporarily replaces WebView.
     DisposableEffect(session) {
         onDispose { session.close() }
@@ -465,9 +470,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     if (maxWidth < 520.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (request.liveChannelSlug != null) {
-                                Text("EmbedHeaven · Live TV", style = MaterialTheme.typography.labelLarge)
-                            } else if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
+                            if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
                                 server = selectedAnimeServer,
                                 onSelected = onAnimeServerSelected,
                                 isTv = isAndroidTv,
@@ -500,9 +503,7 @@ private fun ExtrasMediaForgePlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (request.liveChannelSlug != null) {
-                                Text("EmbedHeaven · Live TV", style = MaterialTheme.typography.labelLarge)
-                            } else if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
+                            if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
                                 server = selectedAnimeServer,
                                 onSelected = onAnimeServerSelected,
                                 isTv = isAndroidTv,
@@ -529,7 +530,6 @@ private fun ExtrasMediaForgePlayerScreen(
 
                 Text(
                     (when {
-                        request.liveChannelSlug != null -> "Live TV · ${request.liveChannelSlug} · EmbedHeaven"
                         request.anilistId > 0 -> "AniList #${request.anilistId} · ${selectedAnimeServer.description}"
                         else -> "TMDB #${request.tmdbId} · ${selectedServer.description}"
                     }) + " · Availability varies by provider.",
@@ -647,6 +647,28 @@ private fun ExtrasMediaForgePlayerScreen(
                         // A dead Chromium renderer has no reusable WebView or bridge.
                         if (webView != null) webView?.reload() else webGeneration += 1
                     }, modifier = Modifier.testTag("extras-embed-retry-load")) { Text("Retry page") }
+                }
+            }
+            if (request.anilistId > 0 && !webLoadFailed && slowEmbedHelp && !immersiveWeb) {
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Still a black screen? Switch anime server.",
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.bodyMedium)
+                        OutlinedButton(
+                            onClick = onChooseAnimeServer,
+                            modifier = Modifier.testTag("extras-anime-blank-recovery")
+                        ) { Text("Choose server") }
+                    }
                 }
             }
             if (cursorEnabled && isAndroidTv) {
