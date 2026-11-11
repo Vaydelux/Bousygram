@@ -108,6 +108,7 @@ import com.vaydelux.bousygram.data.database.RecentSearchQuery
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.SeriesGroup
 import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
+import com.vaydelux.bousygram.presentation.adaptive.shouldUseSideRail
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.MediaCardDensity
@@ -414,9 +415,7 @@ fun BousygramAdaptiveShell(
                 }
             }
         }
-        adaptive.isTabletLayout || (
-            adaptive.profile == DeviceProfile.PhoneLandscape && adaptive.heightDp < 520.dp
-        ) -> {
+        shouldUseSideRail(adaptive.profile, adaptive.heightDp) -> {
             // Short landscape phones gain an entire row of media by moving
             // navigation into a slim side rail, instead of stacking both
             // the top bar and bottom navigation around a 390dp viewport.
@@ -431,7 +430,8 @@ fun BousygramAdaptiveShell(
                     onSelect = onSelect,
                     onOpenSearch = onOpenSearch,
                     onOpenProfile = onOpenSettings,
-                    focusRequester = navFocusRequester
+                    focusRequester = navFocusRequester,
+                    compact = adaptive.profile == DeviceProfile.PhoneLandscape
                 )
                 Box(
                     modifier = Modifier
@@ -479,7 +479,8 @@ fun TabletNavRail(
     onOpenSearch: () -> Unit,
     onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    compact: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     NavigationRail(
@@ -490,13 +491,16 @@ fun TabletNavRail(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)
+                modifier = Modifier.padding(
+                    top = if (compact) 2.dp else 16.dp,
+                    bottom = if (compact) 0.dp else 12.dp
+                )
             ) {
-                BousygramBrandMark(size = 40.dp)
+                BousygramBrandMark(size = if (compact) 28.dp else 40.dp)
             }
         }
     ) {
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(if (compact) 2.dp else 12.dp))
         ShellDestination.navItems.forEach { destination ->
             val isSelected = when (destination) {
                 ShellDestination.Home -> selected == ShellDestination.Home
