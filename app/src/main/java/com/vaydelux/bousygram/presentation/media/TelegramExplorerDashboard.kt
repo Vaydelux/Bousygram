@@ -250,7 +250,8 @@ fun TelegramExplorerDashboard(
                         if (isLoadingSources) ExplorerLoadingGrid("Loading source directory…", cardMin)
                         else ExplorerMessage(
                             message = sourceErrorMessage ?: "No joined sources in this section",
-                            onRetry = onRefreshSources
+                            onRetry = onRefreshSources,
+                            actionLabel = if (sourceErrorMessage == null) "Refresh" else "Retry"
                         )
                     } else LazyVerticalGrid(
                         state = folderGrid, columns = GridCells.Adaptive(cardMin),
@@ -283,7 +284,8 @@ fun TelegramExplorerDashboard(
                         if (isLoadingTopics) ExplorerLoadingGrid("Loading forum topics…", cardMin)
                         else ExplorerMessage(
                             message = errorMessage ?: "No accessible topics in this group",
-                            onRetry = onRefreshTopics
+                            onRetry = onRefreshTopics,
+                            actionLabel = if (errorMessage == null) "Refresh" else "Retry"
                         )
                     } else LazyVerticalGrid(
                         state = topicGrid,
@@ -316,7 +318,8 @@ fun TelegramExplorerDashboard(
                     if (isLoading) ExplorerLoadingGrid("Loading media…", cardMin)
                     else ExplorerMessage(
                         message = errorMessage ?: "No playable media found in this folder",
-                        onRetry = onRefreshMedia
+                        onRetry = onRefreshMedia,
+                        actionLabel = if (errorMessage == null) "Refresh" else "Retry"
                     )
                 }
                 else -> LazyVerticalGrid(
@@ -399,7 +402,11 @@ private fun ExplorerLoadingGrid(message: String, cardMin: androidx.compose.ui.un
 }
 
 @Composable
-private fun ExplorerMessage(message: String, onRetry: (() -> Unit)? = null) {
+private fun ExplorerMessage(
+    message: String,
+    onRetry: (() -> Unit)? = null,
+    actionLabel: String = "Retry"
+) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
@@ -409,7 +416,7 @@ private fun ExplorerMessage(message: String, onRetry: (() -> Unit)? = null) {
             )
             if (onRetry != null) {
                 OutlinedButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("Retry")
+                    Text(actionLabel)
                 }
             }
         }

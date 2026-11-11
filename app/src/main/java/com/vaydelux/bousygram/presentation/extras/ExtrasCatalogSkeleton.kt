@@ -28,7 +28,11 @@ import androidx.compose.ui.unit.dp
  * No provider metadata, Telegram client, or network access is required.
  */
 @Composable
-internal fun ExtrasCatalogLoadingSkeleton(isTv: Boolean, compact: Boolean) {
+internal fun ExtrasCatalogLoadingSkeleton(
+    isTv: Boolean,
+    compact: Boolean,
+    shortViewport: Boolean = false
+) {
     val minWidth = when {
         isTv -> 160.dp
         compact -> 132.dp
@@ -54,7 +58,7 @@ internal fun ExtrasCatalogLoadingSkeleton(isTv: Boolean, compact: Boolean) {
                         .testTag("extras-loading-poster-$index"),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    SkeletonShape(Modifier.fillMaxWidth().height(205.dp))
+                    SkeletonShape(Modifier.fillMaxWidth().height(if (shortViewport) 154.dp else 205.dp))
                     SkeletonShape(Modifier.fillMaxWidth().height(13.dp))
                     SkeletonShape(Modifier.fillMaxWidth(0.62f).height(10.dp))
                 }

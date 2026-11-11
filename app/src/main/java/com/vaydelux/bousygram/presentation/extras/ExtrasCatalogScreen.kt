@@ -12,10 +12,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -362,10 +365,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     PremiumGridBackdrop {
     Scaffold(
         containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        // Let the premium backdrop draw edge-to-edge, but keep native controls
+        // out of the Android status/navigation bars and display cutout.
+        contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             Column(
-                Modifier.fillMaxWidth().padding(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(
                     horizontal = if (metrics.isCompact) 16.dp else 32.dp,
                     vertical = if (metrics.isTv || metrics.heightDp < 660.dp) 6.dp else 10.dp
                 ),
@@ -618,8 +623,15 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     )
                 }
                 if (state.results.isEmpty() && state.loading) {
-                    ExtrasCatalogLoadingSkeleton(isAndroidTv, metrics.isCompact)
+                    ExtrasCatalogViewport {
+                        ExtrasCatalogLoadingSkeleton(
+                            isTv = isAndroidTv,
+                            compact = metrics.isCompact,
+                            shortViewport = metrics.heightDp < 650.dp
+                        )
+                    }
                 } else if (state.results.isEmpty() && !state.loading && state.error == null) {
+                    ExtrasCatalogViewport {
                     Column(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.Center,
@@ -639,13 +651,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             }) { Text("Check next page") }
                         }
                     }
+                    }
                 } else {
                     val minWidth = when {
                         metrics.isTv -> 160.dp
                         metrics.isCompact -> 132.dp
                         else -> 155.dp
                     }
-                    LazyVerticalGrid(columns = GridCells.Adaptive(minWidth), state = activeGrid, modifier = Modifier.fillMaxSize(),
+                    ExtrasCatalogViewport {
+                    LazyVerticalGrid(columns = GridCells.Adaptive(minWidth), state = activeGrid,
+                        modifier = Modifier.fillMaxSize(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(state.results, key = { "${it.type}:${it.id}" }) { item ->
@@ -665,6 +680,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             }
                         }
                     }
+                    }
                 }
             }
         }
@@ -677,6 +693,24 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
  * Separately testable focusable TV tabs, no API/key required to compose.
  * Test tags are intentionally stable for DPAD/instrumentation smoke checks.
  */
+/**
+ * All Extras catalog states reserve the remaining viewport after the search,
+ * filters and error banner. Keep the poster grid above the fold on short TVs
+ * and landscape phones, and never let loading/empty-state panels overgrow it.
+ */
+@Composable
+internal fun ColumnScope.ExtrasCatalogViewport(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = modifier.weight(1f).fillMaxWidth()
+            .testTag("extras-results-viewport")
+    ) {
+        content()
+    }
+}
+
 /** Optional filters stay reachable without stealing a permanent row of posters. */
 @Composable
 internal fun ExtrasFilterDisclosure(
@@ -928,7 +962,8 @@ internal fun ExtrasPosterCard(
                     maxLines = 2,
                     minLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = if (metrics.isTv) MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold
                 )

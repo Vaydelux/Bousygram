@@ -195,10 +195,12 @@ internal fun TelegramExplorerCompactHeader(
                         text = {
                             Text(when {
                                 showSources -> "Refresh channels and groups"
-                                showTopics -> "Retry forum topics"
+                                showTopics -> if (hasTopicError) "Retry forum topics"
+                                    else "Refresh forum topics"
                                 else -> "Refresh media"
                             })
                         },
+                        enabled = !isLoading,
                         onClick = {
                             menuExpanded = false
                             when {
@@ -255,12 +257,13 @@ internal fun TelegramExplorerCompactHeader(
                     modifier = Modifier.weight(1f).heightIn(min = minControl)
                         .testTag("forum-browse-all-media")
                 ) { Text("Browse group media", maxLines = 1) }
-                if (isLoading || hasTopicError) {
+                if (hasTopicError) {
                     OutlinedButton(
                         onClick = onRefreshTopics,
+                        enabled = !isLoading,
                         modifier = Modifier.weight(1f).heightIn(min = minControl)
                             .testTag("forum-retry-topics")
-                    ) { Text("Retry topics", maxLines = 1) }
+                    ) { Text(if (isLoading) "Retrying…" else "Retry topics", maxLines = 1) }
                 }
             }
         }

@@ -63,7 +63,7 @@ fun BousygramThemeGallery(
                         onClick = { onSelect(preset) },
                         selected = isSelected,
                         modifier = Modifier.weight(1f)
-                            .heightIn(min = if (metrics.isTv) 112.dp else 100.dp)
+                            .heightIn(min = if (metrics.isTv) 124.dp else 100.dp)
                             .testTag("theme-preset-" + preset.id)
                     ) { focused ->
                         Column(
@@ -86,10 +86,12 @@ fun BousygramThemeGallery(
                                 }
                             }
                             Text(
-                                text = preset.displayName +
-                                    if (isSelected) " · Selected" else "",
+                                // Selection is already announced via semantics and
+                                // focus styling; avoid clipping titles such as High contrast.
+                                text = preset.displayName,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.labelLarge,
+                                style = if (metrics.isTv) MaterialTheme.typography.titleMedium
+                                    else MaterialTheme.typography.labelLarge,
                                 fontWeight = if (isSelected || focused) FontWeight.Bold
                                     else FontWeight.Medium,
                                 maxLines = 1,
@@ -98,7 +100,8 @@ fun BousygramThemeGallery(
                             Text(
                                 text = tagline,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = if (metrics.isTv) MaterialTheme.typography.bodyMedium
+                                    else MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )

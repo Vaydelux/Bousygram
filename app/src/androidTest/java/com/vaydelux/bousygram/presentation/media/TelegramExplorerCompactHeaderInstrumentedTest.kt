@@ -31,7 +31,9 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
         width: Dp,
         height: Dp,
         television: Boolean,
-        forum: Boolean = false
+        forum: Boolean = false,
+        hasError: Boolean = false,
+        loading: Boolean = false
     ) {
         var section by remember {
             mutableStateOf(if (forum) ExplorerSection.GROUPS else ExplorerSection.SAVED)
@@ -45,12 +47,12 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
                 heightDp = height,
                 isTv = television,
                 privacyMode = false,
-                isLoading = false,
+                isLoading = loading,
                 canGoUp = forum,
                 showSources = false,
                 showTopics = forum,
                 hasResume = false,
-                hasTopicError = false,
+                hasTopicError = hasError,
                 channelCount = 12,
                 groupCount = 5,
                 onSelectTab = { section = it },
@@ -82,12 +84,30 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
             heightPx <= 160f * density)
     }
 
+    @Test fun retryButtonAppearsOnlyOnForumErrors() {
+        compose.setContent {
+            HeaderFixture(720.dp, 540.dp, television = true, forum = true, hasError = true)
+        }
+        compose.onNodeWithTag("forum-retry-topics").assertExists()
+        compose.onNodeWithText("Retry topics").assertExists()
+        compose.onNodeWithTag("telegram-explorer-more").performClick()
+        compose.onNodeWithText("Retry forum topics").assertExists()
+    }
+
+    @Test fun loadingForumDoesNotShowDuplicateRetryButton() {
+        compose.setContent {
+            HeaderFixture(720.dp, 540.dp, television = true, forum = true, loading = true)
+        }
+        compose.onNodeWithTag("forum-retry-topics").assertDoesNotExist()
+        compose.onNodeWithTag("forum-browse-all-media").assertExists()
+    }
+
     @Test fun portraitAndForumControlsRemainReachableWithoutStackedPanel() {
         compose.setContent { HeaderFixture(393.dp, 852.dp, television = false, forum = true) }
         compose.onNodeWithTag("forum-browse-all-media").assertExists()
         compose.onNodeWithTag("telegram-explorer-go-up").assertExists()
         compose.onNodeWithTag("telegram-library-tab-groups").assertIsSelected()
         compose.onNodeWithTag("telegram-explorer-more").performClick()
-        compose.onNodeWithText("Retry forum topics").assertExists()
+        compose.onNodeWithText("Refresh forum topics").assertExists()
     }
 }

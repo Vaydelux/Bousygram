@@ -97,6 +97,9 @@ class TelegramLibraryDesignInstrumentedTest {
         assertTrue("Library grid occupies only ${gridHeight / fullHeight} of the viewport",
             fullHeight > 0f && gridHeight / fullHeight >= 0.58f)
         compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
+        // An empty folder is not an error. Retry is reserved for actual failures.
+        compose.onNodeWithText("Refresh").assertExists()
+        compose.onNodeWithText("Retry").assertDoesNotExist()
         writeUiEvidence(compose, "telegram-library")
         compose.onNodeWithTag("telegram-library-tab-channels").performClick()
         compose.onNodeWithTag("telegram-library-tab-channels").assertIsSelected()
