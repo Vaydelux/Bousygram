@@ -1283,7 +1283,7 @@ fun MediaPosterCard(
                     text = if (privacyMode) "Private video" else labels.title,
                     color = MaterialTheme.colorScheme.onSurface,
                     style = if (cardDensity == MediaCardDensity.SHORT_TV)
-                        MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+                        MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
                     fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = if (cardDensity == MediaCardDensity.SHORT_LANDSCAPE) 1 else 2,
                     minLines = if (cardDensity == MediaCardDensity.SHORT_LANDSCAPE) 1 else 2,
