@@ -1341,11 +1341,38 @@ fun PlayerScreen(
                         isReconnecting = true
                         isBuffering = true
                         playbackError = null
+                        val failedQueueIndex = queueIndex
+                        val failedReloadNonce = reloadNonce
                         scope.launch {
                             // The prepare effect re-resolves and applies the refreshed TDLib fileId.
                             delay(maxOf(autoRetryDelayMs(retryCount), 2_000L))
-                            if (queue.getOrNull(queueIndex)?.fileId == item.fileId && playbackError == null) {
-                                reloadNonce++
+                            val sameQueueItem = queueIndex == failedQueueIndex &&
+                                queue.getOrNull(failedQueueIndex)?.fileId == item.fileId
+                            val sameReload = reloadNonce == failedReloadNonce
+                            if (sameQueueItem && sameReload && playbackError == null &&
+                                !playbackSession.isStopped()
+                            ) {
+                                if (shouldRunDelayedPlaybackRetry(
+                                        sameQueueItem = sameQueueItem,
+                                        sameReload = sameReload,
+                                        sessionActive = true,
+                                        inForeground = lifecycleOwner.lifecycle.currentState
+                                            .isAtLeast(Lifecycle.State.RESUMED),
+                                        explicitlyPaused = explicitlyPaused,
+                                        castConnected = castState.connected,
+                                        audioFocusSuppressed = audioFocusController.isSuppressed
+                                    )
+                                ) {
+                                    reloadNonce++
+                                } else {
+                                    // A stale retry must not re-arm autoplay. Drop only this
+                                    // pending spinner; manual Pause and Cast retain ownership.
+                                    isReconnecting = false
+                                    isBuffering = false
+                                    if (!explicitlyPaused && !castState.connected) {
+                                        playbackError = "Playback was interrupted. Choose Retry when ready."
+                                    }
+                                }
                             }
                         }
                     } else {
