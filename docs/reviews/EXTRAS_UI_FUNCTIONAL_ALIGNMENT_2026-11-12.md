@@ -12,6 +12,8 @@ Scope: targeted safety/behavior changes after the merged query-identity lock in 
 | P1 | Some anime providers omit a `{season}` segment. Passing a non-default season silently loaded the default-season URL. | Reject non-default seasons unless the chosen anime URL template includes `{season}`. | JVM test covers rejected VIDY season 2 and supported FILMU season 2. |
 | P2 | Cinezo's explicit query options requested embedded PiP, Cast, and download controls, conflicting with the app's no-PiP and controlled-Cast design. | Request `pip=false`, `chromecast=false`, and `download=false` where this provider exposes such parameters. **Upstream compliance is unverified.** | JVM URL parameter test. |
 | P1 | The Extras metadata HTTP transport accepted arbitrary URLs before opening the connection, even though present call sites use fixed public TMDB/AniList HTTPS endpoints. | Enforce the shared public-HTTPS, non-local-host, default-port URL policy at the transport boundary. Preserve disabled redirects, cancellation and bounded bodies. | JVM test verifies no socket opens for HTTP, localhost, private IP or custom port. |
+| P1 | Responsive UI smoke used narrower pull-request path filters than push: Extras, Settings and UI resource edits could bypass this visual release gate. | Match pull-request UI paths with the complete presentation/resource/brand surfaces. | GitHub Actions responsive UI workflow is now triggered for those changes. |
+| P2 | The one-time debug dispatcher for merged PR #173 remained in the workflow catalog after its branch had already been removed. | Delete the obsolete dispatcher rather than retain an unnecessary workflow with write privileges. | GitHub workflow inventory and actionlint. |
 
 ## Cross-layer alignment contract
 
