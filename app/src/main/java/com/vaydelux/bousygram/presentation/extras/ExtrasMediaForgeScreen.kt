@@ -159,12 +159,19 @@ internal data class ExtrasEmbedRequest(
                 "$title · S$season E$episode", tmdbId, season, episode
             )
 
-        fun anime(anilistId: Int, episode: Int, title: String, season: Int = 1): ExtrasEmbedRequest =
-            ExtrasEmbedRequest(
-                url = ExtrasAnimeEmbedServer.EMBED_HEAVEN.urlFor(anilistId, season, episode),
+        fun anime(anilistId: Int, episode: Int, title: String, season: Int = 1): ExtrasEmbedRequest {
+            // The default provider only identifies an episode, not season 2+.
+            // Prefer a provider with an explicit season route rather than
+            // silently loading the wrong season or throwing in Compose.
+            val source = if (season == 1) ExtrasAnimeEmbedServer.EMBED_HEAVEN
+                else ExtrasAnimeEmbedServer.FILMU
+            return ExtrasEmbedRequest(
+                url = source.urlFor(anilistId, season, episode),
                 title = "$title · E$episode",
-                anilistId = anilistId, season = season, episode = episode
+                anilistId = anilistId, season = season, episode = episode,
+                animeServer = source
             )
+        }
     }
 }
 
@@ -474,7 +481,8 @@ private fun ExtrasMediaForgePlayerScreen(
                                 server = selectedAnimeServer,
                                 onSelected = onAnimeServerSelected,
                                 isTv = isAndroidTv,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                season = request.season ?: 1
                             ) else ExtrasEmbedServerDropdown(
                                 server = selectedServer,
                                 onSelected = onServerSelected,
@@ -507,7 +515,8 @@ private fun ExtrasMediaForgePlayerScreen(
                                 server = selectedAnimeServer,
                                 onSelected = onAnimeServerSelected,
                                 isTv = isAndroidTv,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                season = request.season ?: 1
                             ) else ExtrasEmbedServerDropdown(
                                 server = selectedServer,
                                 onSelected = onServerSelected,
@@ -1131,16 +1140,17 @@ internal fun ExtrasAnimeEmbedServerDropdown(
     server: ExtrasAnimeEmbedServer,
     onSelected: (ExtrasAnimeEmbedServer) -> Unit,
     isTv: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    season: Int = 1
 ) {
-    val options = remember {
-        ExtrasAnimeEmbedServer.entries.filter { it.selectable }.map {
+    val options = remember(season) {
+        ExtrasAnimeEmbedServer.entries.filter { it.supportsSeason(season) }.map {
             ExtrasServerOption("extras-anime-server-" + it.name.lowercase(),
                 it.label, it.description, if (it.featured) "New anime servers" else "Default anime server")
         }
     }
     ExtrasServerPicker(server.label, "extras-anime-server-" + server.name.lowercase(),
-        options, { key -> onSelected(ExtrasAnimeEmbedServer.entries.first { it.selectable && "extras-anime-server-" + it.name.lowercase() == key }) },
+        options, { key -> onSelected(ExtrasAnimeEmbedServer.entries.first { it.supportsSeason(season) && "extras-anime-server-" + it.name.lowercase() == key }) },
         isTv, modifier, pickerTitle = "Choose anime server", compactOptions = true)
 }
 
