@@ -1141,7 +1141,8 @@ internal object TelegramChunkScheduler {
                 requestedBytes = request.limit,
                 currentOffset = window?.offset,
                 currentEndExclusive = window?.endExclusive,
-                knownSize = fileSizes[request.fileId] ?: 0L
+                knownSize = fileSizes[request.fileId] ?: 0L,
+                downloadedPrefixBytes = prefix
             )
         } else requiresPlaybackWindowReposition(request.offset, window?.offset, contiguousEnd)
         if (isOutside) {
