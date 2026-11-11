@@ -489,8 +489,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         onDismiss = { showSuggestions = false }
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                var filtersExpanded by rememberSaveable(type.name) { mutableStateOf(false) }
+                ExtrasFilterDisclosure(
+                    expanded = filtersExpanded,
+                    active = state.filters != ExtrasFilters(),
+                    onToggle = { filtersExpanded = !filtersExpanded }
+                )
+                if (filtersExpanded) {
+                    Spacer(Modifier.height(4.dp))
+                    LazyRow(
+                        modifier = Modifier.testTag("extras-filter-row"),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                     item {
                         ExtrasDropdown("Sort: ${state.filters.sort.label}",
                             ExtrasSort.entries.map { it.label }) { index ->
@@ -572,8 +582,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                 loading = true, hasMore = true))
                         }) { Text("Reset filters") }
                     }
+                    }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(6.dp))
                 if (state.error != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(state.error, color = MaterialTheme.colorScheme.error,
@@ -666,6 +677,35 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
  * Separately testable focusable TV tabs, no API/key required to compose.
  * Test tags are intentionally stable for DPAD/instrumentation smoke checks.
  */
+/** Optional filters stay reachable without stealing a permanent row of posters. */
+@Composable
+internal fun ExtrasFilterDisclosure(
+    expanded: Boolean,
+    active: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        OutlinedButton(
+            onClick = onToggle,
+            modifier = Modifier.heightIn(min = 44.dp).testTag("extras-filter-toggle")
+        ) {
+            Text(if (expanded) "Hide filters" else "Filters", maxLines = 1)
+        }
+        Text(
+            if (active) "Custom filters active" else "Sort, genre, year and more",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
 @Composable
 internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
     val metrics = rememberAdaptiveMetrics()
@@ -864,6 +904,9 @@ internal fun ExtrasPosterCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val metrics = rememberAdaptiveMetrics()
+    val shortViewport = metrics.heightDp < 650.dp
+    val posterHeight = if (shortViewport) 154.dp else 205.dp
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth()
@@ -873,7 +916,7 @@ internal fun ExtrasPosterCard(
             ExtrasPosterArtwork(
                 url = item.poster,
                 contentDescription = item.title,
-                modifier = Modifier.fillMaxWidth().height(205.dp),
+                modifier = Modifier.fillMaxWidth().height(posterHeight),
                 detail = false
             )
             Column(
