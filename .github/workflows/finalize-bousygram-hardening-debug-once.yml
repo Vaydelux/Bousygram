@@ -1,0 +1,65 @@
+name: Finalize hardening and launch verified debug once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/finalize-bousygram-hardening-debug-once.yml"
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+jobs:
+  finalize:
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Verify exact merges, prune completed branches and request trusted debug
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          for entry in "177:2ac033ac1c008255d159025972402d94d32cbe0b"                        "178:9195cc0ab1094c4d9d89ebd05538a3f0aa05c1cf"; do
+            number="${entry%%:*}"
+            expected="${entry#*:}"
+            merged="$(gh api "repos/$repo/pulls/$number" --jq '.merged')"
+            commit="$(gh api "repos/$repo/pulls/$number" --jq '.merge_commit_sha')"
+            [[ "$merged" == true && "$commit" == "$expected" ]] || {
+              echo "::error::PR #$number merge mismatch; refusing branch deletion or build"
+              exit 1
+            }
+          done
+
+          current="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; refusing a stale build dispatch"
+            exit 1
+          }
+
+          mapfile -t branches < <(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')
+          # Validate every name BEFORE deleting any merged branch.
+          for branch in "${branches[@]}"; do
+            case "$branch" in
+              main|fix/extras-provider-routing-network-alignment-20261112|feat/experimental-bounded-telegram-window-20261112) ;;
+              *) echo "::error::Unexpected unreviewed branch $branch; leaving all branches intact"; exit 1 ;;
+            esac
+          done
+
+          for branch in "${branches[@]}"; do
+            case "$branch" in
+              main) ;;
+              *) gh api --method DELETE "repos/$repo/git/refs/heads/$branch" ;;
+            esac
+          done
+          [[ "$(gh api --paginate "repos/$repo/branches?per_page=100" --jq '.[].name')" == main ]] || {
+            echo "::error::Expected only main before release dispatch"
+            exit 1
+          }
+
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
+          echo "Requested fully verified ARM32, ARM64, universal debug APKs at $GITHUB_SHA; experimental streaming off." >> "$GITHUB_STEP_SUMMARY"
