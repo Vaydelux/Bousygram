@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.presentation.adaptive
 import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
+import android.content.pm.PackageManager
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -42,6 +43,31 @@ data class AdaptiveMetrics(
     val isPhoneLayout: Boolean = layoutType == WindowLayoutType.Phone
 }
 
+/**
+ * Device classification deliberately never checks Build.SUPPORTED_ABIS or CPU bitness.
+ * Inexpensive third-party Android TV firmware may omit UI_MODE_TYPE_TELEVISION
+ * while still declaring FEATURE_LEANBACK or FEATURE_TELEVISION.
+ */
+internal fun isTelevisionDevice(
+    currentModeType: Int?,
+    configurationModeType: Int,
+    hasLeanback: Boolean,
+    hasTelevisionFeature: Boolean
+): Boolean = currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+    configurationModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+    hasLeanback || hasTelevisionFeature
+
+internal fun resolveDeviceProfile(
+    isTelevision: Boolean,
+    widthDp: Dp,
+    heightDp: Dp
+): DeviceProfile = when {
+    isTelevision -> DeviceProfile.Tv
+    minOf(widthDp, heightDp) >= 600.dp -> DeviceProfile.Tablet
+    widthDp > heightDp -> DeviceProfile.PhoneLandscape
+    else -> DeviceProfile.PhonePortrait
+}
+
 @Composable
 fun rememberAdaptiveMetrics(): AdaptiveMetrics {
     val context = LocalContext.current
@@ -49,15 +75,15 @@ fun rememberAdaptiveMetrics(): AdaptiveMetrics {
     val size = LocalWindowInfo.current.containerSize
     val widthDp = with(density) { size.width.toDp() }
     val heightDp = with(density) { size.height.toDp() }
-    val isTv = (context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager)
-        ?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-    val shortest = minOf(widthDp, heightDp)
-    val profile = when {
-        isTv -> DeviceProfile.Tv
-        shortest >= 600.dp -> DeviceProfile.Tablet
-        widthDp > heightDp -> DeviceProfile.PhoneLandscape
-        else -> DeviceProfile.PhonePortrait
-    }
+    val manager = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+    val packageManager = context.packageManager
+    val isTv = isTelevisionDevice(
+        currentModeType = manager?.currentModeType,
+        configurationModeType = context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK,
+        hasLeanback = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK),
+        hasTelevisionFeature = packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
+    )
+    val profile = resolveDeviceProfile(isTv, widthDp, heightDp)
     return AdaptiveMetrics(profile, widthDp, heightDp)
 }
 
