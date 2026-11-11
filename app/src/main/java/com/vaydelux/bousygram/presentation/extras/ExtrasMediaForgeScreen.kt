@@ -1134,13 +1134,13 @@ internal fun ExtrasAnimeEmbedServerDropdown(
     modifier: Modifier = Modifier
 ) {
     val options = remember {
-        ExtrasAnimeEmbedServer.entries.map {
+        ExtrasAnimeEmbedServer.entries.filter { it.selectable }.map {
             ExtrasServerOption("extras-anime-server-" + it.name.lowercase(),
                 it.label, it.description, if (it.featured) "New anime servers" else "Default anime server")
         }
     }
     ExtrasServerPicker(server.label, "extras-anime-server-" + server.name.lowercase(),
-        options, { key -> onSelected(ExtrasAnimeEmbedServer.entries.first { "extras-anime-server-" + it.name.lowercase() == key }) },
+        options, { key -> onSelected(ExtrasAnimeEmbedServer.entries.first { it.selectable && "extras-anime-server-" + it.name.lowercase() == key }) },
         isTv, modifier, pickerTitle = "Choose anime server", compactOptions = true)
 }
 
