@@ -624,7 +624,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 }
                 if (state.results.isEmpty() && state.loading) {
                     ExtrasCatalogViewport {
-                        ExtrasCatalogLoadingSkeleton(isAndroidTv, metrics.isCompact)
+                        ExtrasCatalogLoadingSkeleton(
+                            isTv = isAndroidTv,
+                            compact = metrics.isCompact,
+                            shortViewport = metrics.heightDp < 650.dp
+                        )
                     }
                 } else if (state.results.isEmpty() && !state.loading && state.error == null) {
                     ExtrasCatalogViewport {
