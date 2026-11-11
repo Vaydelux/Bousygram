@@ -2,6 +2,11 @@ name: TDLib Java API generation
 
 on:
   pull_request:
+    paths:
+      - '.github/workflows/tdlib-java-generation.yml'
+      - 'build-tools/tdlib/**'
+      - 'tools/tdlib/**'
+      - 'app/src/main/java/org/drinkless/tdlib/TdApi.java'
   workflow_dispatch:
 
 permissions:
@@ -68,11 +73,12 @@ jobs:
             > generation-artifacts/TdApi.diff || status=$?
           if [[ "${status:-0}" -gt 1 ]]; then exit "$status"; fi
 
-      - name: Upload generated API and complete build logs
-        if: always()
+      - name: Export TDLib API only when explicitly enabled
+        if: ${{ vars.TDLIB_ARCHIVE_GENERATED_API == 'true' }}
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tdlib-java-generation-${{ github.run_id }}
           path: generation-artifacts/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1

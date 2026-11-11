@@ -1,222 +1,162 @@
 name: Bousygram Debug APK Prereleases
 
 on:
-  workflow_run:
-    workflows:
-      - Android Enterprise Checks
-      - Android Emulator Cast Smoke
-    types: [completed]
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: write
 
 concurrency:
-  group: bousygram-debug-prerelease-publisher
+  group: bousygram-manual-debug-prerelease
   cancel-in-progress: false
 
 jobs:
-  build-and-publish:
-    name: Publish exact CI-verified debug prerelease APKs
+  qualify-and-publish:
     if: >-
       github.repository == 'Vaydelux/Bousygram' &&
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository &&
-       github.event.workflow_run.conclusion == 'success'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
+      RELEASE_SHA: ${{ github.sha }}
+      CI_VERIFICATION_RUN_ID: ${{ github.run_id }}
+      ANDROID_API: '37'
+      BUILD_TOOLS_VERSION: '35.0.0'
     steps:
-      # Gate policy is on the trusted default branch. The second checkout
-      # below pins the released artifacts to the exact CI-approved commit.
-      - name: Check out trusted publisher gate scripts
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Resolve exact successful mainline Android CI
-        id: source
+      - name: Verify manual request matches latest main
         shell: bash
-        env:
-          EVENT_TYPE: ${{ github.event_name }}
-          EVENT_CI_RUN_ID: ${{ github.event.workflow_run.id }}
-          EVENT_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
-          EVENT_TRIGGER_WORKFLOW: ${{ github.event.workflow_run.name }}
-          MANUAL_SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          # The Enterprise and emulator workflows can complete in either order.
-          # Only the second successful result can authorize publication.
-          echo 'ready=false' >> "$GITHUB_OUTPUT"
-          if [[ "$EVENT_TYPE" == 'workflow_run' ]]; then
-            source_sha="$EVENT_SOURCE_SHA"
-          else
-            [[ "$GITHUB_REF" == 'refs/heads/main' ]] || {
-              echo '::error::Manual preview releases must run on main.' >&2
-              exit 1
-            }
-            source_sha="$MANUAL_SOURCE_SHA"
-          fi
-          [[ "$source_sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
-            echo '::error::Invalid release source SHA.' >&2
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$main_sha" == "$RELEASE_SHA" ]] || {
+            echo "::error::Main moved. Refusing to release a stale commit."
             exit 1
           }
-          if [[ "$EVENT_TYPE" == 'workflow_run' &&
-                "$EVENT_TRIGGER_WORKFLOW" == 'Android Enterprise Checks' ]]; then
-            run_id="$EVENT_CI_RUN_ID"
-          else
-            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-enterprise.yml/runs?head_sha=$source_sha&event=push&per_page=100")"
-            # shellcheck disable=SC2016
-            run_id="$(jq -r --arg sha "$source_sha" --arg repo "$GITHUB_REPOSITORY" '[.workflow_runs[] | select(
-              .head_sha == $sha and .head_branch == "main" and .event == "push" and
-              .head_repository.full_name == $repo and
-              .path == ".github/workflows/android-enterprise.yml" and
-              .status == "completed" and .conclusion == "success"
-            )] | sort_by(.run_number) | last | .id // empty' <<< "$runs")"
-          fi
-          if [[ ! "$run_id" =~ ^[1-9][0-9]*$ ]]; then
-            if [[ "$EVENT_TYPE" == 'workflow_dispatch' ]]; then
-              echo '::error::No successful exact-commit Android Enterprise CI exists.' >&2
-              exit 1
-            fi
-            echo 'Enterprise CI is not verified yet; retrying on its completion.'
-            exit 0
-          fi
-          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
-          jq -e --arg sha "$source_sha" --arg repo "$GITHUB_REPOSITORY" '
-            .head_sha == $sha and .head_branch == "main" and .event == "push" and
-            .status == "completed" and .conclusion == "success" and
-            .head_repository.full_name == $repo and
-            .path == ".github/workflows/android-enterprise.yml"
-          ' <<< "$run" >/dev/null
-          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100")"
-          # Require successful native ABI packaging, not only a passing Kotlin build.
-          jq -e '[.jobs[] | select(
-            (.name == "Build and verify" or .name == "Verify debug APK ABI matrix") and
-            .status == "completed" and .conclusion == "success"
-          )] | length == 2' <<< "$jobs" >/dev/null
-          emulator_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-emulator-smoke.yml/runs?head_sha=$source_sha&event=push&per_page=100")"
-          if ! emulator_id="$(bash tools/ci/verify_debug_emulator_gate.sh /dev/stdin "$source_sha" "$GITHUB_REPOSITORY" <<< "$emulator_runs")"; then
-            if [[ "$EVENT_TYPE" == 'workflow_dispatch' ]]; then
-              echo '::error::Manual preview release requires a successful exact-commit emulator smoke run.' >&2
-              exit 1
-            fi
-            echo 'Emulator smoke has not passed for this exact commit; retrying on completion.'
-            exit 0
-          fi
-          # Stable CI creation time makes manual publisher reruns idempotent.
-          ci_created_at="$(jq -er '.created_at | select(type == "string")' <<< "$run")"
-          [[ "$ci_created_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || {
-            echo '::error::Verified CI run has no valid UTC creation timestamp.' >&2
-            exit 1
-          }
-          {
-            echo "ready=true"
-            echo "emulator_run_id=$emulator_id"
-            echo "sha=$source_sha"
-            echo "ci_run_id=$run_id"
-            echo "ci_created_at=$ci_created_at"
-          } >> "$GITHUB_OUTPUT"
-          echo "Verified exact mainline commit $source_sha with Enterprise $run_id and emulator $emulator_id at $ci_created_at"
 
-      - name: Check out exact CI-approved source
-        if: steps.source.outputs.ready == 'true'
+      - name: Check out exact merged main source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.source.outputs.sha }}
-          fetch-depth: 0
+          ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Confirm commit remains on main
-        if: steps.source.outputs.ready == 'true'
-        shell: bash
-        env:
-          RELEASE_SHA: ${{ steps.source.outputs.sha }}
-        run: |
-          set -euo pipefail
-          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]] || exit 1
-          # checkout has persist-credentials=false. Use GH_TOKEN-backed REST
-          # ancestry validation rather than unauthenticated git fetch.
-          bash tools/ci/verify_debug_release_main.sh "$RELEASE_SHA" "$GITHUB_REPOSITORY"
-
-      - name: Download exact CI-verified ARM APK matrix
-        if: steps.source.outputs.ready == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
-          name: debug-preview-apks-${{ steps.source.outputs.sha }}
-          run-id: ${{ steps.source.outputs.ci_run_id }}
-          repository: ${{ github.repository }}
-          github-token: ${{ github.token }}
-          path: ci-artifacts/debug-preview/
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
 
-      - name: Check APK digests and exact build provenance
-        if: steps.source.outputs.ready == 'true'
-        id: apks
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install Android build requirements
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Configure trusted TMDB v3 key
         shell: bash
         env:
-          RELEASE_SHA: ${{ steps.source.outputs.sha }}
-          CI_VERIFICATION_RUN_ID: ${{ steps.source.outputs.ci_run_id }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           set -euo pipefail
-          bash tools/ci/verify_debug_preview_publication.sh \
-            ci-artifacts/debug-preview "$RELEASE_SHA" "$CI_VERIFICATION_RUN_ID"
+          [[ "$TMDB_API_KEY" =~ ^[[:xdigit:]]{32}$ ]] || {
+            echo "::error::Trusted debug build needs configured TMDB_API_KEY."
+            exit 1
+          }
+          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
+          chmod 600 .env
 
-      - name: Publish versioned GitHub debug prerelease
-        if: steps.source.outputs.ready == 'true'
+      - name: Verify lint, unit tests, native bindings and debug instrumentation APK
         shell: bash
-        env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-          CI_RUN_ID: ${{ steps.source.outputs.ci_run_id }}
-          EMULATOR_RUN_ID: ${{ steps.source.outputs.emulator_run_id }}
-          CI_CREATED_AT: ${{ steps.source.outputs.ci_created_at }}
-          VERSION: ${{ steps.apks.outputs.version }}
         run: |
           set -euo pipefail
-          # The tag is generated from the verified CI run's UTC creation time.
-          # Example: v1.0.0-debug.20261030T090834Z
-          tag="$(bash tools/ci/debug_prerelease_tag.sh "$VERSION" "$CI_CREATED_AT")"
-          readable_date="$(date -u -d "$CI_CREATED_AT" +'%Y-%m-%d %H:%M:%S UTC')"
-          # Immutable tag lookup and creation use GH_TOKEN, never git fetch.
-          bash tools/ci/ensure_debug_release_tag.sh "$tag" "$SOURCE_SHA" "$GITHUB_REPOSITORY"
+          ./gradlew --no-daemon --console=plain \
+            :app:verifyReleaseVersionPolicy \
+            :app:verifyTdlibAbiCoverage \
+            :app:verifyTvHardeningContract \
+            :app:verifyPrivateMediaCastReleaseGate \
+            :app:verifySensitiveLogRedaction \
+            :app:verifyTdlibBindingCompatibility \
+            :app:compileDebugKotlin \
+            :mediaforge-core:testDebugUnitTest \
+            :mediaforge-player-adapters:testDebugUnitTest \
+            :app:lintDebug \
+            :app:testDebugUnitTest \
+            :app:assembleDebug \
+            :app:assembleDebugAndroidTest
+          test -s app/schemas/com.vaydelux.bousygram.data.database.AppDatabase/2.json
+          bash tools/ci/verify_debug_artifacts.sh
+
+      - name: Generate checksum-verified decoder fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y ffmpeg
+          fi
+          bash tools/ci/generate_playback_fixtures.sh ci-artifacts/decoder-fixtures
+          ( cd ci-artifacts/decoder-fixtures && sha256sum --check SHA256SUMS.txt )
+
+      - name: Prepare emulator disk
+        shell: bash
+        run: |
+          sudo rm -rf -- /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL
+          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
+
+      - name: Run Android UI and playback instrumentation
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 3072M
+          emulator-options: -partition-size 3072 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: bash tools/ci/run_emulator_smoke.sh
+
+      - name: Build and verify ARM32 ARM64 and universal debug APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/ci/build_debug_preview.sh ci-artifacts/debug-preview
+          ( cd ci-artifacts/debug-preview && sha256sum --check SHA256SUMS.txt )
+          [[ "$(find ci-artifacts/debug-preview -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 3 ]]
+          grep -Fxq "sourceSha=$RELEASE_SHA" ci-artifacts/debug-preview/BUILD_INFO.txt
+
+      - name: Publish immutable manually-qualified GitHub debug prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" == "$RELEASE_SHA" ]]
+          version="$(sed -n 's/^version=//p' ci-artifacts/debug-preview/BUILD_INFO.txt)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v${version}-debug.manual.${RELEASE_SHA:0:12}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Verified prerelease $tag already published; refusing to overwrite it."
-            exit 0
+            echo "::error::Release tag already exists; refusing to overwrite."
+            exit 1
           fi
           cat > ci-artifacts/debug-preview/RELEASE_NOTES.md <<EOF
-          # Bousygram $tag — debug prerelease
+          # Bousygram $tag — debug APKs
 
-          These APKs are **debug builds for testing**, not production-signed releases.
-          Tested source commit: \`$SOURCE_SHA\`
-          Required Android Enterprise CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID
-          Required Emulator Cast Smoke: https://github.com/$GITHUB_REPOSITORY/actions/runs/$EMULATOR_RUN_ID
-          Verified CI run created: $readable_date (stable UTC timestamp)
+          Source commit: \`$RELEASE_SHA\` (merged main)
+          Verified by this one-time CI job: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          Checks: Android compile, unit/lint, TDLib ABI and binding, emulator instrumentation, APK signatures, package/version/ABI matrix and SHA-256.
+          Exception: the standard CI publisher was blocked by exhausted GitHub Actions artifact storage. This pipeline builds and publishes directly to GitHub Releases without uploading Actions artifacts.
 
-          | File suffix | Device architecture |
-          | --- | --- |
-          | \`arm64-v8a.apk\` | Modern 64-bit Android phones and Android TV |
-          | \`armeabi-v7a.apk\` | Older 32-bit ARM devices |
-          | \`universal.apk\` | Includes both supported ARM ABIs |
-
-          These APK files are byte-for-byte identical to the verified Android Enterprise CI artifacts.\n          The SHA256SUMS.txt file verifies exact APK downloads.
-          Debug APKs use ephemeral Android debug signing; uninstall any APK signed with a
-          different debug certificate before installing another build.
-          Production releases remain protected by signing and device-qualification gates.
+          These are **debug-signed test APKs, not production releases**. Physical ARM32/ARM64 TV qualification remains outstanding. Debug keystore differences may require uninstalling the previous test APK before installation.
           EOF
           gh release create "$tag" \
-            --verify-tag \
-            --prerelease \
-            --latest=false \
-            --title "Bousygram v$VERSION (Debug) - $readable_date" \
+            --target "$RELEASE_SHA" \
+            --prerelease --latest=false \
+            --title "Bousygram $version Debug — manual verified build" \
             --notes-file ci-artifacts/debug-preview/RELEASE_NOTES.md \
             ci-artifacts/debug-preview/Bousygram-debug-*.apk \
             ci-artifacts/debug-preview/SHA256SUMS.txt \
             ci-artifacts/debug-preview/BUILD_INFO.txt
-          {
-            echo "### Published GitHub debug prerelease"
-            echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
-            echo "Debug APKs are not production-signed or device-qualified."
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
+

@@ -3,10 +3,7 @@ name: Android Enterprise Checks
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - master
-      - release/**
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -41,7 +38,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/android-enterprise.yml .github/workflows/android-release.yml .github/workflows/tdlib-java-generation.yml .github/workflows/android-apk-release.yml .github/workflows/android-emulator-smoke.yml .github/workflows/android-debug-prerelease.yml .github/workflows/extras-live-provider-smoke.yml .github/workflows/libvlc-experimental-debug.yml .github/workflows/archive-prune-branches-once.yml
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml
           shellcheck tools/ci/*.sh tools/tdlib/*.sh
           bash -n tools/ci/*.sh tools/tdlib/*.sh
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -207,12 +204,13 @@ jobs:
         shell: bash
         run: bash tools/ci/verify_debug_artifacts.sh
 
-      - name: Archive verification reports
-        if: ${{ always() }}
+      - name: Archive verification reports only on failure
+        if: ${{ failure() }}
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-verification-reports-${{ github.sha }}
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: warn
           path: |
             mediaforge-core/build/test-results/testDebugUnitTest/**/*.xml
@@ -227,90 +225,20 @@ jobs:
             tools/tdlib/BUILD_VERIFICATION.txt
             build-tools/tdlib/RESOLVED_COMMIT.txt
 
-      - name: Archive debug APKs
-        if: ${{ success() }}
+      # Debug prereleases build an independent three-ABI matrix and publish
+      # to GitHub Releases directly; no automatic APK uploads per commit.
+      - name: Archive APKs only for configured Firebase Test Lab
+        if: ${{ success() && vars.FIREBASE_TEST_LAB_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: debug-apks-${{ github.sha }}
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: error
           path: ci-artifacts/debug/
 
 
-  verify-debug-preview-matrix:
-    name: Verify debug APK ABI matrix
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Check out verified source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Java
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
-
-      - name: Install Android SDK dependencies
-        shell: bash
-        run: bash tools/ci/setup_android_sdk.sh
-
-      # API keys are never exposed to pull_request builds. Only trusted manual
-      # workflow dispatches and pushes to main may bake TMDB v3 into debug APKs.
-      # APK contents are publicly inspectable: this protects CI storage, not the key.
-      - name: Configure TMDB v3 API key for trusted debug builds
-        if: ${{ github.ref == 'refs/heads/main' && github.repository == 'Vaydelux/Bousygram' }}
-        shell: bash
-        env:
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: |
-          set -euo pipefail
-          # Trusted APKs must never silently ship an empty or placeholder
-          # credential. Verify the v3 API key without printing its value.
-          if [[ ! "$TMDB_API_KEY" =~ ^[[:xdigit:]]{32}$ ]]; then
-            echo "::error::Trusted debug APK requires a TMDB_API_KEY secret containing a 32-character TMDB v3 API key."
-            exit 1
-          fi
-          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
-          chmod 600 .env
-
-      - name: Build all supported debug APK architectures
-        shell: bash
-        env:
-          RELEASE_SHA: ${{ github.sha }}
-          CI_VERIFICATION_RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          bash tools/ci/build_debug_preview.sh ci-artifacts/debug-preview
-          ( cd ci-artifacts/debug-preview && sha256sum --check SHA256SUMS.txt )
-          [[ "$(find ci-artifacts/debug-preview -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 3 ]]
-
-      - name: Archive validated debug APK matrix
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: debug-preview-apks-${{ github.sha }}
-          retention-days: 14
-          if-no-files-found: error
-          path: ci-artifacts/debug-preview/
-
-  firebase-not-configured:
-    name: Firebase Test Lab not configured
-    needs: build
-    if: ${{ always() && vars.FIREBASE_TEST_LAB_ENABLED != 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Record explicit NOT CONFIGURED status
-        run: |
-          {
-            echo '## Firebase Test Lab'
-            echo ''
-            echo 'NOT CONFIGURED: set FIREBASE_TEST_LAB_ENABLED=true and the protected authentication/device variables to enable this job.'
-          } >> "$GITHUB_STEP_SUMMARY"
+  # Duplicate per-push ABI preview and idle Firebase status jobs retired.
+  # An explicitly dispatched debug release builds/verifies all three ABI APKs.
 
   firebase-test-lab:
     name: Firebase Test Lab instrumentation
