@@ -38,6 +38,7 @@ class BousygramThemeGalleryInstrumentedTest {
 
         compose.onNodeWithTag("bousygram-canonical-brand-mark").assertExists()
         compose.onNodeWithTag("theme-preset-dark").assertIsSelected()
+        writeUiEvidence(compose, "themes-midnight")
         for (preset in listOf(
             BousygramThemePreset.OBSIDIAN,
             BousygramThemePreset.EVERGREEN,
