@@ -89,7 +89,8 @@ fun BousygramThemeGallery(
                                 text = preset.displayName +
                                     if (isSelected) " · Selected" else "",
                                 color = MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.labelLarge,
+                                style = if (metrics.isTv) MaterialTheme.typography.titleMedium
+                                    else MaterialTheme.typography.labelLarge,
                                 fontWeight = if (isSelected || focused) FontWeight.Bold
                                     else FontWeight.Medium,
                                 maxLines = 1,
@@ -98,7 +99,8 @@ fun BousygramThemeGallery(
                             Text(
                                 text = tagline,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = if (metrics.isTv) MaterialTheme.typography.bodyMedium
+                                    else MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
