@@ -56,6 +56,13 @@ jobs:
           ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
           bash tools/ci/verify_debug_artifacts.sh
 
+      - name: Reclaim unused hosted-runner space for emulator userdata
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf -- /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL
+          df -h "$HOME"
+
       - name: Run focused Library UI, phone-TV parity and navigation regression
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
