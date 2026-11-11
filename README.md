@@ -116,22 +116,24 @@ Rebuild the debug APK after changing `TMDB_API_KEY`; this is read as
 TMDB provides metadata, **not** video streams. API keys included in client APKs
 can be extracted; use a backend proxy for credentials that must remain private.
 
-**GitHub Actions debug APKs with TMDB:** Go to this repository's
-**Settings → Secrets and variables → Actions → New repository secret**.
-Set the secret name to `TMDB_API_KEY` and paste the **TMDB API Key (v3)**,
-not the API Read Access Token (v4). Never add real credentials to
-`.env.example` or commit them. For a debug APK with this key, manually run
-**Actions → Android Enterprise Checks → Run workflow** and select the branch
-you want to build. The workflow writes an ignored `.env` file inside the
-trusted runner before Gradle builds the APK. Trusted main-branch pushes also
-use the secret.
+**GitHub Actions debug APKs with TMDB:** Add a repository Actions secret
+named `TMDB_API_KEY` containing the **32-character TMDB API Key (v3)**,
+not the API Read Access Token (v4). Never commit the credential in
+`.env`, `.env.example`, or source files.
 
-The workflows **never** pass the secret to `pull_request` builds;
-those intentionally contain the placeholder. If you download an APK from
-an automatic PR validation run, TMDB Movies/TV will still require a
-credentialed rebuild. If the repository secret is missing, the manual
-workflow also uses the placeholder and emits a notice.
+To download an ARM32, ARM64, or universal debug APK, select
+**Actions → Bousygram Debug APK Prereleases → Run workflow → main**.
+That trusted workflow checks the exact `main` commit, validates the secret,
+runs Kotlin/lint/JVM and emulator checks, verifies each APK and its SHA-256,
+and publishes a **debug prerelease** on [GitHub Releases](https://github.com/Vaydelux/Bousygram/releases).
+A passing **Android Enterprise Checks** run does **not** itself publish
+the three-ABI release.
 
+Pull request checks intentionally do **not** receive the TMDB secret;
+their APKs contain a placeholder. Trusted main builds **fail closed** if
+the v3 secret is missing or malformed. Anyone with an APK can still
+extract an embedded API key; a backend proxy is required for secrets
+that must remain private.
 
 ```powershell
 .\\gradlew.bat :app:verifyTdlibAbiCoverage :app:verifyTvHardeningContract
