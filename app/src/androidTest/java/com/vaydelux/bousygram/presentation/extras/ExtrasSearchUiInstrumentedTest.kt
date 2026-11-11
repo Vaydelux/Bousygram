@@ -130,6 +130,24 @@ class ExtrasSearchUiInstrumentedTest {
         rule.onNodeWithTag("extras-loading-poster-0").assertExists()
     }
 
+    @Test fun shortViewportLoadingSkeletonMatchesCompactPosterHeight() {
+        rule.setContent {
+            BousygramTheme {
+                androidx.compose.foundation.layout.Box(Modifier.width(340.dp).height(540.dp)) {
+                    ExtrasCatalogLoadingSkeleton(
+                        isTv = true, compact = false, shortViewport = true
+                    )
+                }
+            }
+        }
+        val poster = rule.onNodeWithTag("extras-loading-poster-0")
+            .fetchSemanticsNode().boundsInRoot.height
+        val density = androidx.test.platform.app.InstrumentationRegistry
+            .getInstrumentation().targetContext.resources.displayMetrics.density
+        assertTrue("Compact loading poster too tall: ${poster / density}dp",
+            poster > 0f && poster / density < 210f)
+    }
+
     @Test fun optionalFiltersPreserveGridSpaceUntilExplicitlyExpanded() {
         rule.setContent {
             BousygramTheme {
