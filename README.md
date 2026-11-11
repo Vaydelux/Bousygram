@@ -34,7 +34,7 @@ The app is **local-first**: ordinary playback does not require a Bousygram cloud
 | ▶️ **Video playback** | MP4, MKV, and MPEG-TS best-effort support; seek, retry, audio/subtitle tracks where supported |
 | 📂 **Media discovery** | Saved Messages, chats, groups, channels, forum topics, local metadata/index caching |
 | ⚡ **Local streaming** | TDLib partial downloads, byte-range reads, foreground stream priority, bounded prefetch |
-| 🎨 **Appearance** | Midnight-blue, daylight, and high-contrast themes built from the Chow + paper-plane identity |
+| 🎨 **Appearance** | Midnight, Aurora, Obsidian, Evergreen, Ember, Daylight and High Contrast; shared visual tokens for Android TV, tablet and phone |
 | 🔒 **Privacy** | Android Keystore-backed credential protection and account-scoped media/cache boundaries |
 
 **Compatibility depends on the actual file codecs, device decoder support, and network conditions.** Buffering cannot be eliminated when a connection is slower than a video's sustained bitrate.
@@ -164,7 +164,9 @@ The approved Bousygram emblem is the **Chow Chow mascot with a cyan ring and Tel
 - [Icon preview](brand/bousygram-mascot.webp)
 - [Favicon](brand/favicon.ico)
 
-Theme accents use deep navy, bright cyan/blue, and warm Chow gold. UI controls use semantic text/background roles for readable dark, light, and high-contrast appearances.
+The phone, tablet and Android TV top bars now use the **same canonical Chow Chow mascot component**, rather than a generic play badge. The Android launcher and README share the same source artwork; browser favicons are downsampled and Android launchers may crop the adaptive icon to their chosen mask.
+
+Themes are selectable in **Settings → Appearance** with live swatches for Midnight, Aurora, Obsidian, Evergreen, Ember, Daylight and High Contrast. Each theme shares the same typography, focus system and responsive layout rules; only semantic palette roles vary. See [UI visual qualification](docs/ci/UI_VISUAL_QUALIFICATION.md) for the screenshot and real-device acceptance gates.
 
 ## Privacy & security
 
