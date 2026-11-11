@@ -21,3 +21,21 @@ internal fun seekCompletion(
     elapsedMs >= timeoutMs -> SeekCompletion.TimedOut
     else -> SeekCompletion.Waiting
 }
+
+
+/**
+ * A delayed decoder/transport retry must not resurrect a stopped player or
+ * override a manual Pause, a new queue item, Cast, or audio-focus loss.
+ * This applies to MKV/TS fallback as well as other media engines.
+ */
+internal fun shouldRunDelayedPlaybackRetry(
+    sameQueueItem: Boolean,
+    sameReload: Boolean,
+    sessionActive: Boolean,
+    inForeground: Boolean,
+    explicitlyPaused: Boolean,
+    castConnected: Boolean,
+    audioFocusSuppressed: Boolean
+): Boolean =
+    sameQueueItem && sameReload && sessionActive && inForeground &&
+        !explicitlyPaused && !castConnected && !audioFocusSuppressed
