@@ -958,7 +958,8 @@ internal fun ExtrasPosterCard(
                     maxLines = 2,
                     minLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = if (metrics.isTv) MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold
                 )
