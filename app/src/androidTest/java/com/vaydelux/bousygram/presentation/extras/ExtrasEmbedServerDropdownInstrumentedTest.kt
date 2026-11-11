@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -68,6 +69,8 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         }
         compose.onNodeWithTag("extras-anime-server-chooser").assertExists()
         compose.onNodeWithTag("extras-server-dropdown").assertExists().performClick()
+        // This upstream URL only identifies the show, not the chosen episode.
+        compose.onNodeWithTag("extras-anime-server-cinezo").assertDoesNotExist()
         compose.onNodeWithTag("extras-anime-server-xxiku").assertExists().performClick()
         compose.runOnIdle {
             assertEquals(ExtrasAnimeEmbedServer.XXIKU, picked)
