@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.presentation.extras
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,6 +12,8 @@ class ExtrasExpandedEmbedServersTest {
         // 50 upstream TMDB entries include CineSrc; Bousygram has two additional legacy entries.
         assertEquals(52, ExtrasEmbedServer.entries.size)
         assertEquals(7, ExtrasAnimeEmbedServer.entries.size)
+        assertEquals(6, ExtrasAnimeEmbedServer.entries.count { it.selectable })
+        assertFalse(ExtrasAnimeEmbedServer.CINEZO.selectable)
         assertFalse(ExtrasEmbedServer.SUPEREMBED_VIP.selectable)
         assertEquals(51, ExtrasEmbedServer.entries.count { it.selectable })
     }
@@ -68,16 +71,17 @@ class ExtrasExpandedEmbedServersTest {
     @Test fun animeEpisodeRoutesUseAnilistIdentity() {
         assertEquals("https://embed.filmu.in/anime/16498/1/4",
             ExtrasAnimeEmbedServer.FILMU.urlFor(16498, 1, 4))
-        assertEquals("https://player.cinezo.live/embed/anime/16498?autoplay=true&poster=true&chromecast=true&servericon=true&setting=true&pip=true&download=true&font=Roboto&fontcolor=6f63ff&fontsize=20&opacity=0.5&primarycolor=e8b86d&secondarycolor=0a0a12&iconcolor=ffffff",
-            ExtrasAnimeEmbedServer.CINEZO.urlFor(16498, 1, 4))
         assertEquals("https://fmov.my/embed/anime/16498/1/4",
             ExtrasAnimeEmbedServer.FMOV.urlFor(16498, 1, 4))
         assertEquals("https://cinextream.cc/api/embed/anime/sub/16498/4?color=e91e63",
             ExtrasAnimeEmbedServer.CINETARO.urlFor(16498, 1, 4))
         assertEquals("https://vidy.st/anime/16498/4?color=DC2626",
             ExtrasAnimeEmbedServer.VIDY.urlFor(16498, 1, 4))
-        for (server in ExtrasAnimeEmbedServer.entries) {
-            assertTrue(MediaForgeUrlPolicy.safeHttpsUrl(server.urlFor(16498, 1, 4)) != null)
+        for (server in ExtrasAnimeEmbedServer.entries.filter { it.selectable }) {
+            val episode4 = server.urlFor(16498, 1, 4)
+            assertTrue(MediaForgeUrlPolicy.safeHttpsUrl(episode4) != null)
+            assertNotEquals("Provider ${server.label} lost the selected episode",
+                episode4, server.urlFor(16498, 1, 5))
         }
     }
 
@@ -100,6 +104,28 @@ class ExtrasExpandedEmbedServersTest {
         assertEquals(4, switched.episode)
         assertEquals(0, switched.tmdbId)
         assertEquals(anime, switched.forServer(ExtrasAnimeEmbedServer.EMBED_HEAVEN))
+    }
+
+    @Test fun externalProviderOptionsDoNotAdvertisePipCastOrDownload() {
+        val cinezo = ExtrasEmbedServer.CINEZO.urlFor(42)
+        assertTrue(cinezo.contains("chromecast=false"))
+        assertTrue(cinezo.contains("pip=false"))
+        assertTrue(cinezo.contains("download=false"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun animeProviderWithoutEpisodeRouteIsNotSelectable() {
+        ExtrasAnimeEmbedServer.CINEZO.urlFor(16498, 1, 4)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun animeProviderWithoutSeasonRouteRejectsNonDefaultSeason() {
+        ExtrasAnimeEmbedServer.VIDY.urlFor(16498, 2, 4)
+    }
+
+    @Test fun animeSeasonAwareRoutePreservesNonDefaultSeason() {
+        assertEquals("https://embed.filmu.in/anime/16498/2/4",
+            ExtrasAnimeEmbedServer.FILMU.urlFor(16498, 2, 4))
     }
 
     @Test(expected = IllegalArgumentException::class)
