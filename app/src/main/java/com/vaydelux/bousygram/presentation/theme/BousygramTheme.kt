@@ -30,9 +30,14 @@ enum class BousygramThemePreset(
     val outline: Color
 ) {
     DARK(
-        "dark", "Midnight", "Premium graphite-navy, clean cyan and subtle warm highlights",
-        Color(0xFF66E0F2), Color(0xFF96BFFF), Color(0xFFF4C58D),
-        Color(0xFF080F19), Color(0xFF121D2B), Color(0xFF203248), Color(0xFF788EA5)
+        "dark", "Midnight", "Deep navy, luminous glacier-blue and subtle amber",
+        Color(0xFF8AE8FA), Color(0xFFABC4FF), Color(0xFFFFD7A1),
+        Color(0xFF070D18), Color(0xFF121C2B), Color(0xFF223249), Color(0xFF8399B1)
+    ),
+    AURORA(
+        "aurora", "Aurora", "Electric violet over deep indigo with a cool teal accent",
+        Color(0xFFB3A2FF), Color(0xFF82F2E4), Color(0xFFFFD9AC),
+        Color(0xFF0B0A1A), Color(0xFF18152D), Color(0xFF30284F), Color(0xFF988BC6)
     ),
     HIGH_CONTRAST(
         "high_contrast", "High contrast", "Bright focus indicators and enhanced text contrast",
@@ -113,14 +118,15 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
             onError = Color.White
         )
     }
+    val aurora = preset == BousygramThemePreset.AURORA
     return darkColorScheme(
         primary = preset.primary,
         onPrimary = Color(0xFF07151B),
-        primaryContainer = Color(0xFF153C4B),
+        primaryContainer = if (aurora) Color(0xFF34275C) else Color(0xFF153C4B),
         onPrimaryContainer = Color(0xFFF1FCFF),
         secondary = preset.secondary,
         onSecondary = Color(0xFF081726),
-        secondaryContainer = Color(0xFF233A56),
+        secondaryContainer = if (aurora) Color(0xFF173C3D) else Color(0xFF233A56),
         onSecondaryContainer = Color(0xFFF3F7FF),
         tertiary = preset.tertiary,
         onTertiary = Color(0xFF251706),
@@ -133,10 +139,10 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
         surfaceVariant = preset.surfaceVariant,
         onSurfaceVariant = Color(0xFFC2CCDA),
         surfaceContainerLowest = preset.background,
-        surfaceContainerLow = Color(0xFF0D1825),
-        surfaceContainer = Color(0xFF142131),
-        surfaceContainerHigh = Color(0xFF1B2C40),
-        surfaceContainerHighest = Color(0xFF23364B),
+        surfaceContainerLow = if (aurora) Color(0xFF130F27) else Color(0xFF0D1825),
+        surfaceContainer = if (aurora) Color(0xFF211B39) else Color(0xFF142131),
+        surfaceContainerHigh = if (aurora) Color(0xFF2D264B) else Color(0xFF1B2C40),
+        surfaceContainerHighest = if (aurora) Color(0xFF372D5A) else Color(0xFF23364B),
         outline = preset.outline,
         outlineVariant = Color(0xFF44596D),
         error = Color(0xFFFF6B80),
