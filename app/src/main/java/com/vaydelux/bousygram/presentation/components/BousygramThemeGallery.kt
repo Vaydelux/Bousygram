@@ -63,7 +63,7 @@ fun BousygramThemeGallery(
                         onClick = { onSelect(preset) },
                         selected = isSelected,
                         modifier = Modifier.weight(1f)
-                            .heightIn(min = if (metrics.isTv) 112.dp else 100.dp)
+                            .heightIn(min = if (metrics.isTv) 124.dp else 100.dp)
                             .testTag("theme-preset-" + preset.id)
                     ) { focused ->
                         Column(
