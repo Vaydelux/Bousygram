@@ -17,6 +17,7 @@ import com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerPosition
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerSection
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -85,6 +86,15 @@ class TelegramLibraryDesignInstrumentedTest {
         // It must now use exactly the same cached backdrop as Extras/Settings.
         compose.onNodeWithTag("bousygram-premium-backdrop").assertExists()
         compose.onNodeWithTag("telegram-library-collection").assertExists()
+        // A nonempty Library should show media above the fold, not just page
+        // headings and oversized collection metadata. The empty-state viewport
+        // uses the same grid slot and catches regressions in its height budget.
+        val fullHeight = compose.onNodeWithTag("bousygram-premium-backdrop")
+            .fetchSemanticsNode().boundsInRoot.height
+        val gridHeight = compose.onNodeWithTag("telegram-explorer-grid")
+            .fetchSemanticsNode().boundsInRoot.height
+        assertTrue("Library grid occupies only ${gridHeight / fullHeight} of the viewport",
+            fullHeight > 0f && gridHeight / fullHeight >= 0.58f)
         compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
         compose.onNodeWithTag("telegram-library-tab-channels").performClick()
         compose.onNodeWithTag("telegram-library-tab-channels").assertIsSelected()
