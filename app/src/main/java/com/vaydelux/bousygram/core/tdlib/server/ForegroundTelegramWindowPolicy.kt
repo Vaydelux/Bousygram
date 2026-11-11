@@ -26,6 +26,7 @@ internal object ForegroundTelegramWindowPolicy {
     const val LOW_WINDOW_BYTES = 8L * MIB
     const val CRITICAL_WINDOW_BYTES = 4L * MIB
     const val ADVANCE_MARGIN_BYTES = 1L * MIB
+    const val DISTANT_UNCACHED_SEEK_BYTES = 2L * MIB
 
     /** Keep foreground requests possible even when optional caching is paused. */
     fun windowSize(availableBytes: Long?): Long = when (StoragePressurePolicy.level(availableBytes)) {
@@ -53,12 +54,24 @@ internal object ForegroundTelegramWindowPolicy {
         requestedBytes: Int,
         currentOffset: Long?,
         currentEndExclusive: Long?,
-        knownSize: Long
+        knownSize: Long,
+        downloadedPrefixBytes: Long = Long.MAX_VALUE
     ): Boolean {
         if (requestedOffset < 0L || requestedBytes <= 0) return false
         if (knownSize > 0L && requestedOffset >= knownSize) return false
         if (currentOffset == null || currentEndExclusive == null) return true
         if (requestedOffset < currentOffset || requestedOffset >= currentEndExclusive) return true
+        // An MKV Cues/MP4 moov seek may land inside the final *planned*
+        // window but several MiB beyond TDLib's actually downloaded prefix.
+        // Avoid waiting for the whole intervening window to download. A small
+        // sequential gap is tolerated so ordinary decoder reads never thrash.
+        if (downloadedPrefixBytes != Long.MAX_VALUE) {
+            val distance = requestedOffset - currentOffset
+            val downloaded = downloadedPrefixBytes.coerceAtLeast(0L)
+            if (distance > downloaded &&
+                distance - downloaded > DISTANT_UNCACHED_SEEK_BYTES
+            ) return true
+        }
         val end = if (requestedOffset > Long.MAX_VALUE - requestedBytes.toLong()) Long.MAX_VALUE
             else requestedOffset + requestedBytes.toLong()
         if (end > currentEndExclusive) return true
