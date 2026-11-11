@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -363,10 +365,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     PremiumGridBackdrop {
     Scaffold(
         containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        // Let the premium backdrop draw edge-to-edge, but keep native controls
+        // out of the Android status/navigation bars and display cutout.
+        contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             Column(
-                Modifier.fillMaxWidth().padding(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(
                     horizontal = if (metrics.isCompact) 16.dp else 32.dp,
                     vertical = if (metrics.isTv || metrics.heightDp < 660.dp) 6.dp else 10.dp
                 ),
