@@ -11,10 +11,21 @@ internal enum class ExtrasAnimeEmbedServer(
     VIDY("Vidy", "https://vidy.st/anime/{anilistId}/{episode}", mapOf("color" to "DC2626"), featured = true),
     XXIKU("XXIKU", "https://player.xxiku.com/embed/anime/{anilistId}/{episode}", featured = true),
     FILMU("Filmu", "https://embed.filmu.in/anime/{anilistId}/{season}/{episode}"),
-    CINEZO("Cinezo", "https://player.cinezo.live/embed/anime/{anilistId}", mapOf("autoplay" to "true", "poster" to "true", "chromecast" to "true", "servericon" to "true", "setting" to "true", "pip" to "true", "download" to "true", "font" to "Roboto", "fontcolor" to "6f63ff", "fontsize" to "20", "opacity" to "0.5", "primarycolor" to "e8b86d", "secondarycolor" to "0a0a12", "iconcolor" to "ffffff"), featured = true),
+    CINEZO("Cinezo", "https://player.cinezo.live/embed/anime/{anilistId}", mapOf("autoplay" to "true", "poster" to "true", "chromecast" to "false", "servericon" to "true", "setting" to "true", "pip" to "false", "download" to "false", "font" to "Roboto", "fontcolor" to "6f63ff", "fontsize" to "20", "opacity" to "0.5", "primarycolor" to "e8b86d", "secondarycolor" to "0a0a12", "iconcolor" to "ffffff"), featured = true),
     FMOV("FMOV", "https://fmov.my/embed/anime/{anilistId}/{season}/{episode}", featured = true),
     CINETARO("Cinetaro", "https://cinextream.cc/api/embed/anime/sub/{anilistId}/{episode}", mapOf("color" to "e91e63"), featured = true);
 
+
+    /**
+     * An anime episode picker must never silently discard its episode ID.
+     * Cinezo currently exposes only a title-level URL; leave the provider
+     * registered but do not offer it as an episode-specific choice.
+     */
+    val selectable: Boolean get() = template.contains("{episode}")
+
+    /** Non-default anime seasons must have an explicit season route. */
+    fun supportsSeason(season: Int): Boolean = season > 0 && selectable &&
+        (season == 1 || template.contains("{season}"))
 
     val description: String get() = when (this) {
         EMBED_HEAVEN -> "AniList episode route · unified movie/TV web player"
@@ -24,6 +35,8 @@ internal enum class ExtrasAnimeEmbedServer(
 
     fun urlFor(anilistId: Int, season: Int = 1, episode: Int = 1): String {
         require(season > 0 && episode > 0) { "Anime selectors are one-based" }
+        require(selectable) { "Anime source does not encode an episode ID" }
+        require(supportsSeason(season)) { "This anime source cannot identify the selected season" }
         return ExtrasEmbedUrlTemplates.build(template, anilistId, season, episode, queryParams)
     }
 }

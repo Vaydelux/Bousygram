@@ -68,6 +68,8 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         }
         compose.onNodeWithTag("extras-anime-server-chooser").assertExists()
         compose.onNodeWithTag("extras-server-dropdown").assertExists().performClick()
+        // This upstream URL only identifies the show, not the chosen episode.
+        compose.onNodeWithTag("extras-anime-server-cinezo").assertDoesNotExist()
         compose.onNodeWithTag("extras-anime-server-xxiku").assertExists().performClick()
         compose.runOnIdle {
             assertEquals(ExtrasAnimeEmbedServer.XXIKU, picked)
@@ -98,6 +100,26 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         assertTrue("The server list should start inside the dialog panel", list.top >= panel.top - 1f)
         compose.onNodeWithTag("extras-server-close").performClick()
         compose.onNodeWithTag("extras-server-dropdown").assertIsDisplayed()
+    }
+
+    @Test fun nonDefaultAnimeSeasonPickerHidesProvidersThatDropSeason() {
+        compose.setContent {
+            BousygramTheme {
+                ExtrasAnimeEmbedServerDropdown(
+                    server = ExtrasAnimeEmbedServer.FILMU,
+                    isTv = true,
+                    onSelected = {},
+                    season = 2
+                )
+            }
+        }
+        compose.onNodeWithTag("extras-server-dropdown").assertExists().performClick()
+        compose.onNodeWithTag("extras-anime-server-embed_heaven").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-server-vidy").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-server-xxiku").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-server-cinezo").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-server-filmu").assertExists()
+        compose.onNodeWithTag("extras-anime-server-fmov").assertExists()
     }
 
     @Test fun fullscreenAlwaysHasNativeAnimeServerRecoveryControls() {

@@ -76,7 +76,8 @@ internal fun ExtrasAnimeSourceChooser(
                     server = selected,
                     onSelected = onSelect,
                     isTv = isTv,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    season = request.season ?: 1
                 )
                 Text(
                     "AniList #${request.anilistId} · Episode ${request.episode ?: 1}. " +
