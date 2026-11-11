@@ -77,6 +77,31 @@ class ExtrasHttpTransportTest {
             disconnected.await(1, TimeUnit.SECONDS))
     }
 
+    @Test fun insecureAndPrivateCatalogUrlsAreRejectedBeforeOpeningSocket() = runBlocking {
+        val opened = AtomicBoolean(false)
+        val transport = ExtrasHttpTransport {
+            opened.set(true)
+            throw AssertionError("Rejected catalog URL must never open a connection")
+        }
+        val rejected = listOf(
+            "http://api.themoviedb.org/3/movie/1",
+            "https://localhost/api",
+            "https://127.0.0.1/api",
+            "https://192.168.1.1/api",
+            "https://public.example.org:8443/api",
+            "file:///etc/passwd"
+        )
+        for (url in rejected) {
+            try {
+                transport.execute(url, null, 1024)
+                throw AssertionError("Unsafe catalog URL was accepted: $url")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains("HTTPS"))
+            }
+        }
+        assertFalse(opened.get())
+    }
+
     @Test fun errorStatusIsReturnedWithoutReadingErrorStream() = runBlocking {
         val fake = object : HttpURLConnection(URL("https://example.invalid/")) {
             override fun connect() {}
