@@ -66,6 +66,29 @@ class ForegroundTelegramWindowPolicyTest {
         ))
     }
 
+    @Test fun uncachedInteriorCueSeekRepositionsButNearbyReadDoesNotThrash() {
+        val start = 15L * mib + 512L * 1024L
+        val eof = 20L * mib
+        // Planned window reaches EOF, but native TDLib reports only 128 KiB
+        // contiguous from its start. Cues near EOF must not wait for 4 MiB.
+        assertTrue(ForegroundTelegramWindowPolicy.needsWindow(
+            requestedOffset = eof - 4096L,
+            requestedBytes = 4096,
+            currentOffset = start,
+            currentEndExclusive = eof,
+            knownSize = eof,
+            downloadedPrefixBytes = 128L * 1024L
+        ))
+        assertFalse(ForegroundTelegramWindowPolicy.needsWindow(
+            requestedOffset = start + 32L * 1024L,
+            requestedBytes = 4096,
+            currentOffset = start,
+            currentEndExclusive = eof,
+            knownSize = eof,
+            downloadedPrefixBytes = 128L * 1024L
+        ))
+    }
+
     @Test fun unknownSizeAndNearBoundaryAdvanceWithoutOpenEndedLimit() {
         assertTrue(ForegroundTelegramWindowPolicy.needsWindow(
             15L * mib, 4096, 0L, 16L * mib, 0L
