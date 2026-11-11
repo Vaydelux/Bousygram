@@ -107,6 +107,7 @@ import org.drinkless.tdlib.TdApi
 import com.vaydelux.bousygram.data.database.RecentSearchQuery
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.SeriesGroup
+import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.MediaCardDensity
@@ -413,7 +414,12 @@ fun BousygramAdaptiveShell(
                 }
             }
         }
-        adaptive.isTabletLayout -> {
+        adaptive.isTabletLayout || (
+            adaptive.profile == DeviceProfile.PhoneLandscape && adaptive.heightDp < 520.dp
+        ) -> {
+            // Short landscape phones gain an entire row of media by moving
+            // navigation into a slim side rail, instead of stacking both
+            // the top bar and bottom navigation around a 390dp viewport.
             Row(
                 modifier = modifier
                     .fillMaxSize()
@@ -486,30 +492,7 @@ fun TabletNavRail(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.primary.copy(alpha = 0.16f))
-                        .border(1.dp, colors.primary.copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .border(1.5.dp, colors.primary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "▶",
-                            color = colors.primary,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 1.dp)
-                        )
-                    }
-                }
+                BousygramBrandMark(size = 40.dp)
             }
         }
     ) {
