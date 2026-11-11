@@ -92,14 +92,14 @@ fun BousygramModeSelection(
                     modeTag = "mode-telegram"
                 )
                 ModeOption(
-                    title = "Movies, TV Shows, Anime & Live TV",
+                    title = "Movies, TV Shows & Anime",
                     subtitle = "Explore catalogs and optional external web playback",
                     onClick = onExtras,
                     primary = false,
                     modeTag = "mode-extras"
                 )
                 Text(
-                    "TMDB and AniList supply title information. Extras offers optional third-party web players and manual Live TV entry, separate from Telegram Media.",
+                    "TMDB and AniList supply title information. Extras uses separate, optional external web players and never accesses your Telegram media.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -193,7 +193,7 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                 }
                 Text("More to Explore", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(
-                    "Movies, TV shows, anime and Live TV are available through Extras. External source availability varies.",
+                    "Movies, TV shows and anime are available through Extras. External source availability varies.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
