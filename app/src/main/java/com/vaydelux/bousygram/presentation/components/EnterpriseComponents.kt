@@ -876,15 +876,9 @@ fun BousygramScaffold(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val colors = MaterialTheme.colorScheme
-    val backgroundBrush = Brush.verticalGradient(
-        listOf(colors.background, colors.surfaceContainerLow, colors.background)
-    )
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(backgroundBrush)
-    ) {
+    // Shared native backdrop covers Settings and other shell screens.
+    // Decorative pixels never consume focus or intercept D-pad input.
+    PremiumGridBackdrop(modifier = modifier) {
         content()
     }
 }

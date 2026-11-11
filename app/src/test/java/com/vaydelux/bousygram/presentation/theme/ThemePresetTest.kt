@@ -14,6 +14,16 @@ class ThemePresetTest {
         assertEquals(BousygramThemePreset.DARK, BousygramThemePreset.fromId("invalid"))
     }
 
+    @Test fun auroraPresetRemainsReadableAndPersistsIndependently() {
+        val aurora = BousygramThemePreset.AURORA
+        assertEquals(aurora, BousygramThemePreset.fromId("aurora"))
+        val scheme = schemeFor(aurora)
+        assertTrue(themeContrastRatio(scheme.onBackground, scheme.background) >= 7.0)
+        assertTrue(themeContrastRatio(scheme.onPrimary, scheme.primary) >= 4.5)
+        assertTrue(themeContrastRatio(scheme.onPrimaryContainer, scheme.primaryContainer) >= 4.5)
+        assertTrue(themeContrastRatio(scheme.onSurface, scheme.surfaceContainerHigh) >= 4.5)
+    }
+
     @Test fun highContrastIsDistinctFromLightAndDefault() {
         assertNotEquals(BousygramThemePreset.DARK.primary, BousygramThemePreset.HIGH_CONTRAST.primary)
         assertNotEquals(BousygramThemePreset.LIGHT.background, BousygramThemePreset.DARK.background)

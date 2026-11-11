@@ -26,6 +26,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +55,7 @@ fun BousygramModeSelection(
     onTelegram: () -> Unit,
     onExtras: () -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.background) {
+    PremiumGridBackdrop {
         Box(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 22.dp), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -92,14 +97,14 @@ fun BousygramModeSelection(
                     modeTag = "mode-telegram"
                 )
                 ModeOption(
-                    title = "Movies, TV Shows, Anime & Live TV",
+                    title = "Movies, TV Shows & Anime",
                     subtitle = "Explore catalogs and optional external web playback",
                     onClick = onExtras,
                     primary = false,
                     modeTag = "mode-extras"
                 )
                 Text(
-                    "TMDB and AniList supply title information. Extras offers optional third-party web players and manual Live TV entry, separate from Telegram Media.",
+                    "TMDB and AniList supply title information. Extras uses separate, optional external web players and never accesses your Telegram media.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -118,10 +123,16 @@ private fun ModeOption(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val focusScale by animateFloatAsState(
+        targetValue = if (focused && android.animation.ValueAnimator.areAnimatorsEnabled()) 1.022f else 1f,
+        animationSpec = tween(durationMillis = if (android.animation.ValueAnimator.areAnimatorsEnabled()) 220 else 0, easing = FastOutSlowInEasing),
+        label = "mode-focus"
+    )
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(24.dp)
     Surface(
         modifier = Modifier.fillMaxWidth().testTag(modeTag)
+            .graphicsLayer { scaleX = focusScale; scaleY = focusScale }
             .border(
                 if (focused) 3.dp else 1.dp,
                 if (focused) colors.primary
@@ -173,7 +184,7 @@ private fun ModeOption(
 @Composable
 fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
-    Surface(color = MaterialTheme.colorScheme.background) {
+    PremiumGridBackdrop {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
@@ -193,7 +204,7 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                 }
                 Text("More to Explore", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(
-                    "Movies, TV shows, anime and Live TV are available through Extras. External source availability varies.",
+                    "Movies, TV shows and anime are available through Extras. External source availability varies.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -215,7 +226,7 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
 /** Real Telegram authorization readiness, not a fake timed progress bar. */
 @Composable
 fun TelegramStartupLoadingScreen(connectionStatus: String?) {
-    Surface(color = MaterialTheme.colorScheme.background) {
+    PremiumGridBackdrop {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),

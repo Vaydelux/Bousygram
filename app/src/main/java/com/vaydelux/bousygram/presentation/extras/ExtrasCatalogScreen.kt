@@ -50,6 +50,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -193,8 +198,6 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var restorePosterFocus by remember { mutableIntStateOf(0) }
     var restoredPosterFocus by remember { mutableIntStateOf(0) }
     var showCredits by remember { mutableStateOf(false) }
-    var showLiveChannelDialog by remember { mutableStateOf(false) }
-    var liveChannelSlugInput by remember { mutableStateOf("") }
     var detailRetry by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<ExtrasDetail?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
@@ -233,52 +236,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
 
     BackHandler(enabled = activeEmbed == null) {
         when {
-            showLiveChannelDialog -> showLiveChannelDialog = false
             showCredits -> showCredits = false
             detailItem != null -> goBackFromDetails()
             showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty() ->
                 showSuggestions = false
             else -> onExit()
         }
-    }
-
-    if (showLiveChannelDialog) {
-        val validSlug = ExtrasEmbedHeavenRoutes.isValidChannelSlug(liveChannelSlugInput)
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showLiveChannelDialog = false },
-            title = { Text("EmbedHeaven · Live TV") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter a channel slug, such as bbc-one-gb. Only open channels you are authorized to view.")
-                    OutlinedTextField(
-                        value = liveChannelSlugInput,
-                        onValueChange = { liveChannelSlugInput = it.take(80) },
-                        label = { Text("Channel slug") },
-                        placeholder = { Text("bbc-one-gb") },
-                        singleLine = true,
-                        isError = liveChannelSlugInput.isNotBlank() && !validSlug,
-                        modifier = Modifier.fillMaxWidth().testTag("extras-live-channel-slug")
-                    )
-                    if (liveChannelSlugInput.isNotBlank() && !validSlug) {
-                        Text("Use lowercase letters, digits and hyphens; maximum 80 characters.",
-                            color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = validSlug,
-                    onClick = {
-                        activeEmbed = ExtrasEmbedRequest.live(liveChannelSlugInput)
-                        showLiveChannelDialog = false
-                    },
-                    modifier = Modifier.testTag("extras-live-channel-open")
-                ) { Text("Open channel") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLiveChannelDialog = false }) { Text("Cancel") }
-            }
-        )
     }
 
     if (showCredits) {
@@ -399,7 +362,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             onBack = { activeEmbed = null }
         )
     } else {
+    PremiumGridBackdrop {
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             Column(Modifier.fillMaxWidth().padding(horizontal = if (metrics.isCompact) 16.dp else 32.dp, vertical = 14.dp)) {
@@ -410,7 +375,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     BousygramPageHeading(
                         eyebrow = "Bousygram  /  Extras",
                         title = if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
-                        subtitle = "Movies, series, anime and Live TV",
+                        subtitle = "Movies, series and anime · one integrated playback experience",
                         compact = metrics.isCompact,
                         modifier = Modifier.weight(1f)
                     )
@@ -427,10 +392,6 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         Box(Modifier.weight(1f)) {
                             ExtrasCatalogTabs(activeTabIndex, onSelect = { selectedTab = it })
                         }
-                        OutlinedButton(
-                            onClick = { liveChannelSlugInput = ""; showLiveChannelDialog = true },
-                            modifier = Modifier.testTag("extras-live-channel-button")
-                        ) { Text("Live TV") }
                     }
                 }
             }
@@ -686,6 +647,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         }
     }
     }
+    }
 }
 
 /**
@@ -890,9 +852,15 @@ internal fun ExtrasPosterCard(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val focusScale by animateFloatAsState(
+        targetValue = if (focused && android.animation.ValueAnimator.areAnimatorsEnabled()) 1.014f else 1f,
+        animationSpec = tween(durationMillis = if (android.animation.ValueAnimator.areAnimatorsEnabled()) 220 else 0, easing = FastOutSlowInEasing),
+        label = "poster-focus"
+    )
     Card(onClick = onClick,
         modifier = modifier.fillMaxWidth()
             .testTag("extras-poster-${item.type.name.lowercase()}-${item.id}")
+            .graphicsLayer { scaleX = focusScale; scaleY = focusScale }
             .onFocusChanged { focused = it.isFocused },
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(if (focused) 3.dp else 1.dp,
