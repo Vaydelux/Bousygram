@@ -159,4 +159,3 @@ jobs:
             ci-artifacts/debug-preview/SHA256SUMS.txt \
             ci-artifacts/debug-preview/BUILD_INFO.txt
           echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
-
