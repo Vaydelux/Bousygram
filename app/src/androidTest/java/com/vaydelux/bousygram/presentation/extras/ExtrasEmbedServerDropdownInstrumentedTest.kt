@@ -103,6 +103,26 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         compose.onNodeWithTag("extras-server-dropdown").assertIsDisplayed()
     }
 
+    @Test fun nonDefaultAnimeSeasonPickerHidesProvidersThatDropSeason() {
+        compose.setContent {
+            BousygramTheme {
+                ExtrasAnimeEmbedServerDropdown(
+                    server = ExtrasAnimeEmbedServer.FILMU,
+                    isTv = true,
+                    onSelected = {},
+                    season = 2
+                )
+            }
+        }
+        compose.onNodeWithTag("extras-server-dropdown").assertExists().performClick()
+        compose.onNodeWithTag("extras-anime-server-embed_heaven").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-server-vidy").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-server-xxiku").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-server-cinezo").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-server-filmu").assertExists()
+        compose.onNodeWithTag("extras-anime-server-fmov").assertExists()
+    }
+
     @Test fun fullscreenAlwaysHasNativeAnimeServerRecoveryControls() {
         var exited = false
         var returnedToPicker = false
