@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -618,8 +619,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     )
                 }
                 if (state.results.isEmpty() && state.loading) {
-                    ExtrasCatalogLoadingSkeleton(isAndroidTv, metrics.isCompact)
+                    ExtrasCatalogViewport {
+                        ExtrasCatalogLoadingSkeleton(isAndroidTv, metrics.isCompact)
+                    }
                 } else if (state.results.isEmpty() && !state.loading && state.error == null) {
+                    ExtrasCatalogViewport {
                     Column(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.Center,
@@ -639,13 +643,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             }) { Text("Check next page") }
                         }
                     }
+                    }
                 } else {
                     val minWidth = when {
                         metrics.isTv -> 160.dp
                         metrics.isCompact -> 132.dp
                         else -> 155.dp
                     }
-                    LazyVerticalGrid(columns = GridCells.Adaptive(minWidth), state = activeGrid, modifier = Modifier.fillMaxSize(),
+                    ExtrasCatalogViewport {
+                    LazyVerticalGrid(columns = GridCells.Adaptive(minWidth), state = activeGrid,
+                        modifier = Modifier.fillMaxSize(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(state.results, key = { "${it.type}:${it.id}" }) { item ->
@@ -665,6 +672,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             }
                         }
                     }
+                    }
                 }
             }
         }
@@ -677,6 +685,24 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
  * Separately testable focusable TV tabs, no API/key required to compose.
  * Test tags are intentionally stable for DPAD/instrumentation smoke checks.
  */
+/**
+ * All Extras catalog states reserve the remaining viewport after the search,
+ * filters and error banner. Keep the poster grid above the fold on short TVs
+ * and landscape phones, and never let loading/empty-state panels overgrow it.
+ */
+@Composable
+internal fun ColumnScope.ExtrasCatalogViewport(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = modifier.weight(1f).fillMaxWidth()
+            .testTag("extras-results-viewport")
+    ) {
+        content()
+    }
+}
+
 /** Optional filters stay reachable without stealing a permanent row of posters. */
 @Composable
 internal fun ExtrasFilterDisclosure(
