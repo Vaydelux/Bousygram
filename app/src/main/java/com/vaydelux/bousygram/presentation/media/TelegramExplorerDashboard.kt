@@ -57,6 +57,10 @@ import com.vaydelux.bousygram.domain.model.VideoChatItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
+import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
+import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
+import com.vaydelux.bousygram.presentation.components.TvFocusSurface
+import com.vaydelux.bousygram.presentation.theme.bousygramResponsiveTokens
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
@@ -113,12 +117,9 @@ fun TelegramExplorerDashboard(
     modifier: Modifier = Modifier
 ) {
     val adaptive = rememberAdaptiveMetrics()
-    val gap = if (adaptive.isTv) 18.dp else 12.dp
-    val cardMin = when {
-        adaptive.isTv -> 224.dp
-        adaptive.isTabletLayout -> 176.dp
-        else -> 142.dp
-    }
+    val design = bousygramResponsiveTokens(adaptive.profile)
+    val gap = design.gridGap
+    val cardMin = design.cardMinWidth
     val directory = remember(sources, position.section) {
         explorerSources(sources, position.section)
     }
@@ -188,11 +189,11 @@ fun TelegramExplorerDashboard(
     }
 
     val colors = MaterialTheme.colorScheme
+    PremiumGridBackdrop(modifier = modifier) {
     Column(
-        modifier = modifier.fillMaxSize().background(colors.background)
+        modifier = Modifier.fillMaxSize()
             .padding(
-                horizontal = if (adaptive.isTv) BousygramUiTokens.tvPagePadding
-                    else BousygramUiTokens.phonePagePadding,
+                horizontal = design.pagePadding,
                 vertical = if (adaptive.isTv) 18.dp else 14.dp
             ),
         verticalArrangement = Arrangement.spacedBy(gap)
@@ -270,38 +271,14 @@ fun TelegramExplorerDashboard(
                 }
                 val title = if (count != null && !adaptive.isPhoneLayout) "$label  $count" else label
                 val active = section == position.section
-                var tabFocused by remember(section) { mutableStateOf(false) }
-                OutlinedButton(
+                BousygramSectionTab(
+                    label = title,
+                    active = active,
+                    isTv = adaptive.isTv,
                     onClick = { if (!active) onSelectTab(section) },
-                    modifier = Modifier.heightIn(min = if (adaptive.isTv) 56.dp else 48.dp)
-                        .widthIn(min = if (adaptive.isTv) 155.dp else 94.dp)
-                        .semantics { selected = active }
-                        .onFocusChanged { tabFocused = it.isFocused }
-                        .testTag("telegram-library-tab-" + section.name.lowercase()),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(
-                        if (tabFocused) 3.dp else 1.dp,
-                        if (tabFocused) colors.primary
-                        else if (active) colors.primary.copy(alpha = 0.65f)
-                        else colors.outlineVariant
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = when {
-                            active -> colors.primaryContainer
-                            tabFocused -> colors.surfaceContainerHighest
-                            else -> colors.surfaceContainerLow
-                        },
-                        contentColor = if (active) colors.onPrimaryContainer else colors.onSurface
-                    ),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        title, maxLines = 1,
-                        style = if (adaptive.isTv) MaterialTheme.typography.titleSmall
-                            else MaterialTheme.typography.labelLarge,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
-                    )
-                }
+                    modifier = Modifier.widthIn(min = if (adaptive.isTv) 150.dp else 94.dp)
+                        .testTag("telegram-library-tab-" + section.name.lowercase())
+                )
             }
         }
         // Contextual collection header: concise on phones, comfortably readable on TV.
@@ -568,6 +545,7 @@ fun TelegramExplorerDashboard(
             }
         }
     }
+    }
 }
 
 /** Skeletons are shown only when the selected folder has no cached content. */
@@ -625,29 +603,16 @@ private fun ExplorerFolderCard(
     onFocused: () -> Unit = {},
     onClick: () -> Unit
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     val accent = MaterialTheme.colorScheme.primary
-    Surface(
+    TvFocusSurface(
+        onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = if (isTv) 182.dp else 164.dp)
-            .border(
-                if (focused) BousygramUiTokens.tvFocusOutline else 1.dp,
-                if (focused) accent else MaterialTheme.colorScheme.outlineVariant,
-                shape
-            )
-            .onFocusChanged {
-                focused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "$title, $subtitle. $detail" },
-        shape = shape,
-        color = if (focused) MaterialTheme.colorScheme.surfaceContainerHighest
-            else MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = if (focused) 3.dp else 0.dp
-    ) {
+            .heightIn(min = if (isTv) BousygramUiTokens.folderMinTv
+                else BousygramUiTokens.folderMinPhone)
+            .semantics { contentDescription = "$title, $subtitle. $detail" }
+            .onFocusChanged { if (it.isFocused) onFocused() }
+    ) { focused ->
         Column(
             modifier = Modifier.padding(if (isTv) 18.dp else 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
