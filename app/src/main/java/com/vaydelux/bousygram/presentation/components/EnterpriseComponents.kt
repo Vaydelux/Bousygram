@@ -109,6 +109,8 @@ import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.SeriesGroup
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.MediaCardDensity
+import com.vaydelux.bousygram.presentation.theme.mediaCardDensity
 import com.vaydelux.bousygram.presentation.media.mediaDisplayLabels
 import java.io.File
 import kotlin.math.cos
@@ -1053,6 +1055,9 @@ fun MediaPosterCard(
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
+    val adaptive = rememberAdaptiveMetrics()
+    val cardDensity = mediaCardDensity(adaptive.isTv, adaptive.widthDp, adaptive.heightDp)
+    val condensedCard = cardDensity != MediaCardDensity.STANDARD
     val miniThumbnail = rememberMiniThumbnail(
         media.chatId,
         media.messageId,
@@ -1170,6 +1175,11 @@ fun MediaPosterCard(
                 focused = it.isFocused
                 onFocusChanged(it.isFocused)
             }
+            .semantics {
+                contentDescription = if (privacyMode) "Private video, details hidden"
+                    else listOfNotNull(labels.title, labels.subtitle, labels.fileSizeLabel)
+                        .filter { it.isNotBlank() }.joinToString(", ")
+            }
     ) {
         Column {
             Box(
@@ -1263,38 +1273,50 @@ fun MediaPosterCard(
                     )
                 }
             }
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Column(
+                Modifier.padding(
+                    horizontal = if (condensedCard) 10.dp else 12.dp,
+                    vertical = if (condensedCard) 6.dp else 10.dp
+                )
+            ) {
                 Text(
                     text = if (privacyMode) "Private video" else labels.title,
                     color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = if (cardDensity == MediaCardDensity.SHORT_TV)
+                        MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
                     fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 2,
-                    minLines = 2,
+                    maxLines = if (cardDensity == MediaCardDensity.SHORT_LANDSCAPE) 1 else 2,
+                    minLines = if (cardDensity == MediaCardDensity.SHORT_LANDSCAPE) 1 else 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(3.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (privacyMode) "Details hidden" else labels.subtitle,
-                        color = if (focused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (!privacyMode && !labels.fileSizeLabel.isNullOrBlank()) {
-                        Spacer(Modifier.width(6.dp))
+                // The selected Telegram source is shown in the compact toolbar.
+                // Repeating source/size below every file hides a grid row on
+                // short TVs and landscape phones. TalkBack still reads details.
+                if (!condensedCard) {
+                    Spacer(Modifier.height(3.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = labels.fileSizeLabel,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
+                            text = if (privacyMode) "Details hidden" else labels.subtitle,
+                            color = if (focused) MaterialTheme.colorScheme.secondary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        if (!privacyMode && !labels.fileSizeLabel.isNullOrBlank()) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = labels.fileSizeLabel,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
