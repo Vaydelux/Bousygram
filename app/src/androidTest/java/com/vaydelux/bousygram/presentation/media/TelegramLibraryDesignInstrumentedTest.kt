@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.media
 
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import com.vaydelux.bousygram.presentation.components.writeUiEvidence
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,6 +97,7 @@ class TelegramLibraryDesignInstrumentedTest {
         assertTrue("Library grid occupies only ${gridHeight / fullHeight} of the viewport",
             fullHeight > 0f && gridHeight / fullHeight >= 0.58f)
         compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
+        writeUiEvidence(compose, "telegram-library")
         compose.onNodeWithTag("telegram-library-tab-channels").performClick()
         compose.onNodeWithTag("telegram-library-tab-channels").assertIsSelected()
         compose.onNodeWithTag("telegram-library-tab-groups").performClick()
