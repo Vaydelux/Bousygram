@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 
 /**
@@ -31,7 +32,9 @@ fun PremiumGridBackdrop(
     val highContrast = colors.background == BousygramThemePreset.HIGH_CONTRAST.background
     val light = colors.background == BousygramThemePreset.LIGHT.background
 
-    Box(modifier = modifier.fillMaxSize().background(colors.background)) {
+    Box(modifier = modifier.fillMaxSize()
+        .background(colors.background)
+        .testTag("bousygram-premium-backdrop")) {
         if (!highContrast) {
             Box(Modifier.matchParentSize().drawWithCache {
                 val spacing = 52.dp.toPx()
@@ -52,11 +55,11 @@ fun PremiumGridBackdrop(
                 onDrawBehind {
                     drawRect(primaryGlow)
                     drawRect(secondaryGlow)
-                    repeat((size.width / spacing).toInt() + 1) { index ->
+                    repeat(((size.width / spacing).toInt() + 1).coerceIn(0, 128)) { index ->
                         val x = index * spacing
                         drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), hairline)
                     }
-                    repeat((size.height / spacing).toInt() + 1) { index ->
+                    repeat(((size.height / spacing).toInt() + 1).coerceIn(0, 128)) { index ->
                         val y = index * spacing
                         drawLine(gridColor, Offset(0f, y), Offset(size.width, y), hairline)
                     }
