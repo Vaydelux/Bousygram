@@ -157,7 +157,7 @@ fun BousygramSectionTab(
     ) {
         Text(
             label,
-            style = if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge,
+            style = if (isTv) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
             fontWeight = if (active || focused) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
