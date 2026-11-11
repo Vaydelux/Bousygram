@@ -26,6 +26,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +55,7 @@ fun BousygramModeSelection(
     onTelegram: () -> Unit,
     onExtras: () -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.background) {
+    PremiumGridBackdrop {
         Box(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 22.dp), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -118,10 +123,16 @@ private fun ModeOption(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val focusScale by animateFloatAsState(
+        targetValue = if (focused) 1.022f else 1f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "mode-focus"
+    )
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(24.dp)
     Surface(
         modifier = Modifier.fillMaxWidth().testTag(modeTag)
+            .graphicsLayer { scaleX = focusScale; scaleY = focusScale }
             .border(
                 if (focused) 3.dp else 1.dp,
                 if (focused) colors.primary
@@ -173,7 +184,7 @@ private fun ModeOption(
 @Composable
 fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
-    Surface(color = MaterialTheme.colorScheme.background) {
+    PremiumGridBackdrop {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
@@ -215,7 +226,7 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
 /** Real Telegram authorization readiness, not a fake timed progress bar. */
 @Composable
 fun TelegramStartupLoadingScreen(connectionStatus: String?) {
-    Surface(color = MaterialTheme.colorScheme.background) {
+    PremiumGridBackdrop {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
