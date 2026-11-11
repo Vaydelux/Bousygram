@@ -1,0 +1,89 @@
+name: Android Explorer Responsive UI Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/components/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/theme/**'
+      - 'app/src/androidTest/**'
+      - '.github/workflows/android-explorer-ui-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-explorer-responsive-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  explorer-ui:
+    name: Verify Library height and D-pad UI on emulator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install Android build dependencies
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Enable KVM acceleration when available
+        shell: bash
+        run: |
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod a+rw /dev/kvm
+          else
+            echo '::warning::KVM unavailable; emulator may run slowly.'
+          fi
+
+      - name: Build exact-source APK and UI tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
+          bash tools/ci/verify_debug_artifacts.sh
+
+      - name: Run focused Library UI, phone-TV parity and navigation regression
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 3072M
+          emulator-options: -partition-size 3072 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r ci-artifacts/debug/Bousygram-debug.apk
+            adb install -r ci-artifacts/debug/Bousygram-debug-androidTest.apk
+            classes='com.vaydelux.bousygram.presentation.media.TelegramExplorerCompactHeaderInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramLibraryDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.UniformPremiumDesignInstrumentedTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest'
+            runner='com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner'
+            set +e
+            timeout 240s adb shell am instrument -w -r -e class "$classes" "$runner" | tee explorer-ui-smoke-results.txt
+            result=${PIPESTATUS[0]}
+            set -e
+            [[ "$result" -eq 0 ]] && grep -Eq '^OK \([0-9]+ tests?\)' explorer-ui-smoke-results.txt
+
+      - name: Upload focused UI test failure report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: explorer-ui-smoke-failure-${{ github.sha }}
+          retention-days: 2
+          if-no-files-found: ignore
+          path: explorer-ui-smoke-results.txt
