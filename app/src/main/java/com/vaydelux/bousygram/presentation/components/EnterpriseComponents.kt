@@ -900,8 +900,9 @@ fun TvFocusSurface(
     val motionDisabled = android.os.Build.VERSION.SDK_INT >= 26 &&
         !android.animation.ValueAnimator.areAnimatorsEnabled()
     val scale by animateFloatAsState(
-        targetValue = if (motionDisabled) 1f else if (focused) 1.018f else 1f,
-        animationSpec = tween(durationMillis = if (motionDisabled) 0 else 145),
+        targetValue = if (motionDisabled) 1f else if (focused) BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(durationMillis = if (motionDisabled) 0
+            else BousygramUiTokens.focusDurationMs),
         label = "focusScale"
     )
     val border by animateColorAsState(
@@ -1268,7 +1269,8 @@ fun MediaPosterCard(
                     color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
+                    maxLines = 2,
+                    minLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(3.dp))
