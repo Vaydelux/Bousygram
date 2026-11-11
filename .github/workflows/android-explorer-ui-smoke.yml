@@ -1,6 +1,14 @@
 name: Android Explorer Responsive UI Smoke
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/main/java/com/vaydelux/bousygram/presentation/**'
+      - 'app/src/androidTest/**'
+      - 'brand/**'
+      - 'tools/ci/run_explorer_ui_smoke.sh'
+      - '.github/workflows/android-explorer-ui-smoke.yml'
   pull_request:
     paths:
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/media/**'
