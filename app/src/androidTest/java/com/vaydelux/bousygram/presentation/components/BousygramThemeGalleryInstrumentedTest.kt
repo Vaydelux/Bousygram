@@ -1,7 +1,12 @@
 package com.vaydelux.bousygram.presentation.components
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,9 +34,18 @@ class BousygramThemeGalleryInstrumentedTest {
         compose.setContent {
             var active by remember { mutableStateOf(BousygramThemePreset.DARK) }
             BousygramTheme(preset = active) {
-                Column {
-                    BousygramBrandMark(size = 40.dp)
-                    BousygramThemeGallery(selected = active, onSelect = { active = it })
+                PremiumGridBackdrop {
+                    Column(Modifier.fillMaxSize().padding(16.dp)) {
+                        BousygramBrandMark(size = 40.dp)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Appearance",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        BousygramThemeGallery(selected = active, onSelect = { active = it })
+                    }
                 }
             }
         }
