@@ -110,8 +110,10 @@ internal fun TelegramExplorerCompactHeader(
                     text = "Your library",
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = if (density == ExplorerHeaderDensity.COMPACT)
-                        MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
+                    style = if (isTv) MaterialTheme.typography.titleLarge
+                        else if (density == ExplorerHeaderDensity.COMPACT)
+                            MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = colors.onBackground
                 )
@@ -125,7 +127,8 @@ internal fun TelegramExplorerCompactHeader(
                         modifier = Modifier.weight(1f, fill = false),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = if (isTv) MaterialTheme.typography.labelMedium
+                            else MaterialTheme.typography.labelSmall,
                         color = colors.onSurfaceVariant
                     )
                     if (isLoading) {
