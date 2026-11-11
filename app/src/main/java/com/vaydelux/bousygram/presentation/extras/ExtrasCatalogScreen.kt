@@ -853,8 +853,8 @@ internal fun ExtrasPosterCard(
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusScale by animateFloatAsState(
-        targetValue = if (focused) 1.025f else 1f,
-        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        targetValue = if (focused && android.animation.ValueAnimator.areAnimatorsEnabled()) 1.014f else 1f,
+        animationSpec = tween(durationMillis = if (android.animation.ValueAnimator.areAnimatorsEnabled()) 220 else 0, easing = FastOutSlowInEasing),
         label = "poster-focus"
     )
     Card(onClick = onClick,
