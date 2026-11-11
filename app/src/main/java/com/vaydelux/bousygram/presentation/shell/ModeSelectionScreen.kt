@@ -59,7 +59,8 @@ fun BousygramModeSelection(
     onExtras: () -> Unit
 ) {
     val metrics = rememberAdaptiveMetrics()
-    val compact = metrics.isTv || metrics.heightDp < 620.dp
+    val compact = metrics.isTv || metrics.widthDp > metrics.heightDp ||
+        metrics.heightDp < 620.dp
     val horizontalCards = compact && metrics.widthDp >= 690.dp
     PremiumGridBackdrop {
         Box(
