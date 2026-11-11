@@ -1,7 +1,7 @@
 # Bousygram — UI and Functional Release-Lock Review
 
-Date: 2026-11-12  
-Base: `main` at `a2182fc9d930bc480f9c9c483f430dab0be6646f` (post-PR #174; one branch)  
+Date: 2026-11-12
+Base: `main` at `a2182fc9d930bc480f9c9c483f430dab0be6646f` (post-PR #174; one branch)
 Release under review: `v1.0.0-debug.manual.c91797cfaa8b`
 
 ## Executive decision
