@@ -29,5 +29,6 @@ Scope: targeted safety/behavior changes after the merged query-identity lock in 
 1. [Issue #142](https://github.com/Vaydelux/Bousygram/issues/142): the TDLib foreground download may exceed the eviction-target cache budget on an 8 GB TV; do **not** equate the Settings target with a hard download limit. Prototype and physically qualify bounded foreground byte ranges rather than deleting active media.
 2. Real ARM32/ARM64 TV playback (including MKV/TS random-range seek, LibVLC/Media3/mpv transitions and subtitle D-pad focus), phone rotation/safe-area checks and 30–60-minute memory/storage evidence.
 3. Production signing and signed candidate qualification under the protected release workflow. Automated CI or an emulator debug APK is not proof of these outcomes.
+4. **GitHub merge enforcement:** GitHub currently reports `main` as unprotected, with zero active repository rulesets or required status checks. The repository owner must configure a branch ruleset requiring PR review and green Enterprise, responsive UI and emulator checks before merges; also block force pushes and branch deletion. The connected repository tool cannot change administration/ruleset settings. Until then, CI checks are advisory rather than GitHub-enforced.
 
 Release decision: **qualified debug candidate after CI passes; not a stable production lock**.
