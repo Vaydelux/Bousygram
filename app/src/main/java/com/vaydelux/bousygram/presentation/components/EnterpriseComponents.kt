@@ -1011,10 +1011,14 @@ fun MediaPosterCard(
     privacyMode: Boolean = false,
     cardWidth: Dp? = 260.dp,
     progress: Float? = null,
-    onFocusChanged: (Boolean) -> Unit = {}
+    onFocusChanged: (Boolean) -> Unit = {},
+    playbackFocusRequester: FocusRequester? = null
 ) {
     var focused by remember { mutableStateOf(false) }
-    val playbackFocus = remember { FocusRequester() }
+    // Screens restoring focus after pagination may supply their own requester.
+    // The same requester also enables deterministic keyboard/D-pad tests.
+    val localPlaybackFocus = remember { FocusRequester() }
+    val playbackFocus = playbackFocusRequester ?: localPlaybackFocus
     val actionsFocus = remember { FocusRequester() }
     val adaptive = rememberAdaptiveMetrics()
     val cardDensity = mediaCardDensity(adaptive.isTv, adaptive.widthDp, adaptive.heightDp)
