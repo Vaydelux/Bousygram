@@ -97,6 +97,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
@@ -1127,6 +1130,12 @@ fun MediaPosterCard(
             .testTag("media-play-${media.chatId}:${media.messageId}")
             .focusRequester(playbackFocus)
             .focusProperties { if (AccountSession.current() != null) right = actionsFocus }
+            // The actions icon overlaps the poster bounds. Spatial D-pad search can
+            // skip an overlapping focus target; explicitly hand off on Right.
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight &&
+                    AccountSession.current() != null) actionsFocus.requestFocus() else false
+            }
             .graphicsLayer {
                 if (isWatched && !focused) alpha = 0.58f
             }
