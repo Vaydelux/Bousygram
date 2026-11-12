@@ -197,12 +197,20 @@ jobs:
             :app:assembleDebug \
             :app:assembleDebugAndroidTest
 
-      - name: Verify generated Room v2 schema
+      - name: Verify exported Room v2 and v3 schemas
         if: ${{ success() }}
         shell: bash
         run: |
           test -s app/schemas/com.vaydelux.bousygram.data.database.AppDatabase/2.json || {
             echo "::error::Room v2 schema export missing; future migrations must not be opaque." >&2
+            exit 1
+          }
+          test -s app/schemas/com.vaydelux.bousygram.data.database.AppDatabase/3.json || {
+            echo "::error::Room v3 favorites schema export missing; candidate migration cannot be qualified." >&2
+            exit 1
+          }
+          git diff --exit-code -- app/schemas/com.vaydelux.bousygram.data.database.AppDatabase/3.json || {
+            echo "::error::Room v3 exported schema diverges from checked-in migration contract." >&2
             exit 1
           }
 
