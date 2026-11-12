@@ -759,46 +759,6 @@ private fun ExtrasMediaForgePlayerScreen(
                     }, modifier = Modifier.testTag("extras-embed-retry-load")) { Text("Retry page") }
                 }
             }
-            if (shouldOfferAnimeBlankPageHelp(
-                    isAnime = request.anilistId > 0,
-                    loadFailed = webLoadFailed,
-                    immersive = immersiveWeb,
-                    detectedVideo = snapshot.streams.isNotEmpty(),
-                    longLoad = slowEmbedHelp
-                )
-            ) {
-                Surface(
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Column(
-                        Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            "Black screen? This web source may require cross-site cookies or autoplay.",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (!webCompatibilityMode) {
-                                OutlinedButton(
-                                    onClick = { tryCompatibilityMode() },
-                                    modifier = Modifier.weight(1f)
-                                        .testTag("extras-anime-try-compatibility")
-                                ) { Text("Try compatibility", maxLines = 2) }
-                            }
-                            OutlinedButton(
-                                onClick = onChooseAnimeServer,
-                                modifier = Modifier.weight(1f)
-                                    .testTag("extras-anime-blank-recovery")
-                            ) { Text("Choose server", maxLines = 2) }
-                        }
-                    }
-                }
-            }
             if (cursorEnabled && isAndroidTv) {
                 ExtrasVirtualCursor(
                     target = webView,
@@ -830,6 +790,49 @@ private fun ExtrasMediaForgePlayerScreen(
                 style = MaterialTheme.typography.labelMedium
             )
             Text(status, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+            // Delayed recovery must not cover an iframe that has actually
+            // rendered video (DRM/MSE pages may not expose stream URLs).
+            // Put it in the scrollable Extras footer, never above WebView.
+            if (shouldOfferAnimeBlankPageHelp(
+                    isAnime = request.anilistId > 0,
+                    loadFailed = webLoadFailed,
+                    immersive = immersiveWeb,
+                    detectedVideo = snapshot.streams.isNotEmpty(),
+                    longLoad = slowEmbedHelp
+                )
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Black screen? This web source may require cross-site cookies or autoplay.",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!webCompatibilityMode) {
+                                OutlinedButton(
+                                    onClick = { tryCompatibilityMode() },
+                                    modifier = Modifier.weight(1f)
+                                        .testTag("extras-anime-try-compatibility")
+                                ) { Text("Try compatibility", maxLines = 2) }
+                            }
+                            OutlinedButton(
+                                onClick = onChooseAnimeServer,
+                                modifier = Modifier.weight(1f)
+                                    .testTag("extras-anime-blank-recovery")
+                            ) { Text("Choose server", maxLines = 2) }
+                        }
+                    }
+                }
+            }
             if (snapshot.streams.isEmpty()) {
                 Text(
                     "No accessible stream discovered yet. You can continue watching in WebView.",
