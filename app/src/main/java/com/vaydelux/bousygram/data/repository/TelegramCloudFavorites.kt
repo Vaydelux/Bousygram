@@ -58,7 +58,7 @@ object TelegramCloudFavorites {
     private data class IdentityIndex(
         val owner: AccountSnapshot,
         val channelId: Long,
-        val destinationByKey: MutableMap<String, Long> = mutableMapOf(),
+        val destinationByKey: ConcurrentHashMap<String, Long> = ConcurrentHashMap(),
         var fullyScanned: Boolean = false
     ) {
         fun register(message: TdApi.Message): Boolean {
