@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -18,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,6 +34,32 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class UniformPremiumDesignInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun spaceGroteskOwnsAllHeadingsWhileInterOwnsLabelsAndBody() {
+        var headline: FontFamily? = null
+        var title: FontFamily? = null
+        var subtitle: FontFamily? = null
+        var label: FontFamily? = null
+        var body: FontFamily? = null
+        compose.setContent {
+            BousygramTheme {
+                val typography = MaterialTheme.typography
+                SideEffect {
+                    headline = typography.headlineLarge.fontFamily
+                    title = typography.titleLarge.fontFamily
+                    subtitle = typography.titleSmall.fontFamily
+                    label = typography.labelLarge.fontFamily
+                    body = typography.bodyMedium.fontFamily
+                }
+            }
+        }
+        compose.runOnIdle {
+            assertEquals(headline, title)
+            assertEquals(headline, subtitle)
+            assertEquals(label, body)
+            assertNotEquals("Display and body fonts must be distinct", headline, body)
+        }
+    }
 
     @Test fun captureBundledTypographyAndMediaCardInEveryTheme() {
         val selected = mutableStateOf(BousygramThemePreset.DARK)
