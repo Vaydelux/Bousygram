@@ -17,7 +17,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class RoomMigrationInstrumentedTest {
-    @Test fun versionOneVideoRowsSurviveMigrationToRecentSearches() {
+    @Test fun versionOneVideoRowsSurviveMigrationToRoomV3Favorites() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val name = "room-migration-v1-" + System.nanoTime() + ".db"
         val file = context.getDatabasePath(name)
@@ -63,9 +63,14 @@ class RoomMigrationInstrumentedTest {
                     assertTrue(cursor.moveToFirst())
                     assertEquals("recent_searches", cursor.getString(0))
                 }
+                room.openHelper.writableDatabase.query(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='favorites'"
+                ).use { cursor ->
+                    assertTrue("Room v3 must create the favorites table", cursor.moveToFirst())
+                }
                 room.openHelper.writableDatabase.query("PRAGMA user_version").use { cursor ->
                     assertTrue(cursor.moveToFirst())
-                    assertEquals(2, cursor.getInt(0))
+                    assertEquals(3, cursor.getInt(0))
                 }
             } finally {
                 room.close()

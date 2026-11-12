@@ -3,8 +3,12 @@ package com.vaydelux.bousygram.presentation.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.InputModeManager
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -35,16 +39,31 @@ class MediaActionsDropdownInstrumentedTest {
 
     @Test fun dropdownFavoritesDoNotActivatePlayback() {
         var plays = 0
+        val playbackFocus = FocusRequester()
         val media = MediaItem(-100, 25, 0, MediaType.Video, "Saved episode", null)
+        // The Android Pixel ATD test image is touch-only and refuses a direct
+        // requestInputMode(Keyboard). Use the same keyboard-mode fixture Compose
+        // foundation uses to verify focusable clickable behavior on test devices.
+        val keyboardInput = object : InputModeManager {
+            override val inputMode: InputMode = InputMode.Keyboard
+            override fun requestInputMode(inputMode: InputMode): Boolean =
+                inputMode == InputMode.Keyboard
+        }
         compose.setContent {
-            BousygramTheme {
-                Box(Modifier.width(320.dp)) {
-                    MediaPosterCard(media, "Telegram", onClick = { plays++ }, cardWidth = null)
+            CompositionLocalProvider(LocalInputModeManager provides keyboardInput) {
+                BousygramTheme {
+                    Box(Modifier.width(320.dp)) {
+                        MediaPosterCard(media, "Telegram", onClick = { plays++ },
+                            cardWidth = null, playbackFocusRequester = playbackFocus)
+                    }
                 }
             }
         }
         compose.waitUntil(10_000) { FavoritesRepository.ready.value }
-        compose.onNodeWithTag("media-play--100:25").performSemanticsAction(SemanticsActions.RequestFocus)
+        // The outer media-play semantics node is a Surface container, not the
+        // clickable's focused semantics node. Check the actual requester result
+        // and the actions button after D-pad navigation instead.
+        compose.runOnIdle { check(playbackFocus.requestFocus()) { "Poster did not accept focus" } }
         compose.onNodeWithTag("media-play--100:25").performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithContentDescription("Actions for Saved episode").assertIsFocused()
         compose.onNodeWithContentDescription("Actions for Saved episode").performKeyInput { pressKey(Key.DirectionLeft) }

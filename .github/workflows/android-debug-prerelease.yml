@@ -89,7 +89,12 @@ jobs:
             :app:testDebugUnitTest \
             :app:assembleDebug \
             :app:assembleDebugAndroidTest
-          test -s app/schemas/com.vaydelux.bousygram.data.database.AppDatabase/2.json
+          # Historical v2.json was never exported/tracked. The shipped v3
+          # schema and actual migration SQL are the verifiable contract.
+          schema_dir=app/schemas/com.vaydelux.bousygram.data.database.AppDatabase
+          test -s "$schema_dir/3.json"
+          python3 tools/ci/test_favorites_storage.py
+          git diff --exit-code -- "$schema_dir/3.json"
           bash tools/ci/verify_debug_artifacts.sh
 
       - name: Generate checksum-verified decoder fixtures

@@ -97,6 +97,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
@@ -845,6 +850,7 @@ fun TvFocusSurface(
     selected: Boolean = false,
     enabled: Boolean = true,
     width: Dp? = null,
+    focusRequester: FocusRequester? = null,
     content: @Composable (focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -890,6 +896,8 @@ fun TvFocusSurface(
             // Clickable owns the only focus target and the selected semantics.
             .semantics { this.selected = selected }
             .onFocusChanged { focused = it.isFocused }
+            // Attach directly before the clickable focus target, not the parent Surface.
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
@@ -1006,10 +1014,14 @@ fun MediaPosterCard(
     privacyMode: Boolean = false,
     cardWidth: Dp? = 260.dp,
     progress: Float? = null,
-    onFocusChanged: (Boolean) -> Unit = {}
+    onFocusChanged: (Boolean) -> Unit = {},
+    playbackFocusRequester: FocusRequester? = null
 ) {
     var focused by remember { mutableStateOf(false) }
-    val playbackFocus = remember { FocusRequester() }
+    // Screens restoring focus after pagination may supply their own requester.
+    // The same requester also enables deterministic keyboard/D-pad tests.
+    val localPlaybackFocus = remember { FocusRequester() }
+    val playbackFocus = playbackFocusRequester ?: localPlaybackFocus
     val actionsFocus = remember { FocusRequester() }
     val adaptive = rememberAdaptiveMetrics()
     val cardDensity = mediaCardDensity(adaptive.isTv, adaptive.widthDp, adaptive.heightDp)
@@ -1123,10 +1135,16 @@ fun MediaPosterCard(
     Box(modifier = modifier.then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)) {
     TvFocusSurface(
         onClick = onClick,
+        focusRequester = playbackFocus,
         modifier = Modifier.fillMaxWidth()
             .testTag("media-play-${media.chatId}:${media.messageId}")
-            .focusRequester(playbackFocus)
             .focusProperties { if (AccountSession.current() != null) right = actionsFocus }
+            // The actions icon overlaps the poster bounds. Spatial D-pad search can
+            // skip an overlapping focus target; explicitly hand off on Right.
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight &&
+                    AccountSession.current() != null) actionsFocus.requestFocus() else false
+            }
             .graphicsLayer {
                 if (isWatched && !focused) alpha = 0.58f
             }

@@ -1,0 +1,44 @@
+name: Request Bousygram RC #179 debug APKs once
+
+# This file is introduced only with the reviewed release-candidate stabilization
+# merge. Subsequent normal commits do not match this narrow path filter.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc179-debug-on-merge.yml'
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+jobs:
+  dispatch-verified-debug:
+    name: Dispatch the existing fully gated debug workflow
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify this exact merge before requesting debug APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          head="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$head" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; refusing stale debug dispatch"
+            exit 1
+          }
+          merged="$(gh api "repos/$repo/pulls/179" --jq '.merged')"
+          merge_sha="$(gh api "repos/$repo/pulls/179" --jq '.merge_commit_sha')"
+          [[ "$merged" == true && "$merge_sha" == "$GITHUB_SHA" ]] || {
+            echo "::error::Expected PR #179 to be merged at this exact revision"
+            exit 1
+          }
+          # The target pipeline re-runs build/lint/unit/instrumentation/ABI
+          # checks, validates three debug APKs and publishes only on success.
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
+          echo "Requested exact-main debug qualification for $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
