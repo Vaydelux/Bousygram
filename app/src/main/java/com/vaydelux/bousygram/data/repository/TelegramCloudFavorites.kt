@@ -54,11 +54,16 @@ object TelegramCloudFavorites {
     val savingKeys = _savingKeys.asStateFlow()
     private val _recentKeys = MutableStateFlow<Set<String>>(emptySet())
     val recentKeys = _recentKeys.asStateFlow()
+    private val savedDestinations = ConcurrentHashMap<String, Long>()
+    private val _channelId = MutableStateFlow<Long?>(null)
+    val channelId = _channelId.asStateFlow()
 
     fun init() {
         if (!initialized.compareAndSet(false, true)) return
         AccountSession.registerInvalidationHandler {
             cachedChannel = null
+            _channelId.value = null
+            savedDestinations.clear()
             inFlight.clear()
             _savingKeys.value = emptySet()
             _recentKeys.value = emptySet()
@@ -72,7 +77,9 @@ object TelegramCloudFavorites {
                     if (!AccountSession.isCurrent(save.owner)) continue
                     val receipt = saveNow(save.owner, save.sourceChatId, save.sourceMessageId)
                     if (AccountSession.isCurrent(save.owner)) {
-                        _recentKeys.value = _recentKeys.value + "${save.sourceChatId}:${save.sourceMessageId}"
+                        val savedKey = "${save.sourceChatId}:${save.sourceMessageId}"
+                        savedDestinations[savedKey] = receipt.savedMessageId
+                        _recentKeys.value = savedDestinations.keys.toSet()
                         complete(save, Result.success(receipt))
                     }
                 } catch (cancelled: CancellationException) {
@@ -160,6 +167,8 @@ object TelegramCloudFavorites {
             revoke = true
         }
         expect<TdApi.Ok>(owner, delete)
+        savedDestinations.entries.removeAll { it.value == item.messageId }
+        _recentKeys.value = savedDestinations.keys.toSet()
     }
 
     suspend fun ensureChannelForCurrentAccount(): Long {
@@ -176,6 +185,7 @@ object TelegramCloudFavorites {
         for (id in (localResult as? TdApi.Chats)?.chatIds?.toList().orEmpty()) {
             if (isOwnedFavoritesChannel(owner, id)) {
                 cachedChannel = owner to id
+                _channelId.value = id
                 return@withLock id
             }
         }
@@ -188,6 +198,7 @@ object TelegramCloudFavorites {
         for (id in (serverResult as? TdApi.Chats)?.chatIds?.toList().orEmpty()) {
             if (isOwnedFavoritesChannel(owner, id)) {
                 cachedChannel = owner to id
+                _channelId.value = id
                 return@withLock id
             }
         }
@@ -209,6 +220,7 @@ object TelegramCloudFavorites {
             "Telegram did not create a private channel."
         }
         cachedChannel = owner to created.id
+        _channelId.value = created.id
         created.id
     }
 
