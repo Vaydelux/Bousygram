@@ -5,9 +5,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.InputModeManager
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalInputModeManager
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -40,20 +41,21 @@ class MediaActionsDropdownInstrumentedTest {
         var plays = 0
         val playbackFocus = FocusRequester()
         val media = MediaItem(-100, 25, 0, MediaType.Video, "Saved episode", null)
+        // The Android Pixel ATD test image is touch-only and refuses a direct
+        // requestInputMode(Keyboard). Use the same keyboard-mode fixture Compose
+        // foundation uses to verify focusable clickable behavior on test devices.
+        val keyboardInput = object : InputModeManager {
+            override val inputMode: InputMode = InputMode.Keyboard
+            override fun requestInputMode(inputMode: InputMode): Boolean =
+                inputMode == InputMode.Keyboard
+        }
         compose.setContent {
-            // The hosted Pixel emulator starts in Touch mode. Compose clickables
-            // become keyboard-focusable after real remote/key input switches modes.
-            // Force that input mode for this deterministic D-pad regression test.
-            val inputModeManager = LocalInputModeManager.current
-            LaunchedEffect(inputModeManager) {
-                check(inputModeManager.requestInputMode(InputMode.Keyboard)) {
-                    "Could not activate keyboard navigation on emulator"
-                }
-            }
-            BousygramTheme {
-                Box(Modifier.width(320.dp)) {
-                    MediaPosterCard(media, "Telegram", onClick = { plays++ }, cardWidth = null,
-                        playbackFocusRequester = playbackFocus)
+            CompositionLocalProvider(LocalInputModeManager provides keyboardInput) {
+                BousygramTheme {
+                    Box(Modifier.width(320.dp)) {
+                        MediaPosterCard(media, "Telegram", onClick = { plays++ },
+                            cardWidth = null, playbackFocusRequester = playbackFocus)
+                    }
                 }
             }
         }
