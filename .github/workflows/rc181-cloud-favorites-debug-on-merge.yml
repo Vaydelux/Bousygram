@@ -1,0 +1,41 @@
+name: Request Telegram Cloud Favorites Debug
+
+# One-shot debug build after PR 181 merges; the workflow file is introduced only
+# by this PR, and subsequent pushes to main will not match the paths filter.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc181-cloud-favorites-debug-on-merge.yml'
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+jobs:
+  dispatch-debug:
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify Cloud Favorites PR merged at current main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          current="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; refusing to dispatch stale debug source"
+            exit 1
+          }
+          merged="$(gh api "repos/$repo/pulls/181" --jq '.merged')"
+          commit="$(gh api "repos/$repo/pulls/181" --jq '.merge_commit_sha')"
+          [[ "$merged" == true && "$commit" == "$GITHUB_SHA" ]] || {
+            echo "::error::Expected PR 181 merged at the current main SHA"
+            exit 1
+          }
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
+          echo "Requested verified ARM32 ARM64 and universal cloud Favorites debug APKs from $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

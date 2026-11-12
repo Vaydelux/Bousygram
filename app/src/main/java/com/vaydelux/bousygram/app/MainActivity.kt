@@ -50,6 +50,7 @@ import com.vaydelux.bousygram.presentation.media.isMatchingEpisodeSource
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 import com.vaydelux.bousygram.presentation.components.BousygramAdaptiveShell
 import com.vaydelux.bousygram.presentation.components.ShellDestination
+import com.vaydelux.bousygram.presentation.navigation.CloudFavoritesNavigation
 import com.vaydelux.bousygram.presentation.navigation.AppScreen
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusState
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusStateSaver
@@ -214,6 +215,13 @@ private fun BousygramAppRoot(
     // navigation between Telegram and Extras without recreating an auth client.
     val authViewModel: AuthViewModel = viewModel()
     val authState by authViewModel.uiState.collectAsState()
+    LaunchedEffect(Unit) {
+        CloudFavoritesNavigation.openRequests.collect {
+            if (AccountSession.current() != null) {
+                appScreen = AppScreen.Favorites(unwrapNonPlayerScreen(appScreen))
+            }
+        }
+    }
 
     // Reset navigation on auth loss. Do not discard Cast during the initial
     // loading state: saved Telegram authorization may still be restoring.

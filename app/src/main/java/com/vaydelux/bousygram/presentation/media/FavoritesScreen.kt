@@ -22,6 +22,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.activity.compose.BackHandler
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,7 +50,7 @@ import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
 import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
-import com.vaydelux.bousygram.presentation.media.vm.FavoritesViewModel
+import com.vaydelux.bousygram.presentation.media.vm.CloudFavoritesViewModel
 import kotlinx.coroutines.launch
 
 @Composable
@@ -58,9 +59,14 @@ fun FavoritesScreen(
     onOpenSearch: () -> Unit,
     onPlay: (PlaybackRequest) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: FavoritesViewModel = viewModel()
+    viewModel: CloudFavoritesViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // Refresh cloud messages each time this screen opens, even if the VM is retained.
+    LaunchedEffect(Unit) { viewModel.refresh() }
+    var selectedMedia by remember { mutableStateOf<MediaItem?>(null) }
+    var pendingDelete by remember { mutableStateOf<MediaItem?>(null) }
+    var deleting by remember { mutableStateOf(false) }
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val launcher = rememberMediaLauncher(
@@ -122,7 +128,7 @@ fun FavoritesScreen(
                     title = "Favorites",
                     subtitle = if (state.isLoading) "Loading your saved videos…"
                         else if (state.items.isEmpty()) "No saved videos"
-                        else "${state.loadedStart + 1}-${state.loadedStart + state.items.size} of ${state.totalCount} saved videos${if (state.isRefreshing) " - Refreshing" else ""}",
+                        else "${state.loadedStart + 1}-${state.loadedStart + state.items.size} loaded from Telegram${if (state.hasMore) " · More available" else ""}",
                     compact = adaptive.isCompact || adaptive.isShortWindow
                 )
                 Row(
@@ -131,7 +137,10 @@ fun FavoritesScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     BousygramButton("← Back", onClick = { if (!launcher.cancel()) onBack() }, modifier = Modifier.focusRequester(emptyFocus))
-                    if (state.hasPrevious) BousygramButton("Previous saved items", viewModel::loadPrevious)
+                    if (state.hasPrevious) BousygramButton(
+                        "Previous favorites", viewModel::loadPrevious,
+                        enabled = !state.isLoading && !state.isRefreshing
+                    )
                     BousygramButton("Search", onOpenSearch)
                     BousygramButton("Refresh", viewModel::refresh, enabled = !state.isLoading && !state.isRefreshing)
                     if (state.items.isNotEmpty()) {
@@ -173,7 +182,7 @@ fun FavoritesScreen(
                     )
                     state.items.isEmpty() -> EmptyStateView(
                         title = "No favorites yet",
-                        message = "Favorite a video from Home or your Telegram library. Your saved items will appear here across sources.",
+                        message = "Add media from Home or Library. Your saved items are stored in a private Telegram Favorites channel.",
                         actionText = "Browse videos",
                         onAction = onBack,
                         modifier = Modifier.fillMaxSize()
@@ -191,16 +200,12 @@ fun FavoritesScreen(
                                 unavailable = "${item.chatId}:${item.messageId}" in state.unavailableKeys,
                                 modifier = if (restoreKey == "${item.chatId}:${item.messageId}") Modifier.focusRequester(restoreFocus) else Modifier,
                                 onFocus = { if (it) focusedKey = "${item.chatId}:${item.messageId}" },
-                                onPlay = {
-                                    if (item.fileId == null) scope.launch {
-                                        snackbarHost.showSnackbar("This saved media is unavailable. Try Refresh or remove it from favorites.")
-                                    } else launcher.launch(item, state.items.filter { it.fileId != null })
-                                }
+                                onSelect = { selectedMedia = item }
                             )
                         }
                         if (state.hasMore) {
                             item(key = "favorites-load-more", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                                BousygramButton("Load more favorites", onClick = viewModel::loadMore,
+                                BousygramButton("Next favorites", onClick = viewModel::loadMore,
                                     modifier = Modifier.fillMaxWidth())
                             }
                         }
@@ -217,6 +222,63 @@ fun FavoritesScreen(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 32.dp)
         )
+        selectedMedia?.let { item ->
+            AlertDialog(
+                onDismissRequest = { selectedMedia = null },
+                title = { Text("Favorite video") },
+                text = { Text((if (safeMode) "Private favorite" else item.title) +
+                    "\nSaved in your private Telegram channel.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        selectedMedia = null
+                        if (item.fileId == null) {
+                            scope.launch {
+                                snackbarHost.showSnackbar("Media unavailable. Refresh and retry.")
+                            }
+                        } else launcher.launch(item, state.items.filter { it.fileId != null })
+                    }) { Text("Watch") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = { selectedMedia = null }) { Text("Cancel") }
+                        TextButton(onClick = { selectedMedia = null; pendingDelete = item }) {
+                            Text("Delete", color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            )
+        }
+        pendingDelete?.let { item ->
+            AlertDialog(
+                onDismissRequest = { if (!deleting) pendingDelete = null },
+                title = { Text("Delete this saved favorite?") },
+                text = {
+                    Text("This permanently deletes the saved message from your private Bousygram Favorites Telegram channel. " +
+                        "The original source message will NOT be deleted. If the source is gone, the saved copy may be unrecoverable.")
+                },
+                confirmButton = {
+                    TextButton(enabled = !deleting, onClick = {
+                        deleting = true
+                        viewModel.removeFavorite(item) { result ->
+                            deleting = false
+                            if (result.isSuccess) {
+                                pendingDelete = null
+                                scope.launch { snackbarHost.showSnackbar("Removed from Favorites") }
+                            } else scope.launch {
+                                snackbarHost.showSnackbar(result.exceptionOrNull()?.message ?: "Could not delete favorite")
+                            }
+                        }
+                    }) {
+                        Text("Delete Favorite", color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(enabled = !deleting, onClick = { pendingDelete = null }) {
+                        Text("Keep Favorite")
+                    }
+                }
+            )
+        }
 
     }
 }
@@ -230,7 +292,7 @@ private fun FavoriteGridItem(
     unavailable: Boolean,
     modifier: Modifier = Modifier,
     onFocus: (Boolean) -> Unit,
-    onPlay: () -> Unit
+    onSelect: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         MediaPosterCard(
@@ -239,7 +301,8 @@ private fun FavoriteGridItem(
             badge = if (unavailable) "RETRY REFRESH" else "FAVORITE",
             privacyMode = safeMode,
             cardWidth = null,
-            onClick = onPlay,
+            showActions = false,
+            onClick = onSelect,
             modifier = modifier.fillMaxWidth(),
             onFocusChanged = onFocus
         )
