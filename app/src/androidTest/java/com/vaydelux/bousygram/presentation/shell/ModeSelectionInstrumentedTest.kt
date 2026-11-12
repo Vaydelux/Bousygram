@@ -29,7 +29,9 @@ class ModeSelectionInstrumentedTest {
                 else BousygramModeSelection(onTelegram = {}, onExtras = { extras = true })
             }
         }
-        composeRule.onNodeWithText("Bousygram").assertExists()
+        // The redundant second app-name line was removed from the spacious hero.
+        // Its stable tagline remains present on both compact and wide layouts.
+        composeRule.onNodeWithText("Your screen. Your library.").assertExists()
         writeUiEvidence(composeRule, "mode-selection")
         composeRule.onNodeWithTag("mode-extras").performClick()
         composeRule.onNodeWithText("More to Explore").assertExists()
