@@ -1,6 +1,6 @@
 # Bousygram — Responsive Visual, Motion and Playback UI Review
-**Date:** 12 November 2026  
-**Base:** `main` at `351a7f68d7408bb6c27cc21b44b99b30260afd8e`  
+**Date:** 12 November 2026
+**Base:** `main` at `351a7f68d7408bb6c27cc21b44b99b30260afd8e`
 **Scope:** Presentation, font mapping, adaptive layouts, loading banners, motion policy, emulator/UI tests, release process.
 
 ## Summary / decisions
