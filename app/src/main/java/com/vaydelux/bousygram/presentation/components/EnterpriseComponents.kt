@@ -119,6 +119,7 @@ import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
 import com.vaydelux.bousygram.presentation.adaptive.shouldUseSideRail
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.MediaCardDensity
 import com.vaydelux.bousygram.presentation.theme.mediaCardDensity
 import com.vaydelux.bousygram.presentation.media.mediaDisplayLabels
@@ -857,17 +858,15 @@ fun TvFocusSurface(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     val interaction = remember { MutableInteractionSource() }
-    // Respect Android's global animation setting and keep focus transitions fast.
-    val motionDisabled = android.os.Build.VERSION.SDK_INT >= 26 &&
-        !android.animation.ValueAnimator.areAnimatorsEnabled()
+    // Low-RAM TVs use an immediate focus scale while preserving the prominent ring.
+    val motion = rememberBousygramMotionPolicy()
     val scale by animateFloatAsState(
-        targetValue = if (motionDisabled) 1f else if (focused) BousygramUiTokens.focusScale else 1f,
-        animationSpec = tween(durationMillis = if (motionDisabled) 0
-            else BousygramUiTokens.focusDurationMs),
+        targetValue = if (motion.animateFocusScale && focused) BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(durationMillis = motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "focusScale"
     )
     val border by animateColorAsState(
-        animationSpec = tween(if (motionDisabled) 0 else BousygramUiTokens.focusDurationMs),
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         targetValue = when {
             focused -> colors.primary
             selected -> colors.secondary
@@ -920,11 +919,15 @@ fun BousygramButton(
     selected: Boolean = false,
     enabled: Boolean = true
 ) {
+    val isTv = rememberAdaptiveMetrics().isTv
     TvFocusSurface(
         onClick = onClick,
         selected = selected,
         enabled = enabled,
-        modifier = modifier.heightIn(min = 48.dp)
+        modifier = modifier.heightIn(
+            min = if (isTv) BousygramUiTokens.tvControlHeight
+                else BousygramUiTokens.touchTarget
+        )
     ) { focused ->
         Box(
             contentAlignment = Alignment.Center,
@@ -1781,17 +1784,9 @@ fun rememberShimmerBrush(): Brush {
     val baseColor = colors.surfaceVariant.copy(alpha = 0.36f)
     val highlightColor = colors.primary.copy(alpha = 0.22f)
     val midColor = colors.surfaceVariant.copy(alpha = 0.68f)
-    val context = LocalContext.current
-    val animationsEnabled = remember(context) {
-        val scale = runCatching {
-            android.provider.Settings.Global.getFloat(
-                context.contentResolver,
-                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
-                1f
-            )
-        }.getOrDefault(1f)
-        shouldAnimateShimmer(scale)
-    }
+    // The same policy governs tab/focus and shimmer animations. Never run an
+    // infinite gradient transition on low-RAM Android TV or with reduced motion.
+    val animationsEnabled = rememberBousygramMotionPolicy().animateShimmer
     if (!animationsEnabled) {
         // No looping transition or moving shimmer while system animations are disabled.
         return Brush.linearGradient(
