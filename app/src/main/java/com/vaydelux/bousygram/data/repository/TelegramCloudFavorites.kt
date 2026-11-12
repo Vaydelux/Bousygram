@@ -229,6 +229,103 @@ object TelegramCloudFavorites {
         return ensureChannel(owner)
     }
 
+    /**
+     * Best-effort in-process migration, triggered by opening Favorites.
+     * Only reads existing old Room data (if present) and old preference keys.
+     * Never creates a migration database or persistent queue. Each original
+     * bookmark is retired ONLY after the cloud reports an existing/sent copy.
+     * Failed sources stay locally available for retry on the next visit.
+     */
+    fun startLegacyImport(retry: Boolean = false) {
+        init()
+        val owner = AccountSession.current() ?: return
+        synchronized(legacyImportGuard) {
+            if (legacyImportJob?.isActive == true) return
+            if (!retry && legacyImportAttempt == owner) return
+            legacyImportAttempt = owner
+            legacyImportJob = scope.launch {
+                var copied = 0
+                var existing = 0
+                var failed = 0
+                val before = _legacyImport.value.completedPasses
+                _legacyImport.value = LegacyImportStatus(running = true, completedPasses = before)
+                try {
+                    val app = BousygramApp.instance
+                    val prefs = app.getSharedPreferences("account_${owner.accountId}_enterprise", Context.MODE_PRIVATE)
+                    val legacy = prefs.getStringSet("favorites", emptySet()).orEmpty().toMutableSet()
+                    val db = if (app.getDatabasePath("bousygram_account_${owner.accountId}.db").exists()) {
+                        AppDatabase.getInstance(app, owner.accountId)
+                    } else null
+
+                    suspend fun migrate(chatId: Long, messageId: Long) {
+                        if (!AccountSession.isCurrent(owner)) throw CancellationException("Account changed")
+                        val key = "$chatId:$messageId"
+                        try {
+                            val receipt = saveNow(owner, chatId, messageId)
+                            if (!AccountSession.isCurrent(owner)) throw CancellationException("Account changed")
+                            // Do not erase legacy data unless Telegram already has the saved message.
+                            check(AccountSession.runIfCurrent(owner) {
+                                db?.favoriteDao()?.remove(chatId, messageId)
+                                if (legacy.remove(key)) {
+                                    check(prefs.edit().putStringSet("favorites", legacy.toSet()).commit()) {
+                                        "Could not mark old favorite as migrated"
+                                    }
+                                }
+                            }) { "Account changed during import" }
+                            if (receipt.alreadyExisted) existing++ else copied++
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Old copy stays intact and will be retried explicitly.
+                            failed++
+                        }
+                        _legacyImport.value = LegacyImportStatus(
+                            running = true, imported = copied, previouslySaved = existing,
+                            failed = failed, completedPasses = before
+                        )
+                    }
+
+                    // Room may contain old bookmarks already converted from SharedPreferences.
+                    // A keyset cursor never skips rows when confirmed records are removed.
+                    var afterChat = Long.MIN_VALUE
+                    var afterMessage = Long.MIN_VALUE
+                    while (db != null) {
+                        if (!AccountSession.isCurrent(owner)) throw CancellationException("Account changed")
+                        val rows = db.favoriteDao().migrationBatch(afterChat, afterMessage, 32)
+                        if (rows.isEmpty()) break
+                        for (row in rows) {
+                            migrate(row.chatId, row.messageId)
+                        }
+                        val last = rows.last()
+                        afterChat = last.chatId
+                        afterMessage = last.messageId
+                    }
+                    // Older installations may have preference-only favorites without a Room file.
+                    // Rows already migrated above are removed from this mutable set.
+                    for (key in legacy.toList()) {
+                        if (key !in legacy) continue
+                        val parts = key.split(':')
+                        if (parts.size != 2) continue
+                        val chatId = parts[0].toLongOrNull()?.takeIf { it != 0L } ?: continue
+                        val messageId = parts[1].toLongOrNull()?.takeIf { it != 0L } ?: continue
+                        migrate(chatId, messageId)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    if (AccountSession.isCurrent(owner)) failed++
+                } finally {
+                    if (AccountSession.isCurrent(owner)) {
+                        _legacyImport.value = LegacyImportStatus(
+                            running = false, imported = copied, previouslySaved = existing,
+                            failed = failed, completedPasses = before + 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private suspend fun ensureChannel(owner: AccountSnapshot): Long = channelLock.withLock {
         cachedChannel?.takeIf { it.first == owner }?.second?.let { return@withLock it }
         val localResult = request(owner, TdApi.SearchChats().apply {
