@@ -24,10 +24,15 @@ class CloudFavoritesViewModel : ViewModel() {
     private var nextBeforeId: Long? = null
     private var hasMore = false
     private var generation = 0L
+    private var observedAccount = AccountSession.current()
 
     init {
         viewModelScope.launch {
             AccountSession.state.collectLatest {
+                // The first StateFlow emission is not an account switch. Do not
+                // cancel the screen-entry refresh before it can return.
+                if (it == observedAccount) return@collectLatest
+                observedAccount = it
                 ++generation
                 loadJob?.cancel()
                 nextBeforeId = null
