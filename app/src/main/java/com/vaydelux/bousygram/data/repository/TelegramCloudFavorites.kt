@@ -5,7 +5,6 @@ import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.domain.model.MediaItem
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -82,7 +81,7 @@ object TelegramCloudFavorites {
                     if (AccountSession.isCurrent(save.owner)) complete(save, Result.failure(error))
                 } finally {
                     inFlight.remove(save.key)
-                    _savingKeys.value = inFlight.map { it.substringAfter(':') }.toSet()
+                    _savingKeys.value = inFlight.map { it.substringAfter(':').substringAfter(':') }.toSet()
                 }
             }
         }
@@ -190,8 +189,11 @@ object TelegramCloudFavorites {
             isChannel = true
             description = CHANNEL_MARKER
         })
-        check(isOwnedFavoritesChannel(owner, created.id)) {
-            "Telegram created the channel, but Bousygram could not verify ownership."
+        // A successful CreateNewSupergroupChat response already proves ownership.
+        // Full-info propagation can lag immediately after creation; do not
+        // report a failed operation and risk creating a duplicate on retry.
+        check((created.type as? TdApi.ChatTypeSupergroup)?.isChannel == true) {
+            "Telegram did not create a private channel."
         }
         cachedChannel = owner to created.id
         created.id
