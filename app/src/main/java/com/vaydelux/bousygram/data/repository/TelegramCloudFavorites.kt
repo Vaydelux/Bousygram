@@ -459,8 +459,10 @@ object TelegramCloudFavorites {
             ?: IdentityIndex(owner, channel).also { identityIndex = it }
         val sourceKeys = cloudFavoriteIdentityKeys(source)
 
-        suspend fun verified(id: Long): Boolean =
-            (request(owner, TdApi.GetMessage(channel, id)) as? TdApi.Message)?.sendingState == null
+        suspend fun verified(id: Long): Boolean {
+            val existing = request(owner, TdApi.GetMessage(channel, id)) as? TdApi.Message
+            return existing != null && existing.sendingState == null
+        }
 
         val knownId = index.find(source)
         if (knownId != null) {
