@@ -4,6 +4,8 @@ import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.domain.model.MediaItem
+import com.vaydelux.bousygram.app.BousygramApp
+import com.vaydelux.bousygram.data.database.AppDatabase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +14,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -19,6 +23,7 @@ import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import android.content.Context
 
 /**
  * Telegram is the only source of truth for NEW Favorites.
@@ -34,7 +39,35 @@ object TelegramCloudFavorites {
     private const val QUEUE_CAPACITY = 32
 
     data class Page(val channelId: Long, val items: List<MediaItem>, val nextBeforeId: Long?, val hasMore: Boolean)
-    data class Receipt(val sourceChatId: Long, val sourceMessageId: Long, val savedMessageId: Long, val channelId: Long)
+    data class Receipt(
+        val sourceChatId: Long, val sourceMessageId: Long,
+        val savedMessageId: Long, val channelId: Long,
+        val alreadyExisted: Boolean = false
+    )
+
+    data class LegacyImportStatus(
+        val running: Boolean = false,
+        val imported: Int = 0,
+        val previouslySaved: Int = 0,
+        val failed: Int = 0,
+        val completedPasses: Int = 0
+    )
+
+    private data class IdentityIndex(
+        val owner: AccountSnapshot,
+        val channelId: Long,
+        val destinationByKey: MutableMap<String, Long> = mutableMapOf(),
+        var fullyScanned: Boolean = false
+    ) {
+        fun register(message: TdApi.Message) {
+            cloudFavoriteIdentityKeys(message).forEach { destinationByKey[it] = message.id }
+        }
+        fun discard(messageId: Long) {
+            destinationByKey.entries.removeAll { it.value == messageId }
+        }
+        fun find(source: TdApi.Message): Long? =
+            cloudFavoriteIdentityKeys(source).firstNotNullOfOrNull { destinationByKey[it] }
+    }
 
     private data class PendingSave(
         val owner: AccountSnapshot,
@@ -46,6 +79,13 @@ object TelegramCloudFavorites {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val channelLock = Mutex()
+    private val saveLock = Mutex()
+    @Volatile private var identityIndex: IdentityIndex? = null
+    private val legacyImportGuard = Any()
+    @Volatile private var legacyImportJob: Job? = null
+    @Volatile private var legacyImportAttempt: AccountSnapshot? = null
+    private val _legacyImport = MutableStateFlow(LegacyImportStatus())
+    val legacyImport = _legacyImport.asStateFlow()
     private val saves = Channel<PendingSave>(QUEUE_CAPACITY)
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val initialized = AtomicBoolean(false)
@@ -62,6 +102,11 @@ object TelegramCloudFavorites {
         if (!initialized.compareAndSet(false, true)) return
         AccountSession.registerInvalidationHandler {
             cachedChannel = null
+            identityIndex = null
+            legacyImportJob?.cancel()
+            legacyImportJob = null
+            legacyImportAttempt = null
+            _legacyImport.value = LegacyImportStatus()
             _channelId.value = null
             savedDestinations.clear()
             inFlight.clear()
@@ -168,6 +213,7 @@ object TelegramCloudFavorites {
         }
         expect<TdApi.Ok>(owner, delete)
         savedDestinations.entries.removeAll { it.value == item.messageId }
+        identityIndex?.takeIf { it.owner == owner && it.channelId == channel }?.discard(item.messageId)
         _recentKeys.value = savedDestinations.keys.toSet()
     }
 
@@ -237,7 +283,8 @@ object TelegramCloudFavorites {
         return details.description == CHANNEL_MARKER
     }
 
-    private suspend fun saveNow(owner: AccountSnapshot, sourceChatId: Long, sourceMessageId: Long): Receipt {
+    private suspend fun saveNow(owner: AccountSnapshot, sourceChatId: Long, sourceMessageId: Long): Receipt =
+        saveLock.withLock {
         val channelId = ensureChannel(owner)
         check(channelId != sourceChatId) { "This message is already in your Favorites channel." }
         val props = expect<TdApi.MessageProperties>(
@@ -282,7 +329,8 @@ object TelegramCloudFavorites {
                 }
                 result
             }
-            return Receipt(sourceChatId, sourceMessageId, confirmed.id, channelId)
+            identityIndex?.takeIf { it.owner == owner && it.channelId == channelId }?.register(confirmed)
+            return@withLock Receipt(sourceChatId, sourceMessageId, confirmed.id, channelId)
         } finally {
             TdLibClient.removeUpdateHandler(listener)
             events.close()
