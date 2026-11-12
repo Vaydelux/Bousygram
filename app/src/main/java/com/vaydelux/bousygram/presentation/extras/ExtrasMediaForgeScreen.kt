@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
@@ -259,6 +262,9 @@ private fun ExtrasMediaForgePlayerScreen(
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
+    // A provider may need third-party cookies or scripted autoplay to render its
+    // nested player. Neither is granted until the user explicitly opts in.
+    var webCompatibilityMode by remember(request.url) { mutableStateOf(false) }
     var htmlFullscreenView by remember(request.url) { mutableStateOf<View?>(null) }
     // The previous bridge is permanently closed when native playback disposes WebView.
     // A new generation must create a new bridge when the user returns to WebView.
@@ -334,6 +340,24 @@ private fun ExtrasMediaForgePlayerScreen(
                 webLoadFailed = true
             }
         )
+    }
+
+    fun tryCompatibilityMode() {
+        if (webCompatibilityMode) return
+        webCompatibilityMode = true
+        inspectionGeneration += 1
+        inspectionJob?.cancel()
+        inspectionJob = null
+        busy = false
+        approved = null
+        selectedCaption = null
+        showSubtitlePicker = false
+        session.clear()
+        snapshot = session.snapshot()
+        status = "Compatibility mode enabled: third-party cookies and autoplay are allowed for this web player."
+        webLoadFailed = false
+        // New bridge + new WebView apply browser settings before loading the URL.
+        webGeneration += 1
     }
 
     fun returnToWebView() {
@@ -448,11 +472,23 @@ private fun ExtrasMediaForgePlayerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    // A short landscape phone or 720p TV can otherwise allocate the entire
+    // viewport to the browser toolbar/footer and measure WebView at 0px.
+    val shortWindow = maxHeight < 580.dp
+    val headerCap = (maxHeight * 0.36f).coerceAtLeast(88.dp)
+    val footerCap = (maxHeight * 0.23f).coerceAtLeast(64.dp)
+    Column(
+        Modifier.fillMaxSize()
+            .then(if (!immersiveWeb) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         if (!immersiveWeb) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                modifier = Modifier.fillMaxWidth()
+                    .then(if (shortWindow) Modifier.heightIn(max = headerCap)
+                        .verticalScroll(rememberScrollState()) else Modifier)
+                    .padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
@@ -613,7 +649,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 AndroidView(
                     factory = { ctx ->
                         try {
-                            bridge.create(ctx, request.url).also { webView = it }
+                            bridge.create(ctx, request.url, compatibilityMode = webCompatibilityMode).also { webView = it }
                         } catch (_: RuntimeException) {
                             status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
                             android.widget.TextView(ctx).apply {
@@ -671,19 +707,30 @@ private fun ExtrasMediaForgePlayerScreen(
                     color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Row(
+                    Column(
                         Modifier.padding(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Still a black screen? Switch anime server.",
-                            modifier = Modifier.weight(1f),
+                        Text(
+                            "Black screen? This web source may require cross-site cookies or autoplay.",
                             color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodyMedium)
-                        OutlinedButton(
-                            onClick = onChooseAnimeServer,
-                            modifier = Modifier.testTag("extras-anime-blank-recovery")
-                        ) { Text("Choose server") }
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!webCompatibilityMode) {
+                                OutlinedButton(
+                                    onClick = { tryCompatibilityMode() },
+                                    modifier = Modifier.weight(1f)
+                                        .testTag("extras-anime-try-compatibility")
+                                ) { Text("Try compatibility", maxLines = 2) }
+                            }
+                            OutlinedButton(
+                                onClick = onChooseAnimeServer,
+                                modifier = Modifier.weight(1f)
+                                    .testTag("extras-anime-blank-recovery")
+                            ) { Text("Choose server", maxLines = 2) }
+                        }
                     }
                 }
             }
@@ -707,7 +754,10 @@ private fun ExtrasMediaForgePlayerScreen(
 
         if (!immersiveWeb) {
         Column(
-            Modifier.fillMaxWidth().padding(12.dp),
+            Modifier.fillMaxWidth()
+                .then(if (shortWindow) Modifier.heightIn(max = footerCap)
+                    .verticalScroll(rememberScrollState()) else Modifier)
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
