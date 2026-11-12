@@ -1,8 +1,7 @@
 package com.vaydelux.bousygram.presentation.layout
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -60,6 +59,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -1417,7 +1418,12 @@ private fun ModernMyListButton(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
     val interaction = remember { MutableInteractionSource() }
-    val scale by animateFloatAsState(if (focused) 1.05f else 1f, label = "myListScale")
+    val motion = rememberBousygramMotionPolicy()
+    val scale by animateFloatAsState(
+        targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
+        label = "myListScale"
+    )
     Surface(
         modifier = modifier
             .graphicsLayer {
@@ -1461,7 +1467,12 @@ private fun ModernResumeButton(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
     val interaction = remember { MutableInteractionSource() }
-    val scale by animateFloatAsState(if (focused) 1.05f else 1f, label = "resumeScale")
+    val motion = rememberBousygramMotionPolicy()
+    val scale by animateFloatAsState(
+        targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
+        label = "resumeScale"
+    )
     Surface(
         modifier = modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
@@ -1544,9 +1555,10 @@ fun ModernVideoCard(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(8.dp)
     val interaction = remember { MutableInteractionSource() }
+    val motion = rememberBousygramMotionPolicy()
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.04f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "cardScale"
     )
     val context = LocalContext.current
@@ -1750,9 +1762,10 @@ private fun ContinueWatchingCard(
     val shape = RoundedCornerShape(12.dp)
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
+    val motion = rememberBousygramMotionPolicy()
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.04f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "cwScale"
     )
     val context = LocalContext.current
@@ -2411,9 +2424,10 @@ fun ModernSeriesCard(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(8.dp)
     val interaction = remember { MutableInteractionSource() }
+    val motion = rememberBousygramMotionPolicy()
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.04f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "seriesCardScale"
     )
     val context = LocalContext.current
