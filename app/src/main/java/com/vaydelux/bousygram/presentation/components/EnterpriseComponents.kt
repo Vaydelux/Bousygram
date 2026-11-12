@@ -1015,7 +1015,9 @@ fun MediaPosterCard(
     cardWidth: Dp? = 260.dp,
     progress: Float? = null,
     onFocusChanged: (Boolean) -> Unit = {},
-    playbackFocusRequester: FocusRequester? = null
+    playbackFocusRequester: FocusRequester? = null,
+    showActions: Boolean = true,
+    onSaveFavorite: ((MediaItem, (Result<Unit>) -> Unit) -> Unit)? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     // Screens restoring focus after pagination may supply their own requester.
@@ -1138,12 +1140,12 @@ fun MediaPosterCard(
         focusRequester = playbackFocus,
         modifier = Modifier.fillMaxWidth()
             .testTag("media-play-${media.chatId}:${media.messageId}")
-            .focusProperties { if (AccountSession.current() != null) right = actionsFocus }
+            .focusProperties { if (showActions && AccountSession.current() != null) right = actionsFocus }
             // The actions icon overlaps the poster bounds. Spatial D-pad search can
             // skip an overlapping focus target; explicitly hand off on Right.
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight &&
-                    AccountSession.current() != null) actionsFocus.requestFocus() else false
+                    showActions && AccountSession.current() != null) actionsFocus.requestFocus() else false
             }
             .graphicsLayer {
                 if (isWatched && !focused) alpha = 0.58f
@@ -1299,11 +1301,14 @@ fun MediaPosterCard(
             }
         }
     }
-    MediaActionsDropdown(
-        media = media, privacyMode = privacyMode, onActionFocus = onFocusChanged,
-        actionFocusRequester = actionsFocus, playbackFocusRequester = playbackFocus,
-        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
-    )
+    if (showActions) {
+        MediaActionsDropdown(
+            media = media, privacyMode = privacyMode, onActionFocus = onFocusChanged,
+            actionFocusRequester = actionsFocus, playbackFocusRequester = playbackFocus,
+            saveHandler = onSaveFavorite,
+            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+        )
+    }
     }
 
 }
