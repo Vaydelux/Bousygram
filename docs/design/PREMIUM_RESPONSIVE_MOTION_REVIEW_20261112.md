@@ -8,7 +8,7 @@
 1. Preserve the existing **Space Grotesk** and **Inter** TTF resources, bundled offline at `res/font`, and their OFL notices under `assets/licenses`. Do not download fonts at runtime or add a font dependency. Apply Space Grotesk to display, headline **and title** roles; Inter to readable labels and body copy.
 2. Centralize reduced-motion and low-memory behavior with `BousygramMotionPolicy`. No decorative infinite animation when Android disables animation or `ActivityManager.isLowRamDevice` is true. Keep focus rings, content labels and progress/status text visible regardless of motion.
 3. Favor opaque, semantic `MaterialTheme.colorScheme` surfaces over per-screen colors. This pass adopts theme primary for the cinematic scrubber instead of an unrelated hardcoded red. Black/white video edge-band overlays remain intentional to protect legibility over unknown video content.
-4. Align shared card, tab and panel radii with common tokens; preserve large D-pad focus outlines and 56dp TV controls / 48dp touch targets. Avoid massive fullscreen transition layers.
+4. Align shared card, tab and panel radii (12dp/10dp/16dp respectively) with common tokens; preserve large D-pad focus outlines and 56dp TV controls / 48dp touch targets. The MainActivity screen fade and all legacy dashboard focus zooms now honor the same reduced-motion/low-RAM policy. Avoid massive fullscreen transition layers.
 5. Reduce redundant Mode Selection labels. Heading + one supporting description precedes the two media options; mobile and short-landscape layouts remain single-column or two-column based on measured available space.
 6. Make the buffering/reconnect banner width bounded by **actual parent constraints**, with weighted title/subtitle and ellipsis. On short screens, use fewer lines and a shorter static opening skeleton. No fake buffering percent, focus-stealing surface or new media requests.
 7. Keep account/Telegram and the MediaForge playback boundaries unchanged. The visual update must not turn UI previews into TDLib startup or change user pause/seek intent.
@@ -19,12 +19,18 @@
 |---|---|
 | Theme + typography | Inter and Space Grotesk already bundled; titles previously used Inter while page headings used Grotesk. Fixed role inconsistency; preserved seven palettes and contrast tests. |
 | Adaptive layout | `AdaptiveMetrics` uses window bounds and TV feature detection, not CPU ABI. Phone landscape, tablet and TV use different chrome based on available height. Narrow-window status banner and heading adjustments reduce overflow risk. |
-| Navigation / focus | `BousygramSectionTab` and `TvFocusSurface` remain independently focusable/selectable with semantic selection states. New surface transitions respect system accessibility settings. |
+| Navigation / focus | `BousygramSectionTab`, `TvFocusSurface`, app screen transitions and legacy TV dashboard focus zooms share the reduced-motion/low-RAM policy. Focus rings remain independently visible and selection semantics are preserved. |
 | Player UI + playback | `PlayerLoadingBanner` is decorative and only reports true opening, reconnecting and buffering states; `playerLoadingPhase` gives errors priority so Retry remains accessible. Cinematic scrubber uses existing seek callbacks and an on-theme progress accent. Native playback/engine state machine is intentionally unchanged. |
 | Loading / overdraw | Shimmer now follows the same low-memory motion policy. Static fallback and fixed decorative backdrop avoid infinite low-RAM GPU work; player status never invents a buffer percentage. |
 | Theme gallery / cards | Native Compose, responsive columns and semantic colors already shared. Shape tokens aligned for a clearer, quieter visual language. |
 | Code/process | UI components remain shared, but `PlayerScreen.kt` (~4k lines) and `TvHybridHomeDashboard.kt` (~2.5k lines) are still large. Recommend future **behavior-preserving** extraction after device qualification rather than a rewrite in this design PR. |
 | CI and packaging | Existing Enterprise, responsive UI emulator, media emulator and verified debug prerelease workflows remain authoritative. No secrets, app permissions, networking code, or database migrations changed. |
+
+## Verified code-review follow-up
+
+- A previous exact-commit Enterprise run identified a stale unit test expecting the old 8dp card corner. Updated `UniformDesignMetricsTest` to assert the actual shared 12dp card / 16dp panel / 10dp tab hierarchy. This was a test contract regression, not a renderer crash.
+- Converted the main-screen fade and all five legacy dashboard focus-scale animations to use the central motion budget. These UI changes do not touch player commands or Telegram message lifecycle.
+- Keep distinct actions explicit: the UI now only changes rendering and presentation; functional media operations still need physical-device verification.
 
 ## Automated acceptance
 
