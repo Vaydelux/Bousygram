@@ -46,7 +46,7 @@ class MediaActionsDropdownInstrumentedTest {
             }
         }
         compose.waitUntil(10_000) { FavoritesRepository.ready.value }
-        compose.runOnIdle { playbackFocus.requestFocus() }
+        compose.runOnIdle { check(playbackFocus.requestFocus()) { "Poster did not accept focus" } }
         compose.onNodeWithTag("media-play--100:25").assertIsFocused()
         compose.onNodeWithTag("media-play--100:25").performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithContentDescription("Actions for Saved episode").assertIsFocused()
