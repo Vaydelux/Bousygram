@@ -19,7 +19,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vaydelux.bousygram.core.account.AccountSession
-import com.vaydelux.bousygram.data.repository.FavoritesRepository
+import com.vaydelux.bousygram.data.repository.TelegramCloudFavorites
+import com.vaydelux.bousygram.presentation.navigation.CloudFavoritesNavigation
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 
@@ -28,12 +29,14 @@ import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privacyMode: Boolean = false,
     onActionFocus: (Boolean) -> Unit = {},
     actionFocusRequester: FocusRequester? = null,
-    playbackFocusRequester: FocusRequester? = null) {
+    playbackFocusRequester: FocusRequester? = null,
+    saveHandler: ((MediaItem, (Result<Unit>) -> Unit) -> Unit)? = null) {
     val account by AccountSession.state.collectAsStateWithLifecycle()
     if (account == null) return
-    val keys by FavoritesRepository.keys.collectAsStateWithLifecycle()
-    val ready by FavoritesRepository.ready.collectAsStateWithLifecycle()
-    val favorite = "${media.chatId}:${media.messageId}" in keys
+    val pendingKeys by TelegramCloudFavorites.savingKeys.collectAsStateWithLifecycle()
+    val pending = "${media.chatId}:${media.messageId}" in pendingKeys
+    var showAddedDialog by remember(media.chatId, media.messageId, account) { mutableStateOf(false) }
+    var saveError by remember(media.chatId, media.messageId, account) { mutableStateOf<String?>(null) }
     var expanded by remember(media.chatId, media.messageId, account) { mutableStateOf(false) }
     var restoreFocus by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
@@ -67,14 +70,48 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
         ) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
         DropdownMenu(expanded = expanded, onDismissRequest = ::dismiss) {
             DropdownMenuItem(
-                text = { Text(if (!ready) "Loading favorites..." else if (favorite) "Remove from favorites" else "Add to favorites") },
-                enabled = ready,
+                text = { Text(if (pending) "Adding to Favorites..." else "Add to favorites") },
+                enabled = !pending,
                 modifier = Modifier.heightIn(min = minimum),
                 onClick = {
-                    FavoritesRepository.setFavorite(media, !favorite)
                     dismiss()
+                    val callback: (Result<Unit>) -> Unit = { result ->
+                        if (result.isSuccess) showAddedDialog = true
+                        else saveError = result.exceptionOrNull()?.message ?: "Telegram could not save this video"
+                    }
+                    val injected = saveHandler
+                    if (injected != null) injected(media, callback)
+                    else TelegramCloudFavorites.enqueueSave(media) { receipt ->
+                        callback(receipt.map { Unit })
+                    }
                 }
             )
         }
+    }
+    if (showAddedDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddedDialog = false },
+            title = { Text("Added to Favorites") },
+            text = { Text("Your media has been saved to your private Bousygram Favorites Telegram channel.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showAddedDialog = false
+                    CloudFavoritesNavigation.viewFavorites()
+                }) { Text("View") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddedDialog = false }) { Text("Done") }
+            }
+        )
+    }
+    saveError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { saveError = null },
+            title = { Text("Couldn't add to Favorites") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { saveError = null }) { Text("OK") }
+            }
+        )
     }
 }
