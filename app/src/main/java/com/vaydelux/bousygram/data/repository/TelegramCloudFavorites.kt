@@ -4,6 +4,8 @@ import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.domain.model.MediaItem
+import com.vaydelux.bousygram.app.BousygramApp
+import com.vaydelux.bousygram.data.database.AppDatabase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +14,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -19,6 +23,7 @@ import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import android.content.Context
 
 /**
  * Telegram is the only source of truth for NEW Favorites.
@@ -32,9 +37,44 @@ object TelegramCloudFavorites {
     private const val CHANNEL_MARKER = "Bousygram-managed private favorites channel (v1)"
     private const val PAGE_SIZE = 60
     private const val QUEUE_CAPACITY = 32
+    // Keep only small Telegram identity strings, never decoded images/media bytes.
+    private const val MAX_CACHED_IDENTITIES = 8192
 
     data class Page(val channelId: Long, val items: List<MediaItem>, val nextBeforeId: Long?, val hasMore: Boolean)
-    data class Receipt(val sourceChatId: Long, val sourceMessageId: Long, val savedMessageId: Long, val channelId: Long)
+    data class Receipt(
+        val sourceChatId: Long, val sourceMessageId: Long,
+        val savedMessageId: Long, val channelId: Long,
+        val alreadyExisted: Boolean = false
+    )
+
+    data class LegacyImportStatus(
+        val running: Boolean = false,
+        val imported: Int = 0,
+        val previouslySaved: Int = 0,
+        val failed: Int = 0,
+        val completedPasses: Int = 0
+    )
+
+    private data class IdentityIndex(
+        val owner: AccountSnapshot,
+        val channelId: Long,
+        val destinationByKey: ConcurrentHashMap<String, Long> = ConcurrentHashMap(),
+        var fullyScanned: Boolean = false
+    ) {
+        fun register(message: TdApi.Message): Boolean {
+            val keys = cloudFavoriteIdentityKeys(message)
+            if (keys.any { !destinationByKey.containsKey(it) } &&
+                destinationByKey.size + keys.count { !destinationByKey.containsKey(it) } > MAX_CACHED_IDENTITIES
+            ) return false
+            keys.forEach { destinationByKey[it] = message.id }
+            return true
+        }
+        fun discard(messageId: Long) {
+            destinationByKey.entries.removeAll { it.value == messageId }
+        }
+        fun find(source: TdApi.Message): Long? =
+            cloudFavoriteIdentityKeys(source).firstNotNullOfOrNull { destinationByKey[it] }
+    }
 
     private data class PendingSave(
         val owner: AccountSnapshot,
@@ -46,6 +86,13 @@ object TelegramCloudFavorites {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val channelLock = Mutex()
+    private val saveLock = Mutex()
+    @Volatile private var identityIndex: IdentityIndex? = null
+    private val legacyImportGuard = Any()
+    @Volatile private var legacyImportJob: Job? = null
+    @Volatile private var legacyImportAttempt: AccountSnapshot? = null
+    private val _legacyImport = MutableStateFlow(LegacyImportStatus())
+    val legacyImport = _legacyImport.asStateFlow()
     private val saves = Channel<PendingSave>(QUEUE_CAPACITY)
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val initialized = AtomicBoolean(false)
@@ -62,6 +109,11 @@ object TelegramCloudFavorites {
         if (!initialized.compareAndSet(false, true)) return
         AccountSession.registerInvalidationHandler {
             cachedChannel = null
+            identityIndex = null
+            legacyImportJob?.cancel()
+            legacyImportJob = null
+            legacyImportAttempt = null
+            _legacyImport.value = LegacyImportStatus()
             _channelId.value = null
             savedDestinations.clear()
             inFlight.clear()
@@ -168,12 +220,110 @@ object TelegramCloudFavorites {
         }
         expect<TdApi.Ok>(owner, delete)
         savedDestinations.entries.removeAll { it.value == item.messageId }
+        identityIndex?.takeIf { it.owner == owner && it.channelId == channel }?.discard(item.messageId)
         _recentKeys.value = savedDestinations.keys.toSet()
     }
 
     suspend fun ensureChannelForCurrentAccount(): Long {
         val owner = checkNotNull(AccountSession.current()) { "No verified Telegram account" }
         return ensureChannel(owner)
+    }
+
+    /**
+     * Best-effort in-process migration, triggered by opening Favorites.
+     * Only reads existing old Room data (if present) and old preference keys.
+     * Never creates a migration database or persistent queue. Each original
+     * bookmark is retired ONLY after the cloud reports an existing/sent copy.
+     * Failed sources stay locally available for retry on the next visit.
+     */
+    fun startLegacyImport(retry: Boolean = false) {
+        init()
+        val owner = AccountSession.current() ?: return
+        synchronized(legacyImportGuard) {
+            if (legacyImportJob?.isActive == true) return
+            if (!retry && legacyImportAttempt == owner) return
+            legacyImportAttempt = owner
+            legacyImportJob = scope.launch {
+                var copied = 0
+                var existing = 0
+                var failed = 0
+                val before = _legacyImport.value.completedPasses
+                _legacyImport.value = LegacyImportStatus(running = true, completedPasses = before)
+                try {
+                    val app = BousygramApp.instance
+                    val prefs = app.getSharedPreferences("account_${owner.accountId}_enterprise", Context.MODE_PRIVATE)
+                    val legacy = prefs.getStringSet("favorites", emptySet()).orEmpty().toMutableSet()
+                    val db = if (app.getDatabasePath("bousygram_account_${owner.accountId}.db").exists()) {
+                        AppDatabase.getInstance(app, owner.accountId)
+                    } else null
+
+                    suspend fun migrate(chatId: Long, messageId: Long) {
+                        if (!AccountSession.isCurrent(owner)) throw CancellationException("Account changed")
+                        val key = "$chatId:$messageId"
+                        try {
+                            val receipt = saveNow(owner, chatId, messageId)
+                            if (!AccountSession.isCurrent(owner)) throw CancellationException("Account changed")
+                            // Do not erase legacy data unless Telegram already has the saved message.
+                            check(AccountSession.runIfCurrent(owner) {
+                                db?.favoriteDao()?.remove(chatId, messageId)
+                                if (legacy.remove(key)) {
+                                    check(prefs.edit().putStringSet("favorites", legacy.toSet()).commit()) {
+                                        "Could not mark old favorite as migrated"
+                                    }
+                                }
+                            }) { "Account changed during import" }
+                            if (receipt.alreadyExisted) existing++ else copied++
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Old copy stays intact and will be retried explicitly.
+                            failed++
+                        }
+                        _legacyImport.value = LegacyImportStatus(
+                            running = true, imported = copied, previouslySaved = existing,
+                            failed = failed, completedPasses = before
+                        )
+                    }
+
+                    // Room may contain old bookmarks already converted from SharedPreferences.
+                    // A keyset cursor never skips rows when confirmed records are removed.
+                    var afterChat = Long.MIN_VALUE
+                    var afterMessage = Long.MIN_VALUE
+                    while (db != null) {
+                        if (!AccountSession.isCurrent(owner)) throw CancellationException("Account changed")
+                        val rows = db.favoriteDao().migrationBatch(afterChat, afterMessage, 32)
+                        if (rows.isEmpty()) break
+                        for (row in rows) {
+                            migrate(row.chatId, row.messageId)
+                        }
+                        val last = rows.last()
+                        afterChat = last.chatId
+                        afterMessage = last.messageId
+                    }
+                    // Older installations may have preference-only favorites without a Room file.
+                    // Rows already migrated above are removed from this mutable set.
+                    for (key in legacy.toList()) {
+                        if (key !in legacy) continue
+                        val parts = key.split(':')
+                        if (parts.size != 2) continue
+                        val chatId = parts[0].toLongOrNull()?.takeIf { it != 0L } ?: continue
+                        val messageId = parts[1].toLongOrNull()?.takeIf { it != 0L } ?: continue
+                        migrate(chatId, messageId)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    if (AccountSession.isCurrent(owner)) failed++
+                } finally {
+                    if (AccountSession.isCurrent(owner)) {
+                        _legacyImport.value = LegacyImportStatus(
+                            running = false, imported = copied, previouslySaved = existing,
+                            failed = failed, completedPasses = before + 1
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private suspend fun ensureChannel(owner: AccountSnapshot): Long = channelLock.withLock {
@@ -237,9 +387,15 @@ object TelegramCloudFavorites {
         return details.description == CHANNEL_MARKER
     }
 
-    private suspend fun saveNow(owner: AccountSnapshot, sourceChatId: Long, sourceMessageId: Long): Receipt {
+    private suspend fun saveNow(owner: AccountSnapshot, sourceChatId: Long, sourceMessageId: Long): Receipt =
+        saveLock.withLock {
         val channelId = ensureChannel(owner)
         check(channelId != sourceChatId) { "This message is already in your Favorites channel." }
+        val source = expect<TdApi.Message>(owner, TdApi.GetMessage(sourceChatId, sourceMessageId))
+        val existingId = findExistingSavedMessage(owner, channelId, source)
+        if (existingId != null) {
+            return@withLock Receipt(sourceChatId, sourceMessageId, existingId, channelId, alreadyExisted = true)
+        }
         val props = expect<TdApi.MessageProperties>(
             owner, TdApi.GetMessageProperties(sourceChatId, sourceMessageId)
         )
@@ -282,10 +438,73 @@ object TelegramCloudFavorites {
                 }
                 result
             }
-            return Receipt(sourceChatId, sourceMessageId, confirmed.id, channelId)
+            identityIndex?.takeIf { it.owner == owner && it.channelId == channelId }?.register(confirmed)
+            return@withLock Receipt(sourceChatId, sourceMessageId, confirmed.id, channelId)
         } finally {
             TdLibClient.removeUpdateHandler(listener)
             events.close()
+        }
+    }
+
+    /**
+     * Rebuild from Telegram history after every process restart. On subsequent saves only
+     * revisit the newest page unless we hit the 8192-key RAM ceiling. In that case, each
+     * save streams the entire history in 60-message pages and retains bounded metadata.
+     * An incomplete cloud search fails the save safely rather than creating duplicates.
+     */
+    private suspend fun findExistingSavedMessage(
+        owner: AccountSnapshot, channel: Long, source: TdApi.Message
+    ): Long? {
+        val index = identityIndex?.takeIf { it.owner == owner && it.channelId == channel }
+            ?: IdentityIndex(owner, channel).also { identityIndex = it }
+        val sourceKeys = cloudFavoriteIdentityKeys(source)
+
+        suspend fun verified(id: Long): Boolean {
+            val existing = request(owner, TdApi.GetMessage(channel, id)) as? TdApi.Message
+            return existing != null && existing.sendingState == null
+        }
+
+        val knownId = index.find(source)
+        if (knownId != null) {
+            if (verified(knownId)) return knownId
+            index.discard(knownId)
+        }
+
+        var cursor = 0L
+        var skippedCacheEntries = false
+        while (true) {
+            val history = expect<TdApi.Messages>(owner, TdApi.GetChatHistory().apply {
+                chatId = channel
+                fromMessageId = cursor
+                offset = 0
+                limit = PAGE_SIZE + if (cursor == 0L) 0 else 1
+                onlyLocal = false
+            })
+            val batch = history.messages.orEmpty().filterNotNull()
+                .filter { cursor == 0L || it.id < cursor }
+            for (message in batch) {
+                if (sourceKeys.any { it in cloudFavoriteIdentityKeys(message) } &&
+                    message.sendingState == null
+                ) {
+                    index.register(message)
+                    return message.id
+                }
+                if (!index.register(message)) skippedCacheEntries = true
+            }
+            if (batch.size < PAGE_SIZE) {
+                index.fullyScanned = !skippedCacheEntries
+                return null
+            }
+            // A prior exhaustive scan already indexed older messages. Recheck only the
+            // newest Telegram page on later saves; otherwise continue through history.
+            if (index.fullyScanned && !skippedCacheEntries) return null
+            val next = batch.lastOrNull()?.id ?: return null
+            if (next >= cursor && cursor != 0L) {
+                error("Telegram Favorites history did not advance; retry the save.")
+            }
+            cursor = next
+            // The identity index contains no media bytes. Stop caching at the memory ceiling,
+            // but keep comparing every older cloud message on this pass.
         }
     }
 

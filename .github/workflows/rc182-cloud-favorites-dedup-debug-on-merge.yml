@@ -1,0 +1,40 @@
+name: Request Bousygram Verified Cloud Favorites Debug
+
+# This only fires once, when PR 182 adds this file to main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc182-cloud-favorites-dedup-debug-on-merge.yml'
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+jobs:
+  dispatch-debug:
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify exact PR 182 main merge before dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          current="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; will not publish a stale debug source"
+            exit 1
+          }
+          merged="$(gh api "repos/$repo/pulls/182" --jq '.merged')"
+          commit="$(gh api "repos/$repo/pulls/182" --jq '.merge_commit_sha')"
+          [[ "$merged" == true && "$commit" == "$GITHUB_SHA" ]] || {
+            echo "::error::Expected PR #182 merged at this SHA"
+            exit 1
+          }
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
+          echo "Requested verified ARM32, ARM64 and universal debug APKs for $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

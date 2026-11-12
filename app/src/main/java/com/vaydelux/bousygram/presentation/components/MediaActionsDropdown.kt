@@ -40,6 +40,7 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
     val pending = key in pendingKeys
     val alreadySaved = key in recentKeys || media.chatId == favoritesChannelId
     var showAddedDialog by remember(media.chatId, media.messageId, account) { mutableStateOf(false) }
+    var showAlreadySavedDialog by remember(media.chatId, media.messageId, account) { mutableStateOf(false) }
     var saveError by remember(media.chatId, media.messageId, account) { mutableStateOf<String?>(null) }
     var expanded by remember(media.chatId, media.messageId, account) { mutableStateOf(false) }
     var restoreFocus by remember { mutableStateOf(false) }
@@ -90,7 +91,8 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
                     val injected = saveHandler
                     if (injected != null) injected(media, callback)
                     else TelegramCloudFavorites.enqueueSave(media) { receipt ->
-                        callback(receipt.map { Unit })
+                        if (receipt.getOrNull()?.alreadyExisted == true) showAlreadySavedDialog = true
+                        else callback(receipt.map { Unit })
                     }
                 }
             )
@@ -109,6 +111,22 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
             },
             dismissButton = {
                 TextButton(onClick = { showAddedDialog = false }) { Text("Done") }
+            }
+        )
+    }
+    if (showAlreadySavedDialog) {
+        AlertDialog(
+            onDismissRequest = { showAlreadySavedDialog = false },
+            title = { Text("Already in Favorites") },
+            text = { Text("This media is already saved in your private Telegram Favorites channel.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showAlreadySavedDialog = false
+                    CloudFavoritesNavigation.viewFavorites()
+                }) { Text("View") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAlreadySavedDialog = false }) { Text("Done") }
             }
         )
     }
