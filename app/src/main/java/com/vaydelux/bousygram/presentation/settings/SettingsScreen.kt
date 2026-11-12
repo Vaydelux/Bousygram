@@ -134,7 +134,7 @@ fun SettingsScreen(
     )
 
     val showSidebar = !adaptive.isCompact &&
-        adaptive.widthDp >= 1100.dp && adaptive.heightDp >= 650.dp
+        adaptive.effectiveWidthDp >= 1100.dp && adaptive.effectiveHeightDp >= 650.dp
     BousygramScaffold(modifier) {
         Row(
             modifier = Modifier

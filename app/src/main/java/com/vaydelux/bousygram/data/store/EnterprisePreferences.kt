@@ -95,18 +95,14 @@ object EnterprisePreferences {
 
     private fun privatePrefs(): SharedPreferences? = AccountSession.current()?.let(::accountPrefs)
 
-    fun favoriteKeys(): Set<String> = privatePrefs()?.getStringSet(KEY_FAVORITES, emptySet()).orEmpty().toSet()
+    fun favoriteKeys(): Set<String> = com.vaydelux.bousygram.data.repository.FavoritesRepository.currentKeys()
     fun isFavorite(chatId: Long, messageId: Long): Boolean = mediaKey(chatId, messageId) in favoriteKeys()
+    @Deprecated("Use explicit FavoritesRepository.setFavorite or remove")
     fun toggleFavorite(chatId: Long, messageId: Long): Boolean {
-        val owner = AccountSession.current() ?: return false
-        val key = mediaKey(chatId, messageId)
-        var enabled = false
-        AccountSession.runIfCurrent(owner) {
-            val store = accountPrefs(owner)
-            val next = store.getStringSet(KEY_FAVORITES, emptySet()).orEmpty().toMutableSet()
-            enabled = if (next.remove(key)) false else { next.add(key); true }
-            store.edit { putStringSet(KEY_FAVORITES, next) }
-        }
+        val enabled = !isFavorite(chatId, messageId)
+        com.vaydelux.bousygram.data.repository.FavoritesRepository.setFavorite(
+            com.vaydelux.bousygram.domain.model.MediaItem(chatId, messageId, 0,
+                com.vaydelux.bousygram.domain.model.MediaType.Video, "Saved media", null), enabled)
         return enabled
     }
 
@@ -319,7 +315,7 @@ object EnterprisePreferences {
         val settings = SettingsImportPolicy.parse(json, owner?.accountId)
         val applySettings = {
             owner?.let { account -> accountPrefs(account).edit {
-                settings.favorites?.let { putStringSet(KEY_FAVORITES, it) }
+                settings.favorites?.let { com.vaydelux.bousygram.data.repository.FavoritesRepository.replaceKeys(it) }
                 settings.pinnedChats?.let { putStringSet(KEY_PINNED_CHATS, it) }
                 settings.recentQueries?.let { queries ->
                     putStringSet(KEY_RECENT_QUERIES, queries.take(6).mapIndexed { index, query ->

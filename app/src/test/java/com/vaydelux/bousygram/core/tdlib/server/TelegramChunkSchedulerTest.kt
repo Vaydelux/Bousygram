@@ -21,6 +21,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 class TelegramChunkSchedulerTest {
+    private companion object {
+        val fixtureFiles = CopyOnWriteArrayList<File>()
+    }
     @Before
     fun setUp() {
         StoragePressureMonitor.overrideFreeBytesForTests(2_048L * TvStorageBudget.MIB)
@@ -35,6 +38,10 @@ class TelegramChunkSchedulerTest {
         TelegramChunkScheduler.resetForTests()
         TelegramFileGatewayRegistry.reset()
         TelegramChunkScheduler.resumeBackgroundWork()
+        // These fixtures include 100 MB videos. Waiting for JVM exit retains every
+        // case's file and can exhaust CI/workstation storage before the suite ends.
+        fixtureFiles.forEach { it.delete() }
+        fixtureFiles.clear()
     }
 
     @Test
@@ -869,8 +876,9 @@ class TelegramChunkSchedulerTest {
     ) : TelegramFileGateway {
         val downloadedPrefixQueries = AtomicInteger(0)
         private val tempFile = File.createTempFile("fake-tdlib", ".bin").apply {
-            writeBytes(bytes)
+            fixtureFiles.add(this)
             deleteOnExit()
+            writeBytes(bytes)
         }
         val tempFileAbsolutePath: String get() = tempFile.absolutePath
 

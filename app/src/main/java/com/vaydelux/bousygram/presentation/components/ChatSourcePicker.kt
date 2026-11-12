@@ -125,7 +125,7 @@ private fun SourceTab(
     emphasized: Boolean = false
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(8.dp)
     val borderColor = when {
         focused -> MaterialTheme.colorScheme.primary
         selected -> MaterialTheme.colorScheme.primary
@@ -235,7 +235,7 @@ fun AllChatsPickerDialog(
                 .widthIn(max = 760.dp)
                 .heightIn(max = dialogMaxHeight)
                 .testTag("telegram-chat-source-dialog"),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceContainer,
             contentColor = MaterialTheme.colorScheme.onSurface,
             shadowElevation = 12.dp
@@ -263,7 +263,7 @@ fun AllChatsPickerDialog(
                     modifier = Modifier.fillMaxWidth()
                         .testTag("telegram-chat-source-search"),
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(8.dp),
                     label = { Text("Search chats") },
                     placeholder = { Text("Chat, group, or channel name") }
                 )
@@ -363,7 +363,7 @@ private fun SourcePickerRow(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(8.dp)
     Surface(
         modifier = Modifier
             .fillMaxWidth()

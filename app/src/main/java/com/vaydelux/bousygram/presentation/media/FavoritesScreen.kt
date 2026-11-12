@@ -26,6 +26,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,10 +70,40 @@ fun FavoritesScreen(
     )
     val safeMode = remember { EnterprisePreferences.safeMode() }
     val adaptive = rememberAdaptiveMetrics()
-    val responsive = bousygramResponsiveTokens(adaptive.profile)
+    val responsive = bousygramResponsiveTokens(adaptive)
     val horizontalPadding = responsive.pagePadding
+    var focusedKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var restoreKey by remember { mutableStateOf<String?>(null) }
+    var previousKeys by remember { mutableStateOf(emptyList<String>()) }
+    val restoreFocus = remember { FocusRequester() }
+    val emptyFocus = remember { FocusRequester() }
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val currentKeys = state.items.map { "${it.chatId}:${it.messageId}" }
+    LaunchedEffect(currentKeys, state.isLoading) {
+        if (state.isLoading) return@LaunchedEffect
+        val oldFocus = focusedKey
+        if (oldFocus != null && oldFocus !in currentKeys && currentKeys.isNotEmpty()) {
+            val index = previousKeys.indexOf(oldFocus).coerceAtLeast(0).coerceAtMost(currentKeys.lastIndex)
+            restoreKey = currentKeys[index]
+        }
+        if (oldFocus != null && currentKeys.isEmpty()) {
+            focusedKey = null
+            androidx.compose.runtime.withFrameNanos { }
+            emptyFocus.requestFocus()
+        }
+        if (oldFocus != null && oldFocus in currentKeys && previousKeys.isEmpty()) restoreKey = oldFocus
+        previousKeys = currentKeys
+    }
+    LaunchedEffect(restoreKey) {
+        if (restoreKey != null) {
+            val index = currentKeys.indexOf(restoreKey)
+            if (index >= 0) gridState.scrollToItem(index)
+            androidx.compose.runtime.withFrameNanos { }
+            restoreFocus.requestFocus()
+        }
+    }
 
-    LaunchedEffect(viewModel) { viewModel.refresh() }
+
 
     PremiumGridBackdrop(modifier = modifier) {
     Scaffold(
@@ -86,33 +121,36 @@ fun FavoritesScreen(
                     eyebrow = "Telegram media  /  Your collection",
                     title = "Favorites",
                     subtitle = if (state.isLoading) "Loading your saved videos…"
-                        else "${state.items.size} saved ${if (state.items.size == 1) "video" else "videos"}",
-                    compact = adaptive.isCompact
+                        else if (state.items.isEmpty()) "No saved videos"
+                        else "${state.loadedStart + 1}-${state.loadedStart + state.items.size} of ${state.totalCount} saved videos${if (state.isRefreshing) " - Refreshing" else ""}",
+                    compact = adaptive.isCompact || adaptive.isShortWindow
                 )
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    BousygramButton("← Back", onClick = { if (!launcher.cancel()) onBack() })
+                    BousygramButton("← Back", onClick = { if (!launcher.cancel()) onBack() }, modifier = Modifier.focusRequester(emptyFocus))
+                    if (state.hasPrevious) BousygramButton("Previous saved items", viewModel::loadPrevious)
                     BousygramButton("Search", onOpenSearch)
-                    BousygramButton("Refresh", viewModel::refresh, enabled = !state.isLoading)
+                    BousygramButton("Refresh", viewModel::refresh, enabled = !state.isLoading && !state.isRefreshing)
                     if (state.items.isNotEmpty()) {
                         BousygramButton(
-                            text = "▶ Play all",
-                            onClick = { state.items.firstOrNull()?.let { launcher.launch(it, state.items) } },
+                            text = "▶ Play loaded",
+                            onClick = { state.items.firstOrNull { it.fileId != null }?.let { launcher.launch(it, state.items.filter { media -> media.fileId != null }) } },
                             selected = true,
-                            enabled = !state.isLoading && !launcher.isPending
+                            enabled = !state.isLoading && !state.isRefreshing && !launcher.isPending
                         )
                     }
                 }
             }
 
-            if (state.unavailableCount > 0 && !state.isLoading) {
+            if (state.unavailableCount > 0 && !state.isLoading && !adaptive.isShortWindow) {
                 Text(
-                    "${state.unavailableCount} saved item(s) are no longer available in Telegram and are not shown.",
+                    "${state.unavailableCount} saved item(s) could not be refreshed. Retry or remove them from the actions menu.",
                     color = androidx.compose.material3.MaterialTheme.colorScheme.tertiary,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
             if (state.error != null && state.items.isNotEmpty()) {
@@ -141,6 +179,7 @@ fun FavoritesScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                     else -> LazyVerticalGrid(
+                        state = gridState,
                         columns = GridCells.Adaptive(minSize = responsive.cardMinWidth),
                         horizontalArrangement = Arrangement.spacedBy(responsive.gridGap),
                         verticalArrangement = Arrangement.spacedBy(responsive.gridGap),
@@ -148,13 +187,22 @@ fun FavoritesScreen(
                     ) {
                         items(state.items, key = { "${it.chatId}:${it.messageId}" }) { item ->
                             FavoriteGridItem(
-                                item = item,
-                                safeMode = safeMode,
+                                item = item, safeMode = safeMode,
+                                unavailable = "${item.chatId}:${item.messageId}" in state.unavailableKeys,
+                                modifier = if (restoreKey == "${item.chatId}:${item.messageId}") Modifier.focusRequester(restoreFocus) else Modifier,
+                                onFocus = { if (it) focusedKey = "${item.chatId}:${item.messageId}" },
                                 onPlay = {
-                                    launcher.launch(item, state.items)
-                                },
-                                onRemove = { viewModel.removeFavorite(item) }
+                                    if (item.fileId == null) scope.launch {
+                                        snackbarHost.showSnackbar("This saved media is unavailable. Try Refresh or remove it from favorites.")
+                                    } else launcher.launch(item, state.items.filter { it.fileId != null })
+                                }
                             )
+                        }
+                        if (state.hasMore) {
+                            item(key = "favorites-load-more", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                BousygramButton("Load more favorites", onClick = viewModel::loadMore,
+                                    modifier = Modifier.fillMaxWidth())
+                            }
                         }
                     }
                 }
@@ -169,12 +217,7 @@ fun FavoritesScreen(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 32.dp)
         )
-        if (state.isLoading && state.items.isNotEmpty()) {
-            LoadingOverlay(
-                text = "Refreshing favorites…",
-                modifier = Modifier.fillMaxSize().background(androidx.compose.material3.MaterialTheme.colorScheme.background.copy(alpha = 0.64f))
-            )
-        }
+
     }
 }
 }
@@ -184,22 +227,22 @@ fun FavoritesScreen(
 private fun FavoriteGridItem(
     item: MediaItem,
     safeMode: Boolean,
-    onPlay: () -> Unit,
-    onRemove: () -> Unit
+    unavailable: Boolean,
+    modifier: Modifier = Modifier,
+    onFocus: (Boolean) -> Unit,
+    onPlay: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         MediaPosterCard(
             media = item,
             subtitle = "Telegram",
-            badge = "FAVORITE",
+            badge = if (unavailable) "RETRY REFRESH" else "FAVORITE",
             privacyMode = safeMode,
             cardWidth = null,
             onClick = onPlay,
-            modifier = Modifier.fillMaxWidth()
+            modifier = modifier.fillMaxWidth(),
+            onFocusChanged = onFocus
         )
-        TextButton(onClick = onRemove, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text("Remove from favorites",
-                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+
     }
 }

@@ -94,6 +94,9 @@ jobs:
           # Synthetic fixtures are exclusively test data. This job has no
           # authenticated device, no physical PSS and no release-approval path.
 
+      - name: Verify favorites migration and bounded storage queries
+        run: python3 tools/ci/test_favorites_storage.py
+
       - name: Exercise release identity and qualification failure fixtures
         shell: bash
         run: bash tools/ci/test_release_manifest.sh

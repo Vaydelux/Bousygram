@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -540,7 +541,7 @@ fun TvHybridHomeDashboard(
             // Error banner if TDLib reports issue
             if (!errorMessage.isNullOrBlank()) {
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = colors.errorContainer.copy(alpha = 0.85f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -1541,7 +1542,7 @@ fun ModernVideoCard(
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(8.dp)
     val interaction = remember { MutableInteractionSource() }
     val scale by animateFloatAsState(
         targetValue = if (focused) 1.04f else 1f,
@@ -1586,6 +1587,9 @@ fun ModernVideoCard(
     val isWatched = indicators.watched
     val progress = indicators.resumeFraction
 
+    val playbackFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val actionsFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+
     Column(
         modifier = modifier
             .width(cardWidth)
@@ -1597,6 +1601,8 @@ fun ModernVideoCard(
     ) {
         Surface(
             modifier = Modifier
+                .focusRequester(playbackFocus)
+                .focusProperties { if (com.vaydelux.bousygram.core.account.AccountSession.current() != null) right = actionsFocus }
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(shape)
@@ -1637,6 +1643,11 @@ fun ModernVideoCard(
                             .background(Color.Black.copy(alpha = 0.25f))
                     )
                 }
+
+                com.vaydelux.bousygram.presentation.components.MediaActionsDropdown(
+                    media = media, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                    actionFocusRequester = actionsFocus, playbackFocusRequester = playbackFocus
+                )
 
                 if (!isFavoriteSection) {
                     CenteredPlayBadge()
@@ -1867,7 +1878,7 @@ private fun MediaDetailsDialog(
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        val shape = RoundedCornerShape(24.dp)
+        val shape = RoundedCornerShape(12.dp)
         val context = LocalContext.current
         val miniThumbnail = video?.let { rememberMiniThumbnail(it.chatId, it.messageId, it.miniThumbnailBytes) }
         val preferredDetailsImage = video?.tmdbBackdropPath ?: video?.tmdbPosterPath ?: video?.thumbnailPath
@@ -2326,7 +2337,7 @@ private fun MediaDetailsDialog(
                 }
             },
             containerColor = dialogColors.surface,
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(8.dp)
         )
     }
 }
@@ -2398,7 +2409,7 @@ fun ModernSeriesCard(
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(8.dp)
     val interaction = remember { MutableInteractionSource() }
     val scale by animateFloatAsState(
         targetValue = if (focused) 1.04f else 1f,

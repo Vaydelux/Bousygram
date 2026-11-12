@@ -46,7 +46,7 @@ class RoomMigrationInstrumentedTest {
             }
 
             val room = Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(AppDatabase.MIGRATION_1_2)
+                .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
                 .allowMainThreadQueries()
                 .build()
             try {

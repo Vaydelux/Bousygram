@@ -1,5 +1,6 @@
 TDLib commit: 4c6377aa7386c39217878a9a56d581922ad37ca4
 Java commit: 4c6377aa7386c39217878a9a56d581922ad37ca4
+SHA256 TdApi.java ff2df4321dbca8f07239a111c1602fdc710f06e20f3aabfd1e823bb3636c5382
 SHA256 arm64-v8a 205be77ab847adf1cabeadbb2b004d7153c15839ad85e4e5e9707d1bd1679c19
 ELF arm64-v8a class=2 machine=183 size=34033264
 JNI arm64-v8a markers=verified revision=embedded dependencies=libc.so,libdl.so,liblog.so,libm.so,libz.so

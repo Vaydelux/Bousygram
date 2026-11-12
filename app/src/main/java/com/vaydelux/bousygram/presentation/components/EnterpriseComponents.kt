@@ -12,6 +12,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -94,6 +96,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
@@ -415,7 +418,7 @@ fun BousygramAdaptiveShell(
                 }
             }
         }
-        shouldUseSideRail(adaptive.profile, adaptive.heightDp) -> {
+        shouldUseSideRail(adaptive.profile, adaptive.effectiveHeightDp) -> {
             // Short landscape phones gain an entire row of media by moving
             // navigation into a slim side rail, instead of stacking both
             // the top bar and bottom navigation around a 390dp viewport.
@@ -484,7 +487,7 @@ fun TabletNavRail(
 ) {
     val colors = MaterialTheme.colorScheme
     NavigationRail(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier.fillMaxHeight().verticalScroll(rememberScrollState()),
         containerColor = colors.surface,
         contentColor = colors.onSurface,
         header = {
@@ -739,12 +742,12 @@ fun TopBarIconButton(
         modifier = modifier
             // Match the minimum 48dp touch/focus target across phone and TV.
             .size(48.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(if (focused) colors.surfaceVariant else Color.Transparent)
             .border(
                 width = if (focused) 3.dp else 0.dp,
                 color = if (focused) colors.primary else Color.Transparent,
-                shape = RoundedCornerShape(10.dp)
+                shape = RoundedCornerShape(8.dp)
             )
             .semantics { this.contentDescription = contentDescription }
             .onFocusChanged { focused = it.isFocused }
@@ -773,9 +776,9 @@ private fun GlassBottomBar(
             .border(
                 width = 0.5.dp,
                 color = colors.outlineVariant.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
             )
-            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
+            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
         color = colors.surface,
         tonalElevation = 4.dp
     ) {
@@ -858,6 +861,7 @@ fun TvFocusSurface(
         label = "focusScale"
     )
     val border by animateColorAsState(
+        animationSpec = tween(if (motionDisabled) 0 else BousygramUiTokens.focusDurationMs),
         targetValue = when {
             focused -> colors.primary
             selected -> colors.secondary
@@ -965,7 +969,7 @@ fun BousygramTextField(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 60.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = MaterialTheme.colorScheme.onSurface,
             unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -1005,6 +1009,8 @@ fun MediaPosterCard(
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
+    val playbackFocus = remember { FocusRequester() }
+    val actionsFocus = remember { FocusRequester() }
     val adaptive = rememberAdaptiveMetrics()
     val cardDensity = mediaCardDensity(adaptive.isTv, adaptive.widthDp, adaptive.heightDp)
     val condensedCard = cardDensity != MediaCardDensity.STANDARD
@@ -1114,10 +1120,13 @@ fun MediaPosterCard(
             null
         }
     }
+    Box(modifier = modifier.then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)) {
     TvFocusSurface(
         onClick = onClick,
-        modifier = modifier
-            .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
+        modifier = Modifier.fillMaxWidth()
+            .testTag("media-play-${media.chatId}:${media.messageId}")
+            .focusRequester(playbackFocus)
+            .focusProperties { if (AccountSession.current() != null) right = actionsFocus }
             .graphicsLayer {
                 if (isWatched && !focused) alpha = 0.58f
             }
@@ -1182,7 +1191,7 @@ fun MediaPosterCard(
                 if (isWatched) {
                     GlassPill(
                         text = "✓ Watched",
-                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                         accent = true
                     )
                 } else {
@@ -1194,7 +1203,7 @@ fun MediaPosterCard(
                     displayBadge?.let {
                         GlassPill(
                             text = it,
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                             accent = true
                         )
                     }
@@ -1202,7 +1211,7 @@ fun MediaPosterCard(
                 if (!isWatched && resumeFraction != null && resumeFraction in 0.05f..0.95f) {
                     GlassPill(
                         text = "Resume ${(resumeFraction * 100).toInt()}%",
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
+                        modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)
                     )
                 }
                 if (!privacyMode) {
@@ -1272,6 +1281,13 @@ fun MediaPosterCard(
             }
         }
     }
+    MediaActionsDropdown(
+        media = media, privacyMode = privacyMode, onActionFocus = onFocusChanged,
+        actionFocusRequester = actionsFocus, playbackFocusRequester = playbackFocus,
+        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+    )
+    }
+
 }
 
 @Composable
@@ -1781,7 +1797,7 @@ fun rememberShimmerBrush(): Brush {
 @Composable
 fun ShimmerCard(
     modifier: Modifier = Modifier,
-    rounded: Dp = 18.dp
+    rounded: Dp = 8.dp
 ) {
     val shimmerBrush = rememberShimmerBrush()
     Box(
@@ -1803,7 +1819,7 @@ fun MediaPosterSkeletonCard(
 ) {
     val shimmerBrush = rememberShimmerBrush()
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(8.dp)
     Surface(
         modifier = modifier
             .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
@@ -1918,12 +1934,12 @@ fun SidebarListShimmerSkeleton(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(40.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
                     .border(
                         1.dp,
                         MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                        RoundedCornerShape(14.dp)
+                        RoundedCornerShape(8.dp)
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 contentAlignment = Alignment.CenterStart
@@ -2253,10 +2269,10 @@ fun EnterprisePanel(
         modifier = modifier.border(
             1.dp,
             MaterialTheme.colorScheme.outlineVariant,
-            RoundedCornerShape(24.dp)
+            RoundedCornerShape(12.dp)
         ),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(12.dp),
         tonalElevation = 2.dp
     ) {
         content()

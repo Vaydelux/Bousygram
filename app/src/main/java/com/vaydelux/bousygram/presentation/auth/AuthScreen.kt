@@ -238,7 +238,7 @@ private fun EnterpriseBrandHeader(
                 contentDescription = "BousyGram mascot logo",
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(8.dp))
             )
 
             Column {
@@ -318,8 +318,8 @@ private fun AuthModeSelector(
 ) {
     Surface(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 2.dp
     ) {
@@ -398,7 +398,7 @@ private fun AuthPrimaryCard(
     viewModel: AuthViewModel,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(24.dp)
+    val cardShape = RoundedCornerShape(12.dp)
     Surface(
         modifier = modifier
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), cardShape)
@@ -710,7 +710,7 @@ private fun QrPairingStation(
     onSwitchToPhone: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val stationShape = RoundedCornerShape(24.dp)
+    val stationShape = RoundedCornerShape(12.dp)
     Surface(
         modifier = modifier
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), stationShape)
@@ -747,7 +747,7 @@ private fun QrPairingStation(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -820,12 +820,12 @@ private fun QrDisplayBox(
     Box(
         modifier = Modifier
             .size(260.dp)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(if (hasQr) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             .border(
                 width = if (isFocused) 3.dp else 1.5.dp,
                 color = if (isFocused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(22.dp)
+                shape = RoundedCornerShape(12.dp)
             )
             .onFocusChanged { isFocused = it.isFocused }
             .clickable(onClick = onRefresh),
@@ -948,7 +948,7 @@ private fun ModernAuthTextField(
             focusedLabelColor = MaterialTheme.colorScheme.primary,
             unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
         ),
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(8.dp)
     )
 }
 
@@ -969,11 +969,11 @@ private fun PrimaryAction(
             .border(
                 width = if (isFocused) 3.dp else 0.dp,
                 color = if (isFocused) MaterialTheme.colorScheme.onPrimary else Color.Transparent,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(8.dp)
             ),
         onClick = onClick,
         enabled = !loading,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -1007,11 +1007,11 @@ private fun SecondaryAction(
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
                 color = if (isFocused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(8.dp)
             ),
         onClick = onClick,
         enabled = !loading,
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
         Text(
             text = text,

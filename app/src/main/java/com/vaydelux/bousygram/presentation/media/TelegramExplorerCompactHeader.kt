@@ -79,7 +79,9 @@ internal fun TelegramExplorerCompactHeader(
     onSettings: () -> Unit
 ) {
     val density = explorerHeaderDensity(isTv, widthDp, heightDp)
-    val inlineActions = explorerHeaderShowInlineActions(widthDp)
+    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    val effectiveWidth = widthDp / fontScale.coerceAtLeast(1f)
+    val inlineActions = explorerHeaderShowInlineActions(effectiveWidth)
     val minControl = if (isTv) BousygramUiTokens.tvControlHeight
         else BousygramUiTokens.compactControlHeight
     val colors = MaterialTheme.colorScheme
@@ -154,7 +156,7 @@ internal fun TelegramExplorerCompactHeader(
                 OutlinedButton(onClick = onFavorites, modifier = Modifier.heightIn(min = minControl)) {
                     Text("Favorites", maxLines = 1)
                 }
-            } else if (!canGoUp || widthDp >= 480.dp) {
+            } else if (effectiveWidth >= 480.dp) {
                 OutlinedButton(
                     onClick = onSearch,
                     modifier = Modifier.heightIn(min = minControl).testTag("telegram-explorer-search")

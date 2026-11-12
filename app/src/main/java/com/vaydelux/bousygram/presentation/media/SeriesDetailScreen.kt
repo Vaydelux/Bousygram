@@ -287,14 +287,14 @@ fun SeriesDetailScreen(
             ) {
                 // Poster
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.surfaceContainer,
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     shadowElevation = 2.dp,
                     modifier = Modifier
                         .width(170.dp)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(8.dp))
                 ) {
                     if (!privacyMode && posterPath != null) {
                         val model = if (posterPath.startsWith("http")) posterPath else File(posterPath)

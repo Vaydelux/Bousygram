@@ -30,6 +30,29 @@ import org.junit.runner.RunWith
 class UniformPremiumDesignInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun captureBundledTypographyAndMediaCardInEveryTheme() {
+        val selected = mutableStateOf(BousygramThemePreset.DARK)
+        compose.setContent {
+            BousygramTheme(preset = selected.value) {
+                PremiumGridBackdrop {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        BousygramPageHeading("Telegram media", "Your library", selected.value.displayName, compact = true)
+                        MediaPosterCard(
+                            media = com.vaydelux.bousygram.domain.model.MediaItem(
+                                -100, 1, 0, com.vaydelux.bousygram.domain.model.MediaType.Video,
+                                "A longer episode title with readable metadata", null),
+                            subtitle = "Saved Messages", onClick = {}, cardWidth = 280.dp
+                        )
+                    }
+                }
+            }
+        }
+        BousygramThemePreset.entries.forEach { preset ->
+            compose.runOnIdle { selected.value = preset }
+            writeUiEvidence(compose, "component-theme-" + preset.id.replace('_', '-'))
+        }
+    }
+
     @Test fun phoneAndTvNavigationUseTheSameThemeSemanticsAndPremiumBackground() {
         compose.setContent {
             BousygramTheme(preset = BousygramThemePreset.AURORA) {

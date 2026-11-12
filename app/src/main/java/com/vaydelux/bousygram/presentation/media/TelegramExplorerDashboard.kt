@@ -117,7 +117,7 @@ fun TelegramExplorerDashboard(
     modifier: Modifier = Modifier
 ) {
     val adaptive = rememberAdaptiveMetrics()
-    val design = bousygramResponsiveTokens(adaptive.profile)
+    val design = bousygramResponsiveTokens(adaptive)
     val gap = design.gridGap
     val cardMin = design.cardMinWidth
     val directory = remember(sources, position.section) {
@@ -212,7 +212,7 @@ fun TelegramExplorerDashboard(
             showTopics -> if (isLoadingTopics) "${topics.size} topics · Syncing"
                 else "${topics.size} topics"
             isLoading -> "${videos.size} files · Loading"
-            else -> "${videos.size} files"
+            else -> "${videos.size} files loaded${if (hasMore) " - More available" else ""}"
         }
         TelegramExplorerCompactHeader(
             section = position.section,

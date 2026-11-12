@@ -98,8 +98,8 @@ fun LaunchOpeningIndicator(launcher: MediaLauncher, modifier: Modifier = Modifie
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
                 .semantics { contentDescription = "Opening media" }
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(20.dp))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(8.dp))
+                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             CircularProgressIndicator(

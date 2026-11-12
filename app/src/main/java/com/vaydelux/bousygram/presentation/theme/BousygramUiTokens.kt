@@ -17,9 +17,9 @@ object BousygramUiTokens {
     val sectionSpacing = 24.dp
     val phonePagePadding = 16.dp
     val tvPagePadding = 32.dp
-    val cardCorner = 20.dp
-    val panelCorner = 24.dp
-    val tabCorner = 14.dp
+    val cardCorner = 8.dp
+    val panelCorner = 12.dp
+    val tabCorner = 8.dp
     val cardGridPhone = 12.dp
     val cardGridTv = 16.dp
     val cardGridTablet = 14.dp
@@ -29,11 +29,13 @@ object BousygramUiTokens {
     val folderMinPhone = 164.dp
     val folderMinTv = 176.dp
     val focusScale = 1.018f
-    const val focusDurationMs = 145
+    const val focusDurationMs = 140
     val compactControlHeight = 48.dp
     val tvControlHeight = 56.dp
-    const val hudFadeInMs = 210
-    const val hudFadeOutMs = 240
+    const val menuDurationMs = 160
+    const val screenDurationMs = 220
+    const val hudFadeInMs = 220
+    const val hudFadeOutMs = 220
     const val hudHideAfterInteractionMs = 4_000L
     const val darkHudOpacity = 0.90f
     const val lightHudOpacity = 0.96f
@@ -82,6 +84,17 @@ fun bousygramResponsiveTokens(profile: DeviceProfile): BousygramResponsiveTokens
             minControlHeight = BousygramUiTokens.compactControlHeight
         )
     }
+
+/** Card width grows with text, while short windows preserve space for actual media. */
+fun bousygramResponsiveTokens(metrics: com.vaydelux.bousygram.presentation.adaptive.AdaptiveMetrics): BousygramResponsiveTokens {
+    val base = bousygramResponsiveTokens(metrics.profile)
+    val padding = if (metrics.isShortWindow && !metrics.isTv) minOf(base.pagePadding, 16.dp) else base.pagePadding
+    return base.copy(
+        pagePadding = padding,
+        cardMinWidth = minOf(base.cardMinWidth * metrics.fontScale.coerceIn(1f, 1.5f),
+            (metrics.widthDp - padding * 2).coerceAtLeast(1.dp))
+    )
+}
 
 /**
  * The media grid's visible cards—not decorative headers—own scarce vertical space.

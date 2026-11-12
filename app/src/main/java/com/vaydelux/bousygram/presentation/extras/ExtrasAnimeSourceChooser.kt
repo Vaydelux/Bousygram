@@ -59,7 +59,7 @@ internal fun ExtrasAnimeSourceChooser(
             compact = !isTv
         )
         Surface(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {

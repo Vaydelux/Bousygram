@@ -9,6 +9,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -28,11 +30,16 @@ enum class WindowLayoutType {
 data class AdaptiveMetrics(
     val profile: DeviceProfile,
     val widthDp: Dp,
-    val heightDp: Dp
+    val heightDp: Dp,
+    val fontScale: Float = 1f,
+    val keyboardNavigation: Boolean = false
 ) {
     val isTv: Boolean = profile == DeviceProfile.Tv
     val isCompact: Boolean = profile == DeviceProfile.PhonePortrait || profile == DeviceProfile.PhoneLandscape
-    val useTvChrome: Boolean = profile == DeviceProfile.Tv || (widthDp >= 900.dp && heightDp >= 520.dp)
+    val effectiveWidthDp: Dp = widthDp / fontScale.coerceIn(1f, 2f)
+    val effectiveHeightDp: Dp = heightDp / fontScale.coerceIn(1f, 2f)
+    val isShortWindow: Boolean = effectiveHeightDp < 480.dp
+    val useTvChrome: Boolean = profile == DeviceProfile.Tv || (effectiveWidthDp >= 900.dp && effectiveHeightDp >= 520.dp)
 
     val layoutType: WindowLayoutType = when {
         isTv -> WindowLayoutType.TV
@@ -94,6 +101,7 @@ fun rememberAdaptiveMetrics(): AdaptiveMetrics {
         hasTelevisionFeature = packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
     )
     val profile = resolveDeviceProfile(isTv, widthDp, heightDp)
-    return AdaptiveMetrics(profile, widthDp, heightDp)
+    return AdaptiveMetrics(profile, widthDp, heightDp, configuration.fontScale,
+        LocalInputModeManager.current.inputMode == InputMode.Keyboard)
 }
 

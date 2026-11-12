@@ -2830,7 +2830,7 @@ fun PlayerScreen(
         ) {
             val nextEpisodeItem = queue.getOrNull(queueIndex + 1)
             Surface(
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                 border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
                 tonalElevation = 12.dp,
@@ -2940,7 +2940,7 @@ fun PlayerScreen(
                 }
             }
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth(if (compactHud) 0.96f else 0.82f)
@@ -3083,7 +3083,7 @@ fun PlayerScreen(
                 .padding(start = 28.dp)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.padding(8.dp)
@@ -3116,7 +3116,7 @@ fun PlayerScreen(
             val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
             val maxVol = remember(audioManager) { audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15 }
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.padding(8.dp)
@@ -3155,7 +3155,7 @@ fun PlayerScreen(
                 SeekThumbnailManager.getSnapshotAt(previewKey, seekPreviewPositionMs, knownDuration)
             } else null
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
                 modifier = Modifier.padding(horizontal = 24.dp)
@@ -3232,7 +3232,7 @@ fun PlayerScreen(
             Surface(
                 modifier = Modifier
                     .padding(top = 28.dp, end = 28.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .clickable {
                         if (performTrackedSeek(0L)) {
                             showResumeRestartOption = false

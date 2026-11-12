@@ -222,7 +222,7 @@ private fun ModeOption(
             horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(8.dp),
                 color = if (primary) colors.primaryContainer else colors.secondaryContainer
             ) {
                 Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
@@ -264,7 +264,7 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
             ) {
                 Box(
                     Modifier
-                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(28.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp))
                         .padding(horizontal = 35.dp, vertical = 26.dp)
                 ) {
                     BousygramBrandMark(size = 76.dp)

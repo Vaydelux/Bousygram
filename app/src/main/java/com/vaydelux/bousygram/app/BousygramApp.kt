@@ -80,6 +80,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
         System.setProperty("io.netty.transport.noNative", "true")
         super<Application>.onCreate()
         instance = this
+        com.vaydelux.bousygram.data.repository.FavoritesRepository.init(this)
         // Install the process-lifetime privacy barrier before TDLib, playback or auth starts.
         // Logout and authorization loss synchronously revoke resources BEFORE another
         // Telegram identity can be activated. Never register this per Activity/login.

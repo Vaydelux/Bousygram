@@ -1,18 +1,21 @@
-# Release Checklist
+# Release checklist
 
-- [x] Full JVM unit suite is green and order independent.
-- [x] Debug lint passes without a baseline or suppressed unresolved errors.
-- [x] TDLib ABI gate verifies non-empty arm64-v8a and armeabi-v7a libraries.
-- [x] TV hardening contract passes.
-- [x] Debug and signed release APKs assemble; hashes and sizes are recorded.
-- [ ] Playback opens from click and D-pad OK without a second activation.
-- [ ] Left/Right cannot change videos; seek preview confirm/cancel works.
-- [x] HTTP 200/206/416 and disconnect cases pass in host tests.
-- [x] Multiple transient consumers do not cancel each other; pinned files are protected by the scheduler.
-- [ ] Forum topic media remains isolated by real topic ID.
-- [x] Keystore, loopback binding, capability expiry/revocation, and backup exclusion are intact in static/unit verification.
-- [ ] Cold/warm playback and seek metrics are captured on representative 32-bit and 64-bit TVs.
+Current evidence: [2026-11-12 candidate implementation](docs/release/RELEASE_CANDIDATE_2026-11-12.md).
+Historical reports do not qualify the current working tree or a new APK.
 
-## Rollback
+- [x] Reference-checked cleanup; required build/native/CI/license inputs retained.
+- [x] Account-scoped favorites, Room migration and dropdown actions implemented.
+- [x] Bundled fonts, shared shapes, responsive policies and focus links implemented.
+- [x] App JVM suite: 877 passing tests.
+- [x] Host favorites storage suite: 3 passing tests, including schema agreement.
+- [x] TDLib ARM32/ARM64 coverage and TV hardening checks pass locally.
+- [ ] Final compilation and lint pass for the final source tree.
+- [ ] Fresh-checkout build and required exact-revision CI checks pass.
+- [ ] Android instrumentation executes and screenshot artifacts are inspected.
+- [ ] Phone/tablet orientations, Android window resizing and 200% text are reviewed.
+- [ ] Real TV D-pad, Back, focus visibility and playback controls are qualified.
+- [ ] ARM32/ARM64/universal candidate APKs have source/signature/SHA-256 records.
+- [ ] Physical playback, seeking, subtitles, pause/recovery and storage/PSS pass.
+- [ ] Production signing and stable publication gates are satisfied independently.
 
-Changes are grouped by subsystem. Revert the UI/search changes independently from streaming. If the lease coordinator must be rolled back, restore the prior scheduler/DataSource/HTTP files together; do not remove loopback HTTP while mpv remains enabled. Telemetry fields are backward-compatible because missing JSON fields parse to defaults. Database series fields are retained, so the Telegram-first UI change requires no data migration.
+No newly qualified release APK or stable publication is claimed by this checklist.

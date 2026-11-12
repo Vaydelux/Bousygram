@@ -34,13 +34,10 @@ fun BousygramThemeGallery(
     modifier: Modifier = Modifier
 ) {
     val metrics = rememberAdaptiveMetrics()
-    val columns = when {
-        metrics.widthDp < 380.dp -> 1
-        metrics.widthDp < 750.dp -> 2
-        else -> 3
-    }
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+    val columns = (maxWidth / (180.dp * metrics.fontScale.coerceIn(1f, 2f))).toInt().coerceIn(1, 3)
     Column(
-        modifier = modifier.fillMaxWidth().testTag("bousygram-theme-gallery"),
+        modifier = Modifier.fillMaxWidth().testTag("bousygram-theme-gallery"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         BousygramThemePreset.entries.chunked(columns).forEach { themes ->
@@ -113,5 +110,6 @@ fun BousygramThemeGallery(
                 }
             }
         }
+    }
     }
 }

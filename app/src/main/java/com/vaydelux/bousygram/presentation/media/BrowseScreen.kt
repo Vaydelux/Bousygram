@@ -120,7 +120,6 @@ fun BrowseScreen(
     }
     val adaptive = rememberAdaptiveMetrics()
     val context = LocalContext.current
-    var favoriteKeys by remember { mutableStateOf(EnterprisePreferences.favoriteKeys()) }
     var safeMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
     var hideWatched by remember { mutableStateOf(EnterprisePreferences.hideWatched()) }
     var pinnedChats by remember { mutableStateOf(EnterprisePreferences.pinnedChatIds()) }
@@ -446,16 +445,16 @@ private fun SortChip(text: String, selected: Boolean, onClick: () -> Unit) {
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(8.dp))
             .border(
                 if (focused) 3.dp else if (selected) 1.5.dp else 0.dp,
                 MaterialTheme.colorScheme.primary,
-                RoundedCornerShape(14.dp)
+                RoundedCornerShape(8.dp)
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
         color = color,
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
         val textColor = when {
             selected -> MaterialTheme.colorScheme.onPrimary
@@ -480,16 +479,16 @@ private fun RefreshChip(text: String = "Refresh", onClick: () -> Unit) {
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(8.dp))
             .border(
                 if (focused) 3.dp else 1.dp,
                 if (focused) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                RoundedCornerShape(14.dp)
+                RoundedCornerShape(8.dp)
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
         Text(
             text,

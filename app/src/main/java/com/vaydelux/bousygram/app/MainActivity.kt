@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +123,11 @@ private fun BousygramAppRoot(
     onThemePresetChange: (BousygramThemePreset) -> Unit
 ) {
     val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        com.vaydelux.bousygram.data.repository.FavoritesRepository.errors.collect {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+        }
+    }
     // Mode is shell UI state only: it does not create an independent Telegram session.
     var modeName by rememberSaveable { mutableStateOf(BousygramMode.SELECT.name) }
     val mode = BousygramMode.entries.firstOrNull { it.name == modeName } ?: BousygramMode.SELECT
@@ -130,6 +136,7 @@ private fun BousygramAppRoot(
         mutableStateOf(SearchFocusState())
     }
     var resumeSignal by remember { mutableIntStateOf(0) }
+    val favoritesState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
 
     // Observe incoming Cast requests before selecting a mode. A genuine Cast
     // target must initialize Telegram, even if Extras or the chooser is visible.
@@ -318,6 +325,7 @@ private fun BousygramAppRoot(
                 // Dedicated, compact explorer owns Home navigation. Do not wrap
                 // a second oversized TV sidebar around the three-tab grid.
                 AuthorizedContent(
+                    favoritesState = favoritesState,
                     appScreen = appScreen,
                     themePreset = themePreset,
                     onThemePresetChange = onThemePresetChange,
@@ -367,6 +375,7 @@ private fun BousygramAppRoot(
                 }
             ) {
                 AuthorizedContent(
+                    favoritesState = favoritesState,
                     appScreen = appScreen,
                     themePreset = themePreset,
                     onThemePresetChange = onThemePresetChange,
@@ -386,6 +395,7 @@ private fun BousygramAppRoot(
 
 @Composable
 private fun AuthorizedContent(
+    favoritesState: androidx.compose.runtime.saveable.SaveableStateHolder,
     appScreen: AppScreen,
     themePreset: BousygramThemePreset,
     onThemePresetChange: (BousygramThemePreset) -> Unit,
@@ -400,6 +410,16 @@ private fun AuthorizedContent(
     val openPlayer: (PlaybackRequest, AppScreen) -> Unit = { request, returnTo ->
         onAppScreenChange(AppScreen.Player(request, unwrapNonPlayerScreen(returnTo)))
     }
+    var entered by remember(appScreen) { mutableStateOf(false) }
+    LaunchedEffect(appScreen) { entered = true }
+    val animate = android.animation.ValueAnimator.areAnimatorsEnabled()
+    val opacity by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (entered || !animate) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(
+            if (animate) com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.screenDurationMs else 0),
+        label = "screenArrival"
+    )
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().graphicsLayer { alpha = opacity }) {
     when (val screen = appScreen) {
         is AppScreen.Search -> SearchRoute(
             screen = screen,
@@ -427,11 +447,15 @@ private fun AuthorizedContent(
             libraryMode = true,
             onBackToNavBar = onBackToNavBar
         )
-        is AppScreen.Favorites -> FavoritesScreen(
-            onBack = { onAppScreenChange(screen.returnTo) },
-            onOpenSearch = { onAppScreenChange(AppScreen.Search(returnTo = screen)) },
-            onPlay = { request -> openPlayer(request, screen) }
-        )
+        is AppScreen.Favorites -> favoritesState.SaveableStateProvider(
+            "favorites-${com.vaydelux.bousygram.core.account.AccountSession.current()?.accountId}"
+        ) {
+            FavoritesScreen(
+                onBack = { onAppScreenChange(screen.returnTo) },
+                onOpenSearch = { onAppScreenChange(AppScreen.Search(returnTo = screen)) },
+                onPlay = { request -> openPlayer(request, screen) }
+            )
+        }
         is AppScreen.Settings -> SettingsScreen(
             onBack = { onAppScreenChange(screen.returnTo) },
             themePreset = themePreset,
@@ -460,6 +484,7 @@ private fun AuthorizedContent(
             onResumeConsumed = onResumeConsumed,
             onBackToNavBar = onBackToNavBar
         )
+    }
     }
 }
 

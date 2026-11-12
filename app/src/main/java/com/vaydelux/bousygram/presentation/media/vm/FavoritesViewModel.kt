@@ -15,6 +15,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.catch
+import com.vaydelux.bousygram.data.repository.toFavoriteMedia
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -22,72 +28,130 @@ import kotlin.coroutines.resume
 
 data class FavoritesUiState(
     val items: List<MediaItem> = emptyList(),
-    val isLoading: Boolean = false,
+    val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val error: String? = null,
-    val unavailableCount: Int = 0
+    val unavailableCount: Int = 0,
+    val unavailableKeys: Set<String> = emptySet(),
+    val hasMore: Boolean = false,
+    val totalCount: Int = 0,
+    val hasPrevious: Boolean = false,
+    val loadedStart: Int = 0
 )
 
-/** Loads favorites by their saved chat/message identity, independent of the current source page. */
+/** Cached first, paged favorites. Network lookups never gate initial content. */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FavoritesViewModel(
     private val repository: SavedMessagesRepository = SavedMessagesRepository()
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(FavoritesUiState())
     val uiState: StateFlow<FavoritesUiState> = _uiState
-    private var generation = 0L
+    private data class Window(val limit: Int = 60, val offset: Int = 0)
+    private val window = MutableStateFlow(Window())
+    private val reload = MutableStateFlow(0)
     private var loadJob: Job? = null
+    private val checkedKeys = mutableSetOf<String>()
+    private var latestRows = emptyList<com.vaydelux.bousygram.data.database.FavoriteEntity>()
+    private var generation = 0L
 
-    fun refresh() {
-        loadJob?.cancel()
-        val requestGeneration = ++generation
-        val keys = EnterprisePreferences.favoriteKeys().toList().sorted()
-        if (keys.isEmpty()) {
-            loadJob = null
-            _uiState.value = FavoritesUiState()
-            return
-        }
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null, unavailableCount = 0)
-        loadJob = viewModelScope.launch {
-            val loaded = mutableListOf<MediaItem>()
-            var unavailable = 0
-            try {
-                keys.chunked(MAX_PARALLEL_LOOKUPS).forEach { batch ->
-                    val results = coroutineScope { batch.map { key -> async { loadFavorite(key) } }.awaitAll() }
-                    results.forEach { (item, _) ->
-                        if (item?.fileId != null) loaded += item else unavailable++
+    init {
+        viewModelScope.launch {
+            com.vaydelux.bousygram.core.account.AccountSession.state.collectLatest { owner ->
+                generation++
+                loadJob?.cancel()
+                checkedKeys.clear()
+                latestRows = emptyList()
+                window.value = Window()
+                _uiState.value = FavoritesUiState(isLoading = owner != null)
+                if (owner == null) return@collectLatest
+                combine(window, com.vaydelux.bousygram.data.repository.FavoritesRepository.keys, reload) { page, keys, _ -> page to keys.size }
+                    .flatMapLatest { (page, total) ->
+                        com.vaydelux.bousygram.data.repository.FavoritesRepository.observePage(page.limit, page.offset)
+                            .map { Triple(it, total, page) }
+                            .catch { error ->
+                                if (com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner))
+                                    _uiState.value = _uiState.value.copy(isLoading = false, error = error.message ?: "Could not load favorites")
+                            }
+                    }.collect { (rows, total, page) ->
+                        if (!com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner)) return@collect
+                        if (page.offset > 0 && page.offset >= total) {
+                            window.value = page.copy(offset = ((total - 1).coerceAtLeast(0) / 60) * 60)
+                            return@collect
+                        }
+                        latestRows = rows
+                        val unavailable = rows.filter { it.unavailable }.map { "${it.chatId}:${it.messageId}" }.toSet()
+                        _uiState.value = _uiState.value.copy(
+                            items = rows.map { it.toFavoriteMedia() }, isLoading = false,
+                            unavailableCount = unavailable.size, unavailableKeys = unavailable,
+                            hasMore = total > page.offset + rows.size, totalCount = maxOf(total, page.offset + rows.size),
+                            hasPrevious = page.offset > 0, loadedStart = page.offset
+                        )
+                        refreshUnchecked()
                     }
-                    if (requestGeneration != generation) return@launch
-                }
-                if (requestGeneration == generation) {
-                    _uiState.value = FavoritesUiState(
-                        items = loaded.distinctBy { "${it.chatId}:${it.messageId}" }
-                            .sortedBy { it.title.lowercase() },
-                        isLoading = false,
-                        error = null,
-                        unavailableCount = unavailable
-                    )
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                if (requestGeneration == generation) {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = error.message ?: "Could not load favorites"
-                    )
-                }
-            } finally {
-                if (requestGeneration == generation) loadJob = null
             }
         }
     }
 
+    fun refresh() {
+        loadJob?.cancel()
+        loadJob = null
+        generation++
+        checkedKeys.clear()
+        _uiState.value = _uiState.value.copy(error = null, isLoading = latestRows.isEmpty())
+        reload.value++
+        refreshUnchecked()
+    }
+
+    fun loadMore() {
+        if (!_uiState.value.hasMore) return
+        val page = window.value
+        window.value = if (page.limit < 240) page.copy(limit = page.limit + 60)
+            else page.copy(offset = page.offset + 60)
+    }
+    fun loadPrevious() {
+        val page = window.value
+        window.value = page.copy(offset = (page.offset - 60).coerceAtLeast(0))
+    }
+
+    private fun refreshUnchecked() {
+        if (loadJob?.isActive == true) return
+        val owner = com.vaydelux.bousygram.core.account.AccountSession.current() ?: return
+        val pending = latestRows.filter { "${it.chatId}:${it.messageId}" !in checkedKeys }
+        if (pending.isEmpty()) return
+        val requestGeneration = generation
+        loadJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRefreshing = true)
+            var completed = false
+            try {
+                pending.chunked(MAX_PARALLEL_LOOKUPS).forEach { batch ->
+                    coroutineScope {
+                        batch.map { row -> async {
+                            val key = "${row.chatId}:${row.messageId}"
+                            val (item, _) = loadFavorite(key)
+                            if (!com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) || generation != requestGeneration) return@async
+                            if (item?.fileId != null) com.vaydelux.bousygram.data.repository.FavoritesRepository.updateMetadata(owner, item)
+                            else com.vaydelux.bousygram.data.repository.FavoritesRepository.markUnavailable(owner, row.chatId, row.messageId)
+                            checkedKeys += key
+                        } }.awaitAll()
+                    }
+                }
+                completed = true
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (generation == requestGeneration) _uiState.value = _uiState.value.copy(error = "Some saved media could not be refreshed. Try again.")
+            } finally {
+                if (generation == requestGeneration) {
+                    _uiState.value = _uiState.value.copy(isRefreshing = false)
+                    loadJob = null
+                }
+            }
+            // A page may have arrived while a previous batch was still resolving.
+            if (completed && generation == requestGeneration) refreshUnchecked()
+        }
+    }
+
     fun removeFavorite(item: MediaItem) {
-        EnterprisePreferences.toggleFavorite(item.chatId, item.messageId)
-        _uiState.value = _uiState.value.copy(items = _uiState.value.items.filterNot {
-            it.chatId == item.chatId && it.messageId == item.messageId
-        })
-        // Reload the remaining keys so a refresh already in flight cannot reinsert this item.
-        refresh()
+        com.vaydelux.bousygram.data.repository.FavoritesRepository.remove(item.chatId, item.messageId)
     }
 
     fun requestPlay(item: MediaItem, onResult: (PlaybackRequest?, String?) -> Unit) {
@@ -137,6 +201,6 @@ class FavoritesViewModel(
     }
 
     private companion object {
-        const val MAX_PARALLEL_LOOKUPS = 8
+        const val MAX_PARALLEL_LOOKUPS = 4
     }
 }

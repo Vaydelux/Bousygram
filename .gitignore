@@ -116,3 +116,8 @@ $RECYCLE.BIN/
 /device-evidence/
 /ci-artifacts/qualification/
 /ci-artifacts/device-evidence/
+
+# Local agent artifacts and portable release-verification tools
+/.aistudio/
+/.kombai/
+/.release-tools/

@@ -222,7 +222,7 @@ internal fun PlayerLoadingBanner(
                     liveRegion = LiveRegionMode.Polite
                     contentDescription = copy.title + ". " + copy.detail
                 },
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(8.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),

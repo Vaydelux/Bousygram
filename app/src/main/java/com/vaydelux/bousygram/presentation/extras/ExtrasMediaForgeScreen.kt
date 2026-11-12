@@ -669,7 +669,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 Surface(
                     modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Row(
                         Modifier.padding(12.dp),
@@ -990,7 +990,7 @@ private fun ExtrasServerPicker(
                             .fillMaxWidth()
                             .heightIn(max = maxPanelHeight)
                             .testTag("extras-server-dialog"),
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurface,
                         shadowElevation = 24.dp
@@ -1267,7 +1267,7 @@ internal fun ExtrasSubtitlePicker(
                 .testTag("extras-subtitle-dialog"),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
             shadowElevation = 24.dp
         ) {
             Column(

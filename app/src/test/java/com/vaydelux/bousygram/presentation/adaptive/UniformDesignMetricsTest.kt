@@ -72,7 +72,7 @@ class UniformDesignMetricsTest {
         assertEquals(phone, landscape)
         assertTrue(tv.cardMinWidth > tablet.cardMinWidth)
         assertTrue(tablet.cardMinWidth > phone.cardMinWidth)
-        assertEquals(BousygramUiTokens.cardCorner, 20.dp)
+        assertEquals(BousygramUiTokens.cardCorner, 8.dp)
         assertEquals(BousygramUiTokens.focusScale, 1.018f, 0.001f)
     }
 }

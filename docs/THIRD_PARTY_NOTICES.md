@@ -19,3 +19,14 @@ reverse-engineering provisions before production distribution.
 Other third-party libraries, including TDLib and libmpv and their transitive
 dependencies, have independent licensing requirements. Their notices and
 applicable sources must be reviewed as part of release compliance.
+
+## Bundled typefaces
+
+Space Grotesk (Florian Karsten) and Inter (The Inter Project Authors) are
+bundled under the SIL Open Font License 1.1. Unmodified variable TTF files
+come from the Google Fonts repository. Complete copyright and license texts
+ship inside the APK at `assets/licenses/SpaceGrotesk-OFL.txt` and
+`assets/licenses/Inter-OFL.txt`.
+
+- Space Grotesk source: https://github.com/google/fonts/tree/main/ofl/spacegrotesk
+- Inter source: https://github.com/google/fonts/tree/main/ofl/inter

@@ -12,10 +12,18 @@ import com.vaydelux.bousygram.core.account.AccountSnapshot;
 import java.util.HashMap;
 import java.util.Map;
 
-@Database(entities = {VideoEntity.class, RecentSearchEntity.class}, version = 2, exportSchema = true)
+@Database(entities = {VideoEntity.class, RecentSearchEntity.class, FavoriteEntity.class}, version = 3, exportSchema = true)
 public abstract class AppDatabase extends RoomDatabase {
     public abstract VideoDao videoDao();
     public abstract RecentSearchDao recentSearchDao();
+    public abstract FavoriteDao favoriteDao();
+
+    public static final Migration MIGRATION_2_3 = new Migration(2, 3) {
+        @Override public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS favorites (chatId INTEGER NOT NULL, messageId INTEGER NOT NULL, addedAt INTEGER NOT NULL, title TEXT NOT NULL, fileId INTEGER, threadId INTEGER, poster TEXT, miniThumbnail BLOB, durationSeconds INTEGER NOT NULL, trustedDurationMs INTEGER NOT NULL, mediaType TEXT NOT NULL, fileName TEXT, mimeType TEXT, fileSizeBytes INTEGER NOT NULL, unavailable INTEGER NOT NULL, PRIMARY KEY(chatId, messageId))");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_favorites_addedAt ON favorites (addedAt)");
+        }
+    };
 
     // Version 1 at 98bf6f4 shipped this videos table without recent_searches.
     public static final Migration MIGRATION_1_2 = new Migration(1, 2) {
@@ -42,7 +50,7 @@ public abstract class AppDatabase extends RoomDatabase {
             // Keep the old unscoped bousygram_videos.db quarantined and intact.
             existing = Room.databaseBuilder(context.getApplicationContext(), AppDatabase.class,
                     "bousygram_account_" + accountId + ".db")
-                    .addMigrations(MIGRATION_1_2).build();
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build();
             INSTANCES.put(accountId, existing);
         }
         return existing;

@@ -124,7 +124,7 @@ fun AboutScreen(
 
 @Composable
 private fun AppHeaderCard() {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(8.dp)
     EnterprisePanel(
         modifier = Modifier
             .fillMaxWidth()
@@ -144,7 +144,7 @@ private fun AppHeaderCard() {
                 contentDescription = "BousyGram Chow Chow and paper plane logo",
                 modifier = Modifier
                     .size(64.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(8.dp))
             )
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -189,7 +189,7 @@ private fun AppHeaderCard() {
  */
 @Composable
 private fun TmdbAttributionCard() {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(8.dp)
     EnterprisePanel(
         modifier = Modifier
             .fillMaxWidth()
@@ -260,7 +260,7 @@ private fun TmdbAttributionCard() {
 
 @Composable
 private fun ArchitectureDetailsCard() {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(8.dp)
     EnterprisePanel(
         modifier = Modifier
             .fillMaxWidth()
@@ -315,7 +315,7 @@ private fun FoundationChip(title: String, value: String) {
 
 @Composable
 private fun ZeroConfigCard() {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(8.dp)
     EnterprisePanel(
         modifier = Modifier
             .fillMaxWidth()
