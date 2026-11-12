@@ -17,9 +17,9 @@ object BousygramUiTokens {
     val sectionSpacing = 24.dp
     val phonePagePadding = 16.dp
     val tvPagePadding = 32.dp
-    val cardCorner = 8.dp
-    val panelCorner = 12.dp
-    val tabCorner = 8.dp
+    val cardCorner = 12.dp
+    val panelCorner = 16.dp
+    val tabCorner = 10.dp
     val cardGridPhone = 12.dp
     val cardGridTv = 16.dp
     val cardGridTablet = 14.dp
