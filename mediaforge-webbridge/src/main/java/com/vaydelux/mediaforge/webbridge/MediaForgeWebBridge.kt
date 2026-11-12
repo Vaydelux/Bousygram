@@ -77,7 +77,7 @@ class MediaForgeWebBridge(
     fun rendererGone(view: WebView): Boolean = rendererGoneViews.contains(view)
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun create(context: Context, embedUrl: String): WebView {
+    fun create(context: Context, embedUrl: String, compatibilityMode: Boolean = false): WebView {
         check(open.get()) { "A closed MediaForge WebBridge cannot create a new WebView" }
         val approved = MediaForgeUrlPolicy.safeHttpsUrl(embedUrl)
             ?: throw IllegalArgumentException("Invalid external embed URL")
@@ -85,7 +85,9 @@ class MediaForgeWebBridge(
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            mediaPlaybackRequiresUserGesture = true
+            // Third-party anime embeds may require autoplay after the user opted in.
+            // Keep gesture gating by default; the Extras UI must disclose the tradeoff.
+            mediaPlaybackRequiresUserGesture = !compatibilityMode
             allowFileAccess = false
             allowContentAccess = false
             javaScriptCanOpenWindowsAutomatically = false
@@ -95,7 +97,9 @@ class MediaForgeWebBridge(
         }
         webView.setBackgroundColor(android.graphics.Color.BLACK)
         webView.isFocusableInTouchMode = true
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
+        // Explicit per-WebView compatibility opt-in only. Never relax URL, TLS,
+        // local-network, file or content restrictions to make a provider play.
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, compatibilityMode)
         webView.webChromeClient = object : WebChromeClient() {
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
                 if (!open.get() || fullscreenView != null || onFullscreenRequested == null) {
