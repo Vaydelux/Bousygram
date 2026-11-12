@@ -3,8 +3,8 @@ package com.vaydelux.bousygram.presentation.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -35,16 +35,18 @@ class MediaActionsDropdownInstrumentedTest {
 
     @Test fun dropdownFavoritesDoNotActivatePlayback() {
         var plays = 0
+        val playbackFocus = FocusRequester()
         val media = MediaItem(-100, 25, 0, MediaType.Video, "Saved episode", null)
         compose.setContent {
             BousygramTheme {
                 Box(Modifier.width(320.dp)) {
-                    MediaPosterCard(media, "Telegram", onClick = { plays++ }, cardWidth = null)
+                    MediaPosterCard(media, "Telegram", onClick = { plays++ }, cardWidth = null,
+                        playbackFocusRequester = playbackFocus)
                 }
             }
         }
         compose.waitUntil(10_000) { FavoritesRepository.ready.value }
-        compose.onNodeWithTag("media-play--100:25").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.runOnIdle { playbackFocus.requestFocus() }
         compose.onNodeWithTag("media-play--100:25").assertIsFocused()
         compose.onNodeWithTag("media-play--100:25").performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithContentDescription("Actions for Saved episode").assertIsFocused()
