@@ -1,0 +1,41 @@
+name: Request Bousygram Favorites Navigation Debug
+
+# Runs once with the navigation-fix PR merge introducing this workflow.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc180-favorites-debug-on-merge.yml'
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+jobs:
+  dispatch-verified-debug:
+    name: Dispatch verified mobile and TV debug APKs
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify Favorites fix merged at exact current main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          current="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; refusing stale debug build"
+            exit 1
+          }
+          merged="$(gh api "repos/$repo/pulls/180" --jq '.merged')"
+          commit="$(gh api "repos/$repo/pulls/180" --jq '.merge_commit_sha')"
+          [[ "$merged" == true && "$commit" == "$GITHUB_SHA" ]] || {
+            echo "::error::Expected PR #180 to be merged at this SHA"
+            exit 1
+          }
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
+          echo "Requested verified ARM32/ARM64/universal debug builds from $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

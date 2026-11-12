@@ -153,9 +153,6 @@ internal fun TelegramExplorerCompactHeader(
                 OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = minControl)) {
                     Text("Search", maxLines = 1)
                 }
-                OutlinedButton(onClick = onFavorites, modifier = Modifier.heightIn(min = minControl)) {
-                    Text("Favorites", maxLines = 1)
-                }
             } else if (effectiveWidth >= 480.dp) {
                 OutlinedButton(
                     onClick = onSearch,
@@ -216,13 +213,30 @@ internal fun TelegramExplorerCompactHeader(
             }
         }
 
+        // Favorites is a destination, not a Telegram source section. Keep its
+        // entry pinned rather than hiding it behind More or a scrolled-off tab:
+        // 320dp portrait, short landscape, tablets and Android TV all need an
+        // immediately visible way to open the saved collection.
         Row(
-            modifier = Modifier.fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .testTag("telegram-library-sections"),
+            modifier = Modifier.fillMaxWidth().testTag("telegram-library-sections"),
             horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            BousygramSectionTab(
+                label = "Favorites",
+                active = false,
+                isTv = isTv,
+                onClick = onFavorites,
+                modifier = Modifier.widthIn(min = if (isTv) 128.dp else 104.dp)
+                    .testTag("telegram-library-tab-favorites")
+            )
+            Row(
+                modifier = Modifier.weight(1f)
+                    .horizontalScroll(rememberScrollState())
+                    .testTag("telegram-library-source-tabs"),
+                horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             ExplorerSection.entries.forEach { entry ->
                 val label = when (entry) {
                     ExplorerSection.SAVED -> if (widthDp < 600.dp) "Saved" else "Saved messages"
@@ -243,6 +257,7 @@ internal fun TelegramExplorerCompactHeader(
                     modifier = Modifier.widthIn(min = if (isTv) 128.dp else 88.dp)
                         .testTag("telegram-library-tab-" + entry.name.lowercase())
                 )
+            }
             }
         }
 

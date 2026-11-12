@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -19,6 +20,7 @@ import com.vaydelux.bousygram.presentation.media.vm.ExplorerPosition
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerSection
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,6 +31,7 @@ class TelegramLibraryDesignInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun librarySectionsAreReadableAndSelectableWithoutTelegramAccount() {
+        var favoritesOpens = 0
         compose.setContent {
             BousygramTheme {
                 var selectedSection by remember { mutableStateOf(ExplorerSection.SAVED) }
@@ -75,7 +78,7 @@ class TelegramLibraryDesignInstrumentedTest {
                     onRefreshTopics = {},
                     onRefreshMedia = {},
                     onSearch = {},
-                    onFavorites = {},
+                    onFavorites = { favoritesOpens++ },
                     onSettings = {},
                     hasResume = false,
                     onResume = {}
@@ -96,6 +99,12 @@ class TelegramLibraryDesignInstrumentedTest {
             .fetchSemanticsNode().boundsInRoot.height
         assertTrue("Library grid occupies only ${gridHeight / fullHeight} of the viewport",
             fullHeight > 0f && gridHeight / fullHeight >= 0.58f)
+        compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
+        // The same Home/Library dashboard must expose the Favorites route
+        // directly, not solely inside the mobile overflow menu.
+        compose.onNodeWithTag("telegram-library-tab-favorites")
+            .assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, favoritesOpens) }
         compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
         // An empty folder is not an error. Retry is reserved for actual failures.
         compose.onNodeWithText("Refresh").assertExists()
