@@ -13,91 +13,93 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
- * The private Telegram channel owns the collection. Every screen entry calls
- * refresh() instead of showing a persisted Favorites Room snapshot.
+ * Cloud-only, account-scoped Favorites browser. History is refreshed on each entry.
+ * Only ONE page of posters is held by the ViewModel on low-memory TVs/phones.
+ * Small numeric page cursors are kept in memory; no Favorites database is written.
  */
 class CloudFavoritesViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(FavoritesUiState())
     val uiState: StateFlow<FavoritesUiState> = _uiState
 
     private var loadJob: Job? = null
+    private val cursors = mutableListOf(0L)
+    private var pageIndex = 0
     private var nextBeforeId: Long? = null
     private var hasMore = false
     private var generation = 0L
     private var observedAccount = AccountSession.current()
+    private val pageSize = 60
 
     init {
         viewModelScope.launch {
-            AccountSession.state.collectLatest {
-                // The first StateFlow emission is not an account switch. Do not
-                // cancel the screen-entry refresh before it can return.
-                if (it == observedAccount) return@collectLatest
-                observedAccount = it
+            AccountSession.state.collectLatest { owner ->
+                // Initial emission is not an account switch. Do not cancel the
+                // screen-entry cloud refresh that is already in progress.
+                if (owner == observedAccount) return@collectLatest
+                observedAccount = owner
                 ++generation
                 loadJob?.cancel()
+                cursors.clear()
+                cursors += 0L
+                pageIndex = 0
                 nextBeforeId = null
                 hasMore = false
-                _uiState.value = FavoritesUiState(isLoading = it != null)
+                _uiState.value = FavoritesUiState(isLoading = owner != null)
             }
         }
     }
 
     fun refresh() {
-        loadJob?.cancel()
-        val owner = AccountSession.current() ?: return
-        val token = ++generation
-        _uiState.value = FavoritesUiState(isLoading = true, isRefreshing = true)
-        loadJob = viewModelScope.launch {
-            try {
-                val page = TelegramCloudFavorites.refresh()
-                if (token != generation || !AccountSession.isCurrent(owner)) return@launch
-                nextBeforeId = page.nextBeforeId
-                hasMore = page.hasMore
-                _uiState.value = FavoritesUiState(
-                    items = page.items,
-                    isLoading = false,
-                    isRefreshing = false,
-                    totalCount = page.items.size,
-                    hasMore = page.hasMore
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                if (token == generation && AccountSession.isCurrent(owner)) {
-                    _uiState.value = FavoritesUiState(
-                        isLoading = false,
-                        error = error.message ?: "Could not refresh Telegram Favorites"
-                    )
-                }
-            }
-        }
+        cursors.clear()
+        cursors += 0L
+        nextBeforeId = null
+        hasMore = false
+        loadPage(0, 0L)
     }
 
     fun loadMore() {
         if (!hasMore || loadJob?.isActive == true) return
         val cursor = nextBeforeId ?: return
+        val nextIndex = pageIndex + 1
+        if (cursors.size <= nextIndex) cursors += cursor else cursors[nextIndex] = cursor
+        loadPage(nextIndex, cursor)
+    }
+
+    fun loadPrevious() {
+        if (pageIndex <= 0 || loadJob?.isActive == true) return
+        val target = pageIndex - 1
+        loadPage(target, cursors[target])
+    }
+
+    private fun loadPage(index: Int, cursor: Long) {
+        loadJob?.cancel()
         val owner = AccountSession.current() ?: return
-        val token = generation
+        val token = ++generation
+        _uiState.value = _uiState.value.copy(isLoading = true, isRefreshing = true, error = null)
         loadJob = viewModelScope.launch {
             try {
                 val page = TelegramCloudFavorites.refresh(cursor)
                 if (token != generation || !AccountSession.isCurrent(owner)) return@launch
-                val appended = (_uiState.value.items + page.items)
-                    .distinctBy { "${it.chatId}:${it.messageId}" }
+                pageIndex = index
                 nextBeforeId = page.nextBeforeId
                 hasMore = page.hasMore && page.nextBeforeId != cursor
-                _uiState.value = _uiState.value.copy(
-                    items = appended,
+                _uiState.value = FavoritesUiState(
+                    items = page.items,
+                    isLoading = false,
+                    isRefreshing = false,
+                    loadedStart = index * pageSize,
+                    totalCount = index * pageSize + page.items.size,
                     hasMore = hasMore,
-                    totalCount = appended.size,
-                    error = null
+                    hasPrevious = index > 0
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (token == generation && AccountSession.isCurrent(owner)) {
                     _uiState.value = _uiState.value.copy(
-                        error = error.message ?: "Could not load more Favorites"
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = error.message ?: "Could not refresh Telegram Favorites"
                     )
                 }
             }
