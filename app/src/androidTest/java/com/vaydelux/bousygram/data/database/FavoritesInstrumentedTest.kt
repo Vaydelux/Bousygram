@@ -12,10 +12,18 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class FavoritesInstrumentedTest {
+    @Before fun initializeLegacyMigrationFixture() {
+        // The production app intentionally no longer starts the legacy Room
+        // FavoritesRepository. Only migration tests explicitly initialize it.
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        FavoritesRepository.init(context)
+    }
+
     @Test fun largeCollectionsReadBoundedPagesAndLateMetadataCannotResurrectRemovedRows() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
