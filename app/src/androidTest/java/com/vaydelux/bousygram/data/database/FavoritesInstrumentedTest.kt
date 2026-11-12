@@ -53,6 +53,44 @@ class FavoritesInstrumentedTest {
         } finally { db.close() }
     }
 
+    @Test fun legacyMigrationKeysetDoesNotSkipRowsOrEraseUnconfirmedFavorites() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val dao = db.favoriteDao()
+            repeat(145) { n -> dao.insert(FavoriteEntity().apply {
+                chatId = -100L
+                messageId = n + 1L
+                title = "Old bookmark"
+            }) }
+            var afterChat = Long.MIN_VALUE
+            var afterMessage = Long.MIN_VALUE
+            var confirmed = 0
+            while (true) {
+                val batch = dao.migrationBatch(afterChat, afterMessage, 32)
+                if (batch.isEmpty()) break
+                for (item in batch) {
+                    if (item.messageId % 13L != 0L) {
+                        // Simulate Telegram-confirmed forward (or existing cloud match).
+                        dao.remove(item.chatId, item.messageId)
+                        confirmed++
+                    }
+                    // Failures intentionally remain available for retry.
+                }
+                val last = batch.last()
+                afterChat = last.chatId
+                afterMessage = last.messageId
+            }
+            val unconfirmed = (1L..145L).count { it % 13L == 0L }
+            assertEquals(145 - unconfirmed, confirmed)
+            assertEquals(unconfirmed, dao.observeKeys().first().size)
+            (1L..145L).forEach { id ->
+                if (id % 13L == 0L) assertNotNull(dao.find(-100L, id))
+                else assertNull(dao.find(-100L, id))
+            }
+        } finally { db.close() }
+    }
+
     @Test fun rapidAccountInvalidationDrainsLiveFavoritesQueriesBeforeRoomCloses() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val account = 8_800_000_004L
