@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -581,6 +582,37 @@ private fun ExtrasMediaForgePlayerScreen(
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 2
                 )
+                if (request.anilistId > 0) {
+                    TextButton(
+                        onClick = {
+                            if (webCompatibilityMode) {
+                                // Restoring strict mode always creates a fresh WebView.
+                                webCompatibilityMode = false
+                                inspectionGeneration += 1
+                                inspectionJob?.cancel()
+                                inspectionJob = null
+                                busy = false
+                                approved = null
+                                selectedCaption = null
+                                showSubtitlePicker = false
+                                session.clear()
+                                snapshot = session.snapshot()
+                                status = "Strict WebView mode restored."
+                                webLoadFailed = false
+                                webGeneration += 1
+                            } else {
+                                tryCompatibilityMode()
+                            }
+                        },
+                        modifier = Modifier.testTag("extras-anime-web-compatibility")
+                    ) {
+                        Text(
+                            if (webCompatibilityMode) "Use strict web mode"
+                            else "Black screen? Try compatibility (cookies + autoplay)",
+                            maxLines = 2
+                        )
+                    }
+                }
                 if (request.tmdbId > 0 && request.season == null &&
                     selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
                 ) {
@@ -685,6 +717,12 @@ private fun ExtrasMediaForgePlayerScreen(
                             onClick = onChooseAnimeServer,
                             modifier = Modifier.testTag("extras-anime-recover-server")
                         ) { Text("Choose another server") }
+                        if (!webCompatibilityMode) {
+                            OutlinedButton(
+                                onClick = { tryCompatibilityMode() },
+                                modifier = Modifier.testTag("extras-anime-error-compatibility")
+                            ) { Text("Try compatibility (cookies + autoplay)", maxLines = 2) }
+                        }
                     }
                     OutlinedButton(onClick = {
                         webLoadFailed = false
