@@ -105,8 +105,8 @@ fun BousygramModeSelection(
                 } else {
                     BousygramBrandMark(size = 82.dp)
                     Text(
-                        "BOUSYGRAM  /  MEDIA HUB",
-                        style = MaterialTheme.typography.labelMedium,
+                        "Bousygram",
+                        style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
