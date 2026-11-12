@@ -297,6 +297,7 @@ private fun FavoriteGridItem(
             badge = if (unavailable) "RETRY REFRESH" else "FAVORITE",
             privacyMode = safeMode,
             cardWidth = null,
+            showActions = false,
             onClick = onSelect,
             modifier = modifier.fillMaxWidth(),
             onFocusChanged = onFocus
