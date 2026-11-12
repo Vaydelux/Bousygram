@@ -37,6 +37,8 @@ import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -116,12 +118,7 @@ fun BousygramModeSelection(
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        "Bousygram",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "Choose an experience to get started.",
+                        "Choose a media experience to get started.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -188,12 +185,11 @@ private fun ModeOption(
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
+    val motion = rememberBousygramMotionPolicy()
     val focusScale by animateFloatAsState(
-        targetValue = if (focused && android.animation.ValueAnimator.areAnimatorsEnabled())
-            BousygramUiTokens.focusScale else 1f,
+        targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
         animationSpec = tween(
-            durationMillis = if (android.animation.ValueAnimator.areAnimatorsEnabled())
-                BousygramUiTokens.focusDurationMs else 0,
+            durationMillis = motion.duration(BousygramUiTokens.focusDurationMs),
             easing = FastOutSlowInEasing
         ),
         label = "mode-focus"
@@ -237,11 +233,14 @@ private fun ModeOption(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
                     title, style = MaterialTheme.typography.titleLarge,
-                    color = colors.onSurface, fontWeight = FontWeight.SemiBold
+                    color = colors.onSurface, fontWeight = FontWeight.SemiBold,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     subtitle, style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurfaceVariant
+                    color = colors.onSurfaceVariant,
+                    maxLines = if (rememberAdaptiveMetrics().isShortWindow) 2 else 3,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Text("›", style = MaterialTheme.typography.headlineSmall,
