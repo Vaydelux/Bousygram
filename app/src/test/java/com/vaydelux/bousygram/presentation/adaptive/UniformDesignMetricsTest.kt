@@ -72,7 +72,10 @@ class UniformDesignMetricsTest {
         assertEquals(phone, landscape)
         assertTrue(tv.cardMinWidth > tablet.cardMinWidth)
         assertTrue(tablet.cardMinWidth > phone.cardMinWidth)
-        assertEquals(BousygramUiTokens.cardCorner, 8.dp)
+        // Central premium shape hierarchy applies to every form factor and ABI.
+        assertEquals(12.dp, BousygramUiTokens.cardCorner)
+        assertEquals(16.dp, BousygramUiTokens.panelCorner)
+        assertEquals(10.dp, BousygramUiTokens.tabCorner)
         assertEquals(BousygramUiTokens.focusScale, 1.018f, 0.001f)
     }
 }
