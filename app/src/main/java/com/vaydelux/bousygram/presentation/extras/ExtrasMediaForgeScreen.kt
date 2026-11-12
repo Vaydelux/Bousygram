@@ -72,6 +72,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -177,6 +178,30 @@ internal data class ExtrasEmbedRequest(
             )
         }
     }
+}
+
+/**
+ * Cap toolbar and diagnostics on short devices, reserving at least 41% of the
+ * parent height for the actual WebView before the system safe-area is applied.
+ * Caps deliberately have no fixed 88dp / 64dp minimum that could starve a
+ * tiny multi-window viewport.
+ */
+internal data class ExtrasEmbedPanelLimits(
+    val compactHeight: Boolean,
+    val headerMax: androidx.compose.ui.unit.Dp,
+    val footerMax: androidx.compose.ui.unit.Dp
+)
+
+internal fun extrasEmbedPanelLimits(
+    height: androidx.compose.ui.unit.Dp,
+    fontScale: Float
+): ExtrasEmbedPanelLimits {
+    val safeHeight = height.coerceAtLeast(0.dp)
+    return ExtrasEmbedPanelLimits(
+        compactHeight = safeHeight / fontScale.coerceIn(1f, 2f) < 580.dp,
+        headerMax = safeHeight * 0.36f,
+        footerMax = safeHeight * 0.23f
+    )
 }
 
 /**
@@ -476,9 +501,10 @@ private fun ExtrasMediaForgePlayerScreen(
     BoxWithConstraints(Modifier.fillMaxSize()) {
     // A short landscape phone or 720p TV can otherwise allocate the entire
     // viewport to the browser toolbar/footer and measure WebView at 0px.
-    val shortWindow = maxHeight < 580.dp
-    val headerCap = (maxHeight * 0.36f).coerceAtLeast(88.dp)
-    val footerCap = (maxHeight * 0.23f).coerceAtLeast(64.dp)
+    val panelLimits = extrasEmbedPanelLimits(maxHeight, LocalDensity.current.fontScale)
+    val shortWindow = panelLimits.compactHeight
+    val headerCap = panelLimits.headerMax
+    val footerCap = panelLimits.footerMax
     Column(
         Modifier.fillMaxSize()
             .then(if (!immersiveWeb) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)
