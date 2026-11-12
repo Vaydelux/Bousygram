@@ -37,6 +37,8 @@ object TelegramCloudFavorites {
     private const val CHANNEL_MARKER = "Bousygram-managed private favorites channel (v1)"
     private const val PAGE_SIZE = 60
     private const val QUEUE_CAPACITY = 32
+    // Keep only small Telegram identity strings, never decoded images/media bytes.
+    private const val MAX_CACHED_IDENTITIES = 8192
 
     data class Page(val channelId: Long, val items: List<MediaItem>, val nextBeforeId: Long?, val hasMore: Boolean)
     data class Receipt(
@@ -59,8 +61,13 @@ object TelegramCloudFavorites {
         val destinationByKey: MutableMap<String, Long> = mutableMapOf(),
         var fullyScanned: Boolean = false
     ) {
-        fun register(message: TdApi.Message) {
-            cloudFavoriteIdentityKeys(message).forEach { destinationByKey[it] = message.id }
+        fun register(message: TdApi.Message): Boolean {
+            val keys = cloudFavoriteIdentityKeys(message)
+            if (keys.any { it !in destinationByKey } &&
+                destinationByKey.size + keys.count { it !in destinationByKey } > MAX_CACHED_IDENTITIES
+            ) return false
+            keys.forEach { destinationByKey[it] = message.id }
+            return true
         }
         fun discard(messageId: Long) {
             destinationByKey.entries.removeAll { it.value == messageId }
@@ -287,6 +294,11 @@ object TelegramCloudFavorites {
         saveLock.withLock {
         val channelId = ensureChannel(owner)
         check(channelId != sourceChatId) { "This message is already in your Favorites channel." }
+        val source = expect<TdApi.Message>(owner, TdApi.GetMessage(sourceChatId, sourceMessageId))
+        val existingId = findExistingSavedMessage(owner, channelId, source)
+        if (existingId != null) {
+            return@withLock Receipt(sourceChatId, sourceMessageId, existingId, channelId, alreadyExisted = true)
+        }
         val props = expect<TdApi.MessageProperties>(
             owner, TdApi.GetMessageProperties(sourceChatId, sourceMessageId)
         )
@@ -334,6 +346,63 @@ object TelegramCloudFavorites {
         } finally {
             TdLibClient.removeUpdateHandler(listener)
             events.close()
+        }
+    }
+
+    /**
+     * Rebuild from Telegram history after every process restart. On subsequent saves only
+     * revisit the newest page unless we hit the 8192-key RAM ceiling. In that case, each
+     * save streams the entire history in 60-message pages and retains bounded metadata.
+     * An incomplete cloud search fails the save safely rather than creating duplicates.
+     */
+    private suspend fun findExistingSavedMessage(
+        owner: AccountSnapshot, channel: Long, source: TdApi.Message
+    ): Long? {
+        val index = identityIndex?.takeIf { it.owner == owner && it.channelId == channel }
+            ?: IdentityIndex(owner, channel).also { identityIndex = it }
+        val sourceKeys = cloudFavoriteIdentityKeys(source)
+
+        suspend fun verified(id: Long): Boolean =
+            (request(owner, TdApi.GetMessage(channel, id)) as? TdApi.Message)?.sendingState == null
+
+        val knownId = index.find(source)
+        if (knownId != null) {
+            if (verified(knownId)) return knownId
+            index.discard(knownId)
+        }
+
+        var cursor = 0L
+        var skippedCacheEntries = false
+        while (true) {
+            val history = expect<TdApi.Messages>(owner, TdApi.GetChatHistory().apply {
+                chatId = channel
+                fromMessageId = cursor
+                offset = 0
+                limit = PAGE_SIZE + if (cursor == 0L) 0 else 1
+                onlyLocal = false
+            })
+            val batch = history.messages.orEmpty().filterNotNull()
+                .filter { cursor == 0L || it.id < cursor }
+            for (message in batch) {
+                if (sourceKeys.any { it in cloudFavoriteIdentityKeys(message) } &&
+                    message.sendingState == null
+                ) {
+                    index.register(message)
+                    return message.id
+                }
+                if (!index.register(message)) skippedCacheEntries = true
+            }
+            if (batch.size < PAGE_SIZE) {
+                index.fullyScanned = !skippedCacheEntries
+                return null
+            }
+            val next = batch.lastOrNull()?.id ?: return null
+            if (next >= cursor && cursor != 0L) {
+                error("Telegram Favorites history did not advance; retry the save.")
+            }
+            cursor = next
+            // The identity index contains no media bytes. Stop caching at the memory ceiling,
+            // but keep comparing every older cloud message on this pass.
         }
     }
 
