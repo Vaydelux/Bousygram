@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -34,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 
 /** Shared information hierarchy for Telegram Library, Favorites and Extras. */
 @Composable
@@ -80,13 +83,15 @@ fun BousygramPageHeading(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
-        Text(
-            subtitle,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
+        if (subtitle.isNotBlank()) {
+            Text(
+                subtitle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = if (compact) 1 else 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -128,7 +133,26 @@ fun BousygramSectionTab(
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
+    val motion = rememberBousygramMotionPolicy()
     var focused by remember { mutableStateOf(false) }
+    val highlight by animateColorAsState(
+        targetValue = when {
+            active -> colors.primaryContainer
+            focused -> colors.surfaceContainerHighest
+            else -> colors.surfaceContainerLow
+        },
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
+        label = "sectionTabSurface"
+    )
+    val outline by animateColorAsState(
+        targetValue = when {
+            focused -> colors.primary
+            active -> colors.primary
+            else -> colors.outlineVariant
+        },
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
+        label = "sectionTabOutline"
+    )
     OutlinedButton(
         onClick = onClick,
         modifier = modifier
@@ -139,18 +163,10 @@ fun BousygramSectionTab(
         shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
         border = BorderStroke(
             if (focused) BousygramUiTokens.tvFocusOutline else 1.dp,
-            when {
-                focused -> colors.primary
-                active -> colors.primary.copy(alpha = 0.85f)
-                else -> colors.outlineVariant
-            }
+            outline
         ),
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = when {
-                active -> colors.primaryContainer
-                focused -> colors.surfaceContainerHighest
-                else -> colors.surfaceContainerLow
-            },
+            containerColor = highlight,
             contentColor = if (active) colors.onPrimaryContainer else colors.onSurface
         ),
         contentPadding = PaddingValues(horizontal = if (isTv) 20.dp else 16.dp, vertical = 8.dp)

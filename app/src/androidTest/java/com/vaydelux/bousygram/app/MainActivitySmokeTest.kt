@@ -77,7 +77,7 @@ class MainActivitySmokeTest {
         assertTrue(realOutput, realOutput.contains("Complete"))
         assertTrue(
             "Real mode chooser should replace the debug preview after onNewIntent",
-            device.wait(Until.hasObject(By.text("Choose an experience to get started.")), 10_000)
+            device.wait(Until.hasObject(By.text("Choose a media experience to get started.")), 10_000)
         )
 
         val previewOutput = instrumentation.runShellCommand(

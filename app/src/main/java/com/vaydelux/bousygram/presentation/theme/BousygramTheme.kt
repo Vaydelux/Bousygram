@@ -264,21 +264,21 @@ private val BousygramTypography = Typography(
         lineHeight = 30.sp
     ),
     titleLarge = TextStyle(
-        fontFamily = ReadingFont,
+        fontFamily = HeadingFont,
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
         lineHeight = 28.sp,
-        letterSpacing = 0.sp
+        letterSpacing = (-0.25).sp
     ),
     titleMedium = TextStyle(
-        fontFamily = ReadingFont,
+        fontFamily = HeadingFont,
         fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 24.sp,
-        letterSpacing = 0.1.sp
+        letterSpacing = (-0.1).sp
     ),
     titleSmall = TextStyle(
-        fontFamily = ReadingFont,
+        fontFamily = HeadingFont,
         fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
         lineHeight = 20.sp,
@@ -330,10 +330,10 @@ private val BousygramTypography = Typography(
 
 private val BousygramShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(8.dp),
-    large = RoundedCornerShape(12.dp),
-    extraLarge = RoundedCornerShape(12.dp)
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(20.dp)
 )
 
 @Composable

@@ -4,13 +4,17 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -26,6 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.domain.model.MediaItem
@@ -87,31 +94,42 @@ fun rememberMediaLauncher(
 @Composable
 fun LaunchOpeningIndicator(launcher: MediaLauncher, modifier: Modifier = Modifier) {
     val state by launcher.state
+    val motion = rememberBousygramMotionPolicy()
+    val metrics = rememberAdaptiveMetrics()
     AnimatedVisibility(
         visible = state.isPending && state.showIndicator,
-        enter = fadeIn(),
-        exit = fadeOut(),
+        enter = fadeIn(animationSpec = tween(motion.duration(140))),
+        exit = fadeOut(animationSpec = tween(motion.duration(120))),
         modifier = modifier
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
-                .semantics { contentDescription = "Opening media" }
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(8.dp))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .widthIn(max = if (metrics.isCompact)
+                    (metrics.widthDp - 24.dp).coerceAtLeast(1.dp) else 420.dp)
+                .semantics { contentDescription = "Opening media. Back cancels" }
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(12.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
-            CircularProgressIndicator(
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp)
-            )
+            if (motion.animateIndeterminateProgress) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            } else {
+                Box(Modifier.size(12.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape))
+            }
             Text(
                 "Opening… (Back to cancel)",
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
