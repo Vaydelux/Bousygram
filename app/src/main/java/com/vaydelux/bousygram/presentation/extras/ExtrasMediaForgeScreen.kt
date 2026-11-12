@@ -1565,29 +1565,49 @@ private fun ExtrasMediaForgeNativePlayer(
             controls.release()
         }
     }
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(
-            Modifier.fillMaxWidth().padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(onClick = onBack) { Text("Back to WebView") }
-            Text(title, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f))
-            if (com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
-                MediaForgeGuardedProgressiveSource.supported(media.stream)
-            ) {
-                OutlinedButton(
-                    modifier = Modifier.testTag("extras-media3-use-libvlc"),
-                    onClick = {
-                        onUseLibVlc(extrasMedia3Handoff(
-                            positionMs = player.currentPosition,
-                            seekable = player.isCurrentMediaItemSeekable,
-                            playWhenReady = player.playWhenReady,
-                            failed = playbackError != null,
-                            ended = player.playbackState == Player.STATE_ENDED
-                        ))
+    Column(Modifier.fillMaxSize().background(Color.Black)
+        .windowInsetsPadding(WindowInsets.safeDrawing)) {
+        val canUseVlc = com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
+            MediaForgeGuardedProgressiveSource.supported(media.stream)
+        val switchVlc = {
+            onUseLibVlc(extrasMedia3Handoff(
+                positionMs = player.currentPosition,
+                seekable = player.isCurrentMediaItemSeekable,
+                playWhenReady = player.playWhenReady,
+                failed = playbackError != null,
+                ended = player.playbackState == Player.STATE_ENDED
+            ))
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(8.dp)) {
+            if (maxWidth < 500.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(title, color = Color.White, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onBack) { Text("Back to WebView") }
+                        if (canUseVlc) {
+                            OutlinedButton(
+                                onClick = switchVlc,
+                                modifier = Modifier.testTag("extras-media3-use-libvlc")
+                            ) { Text("Use LibVLC") }
+                        }
                     }
-                ) { Text("Use LibVLC") }
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(onClick = onBack) { Text("Back to WebView") }
+                    Text(title, color = Color.White, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (canUseVlc) {
+                        OutlinedButton(
+                            onClick = switchVlc,
+                            modifier = Modifier.testTag("extras-media3-use-libvlc")
+                        ) { Text("Use LibVLC") }
+                    }
+                }
             }
         }
         playbackError?.let { error ->
