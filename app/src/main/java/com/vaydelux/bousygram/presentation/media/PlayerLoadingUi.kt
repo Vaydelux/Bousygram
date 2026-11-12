@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.presentation.media
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.components.rememberShimmerBrush
+import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import kotlinx.coroutines.delay
 
 /** Errors belong to the player's focusable Retry UI, not a blocking loading overlay. */
@@ -112,6 +115,7 @@ internal fun playerLoadingCopy(phase: PlayerLoadingPhase, retryCount: Int): Play
 @Composable
 internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifier) {
     val shimmer = rememberShimmerBrush()
+    val shortWindow = rememberAdaptiveMetrics().isShortWindow
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -133,7 +137,7 @@ internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifi
         ) {
             Box(
                 Modifier.fillMaxWidth()
-                    .height(if (compact) 122.dp else 210.dp)
+                    .height(if (shortWindow) 76.dp else if (compact) 122.dp else 210.dp)
                     .clip(RoundedCornerShape(if (compact) 16.dp else 24.dp))
                     .background(shimmer)
             )
@@ -184,7 +188,8 @@ internal fun PlayerStatusChip(label: String, isError: Boolean, isBusy: Boolean) 
                 label,
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.labelSmall,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -198,6 +203,8 @@ internal fun PlayerLoadingBanner(
     retryCount: Int,
     modifier: Modifier = Modifier
 ) {
+    val motion = rememberBousygramMotionPolicy()
+    val metrics = rememberAdaptiveMetrics()
     var show by remember { mutableStateOf(false) }
     LaunchedEffect(phase) {
         show = false
@@ -208,59 +215,85 @@ internal fun PlayerLoadingBanner(
     }
     AnimatedVisibility(
         visible = show && phase != PlayerLoadingPhase.NONE,
-        enter = fadeIn(),
-        exit = fadeOut(),
+        enter = fadeIn(animationSpec = tween(motion.duration(170))),
+        exit = fadeOut(animationSpec = tween(motion.duration(120))),
         modifier = modifier
     ) {
         val copy = playerLoadingCopy(phase, retryCount)
-        Surface(
-            modifier = Modifier
-                .padding(horizontal = 16.dp)
-                .widthIn(max = if (compact) 310.dp else 390.dp)
-                .testTag("player_loading_banner")
-                .semantics {
-                    liveRegion = LiveRegionMode.Polite
-                    contentDescription = copy.title + ". " + copy.detail
-                },
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            shadowElevation = 10.dp
+        // The banner fits both 320dp portrait and short landscape: width is capped
+        // by the actual parent, not a presumed device or the Android CPU ABI.
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Column {
-                Row(
-                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(if (compact) 20.dp else 24.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 2.dp
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            copy.title,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                        Text(
-                            copy.detail,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = if (compact) 328.dp else 410.dp)
+                    .fillMaxWidth()
+                    .testTag("player_loading_banner")
+                    .semantics {
+                        liveRegion = LiveRegionMode.Polite
+                        contentDescription = copy.title + ". " + copy.detail
+                    },
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shadowElevation = if (motion.lowRam) 0.dp else 6.dp
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(
+                            horizontal = if (compact) 12.dp else 16.dp,
+                            vertical = if (metrics.isShortWindow) 8.dp else 12.dp
+                        ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (motion.animateIndeterminateProgress) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(if (compact) 18.dp else 22.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            // Static accessible busy indicator: no infinite GPU loop on
+                            // reduced-motion or low-RAM devices.
+                            Box(
+                                Modifier.size(12.dp).clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                copy.title,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                copy.detail,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = if (metrics.isShortWindow) 1 else 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    if (motion.animateIndeterminateProgress) {
+                        // Indeterminate activity only; never invent buffered percentages.
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(2.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
                         )
                     }
                 }
-                // Indeterminate activity only: a fake buffered percentage would mislead users.
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
             }
         }
     }
