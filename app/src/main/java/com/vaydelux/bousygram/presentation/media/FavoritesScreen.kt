@@ -137,7 +137,6 @@ fun FavoritesScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     BousygramButton("← Back", onClick = { if (!launcher.cancel()) onBack() }, modifier = Modifier.focusRequester(emptyFocus))
-                    if (state.hasPrevious) BousygramButton("Previous saved items", viewModel::loadPrevious)
                     BousygramButton("Search", onOpenSearch)
                     BousygramButton("Refresh", viewModel::refresh, enabled = !state.isLoading && !state.isRefreshing)
                     if (state.items.isNotEmpty()) {
