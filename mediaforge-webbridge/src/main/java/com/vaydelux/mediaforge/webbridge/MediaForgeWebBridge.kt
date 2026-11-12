@@ -184,7 +184,7 @@ class MediaForgeWebBridge(
                 // A failed unrelated iframe/subresource must not place a fatal
                 // black/opaque error overlay over a successfully loaded top page.
                 // Only errors for the selected top-level document are fatal UI.
-                if (open.get() && MediaForgeEmbedNavigationPolicy.allows(approved, error.url)) {
+                if (open.get() && error.url?.let { MediaForgeEmbedNavigationPolicy.allows(approved, it) } == true) {
                     onPageLoadFailed?.invoke("Cannot securely load this server. Choose another server.")
                 }
             }
