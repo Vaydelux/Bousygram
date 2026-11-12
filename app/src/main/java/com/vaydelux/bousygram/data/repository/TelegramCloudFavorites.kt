@@ -38,7 +38,8 @@ object TelegramCloudFavorites {
 
     private data class PendingSave(
         val owner: AccountSnapshot,
-        val media: MediaItem,
+        val sourceChatId: Long,
+        val sourceMessageId: Long,
         val key: String,
         val completion: (Result<Receipt>) -> Unit
     )
@@ -69,9 +70,9 @@ object TelegramCloudFavorites {
             for (save in saves) {
                 try {
                     if (!AccountSession.isCurrent(save.owner)) continue
-                    val receipt = saveNow(save.owner, save.media)
+                    val receipt = saveNow(save.owner, save.sourceChatId, save.sourceMessageId)
                     if (AccountSession.isCurrent(save.owner)) {
-                        _recentKeys.value = _recentKeys.value + mediaKey(save.media)
+                        _recentKeys.value = _recentKeys.value + "${save.sourceChatId}:${save.sourceMessageId}"
                         complete(save, Result.success(receipt))
                     }
                 } catch (cancelled: CancellationException) {
@@ -97,9 +98,15 @@ object TelegramCloudFavorites {
             return false
         }
         val key = "${owner.generation}:${owner.accountId}:${media.chatId}:${media.messageId}"
+        if (mediaKey(media) in _recentKeys.value) {
+            scope.launch(Dispatchers.Main.immediate) {
+                onComplete(Result.failure(IllegalStateException("Already added. Open Favorites to view the saved video.")))
+            }
+            return false
+        }
         if (!inFlight.add(key)) return false
         _savingKeys.value = inFlight.map { it.substringAfter(':').substringAfter(':') }.toSet()
-        if (!saves.trySend(PendingSave(owner, media, key, onComplete)).isSuccess) {
+        if (!saves.trySend(PendingSave(owner, media.chatId, media.messageId, key, onComplete)).isSuccess) {
             inFlight.remove(key)
             _savingKeys.value = inFlight.map { it.substringAfter(':').substringAfter(':') }.toSet()
             scope.launch(Dispatchers.Main.immediate) {
@@ -166,13 +173,19 @@ object TelegramCloudFavorites {
             query = CHANNEL_TITLE
             limit = 100
         })
+        for (id in (localResult as? TdApi.Chats)?.chatIds?.toList().orEmpty()) {
+            if (isOwnedFavoritesChannel(owner, id)) {
+                cachedChannel = owner to id
+                return@withLock id
+            }
+        }
+        // Local TDLib search can locate an existing Favorites channel even while
+        // offline. Only perform the server search when local discovery missed.
         val serverResult = request(owner, TdApi.SearchChatsOnServer().apply {
             query = CHANNEL_TITLE
             limit = 100
         })
-        val candidates = ((localResult as? TdApi.Chats)?.chatIds?.toList().orEmpty() +
-            (serverResult as? TdApi.Chats)?.chatIds?.toList().orEmpty()).distinct()
-        for (id in candidates) {
+        for (id in (serverResult as? TdApi.Chats)?.chatIds?.toList().orEmpty()) {
             if (isOwnedFavoritesChannel(owner, id)) {
                 cachedChannel = owner to id
                 return@withLock id
@@ -212,11 +225,11 @@ object TelegramCloudFavorites {
         return details.description == CHANNEL_MARKER
     }
 
-    private suspend fun saveNow(owner: AccountSnapshot, media: MediaItem): Receipt {
+    private suspend fun saveNow(owner: AccountSnapshot, sourceChatId: Long, sourceMessageId: Long): Receipt {
         val channelId = ensureChannel(owner)
-        check(channelId != media.chatId) { "This message is already in your Favorites channel." }
+        check(channelId != sourceChatId) { "This message is already in your Favorites channel." }
         val props = expect<TdApi.MessageProperties>(
-            owner, TdApi.GetMessageProperties(media.chatId, media.messageId)
+            owner, TdApi.GetMessageProperties(sourceChatId, sourceMessageId)
         )
         check(props.canBeForwarded || props.canBeCopied) {
             "Telegram protects this message from forwarding or copying."
@@ -235,8 +248,8 @@ object TelegramCloudFavorites {
         try {
             val forwarded = expect<TdApi.Messages>(owner, TdApi.ForwardMessages().apply {
                 chatId = channelId
-                fromChatId = media.chatId
-                messageIds = longArrayOf(media.messageId)
+                fromChatId = sourceChatId
+                messageIds = longArrayOf(sourceMessageId)
                 // Prefer an ordinary forward for provenance; fall back to a copy
                 // only if Telegram explicitly allows copying but not forwarding.
                 sendCopy = !props.canBeForwarded
@@ -257,7 +270,7 @@ object TelegramCloudFavorites {
                 }
                 result
             }
-            return Receipt(media.chatId, media.messageId, confirmed.id, channelId)
+            return Receipt(sourceChatId, sourceMessageId, confirmed.id, channelId)
         } finally {
             TdLibClient.removeUpdateHandler(listener)
             events.close()
