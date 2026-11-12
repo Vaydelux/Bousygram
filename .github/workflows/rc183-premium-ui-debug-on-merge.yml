@@ -1,0 +1,41 @@
+name: Request Verified Premium UI Debug APKs
+
+# One-time event: only PR #183 adds this workflow path to main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rc183-premium-ui-debug-on-merge.yml'
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+jobs:
+  dispatch-verified-debug:
+    name: Dispatch qualified debug build after UI merge
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm this exact main SHA merged PR 183
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          current="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; do not release stale UI sources"
+            exit 1
+          }
+          merged="$(gh api "repos/$repo/pulls/183" --jq '.merged')"
+          merged_sha="$(gh api "repos/$repo/pulls/183" --jq '.merge_commit_sha')"
+          [[ "$merged" == true && "$merged_sha" == "$GITHUB_SHA" ]] || {
+            echo "::error::PR 183 has not merged at this main SHA"
+            exit 1
+          }
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
+          echo "Requested verified ARM32, ARM64 and universal debug APKs for $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
