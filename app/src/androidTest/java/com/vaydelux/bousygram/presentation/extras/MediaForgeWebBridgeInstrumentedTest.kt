@@ -51,6 +51,32 @@ class MediaForgeWebBridgeInstrumentedTest {
         }
     }
 
+    @Test fun explicitCompatibilityModeCanRenderCrossSiteEmbedsWithoutDisablingSandbox() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val bridge = MediaForgeWebBridge(onMediaResource = {})
+            val view = bridge.create(
+                instrumentation.targetContext, offlineEmbed, compatibilityMode = true
+            )
+            try {
+                assertFalse(view.settings.mediaPlaybackRequiresUserGesture)
+                assertTrue(CookieManager.getInstance().acceptThirdPartyCookies(view))
+                assertFalse(view.settings.allowFileAccess)
+                assertFalse(view.settings.allowContentAccess)
+                assertFalse(view.settings.javaScriptCanOpenWindowsAutomatically)
+                assertEquals(WebSettings.MIXED_CONTENT_NEVER_ALLOW, view.settings.mixedContentMode)
+                assertTrue(MediaForgeWebRequestPolicy.blockNetworkSubresource(
+                    "https://127.0.0.1/private"
+                ))
+            } finally {
+                bridge.close()
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            }
+        }
+    }
+
     @Test fun simulatedRendererLossDiscardsWebViewAndSignalsManualRecovery() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {

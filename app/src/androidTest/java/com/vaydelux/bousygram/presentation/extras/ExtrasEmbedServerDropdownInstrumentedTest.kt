@@ -142,6 +142,26 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         }
     }
 
+    @Test fun narrowPhoneFullscreenRecoveryActionsRemainInsideViewport() {
+        compose.setContent {
+            BousygramTheme {
+                Box(Modifier.width(280.dp)) {
+                    ExtrasFullscreenRecoveryControls(
+                        isAnime = true,
+                        onExitFullscreen = {},
+                        onChooseAnimeServer = {}
+                    )
+                }
+            }
+        }
+        val exit = compose.onNodeWithTag("extras-embed-exit-html-fullscreen")
+            .fetchSemanticsNode().boundsInRoot
+        val server = compose.onNodeWithTag("extras-anime-fullscreen-servers")
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("Recovery actions should stack instead of colliding", exit.bottom <= server.top + 1f)
+        assertTrue("Server action must fit the 280dp viewport", server.right <= exit.right + 1f)
+    }
+
     @Test fun narrowPhoneStillShowsSourceSelector() {
         compose.setContent {
             BousygramTheme {

@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
@@ -39,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +73,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -176,6 +182,30 @@ internal data class ExtrasEmbedRequest(
 }
 
 /**
+ * Cap toolbar and diagnostics on short devices, reserving at least 41% of the
+ * parent height for the actual WebView before the system safe-area is applied.
+ * Caps deliberately have no fixed 88dp / 64dp minimum that could starve a
+ * tiny multi-window viewport.
+ */
+internal data class ExtrasEmbedPanelLimits(
+    val compactHeight: Boolean,
+    val headerMax: androidx.compose.ui.unit.Dp,
+    val footerMax: androidx.compose.ui.unit.Dp
+)
+
+internal fun extrasEmbedPanelLimits(
+    height: androidx.compose.ui.unit.Dp,
+    fontScale: Float
+): ExtrasEmbedPanelLimits {
+    val safeHeight = height.coerceAtLeast(0.dp)
+    return ExtrasEmbedPanelLimits(
+        compactHeight = safeHeight / fontScale.coerceIn(1f, 2f) < 580.dp,
+        headerMax = safeHeight * 0.36f,
+        footerMax = safeHeight * 0.23f
+    )
+}
+
+/**
  * Opt-in, isolated WebView playback. Only visible resource URLs are collected.
  * The user decides whether to continue in WebView or launch native playback.
  */
@@ -259,6 +289,9 @@ private fun ExtrasMediaForgePlayerScreen(
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
+    // A provider may need third-party cookies or scripted autoplay to render its
+    // nested player. Neither is granted until the user explicitly opts in.
+    var webCompatibilityMode by remember(request.url) { mutableStateOf(false) }
     var htmlFullscreenView by remember(request.url) { mutableStateOf<View?>(null) }
     // The previous bridge is permanently closed when native playback disposes WebView.
     // A new generation must create a new bridge when the user returns to WebView.
@@ -334,6 +367,24 @@ private fun ExtrasMediaForgePlayerScreen(
                 webLoadFailed = true
             }
         )
+    }
+
+    fun tryCompatibilityMode() {
+        if (webCompatibilityMode) return
+        webCompatibilityMode = true
+        inspectionGeneration += 1
+        inspectionJob?.cancel()
+        inspectionJob = null
+        busy = false
+        approved = null
+        selectedCaption = null
+        showSubtitlePicker = false
+        session.clear()
+        snapshot = session.snapshot()
+        status = "Compatibility mode enabled: third-party cookies and autoplay are allowed for this web player."
+        webLoadFailed = false
+        // New bridge + new WebView apply browser settings before loading the URL.
+        webGeneration += 1
     }
 
     fun returnToWebView() {
@@ -448,11 +499,24 @@ private fun ExtrasMediaForgePlayerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    // A short landscape phone or 720p TV can otherwise allocate the entire
+    // viewport to the browser toolbar/footer and measure WebView at 0px.
+    val panelLimits = extrasEmbedPanelLimits(maxHeight, LocalDensity.current.fontScale)
+    val shortWindow = panelLimits.compactHeight
+    val headerCap = panelLimits.headerMax
+    val footerCap = panelLimits.footerMax
+    Column(
+        Modifier.fillMaxSize()
+            .then(if (!immersiveWeb) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         if (!immersiveWeb) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                modifier = Modifier.fillMaxWidth()
+                    .then(if (shortWindow) Modifier.heightIn(max = headerCap)
+                        .verticalScroll(rememberScrollState()) else Modifier)
+                    .padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
@@ -545,6 +609,37 @@ private fun ExtrasMediaForgePlayerScreen(
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 2
                 )
+                if (request.anilistId > 0) {
+                    TextButton(
+                        onClick = {
+                            if (webCompatibilityMode) {
+                                // Restoring strict mode always creates a fresh WebView.
+                                webCompatibilityMode = false
+                                inspectionGeneration += 1
+                                inspectionJob?.cancel()
+                                inspectionJob = null
+                                busy = false
+                                approved = null
+                                selectedCaption = null
+                                showSubtitlePicker = false
+                                session.clear()
+                                snapshot = session.snapshot()
+                                status = "Strict WebView mode restored."
+                                webLoadFailed = false
+                                webGeneration += 1
+                            } else {
+                                tryCompatibilityMode()
+                            }
+                        },
+                        modifier = Modifier.testTag("extras-anime-web-compatibility")
+                    ) {
+                        Text(
+                            if (webCompatibilityMode) "Use strict web mode"
+                            else "Black screen? Try compatibility (cookies + autoplay)",
+                            maxLines = 2
+                        )
+                    }
+                }
                 if (request.tmdbId > 0 && request.season == null &&
                     selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
                 ) {
@@ -613,7 +708,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 AndroidView(
                     factory = { ctx ->
                         try {
-                            bridge.create(ctx, request.url).also { webView = it }
+                            bridge.create(ctx, request.url, compatibilityMode = webCompatibilityMode).also { webView = it }
                         } catch (_: RuntimeException) {
                             status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
                             android.widget.TextView(ctx).apply {
@@ -649,6 +744,12 @@ private fun ExtrasMediaForgePlayerScreen(
                             onClick = onChooseAnimeServer,
                             modifier = Modifier.testTag("extras-anime-recover-server")
                         ) { Text("Choose another server") }
+                        if (!webCompatibilityMode) {
+                            OutlinedButton(
+                                onClick = { tryCompatibilityMode() },
+                                modifier = Modifier.testTag("extras-anime-error-compatibility")
+                            ) { Text("Try compatibility (cookies + autoplay)", maxLines = 2) }
+                        }
                     }
                     OutlinedButton(onClick = {
                         webLoadFailed = false
@@ -656,35 +757,6 @@ private fun ExtrasMediaForgePlayerScreen(
                         // A dead Chromium renderer has no reusable WebView or bridge.
                         if (webView != null) webView?.reload() else webGeneration += 1
                     }, modifier = Modifier.testTag("extras-embed-retry-load")) { Text("Retry page") }
-                }
-            }
-            if (shouldOfferAnimeBlankPageHelp(
-                    isAnime = request.anilistId > 0,
-                    loadFailed = webLoadFailed,
-                    immersive = immersiveWeb,
-                    detectedVideo = snapshot.streams.isNotEmpty(),
-                    longLoad = slowEmbedHelp
-                )
-            ) {
-                Surface(
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Row(
-                        Modifier.padding(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Still a black screen? Switch anime server.",
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodyMedium)
-                        OutlinedButton(
-                            onClick = onChooseAnimeServer,
-                            modifier = Modifier.testTag("extras-anime-blank-recovery")
-                        ) { Text("Choose server") }
-                    }
                 }
             }
             if (cursorEnabled && isAndroidTv) {
@@ -707,7 +779,10 @@ private fun ExtrasMediaForgePlayerScreen(
 
         if (!immersiveWeb) {
         Column(
-            Modifier.fillMaxWidth().padding(12.dp),
+            Modifier.fillMaxWidth()
+                .then(if (shortWindow) Modifier.heightIn(max = footerCap)
+                    .verticalScroll(rememberScrollState()) else Modifier)
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
@@ -715,6 +790,49 @@ private fun ExtrasMediaForgePlayerScreen(
                 style = MaterialTheme.typography.labelMedium
             )
             Text(status, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+            // Delayed recovery must not cover an iframe that has actually
+            // rendered video (DRM/MSE pages may not expose stream URLs).
+            // Put it in the scrollable Extras footer, never above WebView.
+            if (shouldOfferAnimeBlankPageHelp(
+                    isAnime = request.anilistId > 0,
+                    loadFailed = webLoadFailed,
+                    immersive = immersiveWeb,
+                    detectedVideo = snapshot.streams.isNotEmpty(),
+                    longLoad = slowEmbedHelp
+                )
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Black screen? This web source may require cross-site cookies or autoplay.",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!webCompatibilityMode) {
+                                OutlinedButton(
+                                    onClick = { tryCompatibilityMode() },
+                                    modifier = Modifier.weight(1f)
+                                        .testTag("extras-anime-try-compatibility")
+                                ) { Text("Try compatibility", maxLines = 2) }
+                            }
+                            OutlinedButton(
+                                onClick = onChooseAnimeServer,
+                                modifier = Modifier.weight(1f)
+                                    .testTag("extras-anime-blank-recovery")
+                            ) { Text("Choose server", maxLines = 2) }
+                        }
+                    }
+                }
+            }
             if (snapshot.streams.isEmpty()) {
                 Text(
                     "No accessible stream discovered yet. You can continue watching in WebView.",
@@ -791,7 +909,10 @@ private fun ExtrasMediaForgePlayerScreen(
                     guardedVlcEnabled = com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED,
                     progressiveSupported = MediaForgeGuardedProgressiveSource.supported(media.stream)
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     ExtrasNativeEngine.entries.forEach { engine ->
                         val available = engine != ExtrasNativeEngine.LIBVLC || vlcAvailable
                         FilterChip(
@@ -1451,29 +1572,56 @@ private fun ExtrasMediaForgeNativePlayer(
             controls.release()
         }
     }
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(
-            Modifier.fillMaxWidth().padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(onClick = onBack) { Text("Back to WebView") }
-            Text(title, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f))
-            if (com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
-                MediaForgeGuardedProgressiveSource.supported(media.stream)
-            ) {
-                OutlinedButton(
-                    modifier = Modifier.testTag("extras-media3-use-libvlc"),
-                    onClick = {
-                        onUseLibVlc(extrasMedia3Handoff(
-                            positionMs = player.currentPosition,
-                            seekable = player.isCurrentMediaItemSeekable,
-                            playWhenReady = player.playWhenReady,
-                            failed = playbackError != null,
-                            ended = player.playbackState == Player.STATE_ENDED
-                        ))
+    Column(Modifier.fillMaxSize().background(Color.Black)
+        .windowInsetsPadding(WindowInsets.safeDrawing)) {
+        val canUseVlc = com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
+            MediaForgeGuardedProgressiveSource.supported(media.stream)
+        val switchVlc = {
+            onUseLibVlc(extrasMedia3Handoff(
+                positionMs = player.currentPosition,
+                seekable = player.isCurrentMediaItemSeekable,
+                playWhenReady = player.playWhenReady,
+                failed = playbackError != null,
+                ended = player.playbackState == Player.STATE_ENDED
+            ))
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(8.dp)) {
+            if (maxWidth < 500.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(title, color = Color.White, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onBack,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Back to WebView", maxLines = 2) }
+                        if (canUseVlc) {
+                            OutlinedButton(
+                                onClick = switchVlc,
+                                modifier = Modifier.weight(1f)
+                                    .testTag("extras-media3-use-libvlc")
+                            ) { Text("Use LibVLC", maxLines = 2) }
+                        }
                     }
-                ) { Text("Use LibVLC") }
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(onClick = onBack) { Text("Back to WebView") }
+                    Text(title, color = Color.White, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (canUseVlc) {
+                        OutlinedButton(
+                            onClick = switchVlc,
+                            modifier = Modifier.testTag("extras-media3-use-libvlc")
+                        ) { Text("Use LibVLC") }
+                    }
+                }
             }
         }
         playbackError?.let { error ->

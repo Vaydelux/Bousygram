@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -386,7 +387,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         },
                         modifier = Modifier.heightIn(min = if (metrics.isTv) 52.dp else 44.dp)
                     ) { Text("‹ Back", maxLines = 1) }
-                    BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp)
+                    // On a 320dp phone, the logo plus two actions squeezed the
+                    // title to almost zero width. Keep the actions reachable.
+                    if (metrics.effectiveWidthDp >= 380.dp) {
+                        BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp)
+                    }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text(
                             if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
@@ -447,6 +452,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     },
                     modifier = Modifier.padding(padding),
                     compact = metrics.isCompact,
+                    shortViewport = metrics.isShortWindow || metrics.effectiveHeightDp < 600.dp,
                     isAndroidTv = isAndroidTv)
             }
         } else if (type != ExtrasType.ANIME && !ExtrasCatalogApi.hasTmdbCredentials) {
@@ -1009,6 +1015,7 @@ private fun ExtrasDetailContent(
     onOpenItem: (ExtrasItem) -> Unit,
     modifier: Modifier,
     compact: Boolean,
+    shortViewport: Boolean,
     isAndroidTv: Boolean
 ) {
     val context = LocalContext.current
@@ -1017,21 +1024,35 @@ private fun ExtrasDetailContent(
             horizontal = if (compact) 14.dp else 28.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            if (compact) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ExtrasPosterArtwork(
-                        url = info.item.poster, contentDescription = info.item.title,
-                        modifier = Modifier.width(155.dp).height(225.dp), detail = true
-                    )
-                    DetailText(info)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                // React to the measured detail pane, not just phone-vs-TV.
+                val stacked = compact || maxWidth < 520.dp
+                val posterWidth = when {
+                    shortViewport -> 116.dp
+                    stacked -> 155.dp
+                    else -> 185.dp
                 }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                    ExtrasPosterArtwork(
-                        url = info.item.poster, contentDescription = info.item.title,
-                        modifier = Modifier.width(185.dp).height(270.dp), detail = true
-                    )
-                    Column(Modifier.weight(1f)) { DetailText(info) }
+                val posterHeight = when {
+                    shortViewport -> 168.dp
+                    stacked -> 225.dp
+                    else -> 270.dp
+                }
+                if (stacked) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ExtrasPosterArtwork(
+                            url = info.item.poster, contentDescription = info.item.title,
+                            modifier = Modifier.width(posterWidth).height(posterHeight), detail = true
+                        )
+                        DetailText(info)
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                        ExtrasPosterArtwork(
+                            url = info.item.poster, contentDescription = info.item.title,
+                            modifier = Modifier.width(posterWidth).height(posterHeight), detail = true
+                        )
+                        Column(Modifier.weight(1f)) { DetailText(info) }
+                    }
                 }
             }
         }
@@ -1212,22 +1233,39 @@ private fun ExtrasDetailContent(
                 }
             }
             items(episodes, key = { it.number }) { episode ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(model = episode.still, contentDescription = null,
-                        modifier = Modifier.size(width = 110.dp, height = 70.dp),
-                        contentScale = ContentScale.Crop)
-                    Column(Modifier.weight(1f)) {
-                        Text("${episode.number}. ${episode.title}", fontWeight = FontWeight.SemiBold)
-                        Text(episode.overview, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (selectedSeason != null && episode.number > 0) {
-                        OutlinedButton(
-                            onClick = { onPlayEpisode(episode.number) },
-                            modifier = Modifier.testTag("extras-play-episode")
-                        ) { Text("Play") }
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                    val narrow = maxWidth < 480.dp
+                    val canPlay = selectedSeason != null && episode.number > 0
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            AsyncImage(model = episode.still, contentDescription = null,
+                                modifier = Modifier.size(
+                                    width = if (narrow) 90.dp else 110.dp, height = 70.dp
+                                ),
+                                contentScale = ContentScale.Crop)
+                            Column(Modifier.weight(1f)) {
+                                Text("${episode.number}. ${episode.title}",
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(episode.overview, maxLines = if (narrow) 2 else 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (canPlay && !narrow) {
+                                OutlinedButton(
+                                    onClick = { onPlayEpisode(episode.number) },
+                                    modifier = Modifier.testTag("extras-play-episode")
+                                ) { Text("Play") }
+                            }
+                        }
+                        if (canPlay && narrow) {
+                            OutlinedButton(
+                                onClick = { onPlayEpisode(episode.number) },
+                                modifier = Modifier.fillMaxWidth().testTag("extras-play-episode")
+                            ) { Text("Play episode ${episode.number}") }
+                        }
                     }
                 }
             }
