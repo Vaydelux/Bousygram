@@ -51,6 +51,7 @@ import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
 import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
 import com.vaydelux.bousygram.presentation.media.vm.CloudFavoritesViewModel
+import com.vaydelux.bousygram.data.repository.TelegramCloudFavorites
 import kotlinx.coroutines.launch
 
 @Composable
@@ -62,8 +63,18 @@ fun FavoritesScreen(
     viewModel: CloudFavoritesViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    // Refresh cloud messages each time this screen opens, even if the VM is retained.
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    val legacyImport by TelegramCloudFavorites.legacyImport.collectAsStateWithLifecycle()
+    // Refresh cloud history on every screen entry and offer a safe one-way import
+    // of previously saved local bookmarks (without creating a new favorites database).
+    LaunchedEffect(Unit) {
+        viewModel.refresh()
+        TelegramCloudFavorites.startLegacyImport()
+    }
+    LaunchedEffect(legacyImport.completedPasses) {
+        if (legacyImport.completedPasses > 0 &&
+            legacyImport.imported + legacyImport.previouslySaved > 0
+        ) viewModel.refresh()
+    }
     var selectedMedia by remember { mutableStateOf<MediaItem?>(null) }
     var pendingDelete by remember { mutableStateOf<MediaItem?>(null) }
     var deleting by remember { mutableStateOf(false) }
@@ -151,6 +162,22 @@ fun FavoritesScreen(
                             enabled = !state.isLoading && !state.isRefreshing && !launcher.isPending
                         )
                     }
+                }
+            }
+
+            if (legacyImport.running) {
+                Text(
+                    "Restoring older favorites to Telegram… ${legacyImport.imported + legacyImport.previouslySaved} confirmed",
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (legacyImport.failed > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "${legacyImport.failed} older favorites could not be imported. Original bookmarks are preserved.",
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    BousygramButton("Retry import", onClick = { TelegramCloudFavorites.startLegacyImport(retry = true) })
                 }
             }
 
