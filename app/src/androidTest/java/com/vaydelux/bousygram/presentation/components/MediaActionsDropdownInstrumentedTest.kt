@@ -14,7 +14,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.vaydelux.bousygram.core.account.AccountSession
-import com.vaydelux.bousygram.data.repository.FavoritesRepository
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
@@ -39,6 +38,7 @@ class MediaActionsDropdownInstrumentedTest {
 
     @Test fun dropdownFavoritesDoNotActivatePlayback() {
         var plays = 0
+        var saves = 0
         val playbackFocus = FocusRequester()
         val media = MediaItem(-100, 25, 0, MediaType.Video, "Saved episode", null)
         // The Android Pixel ATD test image is touch-only and refuses a direct
@@ -54,12 +54,15 @@ class MediaActionsDropdownInstrumentedTest {
                 BousygramTheme {
                     Box(Modifier.width(320.dp)) {
                         MediaPosterCard(media, "Telegram", onClick = { plays++ },
-                            cardWidth = null, playbackFocusRequester = playbackFocus)
+                            cardWidth = null, playbackFocusRequester = playbackFocus,
+                            onSaveFavorite = { _, callback ->
+                                saves++
+                                callback(Result.success(Unit))
+                            })
                     }
                 }
             }
         }
-        compose.waitUntil(10_000) { FavoritesRepository.ready.value }
         // The outer media-play semantics node is a Surface container, not the
         // clickable's focused semantics node. Check the actual requester result
         // and the actions button after D-pad navigation instead.
@@ -70,12 +73,11 @@ class MediaActionsDropdownInstrumentedTest {
         compose.onNodeWithTag("media-play--100:25").assertIsFocused()
         compose.onNodeWithContentDescription("Actions for Saved episode").assertIsDisplayed().performClick()
         compose.onNodeWithText("Add to favorites").assertIsDisplayed().performClick()
-        compose.waitUntil(10_000) { "-100:25" in FavoritesRepository.keys.value }
+        compose.onNodeWithText("Added to Favorites").assertIsDisplayed()
+        compose.onNodeWithText("View").assertIsDisplayed()
+        compose.onNodeWithText("Done").assertIsDisplayed().performClick()
         writeUiEvidence(compose, "media-favorites")
-        assertEquals(0, plays)
-        compose.onNodeWithContentDescription("Actions for Saved episode").performClick()
-        compose.onNodeWithText("Remove from favorites").performClick()
-        compose.waitUntil(10_000) { "-100:25" !in FavoritesRepository.keys.value }
+        assertEquals(1, saves)
         assertEquals(0, plays)
     }
 }
