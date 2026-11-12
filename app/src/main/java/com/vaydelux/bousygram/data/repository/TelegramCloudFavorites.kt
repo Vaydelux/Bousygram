@@ -170,8 +170,8 @@ object TelegramCloudFavorites {
             query = CHANNEL_TITLE
             limit = 100
         })
-        val candidates = ((localResult as? TdApi.Chats)?.chatIds.orEmpty().toList() +
-            (serverResult as? TdApi.Chats)?.chatIds.orEmpty().toList()).distinct()
+        val candidates = ((localResult as? TdApi.Chats)?.chatIds?.toList().orEmpty() +
+            (serverResult as? TdApi.Chats)?.chatIds?.toList().orEmpty()).distinct()
         for (id in candidates) {
             if (isOwnedFavoritesChannel(owner, id)) {
                 cachedChannel = owner to id
