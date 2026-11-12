@@ -30,6 +30,7 @@ object FavoritesRepository {
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val errors = _errors.asSharedFlow()
     @Volatile private var publishedOwner: AccountSnapshot? = null
+    @Volatile private var keysCollectionJob: Job? = null
 
     fun init(appContext: Context) {
         if (::application.isInitialized) return
@@ -54,12 +55,21 @@ object FavoritesRepository {
             }
         }
         AccountSession.registerInvalidationHandler {
+            // AppDatabase closes account Room handles synchronously later in logout.
+            // Drain the live Room collector first so its queued query cannot use a
+            // SQLite connection after the pool is closed (seen on emulator).
+            val observer = keysCollectionJob
+            observer?.cancel()
+            runBlocking { withTimeout(5_000) { observer?.join() } }
             publishedOwner = null
             _keys.value = emptySet()
             _ready.value = false
         }
         scope.launch {
             AccountSession.state.collectLatest { owner ->
+                val collectionJob = currentCoroutineContext()[Job]
+                keysCollectionJob = collectionJob
+                try {
                 publishedOwner = null
                 _keys.value = emptySet()
                 _ready.value = false
@@ -73,6 +83,12 @@ object FavoritesRepository {
                             delay(minOf(30_000L, 1_000L * (attempt + 1)))
                             true
                         }
+                    }.catch { error ->
+                        // Logout can invalidate the snapshot while Room is unwinding
+                        // a queued query. Do not let an obsolete observer crash the app.
+                        if (error is CancellationException) throw error
+                        if (AccountSession.isCurrent(owner))
+                            report(error as? Exception ?: Exception(error))
                     }.collect { values ->
                         AccountSession.runIfCurrent(owner) {
                             publishedOwner = owner
@@ -80,6 +96,9 @@ object FavoritesRepository {
                             _ready.value = true
                         }
                     }
+                }
+                } finally {
+                    if (keysCollectionJob === collectionJob) keysCollectionJob = null
                 }
             }
         }
