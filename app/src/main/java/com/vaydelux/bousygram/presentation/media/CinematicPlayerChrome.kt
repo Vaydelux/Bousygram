@@ -43,8 +43,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.ui.AspectRatioFrameLayout
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 
-private val red = Color(0xFFD72C42)
 internal fun cinematicFraction(position: Long, duration: Long) =
     if (duration <= 0L) 0f else (position.toDouble() / duration.toDouble()).toFloat().coerceIn(0f, 1f)
 
@@ -68,6 +68,7 @@ internal fun cinematicFraction(position: Long, duration: Long) =
     var selected by remember(mediaKey) { mutableLongStateOf(0L) }
     var isFocused by remember(mediaKey) { mutableStateOf(false) }
     val active = duration > 0L
+    val accent = MaterialTheme.colorScheme.primary
     // Never restart pointer handlers or cancel an active scrub when a media
     // extractor refines a *known* duration (common with MKV/TS containers).
     val latestDuration by rememberUpdatedState(duration)
@@ -151,8 +152,8 @@ internal fun cinematicFraction(position: Long, duration: Long) =
             drawLine(Color.White.copy(alpha = 0.36f), Offset(0f, y),
                 Offset(size.width * cinematicFraction(buffered, duration), y), size.height)
             val x = size.width * cinematicFraction(shown, duration)
-            drawLine(red, Offset(0f, y), Offset(x, y), size.height)
-            if (dragging) drawCircle(red, 5.dp.toPx(), Offset(x, y))
+            drawLine(accent, Offset(0f, y), Offset(x, y), size.height)
+            if (dragging) drawCircle(accent, 5.dp.toPx(), Offset(x, y))
         }
     }
 }
@@ -201,6 +202,7 @@ internal fun cinematicFraction(position: Long, duration: Long) =
     retryFocus: FocusRequester?, modifier: Modifier = Modifier
 ) {
     val duration = state.durationMs.takeIf { state.durationTrusted && it > 0L } ?: 0L
+    val motion = rememberBousygramMotionPolicy()
     // In landscape, a fixed 320dp menu can cover the title and video.
     // Bound the dropdown to the device's available height; rows scroll.
     val windowHeight = with(LocalDensity.current) {
@@ -212,8 +214,8 @@ internal fun cinematicFraction(position: Long, duration: Long) =
         // layer on every HUD open/close. The video center stays untouched.
         AnimatedVisibility(
             visible = controlsVisible,
-            enter = fadeIn(tween(160)),
-            exit = fadeOut(tween(150)),
+            enter = fadeIn(tween(motion.duration(160))),
+            exit = fadeOut(tween(motion.duration(150))),
             modifier = Modifier.align(Alignment.TopStart).fillMaxWidth()
         ) {
             Box(Modifier.fillMaxWidth()) {
@@ -239,7 +241,8 @@ internal fun cinematicFraction(position: Long, duration: Long) =
                         )
                         Text(
                             state.trackLabel, color = Color.White.copy(alpha = 0.72f),
-                            style = MaterialTheme.typography.labelSmall
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
                         )
                     }
                     if (duration > 0L) EdgeButton("↺", "Start over", onStartOver)
@@ -248,8 +251,8 @@ internal fun cinematicFraction(position: Long, duration: Long) =
         }
         AnimatedVisibility(
             visible = controlsVisible,
-            enter = fadeIn(tween(160)),
-            exit = fadeOut(tween(150)),
+            enter = fadeIn(tween(motion.duration(160))),
+            exit = fadeOut(tween(motion.duration(150))),
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
         ) {
             Box(Modifier.fillMaxWidth()) {
@@ -306,15 +309,16 @@ internal fun cinematicFraction(position: Long, duration: Long) =
         }
         AnimatedVisibility(
             visible = controlsVisible && optionsVisible,
-            enter = fadeIn(tween(160)) + slideInVertically(
-                animationSpec = tween(170), initialOffsetY = { it / 8 }
+            enter = fadeIn(tween(motion.duration(160))) + slideInVertically(
+                animationSpec = tween(motion.duration(170)), initialOffsetY = { it / 8 }
             ),
-            exit = fadeOut(tween(130)) + slideOutVertically(
-                animationSpec = tween(140), targetOffsetY = { it / 8 }
+            exit = fadeOut(tween(motion.duration(130))) + slideOutVertically(
+                animationSpec = tween(motion.duration(140)), targetOffsetY = { it / 8 }
             ),
             modifier = Modifier.align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(end = if (isTv) 24.dp else 12.dp, bottom = 76.dp)
+                .padding(end = if (isTv) 24.dp else 12.dp,
+                    bottom = if (windowHeight < 400.dp) 48.dp else 76.dp)
         ) {
             val aspect = when (state.resizeMode) {
                 AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
@@ -342,7 +346,8 @@ internal fun cinematicFraction(position: Long, duration: Long) =
             )
         }
         if (state.error != null) {
-            Column(Modifier.align(Alignment.Center).widthIn(max = 400.dp)
+            Column(Modifier.align(Alignment.Center).padding(horizontal = 12.dp)
+                .widthIn(max = 400.dp)
                 .background(Color.Black.copy(alpha = 0.86f), RoundedCornerShape(12.dp))
                 .padding(16.dp).testTag("cinematic_error"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(state.error, color = Color.White)
