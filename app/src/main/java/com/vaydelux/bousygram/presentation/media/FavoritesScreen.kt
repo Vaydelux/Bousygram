@@ -128,7 +128,7 @@ fun FavoritesScreen(
                     title = "Favorites",
                     subtitle = if (state.isLoading) "Loading your saved videos…"
                         else if (state.items.isEmpty()) "No saved videos"
-                        else "${state.loadedStart + 1}-${state.loadedStart + state.items.size} of ${state.totalCount} saved videos${if (state.isRefreshing) " - Refreshing" else ""}",
+                        else "${state.loadedStart + 1}-${state.loadedStart + state.items.size} loaded from Telegram${if (state.hasMore) " · More available" else ""}",
                     compact = adaptive.isCompact || adaptive.isShortWindow
                 )
                 Row(
@@ -137,6 +137,10 @@ fun FavoritesScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     BousygramButton("← Back", onClick = { if (!launcher.cancel()) onBack() }, modifier = Modifier.focusRequester(emptyFocus))
+                    if (state.hasPrevious) BousygramButton(
+                        "Previous favorites", viewModel::loadPrevious,
+                        enabled = !state.isLoading && !state.isRefreshing
+                    )
                     BousygramButton("Search", onOpenSearch)
                     BousygramButton("Refresh", viewModel::refresh, enabled = !state.isLoading && !state.isRefreshing)
                     if (state.items.isNotEmpty()) {
@@ -201,7 +205,7 @@ fun FavoritesScreen(
                         }
                         if (state.hasMore) {
                             item(key = "favorites-load-more", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                                BousygramButton("Load more favorites", onClick = viewModel::loadMore,
+                                BousygramButton("Next favorites", onClick = viewModel::loadMore,
                                     modifier = Modifier.fillMaxWidth())
                             }
                         }
@@ -222,7 +226,8 @@ fun FavoritesScreen(
             AlertDialog(
                 onDismissRequest = { selectedMedia = null },
                 title = { Text("Favorite video") },
-                text = { Text(item.title + "\nSaved in your private Telegram channel.") },
+                text = { Text((if (safeMode) "Private favorite" else item.title) +
+                    "\nSaved in your private Telegram channel.") },
                 confirmButton = {
                     TextButton(onClick = {
                         selectedMedia = null
