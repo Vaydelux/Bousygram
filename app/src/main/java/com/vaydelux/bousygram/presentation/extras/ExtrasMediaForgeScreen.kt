@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -905,7 +906,10 @@ private fun ExtrasMediaForgePlayerScreen(
                     guardedVlcEnabled = com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED,
                     progressiveSupported = MediaForgeGuardedProgressiveSource.supported(media.stream)
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     ExtrasNativeEngine.entries.forEach { engine ->
                         val available = engine != ExtrasNativeEngine.LIBVLC || vlcAvailable
                         FilterChip(
@@ -1583,13 +1587,20 @@ private fun ExtrasMediaForgeNativePlayer(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(title, color = Color.White, maxLines = 1,
                         overflow = TextOverflow.Ellipsis)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onBack) { Text("Back to WebView") }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onBack,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Back to WebView", maxLines = 2) }
                         if (canUseVlc) {
                             OutlinedButton(
                                 onClick = switchVlc,
-                                modifier = Modifier.testTag("extras-media3-use-libvlc")
-                            ) { Text("Use LibVLC") }
+                                modifier = Modifier.weight(1f)
+                                    .testTag("extras-media3-use-libvlc")
+                            ) { Text("Use LibVLC", maxLines = 2) }
                         }
                     }
                 }
