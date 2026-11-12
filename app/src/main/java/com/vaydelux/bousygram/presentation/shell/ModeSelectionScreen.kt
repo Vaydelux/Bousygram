@@ -186,6 +186,7 @@ private fun ModeOption(
 ) {
     var focused by remember { mutableStateOf(false) }
     val motion = rememberBousygramMotionPolicy()
+    val isShortWindow = rememberAdaptiveMetrics().isShortWindow
     val focusScale by animateFloatAsState(
         targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
         animationSpec = tween(
@@ -239,7 +240,7 @@ private fun ModeOption(
                 Text(
                     subtitle, style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant,
-                    maxLines = if (rememberAdaptiveMetrics().isShortWindow) 2 else 3,
+                    maxLines = if (isShortWindow) 2 else 3,
                     overflow = TextOverflow.Ellipsis
                 )
             }
