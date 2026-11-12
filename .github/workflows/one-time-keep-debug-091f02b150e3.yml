@@ -1,0 +1,75 @@
+name: One-time cleanup - keep verified Bousygram debug release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-keep-debug-091f02b150e3.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bousygram-one-time-debug-release-cleanup
+  cancel-in-progress: false
+
+jobs:
+  prune-debug-releases:
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP_TAG: v1.0.0-debug.manual.091f02b150e3
+      KEEP_ID: '443326714'
+    steps:
+      - name: Verify keeper, delete other debug releases, and verify again
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          keeper="$(gh api "repos/$repo/releases/tags/$KEEP_TAG")"
+          jq -e --arg tag "$KEEP_TAG" --argjson id "$KEEP_ID" '.id == $id and .tag_name == $tag and .immutable == true' <<<"$keeper" >/dev/null || {
+            echo '::error::Protected release mismatch. Nothing deleted.'
+            exit 1
+          }
+          echo "KEEP: $KEEP_TAG (release ID $KEEP_ID)"
+          candidates="$(gh api --paginate --jq '.[] | select(((.tag_name // "") | test("debug"; "i"))) | [.id, .tag_name] | @tsv' "repos/$repo/releases?per_page=100")"
+          attempted=0
+          failed=0
+          while IFS=$'\t' read -r id tag; do
+            [[ -n "$id" ]] || continue
+            [[ "$id" =~ ^[0-9]+$ ]] || { echo '::error::Invalid release ID'; exit 1; }
+            if [[ "$id" == "$KEEP_ID" || "$tag" == "$KEEP_TAG" ]]; then
+              [[ "$id" == "$KEEP_ID" && "$tag" == "$KEEP_TAG" ]] || {
+                echo '::error::Keeper release identity conflict.'
+                exit 1
+              }
+              continue
+            fi
+            echo "Deleting other debug release $tag ($id)"
+            attempted=$((attempted + 1))
+            if ! gh api --method DELETE "repos/$repo/releases/$id" >/dev/null; then
+              echo "::error::Unable to delete release $tag ($id)"
+              failed=$((failed + 1))
+            fi
+          done <<< "$candidates"
+          keeper_now="$(gh api "repos/$repo/releases/tags/$KEEP_TAG")"
+          jq -e --arg tag "$KEEP_TAG" --argjson id "$KEEP_ID" '.id == $id and .tag_name == $tag and .immutable == true' <<<"$keeper_now" >/dev/null || {
+            echo '::error::Keeper missing after cleanup'
+            exit 1
+          }
+          remaining="$(gh api --paginate --jq '.[] | select((((.tag_name // "") | test("debug"; "i")) and (.id != 443326714))) | [.id, .tag_name] | @tsv' "repos/$repo/releases?per_page=100")"
+          {
+            echo '## Debug release cleanup'
+            echo "Protected release: $KEEP_TAG (ID $KEEP_ID)"
+            echo "Delete attempts: $attempted"
+            echo "Failed API calls: $failed"
+            echo "Remaining debug releases besides keeper: $(printf '%s\n' "$remaining" | sed '/^$/d' | wc -l)"
+            echo 'Git tags and Actions artifacts were left unchanged.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$remaining" || "$failed" -ne 0 ]]; then
+            echo "::error::Cleanup incomplete: $failed API failures. Remaining: $remaining"
+            exit 1
+          fi
+          echo 'SUCCESS: Only the protected debug release remains.'
