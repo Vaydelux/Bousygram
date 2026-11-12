@@ -65,6 +65,7 @@ import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.shell.BousygramMode
 import com.vaydelux.bousygram.presentation.shell.BousygramModeSelection
 import com.vaydelux.bousygram.presentation.extras.ExtrasCatalogScreen
@@ -420,11 +421,15 @@ private fun AuthorizedContent(
     }
     var entered by remember(appScreen) { mutableStateOf(false) }
     LaunchedEffect(appScreen) { entered = true }
-    val animate = android.animation.ValueAnimator.areAnimatorsEnabled()
+    // Match all other navigation/focus motion. Android reduced-motion setting
+    // disables this fade; low-RAM devices receive a short, bounded transition.
+    val motion = rememberBousygramMotionPolicy()
+    val transitionMs = motion.duration(
+        com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.screenDurationMs
+    )
     val opacity by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (entered || !animate) 1f else 0f,
-        animationSpec = androidx.compose.animation.core.tween(
-            if (animate) com.vaydelux.bousygram.presentation.theme.BousygramUiTokens.screenDurationMs else 0),
+        targetValue = if (entered || transitionMs == 0) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(transitionMs),
         label = "screenArrival"
     )
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().graphicsLayer { alpha = opacity }) {
