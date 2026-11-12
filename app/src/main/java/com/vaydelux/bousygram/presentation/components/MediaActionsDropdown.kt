@@ -9,6 +9,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -49,6 +52,11 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
             shape = MaterialTheme.shapes.small,
             modifier = Modifier.size(minimum).focusRequester(trigger)
                 .focusProperties { playbackFocusRequester?.let { left = it } }
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft)
+                        playbackFocusRequester?.requestFocus() ?: false
+                    else false
+                }
                 .onFocusChanged { focused = it.isFocused; onActionFocus(it.isFocused) }
                 .border(if (focused) 3.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
                 .semantics {
