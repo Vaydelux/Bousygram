@@ -15,6 +15,12 @@ public interface FavoriteDao {
     Flow<List<FavoriteEntity>> observePage(int limit, int offset);
     @Query("SELECT * FROM favorites WHERE chatId = :chatId AND messageId = :messageId")
     FavoriteEntity find(long chatId, long messageId);
+    // Read existing bookmarks in bounded batches for a one-way migration to Telegram.
+    // Keyset pagination remains correct while confirmed rows are being removed.
+    @Query("SELECT * FROM favorites WHERE chatId > :afterChatId OR " +
+           "(chatId = :afterChatId AND messageId > :afterMessageId) " +
+           "ORDER BY chatId ASC, messageId ASC LIMIT :limit")
+    List<FavoriteEntity> migrationBatch(long afterChatId, long afterMessageId, int limit);
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     void insert(FavoriteEntity item);
     @Query("DELETE FROM favorites WHERE chatId = :chatId AND messageId = :messageId")
