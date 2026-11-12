@@ -850,6 +850,7 @@ fun TvFocusSurface(
     selected: Boolean = false,
     enabled: Boolean = true,
     width: Dp? = null,
+    focusRequester: FocusRequester? = null,
     content: @Composable (focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -895,6 +896,8 @@ fun TvFocusSurface(
             // Clickable owns the only focus target and the selected semantics.
             .semantics { this.selected = selected }
             .onFocusChanged { focused = it.isFocused }
+            // Attach directly before the clickable focus target, not the parent Surface.
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
@@ -1132,9 +1135,9 @@ fun MediaPosterCard(
     Box(modifier = modifier.then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)) {
     TvFocusSurface(
         onClick = onClick,
+        focusRequester = playbackFocus,
         modifier = Modifier.fillMaxWidth()
             .testTag("media-play-${media.chatId}:${media.messageId}")
-            .focusRequester(playbackFocus)
             .focusProperties { if (AccountSession.current() != null) right = actionsFocus }
             // The actions icon overlaps the poster bounds. Spatial D-pad search can
             // skip an overlapping focus target; explicitly hand off on Right.
