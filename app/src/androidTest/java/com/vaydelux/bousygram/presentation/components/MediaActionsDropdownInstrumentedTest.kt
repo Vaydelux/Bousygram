@@ -46,8 +46,10 @@ class MediaActionsDropdownInstrumentedTest {
             }
         }
         compose.waitUntil(10_000) { FavoritesRepository.ready.value }
+        // The outer media-play semantics node is a Surface container, not the
+        // clickable's focused semantics node. Check the actual requester result
+        // and the actions button after D-pad navigation instead.
         compose.runOnIdle { check(playbackFocus.requestFocus()) { "Poster did not accept focus" } }
-        compose.onNodeWithTag("media-play--100:25").assertIsFocused()
         compose.onNodeWithTag("media-play--100:25").performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithContentDescription("Actions for Saved episode").assertIsFocused()
         compose.onNodeWithContentDescription("Actions for Saved episode").performKeyInput { pressKey(Key.DirectionLeft) }
