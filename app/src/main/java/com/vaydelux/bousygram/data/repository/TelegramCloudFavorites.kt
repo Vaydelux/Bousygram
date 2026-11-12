@@ -63,8 +63,8 @@ object TelegramCloudFavorites {
     ) {
         fun register(message: TdApi.Message): Boolean {
             val keys = cloudFavoriteIdentityKeys(message)
-            if (keys.any { it !in destinationByKey } &&
-                destinationByKey.size + keys.count { it !in destinationByKey } > MAX_CACHED_IDENTITIES
+            if (keys.any { !destinationByKey.containsKey(it) } &&
+                destinationByKey.size + keys.count { !destinationByKey.containsKey(it) } > MAX_CACHED_IDENTITIES
             ) return false
             keys.forEach { destinationByKey[it] = message.id }
             return true
