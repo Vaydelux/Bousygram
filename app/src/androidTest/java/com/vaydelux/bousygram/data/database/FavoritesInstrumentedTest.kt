@@ -45,6 +45,33 @@ class FavoritesInstrumentedTest {
         } finally { db.close() }
     }
 
+    @Test fun rapidAccountInvalidationDrainsLiveFavoritesQueriesBeforeRoomCloses() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val account = 8_800_000_004L
+        val prefs = context.getSharedPreferences("account_${account}_enterprise", 0)
+        AccountSession.invalidate()
+        context.deleteDatabase("bousygram_account_$account.db")
+        prefs.edit().clear().commit()
+        try {
+            repeat(8) { index ->
+                checkNotNull(AccountSession.activate(account, AccountSession.generation()))
+                val media = MediaItem(-100L, index + 1L, 0, MediaType.Video, "Saved episode", 42)
+                FavoritesRepository.setFavorite(media, true).join()
+                withTimeout(10_000) {
+                    FavoritesRepository.keys.first { "-100:${index + 1}" in it }
+                }
+                // Every logout closes Room synchronously. A lingering Flow query
+                // must never run against the closed connection pool afterward.
+                AccountSession.invalidate()
+                assertTrue(FavoritesRepository.keys.value.isEmpty())
+            }
+        } finally {
+            AccountSession.invalidate()
+            context.deleteDatabase("bousygram_account_$account.db")
+            prefs.edit().clear().commit()
+        }
+    }
+
     @Test fun legacyMigrationIsOneShotAndFavoritesAreIsolatedAcrossAccounts() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val first = 8_800_000_001L
