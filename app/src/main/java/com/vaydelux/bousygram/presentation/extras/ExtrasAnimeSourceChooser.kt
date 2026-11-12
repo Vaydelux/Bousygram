@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -111,21 +112,37 @@ internal fun ExtrasFullscreenRecoveryControls(
     onExitFullscreen: () -> Unit,
     onChooseAnimeServer: () -> Unit
 ) {
-    Row(
+    BoxWithConstraints(
         modifier = Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(8.dp)
     ) {
-        OutlinedButton(
-            onClick = onExitFullscreen,
-            modifier = Modifier.testTag("extras-embed-exit-html-fullscreen")
-        ) { Text("Exit fullscreen") }
-        if (isAnime) {
-            OutlinedButton(
-                onClick = onChooseAnimeServer,
-                modifier = Modifier.testTag("extras-anime-fullscreen-servers")
-            ) { Text("Choose server") }
+        if (maxWidth < 420.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(
+                    onClick = onExitFullscreen,
+                    modifier = Modifier.fillMaxWidth().testTag("extras-embed-exit-html-fullscreen")
+                ) { Text("Exit fullscreen") }
+                if (isAnime) {
+                    OutlinedButton(
+                        onClick = onChooseAnimeServer,
+                        modifier = Modifier.fillMaxWidth().testTag("extras-anime-fullscreen-servers")
+                    ) { Text("Choose server") }
+                }
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onExitFullscreen,
+                    modifier = Modifier.testTag("extras-embed-exit-html-fullscreen")
+                ) { Text("Exit fullscreen") }
+                if (isAnime) {
+                    OutlinedButton(
+                        onClick = onChooseAnimeServer,
+                        modifier = Modifier.testTag("extras-anime-fullscreen-servers")
+                    ) { Text("Choose server") }
+                }
+            }
         }
     }
 }
