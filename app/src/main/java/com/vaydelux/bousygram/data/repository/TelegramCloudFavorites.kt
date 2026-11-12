@@ -396,6 +396,9 @@ object TelegramCloudFavorites {
                 index.fullyScanned = !skippedCacheEntries
                 return null
             }
+            // A prior exhaustive scan already indexed older messages. Recheck only the
+            // newest Telegram page on later saves; otherwise continue through history.
+            if (index.fullyScanned && !skippedCacheEntries) return null
             val next = batch.lastOrNull()?.id ?: return null
             if (next >= cursor && cursor != 0L) {
                 error("Telegram Favorites history did not advance; retry the save.")
