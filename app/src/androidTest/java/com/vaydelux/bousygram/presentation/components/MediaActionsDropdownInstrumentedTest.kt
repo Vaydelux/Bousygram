@@ -45,6 +45,7 @@ class MediaActionsDropdownInstrumentedTest {
         }
         compose.waitUntil(10_000) { FavoritesRepository.ready.value }
         compose.onNodeWithTag("media-play--100:25").performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.onNodeWithTag("media-play--100:25").assertIsFocused()
         compose.onNodeWithTag("media-play--100:25").performKeyInput { pressKey(Key.DirectionRight) }
         compose.onNodeWithContentDescription("Actions for Saved episode").assertIsFocused()
         compose.onNodeWithContentDescription("Actions for Saved episode").performKeyInput { pressKey(Key.DirectionLeft) }
