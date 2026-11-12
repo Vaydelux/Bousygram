@@ -180,8 +180,11 @@ class MediaForgeWebBridge(
             }
 
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
-                handler.cancel()
-                if (open.get()) {
+                handler.cancel() // Never bypass certificate errors.
+                // A failed unrelated iframe/subresource must not place a fatal
+                // black/opaque error overlay over a successfully loaded top page.
+                // Only errors for the selected top-level document are fatal UI.
+                if (open.get() && MediaForgeEmbedNavigationPolicy.allows(approved, error.url)) {
                     onPageLoadFailed?.invoke("Cannot securely load this server. Choose another server.")
                 }
             }
