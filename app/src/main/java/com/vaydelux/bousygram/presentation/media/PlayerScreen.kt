@@ -2779,7 +2779,12 @@ fun PlayerScreen(
 
         if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED && !isAndroidTv && castState.supported) {
             Row(
-                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+                // Cast and Smart Resume both occupied TopEnd (the cinematic HUD
+                // also places Start over there). Move only Cast below that band.
+                // Hide the offset with the HUD so the video stays uncluttered.
+                modifier = Modifier.align(Alignment.TopEnd).padding(
+                    end = 16.dp, top = if (hudVisible) 104.dp else 16.dp
+                ),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
