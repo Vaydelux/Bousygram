@@ -34,7 +34,11 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
     val account by AccountSession.state.collectAsStateWithLifecycle()
     if (account == null) return
     val pendingKeys by TelegramCloudFavorites.savingKeys.collectAsStateWithLifecycle()
-    val pending = "${media.chatId}:${media.messageId}" in pendingKeys
+    val recentKeys by TelegramCloudFavorites.recentKeys.collectAsStateWithLifecycle()
+    val favoritesChannelId by TelegramCloudFavorites.channelId.collectAsStateWithLifecycle()
+    val key = "${media.chatId}:${media.messageId}"
+    val pending = key in pendingKeys
+    val alreadySaved = key in recentKeys || media.chatId == favoritesChannelId
     var showAddedDialog by remember(media.chatId, media.messageId, account) { mutableStateOf(false) }
     var saveError by remember(media.chatId, media.messageId, account) { mutableStateOf<String?>(null) }
     var expanded by remember(media.chatId, media.messageId, account) { mutableStateOf(false) }
@@ -70,8 +74,12 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
         ) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
         DropdownMenu(expanded = expanded, onDismissRequest = ::dismiss) {
             DropdownMenuItem(
-                text = { Text(if (pending) "Adding to Favorites..." else "Add to favorites") },
-                enabled = !pending,
+                text = { Text(when {
+                    pending -> "Adding to Favorites..."
+                    alreadySaved -> "Already in Favorites"
+                    else -> "Add to favorites"
+                }) },
+                enabled = !pending && !alreadySaved,
                 modifier = Modifier.heightIn(min = minimum),
                 onClick = {
                     dismiss()
