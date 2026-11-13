@@ -57,6 +57,7 @@ import com.vaydelux.bousygram.presentation.navigation.SearchFocusState
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusStateSaver
 import com.vaydelux.bousygram.presentation.navigation.unwrapNonPlayerScreen
 import com.vaydelux.bousygram.presentation.preview.TvHybridPreviewHost
+import com.vaydelux.bousygram.presentation.design.preview.StreamingDesignGallery
 import com.vaydelux.bousygram.presentation.search.SearchViewModel
 import com.vaydelux.bousygram.presentation.settings.SettingsScreen
 import com.vaydelux.bousygram.presentation.search.TvVideoSearchScreen
@@ -76,17 +77,21 @@ class MainActivity : ComponentActivity() {
     // Activity may be reused for real and debug-preview launch intents. Keep the
     // route in observable state rather than reading a non-observable intent in Compose.
     private var previewRequested by mutableStateOf(false)
+    private var designPreviewRequested by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         previewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)
+        designPreviewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_DESIGN_PREVIEW, false)
         handleIncomingIntent(intent)
         setContent {
             var themePreset by remember {
                 mutableStateOf(BousygramThemePreset.fromId(EnterprisePreferences.visualThemeId()))
             }
             BousygramTheme(preset = themePreset) {
-                if (previewRequested) {
+                if (designPreviewRequested) {
+                    StreamingDesignGallery(onExit = { designPreviewRequested = false })
+                } else if (previewRequested) {
                     TvHybridPreviewHost()
                 } else {
                     BousygramAppRoot(
@@ -105,6 +110,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         previewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)
+        designPreviewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_DESIGN_PREVIEW, false)
         handleIncomingIntent(intent)
     }
 
@@ -117,6 +123,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_UI_PREVIEW = "ui_preview"
+        const val EXTRA_DESIGN_PREVIEW = "design_preview"
     }
 }
 
