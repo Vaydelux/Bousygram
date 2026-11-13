@@ -1,7 +1,7 @@
 # Streaming presentation contract v1 — native Bousygram adoption
 
-**Scope:** Presentation only · Android (Jetpack Compose / Material 3)  
-**Input documents:** `BOUSYGRAM_BRAND_NEUTRAL_DESIGN_MIGRATION_PLAN`, `STREAMING_APP_BRAND_NEUTRAL_COMPLETE_DESIGN`, `STREAMING_APP_BRAND_NEUTRAL_DESIGN_ARCHITECTURE` (2026-11-14).  
+**Scope:** Presentation only · Android (Jetpack Compose / Material 3)
+**Input documents:** `BOUSYGRAM_BRAND_NEUTRAL_DESIGN_MIGRATION_PLAN`, `STREAMING_APP_BRAND_NEUTRAL_COMPLETE_DESIGN`, `STREAMING_APP_BRAND_NEUTRAL_DESIGN_ARCHITECTURE` (2026-11-14).
 **Current phase:** Foundation and opt-in preview. Production pages remain on their existing layouts.
 
 ## Evidence boundary
