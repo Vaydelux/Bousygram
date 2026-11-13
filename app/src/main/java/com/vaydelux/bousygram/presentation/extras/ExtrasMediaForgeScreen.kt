@@ -309,7 +309,11 @@ private fun ExtrasMediaForgePlayerScreen(
     val context = LocalContext.current
     var snapshot by remember(request.url) { mutableStateOf(session.snapshot()) }
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
+    // Android TV starts with native D-pad navigation; cursor is opt-in.
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
+    val dpadToolbarFocus = remember(request.url) { FocusRequester() }
+    val dpadImmersiveFocus = remember(request.url) { FocusRequester() }
+    val dpadFullscreenFocus = remember(request.url) { FocusRequester() }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
     // A provider may need third-party cookies or scripted autoplay to render its
     // nested player. Neither is granted until the user explicitly opts in.
@@ -374,7 +378,8 @@ private fun ExtrasMediaForgePlayerScreen(
             },
             onFullscreenRequested = { view ->
                 htmlFullscreenView = view
-                if (isAndroidTv) cursorEnabled = true
+                // HTML5 fullscreen must not silently activate pointer mode.
+                if (isAndroidTv) cursorEnabled = false
             },
             onFullscreenEnded = { htmlFullscreenView = null },
             onRendererGone = {
@@ -452,9 +457,9 @@ private fun ExtrasMediaForgePlayerScreen(
     BackHandler {
         when {
             nativeMedia != null -> returnToWebView()
+            cursorEnabled -> cursorEnabled = false
             htmlFullscreenView != null -> bridge.dismissFullscreen()
             immersiveWeb -> immersiveWeb = false
-            cursorEnabled -> cursorEnabled = false
             else -> onBack()
         }
     }
@@ -512,8 +517,27 @@ private fun ExtrasMediaForgePlayerScreen(
         return
     }
 
-    LaunchedEffect(cursorEnabled, webView) {
-        if (!cursorEnabled) webView?.requestFocus()
+    LaunchedEffect(isAndroidTv, cursorEnabled, webView, immersiveWeb, htmlFullscreenView) {
+        if (!isAndroidTv) return@LaunchedEffect
+        // Chromium can take remote focus after navigation even when pointer
+        // mode is OFF, forcing Back before the user can reach native controls.
+        // Browser touches still work via dispatchTouchEvent in cursor mode.
+        webView?.apply {
+            isFocusableInTouchMode = false
+            isFocusable = false
+            clearFocus()
+        }
+        if (!cursorEnabled) {
+            withFrameNanos { }
+            withFrameNanos { }
+            runCatching {
+                when {
+                    htmlFullscreenView != null -> dpadFullscreenFocus.requestFocus()
+                    immersiveWeb -> dpadImmersiveFocus.requestFocus()
+                    else -> dpadToolbarFocus.requestFocus()
+                }
+            }
+        }
     }
 
     DisposableEffect(bridge) {
@@ -605,10 +629,11 @@ private fun ExtrasMediaForgePlayerScreen(
                                     modifier = Modifier.weight(1f).testTag("extras-embed-fullscreen")
                                 ) { Text("Fullscreen") }
                                 if (isAndroidTv) {
-                                    OutlinedButton(
-                                        onClick = { cursorEnabled = !cursorEnabled },
-                                        modifier = Modifier.weight(1f).testTag("extras-virtual-mouse")
-                                    ) { Text(if (cursorEnabled) "Cursor ON" else "Cursor OFF") }
+                                    ExtrasTvCursorModeButton(
+                                        cursorEnabled = cursorEnabled,
+                                        onToggle = { cursorEnabled = !cursorEnabled },
+                                        modifier = Modifier.weight(1f).focusRequester(dpadToolbarFocus)
+                                    )
                                 }
                             }
                         }
@@ -635,10 +660,11 @@ private fun ExtrasMediaForgePlayerScreen(
                                 modifier = Modifier.testTag("extras-embed-fullscreen")
                             ) { Text("Fullscreen") }
                             if (isAndroidTv) {
-                                OutlinedButton(
-                                    onClick = { cursorEnabled = !cursorEnabled },
-                                    modifier = Modifier.testTag("extras-virtual-mouse")
-                                ) { Text(if (cursorEnabled) "Cursor ON" else "Cursor OFF") }
+                                ExtrasTvCursorModeButton(
+                                    cursorEnabled = cursorEnabled,
+                                    onToggle = { cursorEnabled = !cursorEnabled },
+                                    modifier = Modifier.focusRequester(dpadToolbarFocus)
+                                )
                             }
                         }
                     }
@@ -820,7 +846,8 @@ private fun ExtrasMediaForgePlayerScreen(
                     },
                     onConfirm = { webView?.let { bridge.click(it, pointerX.toFloat(), pointerY.toFloat()) } },
                     isActive = htmlFullscreenView == null,
-                    tag = "extras-virtual-cursor"
+                    tag = "extras-virtual-cursor",
+                    onMenu = { cursorEnabled = false }
                 )
             }
         }
@@ -1073,10 +1100,7 @@ private fun ExtrasMediaForgePlayerScreen(
                     onConfirm = { bridge.click(videoView, pointerX.toFloat(), pointerY.toFloat()) },
                     isActive = true,
                     tag = "extras-fullscreen-virtual-cursor",
-                    onMenu = {
-                        bridge.dismissFullscreen()
-                        if (request.anilistId > 0) onChooseAnimeServer()
-                    }
+                    onMenu = { cursorEnabled = false }
                 )
             }
             // Always draw trusted recovery controls above the untrusted HTML surface.
