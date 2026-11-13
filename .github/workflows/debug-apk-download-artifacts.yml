@@ -1,0 +1,134 @@
+name: Build Downloadable Bousygram Debug APKs
+
+# On-demand APK files for physical QA. Deliberately does NOT create a GitHub
+# Release or mutate the user's protected, manually retained debug prerelease.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/debug-apk-download-artifacts.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bousygram-downloadable-debug
+  cancel-in-progress: false
+
+jobs:
+  build-debug-apks:
+    name: Verify and package test APKs (ARM32, ARM64, universal)
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      ANDROID_API: '37'
+      BUILD_TOOLS_VERSION: '35.0.0'
+      RELEASE_SHA: ${{ github.sha }}
+      CI_VERIFICATION_RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Assert this source is the current main HEAD
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$RELEASE_SHA" ]] || {
+            echo "::error::main moved. Refuse to upload stale-source APKs."
+            exit 1
+          }
+
+      - name: Check out the exact source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Configure Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Configure Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install Android build requirements
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Configure trusted debug TMDB credentials
+        shell: bash
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$TMDB_API_KEY" =~ ^[[:xdigit:]]{32}$ ]] || {
+            echo "::error::A valid TMDB_API_KEY repository secret is required for trusted debug APKs."
+            exit 1
+          }
+          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
+          chmod 600 .env
+
+      - name: Build and verify real ABI-specific APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/ci/verify_brand_identity.sh
+          bash tools/ci/build_debug_preview.sh ci-artifacts/debug-preview
+          ( cd ci-artifacts/debug-preview && sha256sum --check SHA256SUMS.txt )
+          grep -Fxq "sourceSha=$RELEASE_SHA" ci-artifacts/debug-preview/BUILD_INFO.txt
+          [[ "$(find ci-artifacts/debug-preview -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 3 ]]
+
+      - name: Upload ARM32 test APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Bousygram-debug-arm32-${{ github.sha }}
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            ci-artifacts/debug-preview/*armeabi-v7a.apk
+            ci-artifacts/debug-preview/SHA256SUMS.txt
+            ci-artifacts/debug-preview/BUILD_INFO.txt
+
+      - name: Upload ARM64 test APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Bousygram-debug-arm64-${{ github.sha }}
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            ci-artifacts/debug-preview/*arm64-v8a.apk
+            ci-artifacts/debug-preview/SHA256SUMS.txt
+            ci-artifacts/debug-preview/BUILD_INFO.txt
+
+      - name: Upload universal test APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Bousygram-debug-universal-${{ github.sha }}
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            ci-artifacts/debug-preview/*universal.apk
+            ci-artifacts/debug-preview/SHA256SUMS.txt
+            ci-artifacts/debug-preview/BUILD_INFO.txt
+
+      - name: Provide links in job summary
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          {
+            echo '## Download debug APKs'
+            echo
+            echo 'Download the ARM32, ARM64 or universal ZIP from the **Artifacts** section of this workflow run.'
+            echo 'Each artifact contains the actual APK and BUILD_INFO / SHA256SUMS metadata.'
+            echo "Source commit: \`$RELEASE_SHA\`"
+            echo 'These are DEBUG-SIGNED test builds, not production releases.'
+            echo 'No GitHub Release was created or replaced.'
+          } >> "$GITHUB_STEP_SUMMARY"
