@@ -676,17 +676,6 @@ private fun ExtrasMediaForgePlayerScreen(
                         )
                     }
                 }
-                if (request.anilistId > 0) {
-                    TextButton(
-                        onClick = { openSelectedInBrowser() },
-                        modifier = Modifier.testTag("extras-anime-open-browser")
-                    ) {
-                        Text(
-                            "Web player blocked? Open selected source in browser",
-                            maxLines = 2
-                        )
-                    }
-                }
                 if (request.tmdbId > 0 && request.season == null &&
                     selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
                 ) {
