@@ -7,12 +7,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -31,6 +35,67 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MediaForgeVirtualMouseInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun defaultDpadModeHasNoPointerAndMenuRestoresNativeControls() {
+        compose.setContent {
+            BousygramTheme {
+                var cursorEnabled by remember { mutableStateOf(false) }
+                Box(Modifier.fillMaxSize()) {
+                    ExtrasTvCursorModeButton(
+                        cursorEnabled = cursorEnabled,
+                        onToggle = { cursorEnabled = !cursorEnabled }
+                    )
+                    if (cursorEnabled) {
+                        ExtrasVirtualCursor(
+                            target = null,
+                            widthPx = 360,
+                            heightPx = 240,
+                            xPx = 90,
+                            yPx = 90,
+                            onDelta = { _, _ -> },
+                            onConfirm = {},
+                            isActive = true,
+                            tag = "extras-cursor-mode-test",
+                            onMenu = { cursorEnabled = false }
+                        )
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Use cursor").assertExists()
+        compose.onNodeWithTag("extras-cursor-mode-test").assertDoesNotExist()
+        compose.onNodeWithTag("extras-virtual-mouse").performClick()
+        compose.onNodeWithText("Use D-pad").assertExists()
+        compose.onNodeWithTag("extras-cursor-pointer").assertExists()
+        val cursor = compose.onNodeWithTag("extras-cursor-mode-test")
+        cursor.performSemanticsAction(SemanticsActions.RequestFocus)
+        cursor.performKeyInput { pressKey(Key.Menu) }
+        compose.onNodeWithTag("extras-cursor-mode-test").assertDoesNotExist()
+        compose.onNodeWithText("Use cursor").assertExists()
+    }
+
+    @Test fun fullscreenRecoveryControlsSwitchBetweenDpadAndPointerWithoutExiting() {
+        var fullscreenExited = 0
+        compose.setContent {
+            BousygramTheme {
+                var cursorEnabled by remember { mutableStateOf(false) }
+                ExtrasFullscreenRecoveryControls(
+                    isAnime = true,
+                    onExitFullscreen = { fullscreenExited++ },
+                    onChooseAnimeServer = {},
+                    cursorEnabled = cursorEnabled,
+                    onToggleCursor = { cursorEnabled = !cursorEnabled }
+                )
+            }
+        }
+        compose.onNodeWithTag("extras-fullscreen-cursor-mode").assertExists()
+        compose.onNodeWithText("Use cursor").assertExists()
+        compose.onNodeWithTag("extras-fullscreen-cursor-mode").performClick()
+        compose.onNodeWithText("Use D-pad").assertExists()
+        compose.runOnIdle { assertEquals(0, fullscreenExited) }
+        compose.onNodeWithTag("extras-fullscreen-cursor-mode").performClick()
+        compose.onNodeWithText("Use cursor").assertExists()
+    }
 
     @Test fun dpadMovesPointerAndOkDispatchesOneCompleteTap() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
