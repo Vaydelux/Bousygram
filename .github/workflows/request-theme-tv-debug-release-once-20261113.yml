@@ -1,0 +1,48 @@
+name: One-time verified theme and TV debug release request
+
+# Single-use dispatch for the user's explicit November 13 QA request.
+# Only the exact creation commit message is accepted; later edits cannot
+# silently create more debug GitHub Releases.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/request-theme-tv-debug-release-once-20261113.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    name: Dispatch verified main debug prerelease once
+    if: >-
+      github.repository == 'Vaydelux/Bousygram' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.head_commit.message == 'ci(android): request one-time themed Extras and D-pad debug release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require exact latest main and merged theme/TV fix
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          current="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; refusing stale-source prerelease."
+            exit 1
+          }
+          [[ "$(gh api "repos/$repo/pulls/186" --jq '.merged')" == true ]] || {
+            echo "::error::The Extras theme and TV navigation fixes are not merged."
+            exit 1
+          }
+          gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" -f ref=main
+          {
+            echo "## Verified debug release requested"
+            echo "Commit: $GITHUB_SHA"
+            echo "Qualifying/publishing workflow: android-debug-prerelease.yml"
+            echo "New prerelease is separate; existing debug releases will not be deleted."
+          } >> "$GITHUB_STEP_SUMMARY"
