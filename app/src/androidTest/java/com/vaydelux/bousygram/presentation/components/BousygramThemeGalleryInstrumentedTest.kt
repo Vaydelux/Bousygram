@@ -53,14 +53,9 @@ class BousygramThemeGalleryInstrumentedTest {
         compose.onNodeWithTag("bousygram-canonical-brand-mark").assertExists()
         compose.onNodeWithTag("theme-preset-dark").assertIsSelected()
         writeUiEvidence(compose, "themes-midnight")
-        for (preset in listOf(
-            BousygramThemePreset.OBSIDIAN,
-            BousygramThemePreset.EVERGREEN,
-            BousygramThemePreset.EMBER,
-            BousygramThemePreset.AURORA,
-            BousygramThemePreset.HIGH_CONTRAST,
-            BousygramThemePreset.LIGHT
-        )) {
+        // Iterate every installed choice so new palettes cannot be added
+        // without exercising their native Settings focus/selection behavior.
+        for (preset in BousygramThemePreset.entries.filterNot { it == BousygramThemePreset.DARK }) {
             val tag = "theme-preset-" + preset.id
             compose.onNodeWithTag(tag).performClick()
             compose.onNodeWithTag(tag).assertIsSelected()
