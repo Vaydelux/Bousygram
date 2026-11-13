@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.presentation.design.preview
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -46,6 +47,7 @@ import com.vaydelux.bousygram.presentation.design.primitives.StreamingStatusPane
  */
 @Composable
 fun StreamingDesignGallery(onExit: () -> Unit) {
+    BackHandler(onBack = onExit)
     val metrics = streamingLayoutMetrics(rememberAdaptiveMetrics())
     val palette = rememberStreamingVisualTokens()
     var tab by remember { mutableIntStateOf(0) }
