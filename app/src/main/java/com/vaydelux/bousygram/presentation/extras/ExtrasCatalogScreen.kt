@@ -45,6 +45,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -53,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -363,6 +365,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             onBack = { activeEmbed = null }
         )
     } else {
+    // Backdrop is draw-only, so give default Text a real themed foreground.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
     PremiumGridBackdrop {
     Scaffold(
         containerColor = Color.Transparent,
@@ -427,7 +431,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             } else if (detailError != null) {
                 Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center) {
-                    Text(detailError.orEmpty())
+                    Text(detailError.orEmpty(), color = MaterialTheme.colorScheme.error)
                     Button(onClick = { detailRetry += 1 }) { Text("Retry") }
                 }
             } else detail?.let { info ->
@@ -643,7 +647,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("No matches on this page. Change your search or filters.")
+                        Text("No matches on this page. Change your search or filters.",
+                            color = MaterialTheme.colorScheme.onBackground)
                         TextButton(onClick = {
                             showSuggestions = false
                             update(state.copy(
@@ -690,6 +695,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 }
             }
         }
+    }
     }
     }
     }
@@ -891,6 +897,7 @@ internal fun ExtrasTmdbPendingSetup(
             Text(
                 "Movies and TV Shows are not configured yet",
                 style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
             Text(
