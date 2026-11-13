@@ -1,12 +1,10 @@
 name: Request verified Extras debug release (2026-11-13)
 
-# One-time request only when THIS workflow file is added to main.
-# Builds ARM32, ARM64 and universal through the established verified publisher.
+# Historical one-time request. Auto-dispatch is permanently retired:
+# editing this file must NEVER publish another debug GitHub release.
+# Explicit manual dispatch remains available if requested by the owner.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/request-extras-debug-release-20261113.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
