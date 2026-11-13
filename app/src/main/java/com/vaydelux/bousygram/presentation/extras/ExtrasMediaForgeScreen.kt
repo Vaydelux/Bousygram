@@ -528,14 +528,16 @@ private fun ExtrasMediaForgePlayerScreen(
             clearFocus()
         }
         if (!cursorEnabled) {
+            fun focusNativeControls(): Boolean = when {
+                htmlFullscreenView != null -> dpadFullscreenFocus.requestFocus()
+                immersiveWeb -> dpadImmersiveFocus.requestFocus()
+                else -> dpadToolbarFocus.requestFocus()
+            }
+            // Browser controls may attach one frame after WebView.
             withFrameNanos { }
-            withFrameNanos { }
-            runCatching {
-                when {
-                    htmlFullscreenView != null -> dpadFullscreenFocus.requestFocus()
-                    immersiveWeb -> dpadImmersiveFocus.requestFocus()
-                    else -> dpadToolbarFocus.requestFocus()
-                }
+            if (!runCatching { focusNativeControls() }.getOrDefault(false)) {
+                withFrameNanos { }
+                runCatching { focusNativeControls() }
             }
         }
     }
@@ -679,6 +681,15 @@ private fun ExtrasMediaForgePlayerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2
                 )
+                if (isAndroidTv) {
+                    Text(
+                        if (cursorEnabled) "Cursor mode: arrows move pointer, OK clicks; Back/Menu returns to D-pad."
+                        else "D-pad mode: navigate controls; Use cursor to click inside the web player.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2
+                    )
+                }
                 if (request.anilistId > 0) {
                     TextButton(
                         onClick = {
