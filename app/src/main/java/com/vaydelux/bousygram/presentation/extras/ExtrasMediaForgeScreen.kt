@@ -850,6 +850,31 @@ private fun ExtrasMediaForgePlayerScreen(
                     onMenu = { cursorEnabled = false }
                 )
             }
+            if (immersiveWeb && isAndroidTv && htmlFullscreenView == null) {
+                // This trusted toolbar stays reachable in D-pad mode. It also
+                // gives the remote an exit when fullscreen hides the main UI.
+                Surface(
+                    modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        Modifier.padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { immersiveWeb = false },
+                            modifier = Modifier.focusRequester(dpadImmersiveFocus)
+                                .testTag("extras-embed-exit-immersive")
+                        ) { Text("Exit fullscreen") }
+                        ExtrasTvCursorModeButton(
+                            cursorEnabled = cursorEnabled,
+                            onToggle = { cursorEnabled = !cursorEnabled }
+                        )
+                    }
+                }
+            }
         }
 
         if (!immersiveWeb) {
@@ -1108,6 +1133,9 @@ private fun ExtrasMediaForgePlayerScreen(
                 ExtrasFullscreenRecoveryControls(
                     isAnime = request.anilistId > 0,
                     onExitFullscreen = { bridge.dismissFullscreen() },
+                    cursorEnabled = cursorEnabled,
+                    onToggleCursor = if (isAndroidTv) ({ cursorEnabled = !cursorEnabled }) else null,
+                    initialFocusRequester = if (isAndroidTv) dpadFullscreenFocus else null,
                     onChooseAnimeServer = {
                         bridge.dismissFullscreen()
                         onChooseAnimeServer()
@@ -1351,6 +1379,21 @@ internal fun ExtrasAnimeEmbedServerDropdown(
         isTv, modifier, pickerTitle = "Choose anime server", compactOptions = true)
 }
 
+/** Explicit remote-mode action. Off means native D-pad controls own focus. */
+@Composable
+internal fun ExtrasTvCursorModeButton(
+    cursorEnabled: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedButton(
+        onClick = onToggle,
+        modifier = modifier.testTag("extras-virtual-mouse")
+    ) {
+        Text(if (cursorEnabled) "Use D-pad" else "Use cursor", maxLines = 1)
+    }
+}
+
 /**
  * Reuses the same DPAD pointer for ordinary WebView and HTML5 custom fullscreen.
  * Pointer coordinates belong to the target view, not its outer Activity.
@@ -1369,6 +1412,8 @@ internal fun ExtrasVirtualCursor(
     onMenu: (() -> Unit)? = null
 ) {
     val focus = remember { FocusRequester() }
+    val pointerFill = MaterialTheme.colorScheme.primary
+    val pointerOutline = MaterialTheme.colorScheme.onPrimary
     // The HTML5 fullscreen window / WebView may attach after composition.
     // Two bounded frame attempts avoid an unresponsive remote on slow TVs.
     LaunchedEffect(isActive, target) {
@@ -1424,7 +1469,7 @@ internal fun ExtrasVirtualCursor(
                     xPx.coerceIn(0, widthPx - 1),
                     yPx.coerceIn(0, heightPx - 1)
                 )
-            }.size(30.dp)
+            }.size(30.dp).testTag("extras-cursor-pointer")
         ) {
             // Larger high-contrast arrow remains legible at TV viewing distances.
             // Pointer tip is also the exact synthesized tap hotspot.
@@ -1438,8 +1483,8 @@ internal fun ExtrasVirtualCursor(
                 lineTo(size.width * 0.96f, size.height * 0.52f)
                 close()
             }
-            drawPath(arrow, Color.White)
-            drawPath(arrow, Color.Black, style = Stroke(width = 2.dp.toPx()))
+            drawPath(arrow, pointerFill)
+            drawPath(arrow, pointerOutline, style = Stroke(width = 3.dp.toPx()))
         }
     }
 }
