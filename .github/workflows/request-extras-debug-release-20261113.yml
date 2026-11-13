@@ -39,8 +39,8 @@ jobs:
           gh api --method POST "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" --raw-field ref=main
           {
             echo "## Requested qualified debug APK release"
-            echo "Source commit: `$GITHUB_SHA`"
-            echo "Publishing workflow: `android-debug-prerelease.yml`"
+            echo "Source commit: $GITHUB_SHA"
+            echo "Publishing workflow: android-debug-prerelease.yml"
             echo "This produces ARM32, ARM64 and universal debug APKs with checksum verification."
             echo "The previously retained GitHub Release is not deleted or replaced."
           } >> "$GITHUB_STEP_SUMMARY"
