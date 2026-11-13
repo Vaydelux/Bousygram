@@ -42,11 +42,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -230,6 +232,9 @@ internal fun ExtrasMediaForgeScreen(
     onBack: () -> Unit,
     isAndroidTv: Boolean
 ) {
+    // Extras draws its own backgrounds. Never inherit Android's default
+    // black content color on Midnight, Aurora, Evergreen or other themes.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
     var selectedServer by remember(request.tmdbId, request.anilistId, request.season, request.episode) {
         mutableStateOf(request.server)
     }
@@ -279,6 +284,7 @@ internal fun ExtrasMediaForgeScreen(
                 onChooseAnimeServer = { animeServerConfirmed = false }
             )
         }
+    }
     }
 }
 
@@ -566,6 +572,7 @@ private fun ExtrasMediaForgePlayerScreen(
                     ) { Text("Back") }
                     Text(
                         request.title,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -643,6 +650,7 @@ private fun ExtrasMediaForgePlayerScreen(
                         else -> "TMDB #${request.tmdbId} · ${selectedServer.description}"
                     }) + " · Availability varies by provider.",
                     style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2
                 )
                 if (request.anilistId > 0) {
