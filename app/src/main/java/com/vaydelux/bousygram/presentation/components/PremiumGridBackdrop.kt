@@ -30,7 +30,8 @@ fun PremiumGridBackdrop(
 ) {
     val colors = MaterialTheme.colorScheme
     val highContrast = colors.background == BousygramThemePreset.HIGH_CONTRAST.background
-    val light = colors.background == BousygramThemePreset.LIGHT.background
+    val light = colors.background == BousygramThemePreset.LIGHT.background ||
+        colors.background == BousygramThemePreset.IVORY.background
 
     Box(modifier = modifier.fillMaxSize()
         .background(colors.background)
