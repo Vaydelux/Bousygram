@@ -67,6 +67,21 @@ enum class BousygramThemePreset(
         "light", "Daylight", "Bright ice-blue surfaces with deep accessible ink",
         Color(0xFF075B83), Color(0xFF19548B), Color(0xFF805016),
         Color(0xFFF5FAFF), Color(0xFFFFFFFF), Color(0xFFE4F0F8), Color(0xFF70849A)
+    ),
+    OCEAN(
+        "ocean", "Deep Ocean", "Marine blue with pale cyan and periwinkle highlights",
+        Color(0xFF85DCF3), Color(0xFFA9B6FF), Color(0xFFFFD59E),
+        Color(0xFF041923), Color(0xFF0B2734), Color(0xFF1C4151), Color(0xFF88A7B4)
+    ),
+    PLUM(
+        "plum", "Plum", "Mulberry surfaces with soft lavender and rose accents",
+        Color(0xFFF2ABD8), Color(0xFFC9B2FF), Color(0xFFB4E2DB),
+        Color(0xFF180F1D), Color(0xFF281830), Color(0xFF4C3453), Color(0xFFBDA6BD)
+    ),
+    IVORY(
+        "ivory", "Ivory", "Warm light surfaces with earthy ink and muted accents",
+        Color(0xFF79523F), Color(0xFF665181), Color(0xFF735D34),
+        Color(0xFFFBF6EE), Color(0xFFFFFDF8), Color(0xFFEEE2D4), Color(0xFF85786B)
     );
 
     companion object {
@@ -108,6 +123,16 @@ private fun darkLayers(preset: BousygramThemePreset): BousygramDarkLayers = when
         Color(0xFF5C3029), Color(0xFF563728), Color(0xFF59273E),
         Color(0xFF211218), Color(0xFF30191F), Color(0xFF44262F),
         Color(0xFF53313B), Color(0xFF77525A)
+    )
+    BousygramThemePreset.OCEAN -> BousygramDarkLayers(
+        Color(0xFF123B4D), Color(0xFF293A63), Color(0xFF483722),
+        Color(0xFF09202B), Color(0xFF102F3D), Color(0xFF214454),
+        Color(0xFF2C5161), Color(0xFF66889A)
+    )
+    BousygramThemePreset.PLUM -> BousygramDarkLayers(
+        Color(0xFF42253F), Color(0xFF3D315B), Color(0xFF253C3B),
+        Color(0xFF1F1425), Color(0xFF301C39), Color(0xFF412C47),
+        Color(0xFF54365B), Color(0xFF82638B)
     )
     else -> BousygramDarkLayers(
         Color(0xFF153C4B), Color(0xFF233A56), Color(0xFF46321F),
@@ -151,6 +176,41 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
             onError = Color(0xFF2C0309),
             errorContainer = Color(0xFF52121B),
             onErrorContainer = Color.White
+        )
+    }
+    if (preset == BousygramThemePreset.IVORY) {
+        // A separate warm light option; Daylight and all previous presets
+        // retain their exact original color values and persisted IDs.
+        return lightColorScheme(
+            primary = preset.primary,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFE6D4C3),
+            onPrimaryContainer = Color(0xFF3C2920),
+            secondary = preset.secondary,
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFFE5D8F1),
+            onSecondaryContainer = Color(0xFF38284E),
+            tertiary = preset.tertiary,
+            onTertiary = Color.White,
+            tertiaryContainer = Color(0xFFEEE1C3),
+            onTertiaryContainer = Color(0xFF423019),
+            background = preset.background,
+            onBackground = Color(0xFF30271F),
+            surface = preset.surface,
+            onSurface = Color(0xFF30271F),
+            surfaceVariant = preset.surfaceVariant,
+            onSurfaceVariant = Color(0xFF574940),
+            surfaceContainerLowest = preset.surface,
+            surfaceContainerLow = Color(0xFFFAF4EB),
+            surfaceContainer = Color(0xFFF5EFE5),
+            surfaceContainerHigh = Color(0xFFEEE2D4),
+            surfaceContainerHighest = Color(0xFFE7DAC9),
+            outline = preset.outline,
+            outlineVariant = Color(0xFFCDBDAD),
+            error = Color(0xFFAD2434),
+            onError = Color.White,
+            errorContainer = Color(0xFFFFDADD),
+            onErrorContainer = Color(0xFF65121E)
         )
     }
     if (preset == BousygramThemePreset.LIGHT) {
