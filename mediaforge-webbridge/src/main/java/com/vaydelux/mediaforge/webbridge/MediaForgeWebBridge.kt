@@ -2,6 +2,7 @@ package com.vaydelux.mediaforge.webbridge
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
@@ -61,7 +62,8 @@ class MediaForgeWebBridge(
     private val onFullscreenRequested: ((View) -> Unit)? = null,
     private val onFullscreenEnded: (() -> Unit)? = null,
     private val onRendererGone: (() -> Unit)? = null,
-    private val onPageLoadFailed: ((String) -> Unit)? = null
+    private val onPageLoadFailed: ((String) -> Unit)? = null,
+    private val onPageLoadSucceeded: (() -> Unit)? = null
 ) {
     private val open = AtomicBoolean(true)
     private val main = Handler(Looper.getMainLooper())
@@ -70,6 +72,10 @@ class MediaForgeWebBridge(
     private val maxPendingObservations = 32
     private var fullscreenView: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
+    // An earlier fatal error may have put a recovery panel over WebView.
+    // Only a fresh, successful navigation to the selected title can clear it.
+    private var mainFrameNavigating = false
+    private var mainFrameFailed = false
     // Identity of WebViews destroyed after renderer loss, so Compose cleanup
     // does not call WebView APIs on an already-destroyed instance.
     private val rendererGoneViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
@@ -116,6 +122,25 @@ class MediaForgeWebBridge(
             }
         }
         webView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                if (open.get() && url != null &&
+                    MediaForgeEmbedNavigationPolicy.allows(approved, url)
+                ) {
+                    mainFrameNavigating = true
+                    mainFrameFailed = false
+                }
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                if (!open.get() || !mainFrameNavigating || url == null) return
+                val validPage = MediaForgeEmbedNavigationPolicy.allows(approved, url)
+                val loaded = validPage && !mainFrameFailed
+                mainFrameNavigating = false
+                if (loaded) onPageLoadSucceeded?.invoke()
+                // onPageFinished also runs after HTTP 4xx/5xx and Chromium
+                // network errors. Those must NEVER dismiss recovery UI.
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (!request.isForMainFrame) return false
                 // One shared SDK policy owns title/episode/provider identity.
@@ -164,6 +189,7 @@ class MediaForgeWebBridge(
                 error: WebResourceError
             ) {
                 if (open.get() && request.isForMainFrame) {
+                    mainFrameFailed = true
                     // Do not display provider URLs, tokens, or raw Chromium error descriptions.
                     onPageLoadFailed?.invoke("The selected web server could not load. Choose another server or retry.")
                 }
@@ -175,6 +201,7 @@ class MediaForgeWebBridge(
                 errorResponse: WebResourceResponse
             ) {
                 if (open.get() && request.isForMainFrame && errorResponse.statusCode >= 400) {
+                    mainFrameFailed = true
                     onPageLoadFailed?.invoke("The selected web server is unavailable (HTTP ${errorResponse.statusCode}). Choose another server.")
                 }
             }
@@ -185,6 +212,7 @@ class MediaForgeWebBridge(
                 // black/opaque error overlay over a successfully loaded top page.
                 // Only errors for the selected top-level document are fatal UI.
                 if (open.get() && error.url?.let { MediaForgeEmbedNavigationPolicy.allows(approved, it) } == true) {
+                    mainFrameFailed = true
                     onPageLoadFailed?.invoke("Cannot securely load this server. Choose another server.")
                 }
             }
