@@ -2,6 +2,7 @@ name: Build Downloadable Bousygram Debug APKs
 
 # On-demand APK files for physical QA. Deliberately does NOT create a GitHub
 # Release or mutate the user's protected, manually retained debug prerelease.
+# QA rebuild requested 2026-11-14: include merged PR #188 themes and PR #189 state UI polish.
 on:
   workflow_dispatch:
   push:
