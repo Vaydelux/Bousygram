@@ -1,11 +1,13 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import android.content.Intent
 import android.net.Uri
 import android.view.MotionEvent
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -13,11 +15,13 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebRequestPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayInputStream
 
 /**
  * Real Android WebView settings, independent of CineSrc/TMDB and Telegram login.
@@ -74,6 +78,82 @@ class MediaForgeWebBridgeInstrumentedTest {
                 view.loadUrl("about:blank")
                 view.destroy()
             }
+        }
+    }
+
+    @Test fun successfulSelectedPageClearsPriorFailureButFailedPageCannot() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            var succeeded = 0
+            var failed = 0
+            val bridge = MediaForgeWebBridge(
+                onMediaResource = {},
+                onPageLoadFailed = { failed++ },
+                onPageLoadSucceeded = { succeeded++ }
+            )
+            val view = bridge.create(instrumentation.targetContext, offlineEmbed)
+            try {
+                view.stopLoading()
+                fun request(url: String, mainFrame: Boolean) = object : WebResourceRequest {
+                    override fun getUrl(): Uri = Uri.parse(url)
+                    override fun isForMainFrame(): Boolean = mainFrame
+                    override fun isRedirect(): Boolean = false
+                    override fun hasGesture(): Boolean = false
+                    override fun getMethod(): String = "GET"
+                    override fun getRequestHeaders(): Map<String, String> = emptyMap()
+                }
+                fun httpError() = WebResourceResponse(
+                    "text/plain", "utf-8", ByteArrayInputStream(ByteArray(0))
+                ).apply { setStatusCodeAndReasonPhrase(503, "Unavailable") }
+
+                // A failing top document still calls onPageFinished in Chromium.
+                view.webViewClient.onPageStarted(view, offlineEmbed, null)
+                view.webViewClient.onReceivedHttpError(view,
+                    request(offlineEmbed, true), httpError())
+                view.webViewClient.onPageFinished(view, offlineEmbed)
+                assertEquals(1, failed)
+                assertEquals(0, succeeded)
+
+                // Broken subframe is not proof that the top page failed.
+                view.webViewClient.onPageStarted(view, offlineEmbed, null)
+                view.webViewClient.onReceivedHttpError(view,
+                    request("https://other.example.org/player", false), httpError())
+                view.webViewClient.onPageFinished(view, offlineEmbed)
+                assertEquals(1, failed)
+                assertEquals(1, succeeded)
+
+                // A foreign title / about:blank must not clear failure UI.
+                view.webViewClient.onPageStarted(view, offlineEmbed, null)
+                view.webViewClient.onPageFinished(view,
+                    "https://mediaforge.example.invalid/embed/movie/43")
+                view.webViewClient.onPageFinished(view, "about:blank")
+                assertEquals(1, succeeded)
+            } finally {
+                bridge.close()
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            }
+        }
+    }
+
+    @Test fun manualExternalBrowserFallbackOnlyOpensSelectedPublicHttpsUrl() {
+        val selected = "https://video.example.org/anime/21/2?quality=auto"
+        val intent = extrasExternalBrowserIntent(selected)
+            ?: throw AssertionError("Expected a safe selected embed")
+        assertEquals(Intent.ACTION_VIEW, intent.action)
+        assertEquals(selected, intent.dataString)
+        assertTrue(intent.categories?.contains(Intent.CATEGORY_BROWSABLE) == true)
+
+        for (unsafe in listOf(
+            "http://video.example.org/anime/21/2",
+            "file:///data/data/com.vaydelux.bousygram/private",
+            "https://127.0.0.1/admin",
+            "https://nas.local/media",
+            "javascript:alert(1)"
+        )) {
+            assertNull("Never open unsafe source externally: $unsafe",
+                extrasExternalBrowserIntent(unsafe))
         }
     }
 
