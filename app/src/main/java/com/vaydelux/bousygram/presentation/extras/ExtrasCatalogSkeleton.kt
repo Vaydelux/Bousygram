@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 
 /**
@@ -38,7 +41,10 @@ internal fun ExtrasCatalogLoadingSkeleton(
         compact -> 132.dp
         else -> 155.dp
     }
-    Column(Modifier.fillMaxSize().testTag("extras-catalog-loading")) {
+    Column(
+        Modifier.fillMaxSize().testTag("extras-catalog-loading")
+            .semantics { stateDescription = "Loading catalog" }
+    ) {
         Text(
             "Loading titles…",
             style = MaterialTheme.typography.labelMedium,
@@ -72,7 +78,8 @@ internal fun ExtrasDetailLoadingSkeleton(compact: Boolean) {
     Column(
         modifier = Modifier.fillMaxSize()
             .padding(horizontal = if (compact) 14.dp else 28.dp, vertical = 18.dp)
-            .testTag("extras-detail-loading"),
+            .testTag("extras-detail-loading")
+            .semantics { stateDescription = "Loading details" },
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(
@@ -104,10 +111,11 @@ internal fun ExtrasDetailLoadingSkeleton(compact: Boolean) {
 
 @Composable
 private fun SkeletonShape(modifier: Modifier) {
+    val shape = RoundedCornerShape(10.dp)
+    val colors = MaterialTheme.colorScheme
     Box(
-        modifier.background(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(10.dp)
-        )
+        modifier
+            .background(color = colors.surfaceContainerHigh, shape = shape)
+            .border(1.dp, colors.outlineVariant.copy(alpha = 0.45f), shape)
     )
 }

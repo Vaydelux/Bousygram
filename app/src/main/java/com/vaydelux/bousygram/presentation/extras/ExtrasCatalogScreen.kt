@@ -52,7 +52,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.painter.ColorPainter
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
+import com.vaydelux.bousygram.presentation.components.BousygramCenteredStatus
+import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
+import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -429,10 +433,21 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     ExtrasDetailLoadingSkeleton(metrics.isCompact)
                 }
             } else if (detailError != null) {
-                Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center) {
-                    Text(detailError.orEmpty(), color = MaterialTheme.colorScheme.error)
-                    Button(onClick = { detailRetry += 1 }) { Text("Retry") }
+                Column(
+                    Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)
+                        .testTag("extras-detail-error"),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    BousygramCenteredStatus(
+                        title = "Details unavailable",
+                        message = detailError.orEmpty(),
+                        tone = BousygramStatusTone.ERROR
+                    )
+                    Button(
+                        onClick = { detailRetry += 1 },
+                        modifier = Modifier.testTag("extras-detail-retry")
+                    ) { Text("Retry") }
                 }
             } else detail?.let { info ->
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
@@ -601,13 +616,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 }
                 Spacer(Modifier.height(6.dp))
                 if (state.error != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(state.error, color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f))
-                        TextButton(onClick = {
-                            update(state.copy(loading = true, error = null))
-                        }) { Text("Retry") }
-                    }
+                    BousygramInlineStatus(
+                        message = state.error.orEmpty(),
+                        tone = BousygramStatusTone.ERROR,
+                        modifier = Modifier.testTag("extras-catalog-error"),
+                        trailingAction = {
+                            TextButton(onClick = {
+                                update(state.copy(loading = true, error = null))
+                            }) { Text("Retry") }
+                        }
+                    )
                 }
                 if (state.page > 1 && state.results.isNotEmpty()) {
                     ExtrasPreviousPageAction {
@@ -647,8 +665,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("No matches on this page. Change your search or filters.",
-                            color = MaterialTheme.colorScheme.onBackground)
+                        BousygramCenteredStatus(
+                            title = "No matches on this page",
+                            message = "Change your search or filters to find more titles.",
+                            modifier = Modifier.testTag("extras-catalog-empty")
+                        )
                         TextButton(onClick = {
                             showSuggestions = false
                             update(state.copy(
@@ -894,17 +915,9 @@ internal fun ExtrasTmdbPendingSetup(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.padding(24.dp)
         ) {
-            Text(
-                "Movies and TV Shows are not configured yet",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            Text(
-                "TMDB access will be enabled in a later build. Anime search is available separately through AniList.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            BousygramCenteredStatus(
+                title = "Movies and TV Shows are not configured yet",
+                message = "TMDB access will be enabled in a later build. Anime search is available separately through AniList."
             )
             Button(
                 modifier = Modifier.testTag("extras-go-anime"),
@@ -941,7 +954,9 @@ private fun ExtrasPosterArtwork(
         model = imageRequest,
         contentDescription = contentDescription,
         modifier = modifier,
-        contentScale = ContentScale.Crop
+        contentScale = ContentScale.Crop,
+        placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh),
+        error = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh)
     )
 }
 
@@ -1228,15 +1243,33 @@ private fun ExtrasDetailContent(
                         style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            if (seasonLoading) item { CircularProgressIndicator() }
+            if (seasonLoading) item {
+                Row(
+                    modifier = Modifier.testTag("extras-episodes-loading"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "Loading episodes…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
             if (episodeError != null) {
                 item {
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(episodeError, color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f))
-                        OutlinedButton(onClick = onSeasonRetry) { Text("Retry episodes") }
-                    }
+                    BousygramInlineStatus(
+                        message = episodeError,
+                        tone = BousygramStatusTone.ERROR,
+                        modifier = Modifier.testTag("extras-episodes-error"),
+                        trailingAction = {
+                            OutlinedButton(onClick = onSeasonRetry) { Text("Retry episodes") }
+                        }
+                    )
                 }
             }
             items(episodes, key = { it.number }) { episode ->
@@ -1316,16 +1349,18 @@ private fun ExtrasDetailContent(
 private fun DetailText(info: ExtrasDetail) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(info.item.title, style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold)
+            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         Text(listOfNotNull(info.item.year.takeIf(String::isNotBlank),
             info.item.rating.takeIf(String::isNotBlank)?.let { "★ $it" })
             .joinToString(" · "), color = MaterialTheme.colorScheme.primary)
         if (info.genres.isNotEmpty()) Text(info.genres.joinToString(" · "),
-            style = MaterialTheme.typography.labelMedium)
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (info.facts.isNotEmpty()) Text(info.facts.joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(info.description.ifBlank { "No description is available for this title." },
-            style = MaterialTheme.typography.bodyMedium)
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface)
     }
 }

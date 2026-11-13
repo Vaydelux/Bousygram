@@ -1737,7 +1737,7 @@ fun EmptyStateView(
     illustration: (@Composable () -> Unit)? = null
 ) {
     Box(
-        modifier = modifier.padding(24.dp),
+        modifier = modifier.padding(24.dp).testTag("bousygram-empty-state"),
         contentAlignment = Alignment.Center
     ) {
         EnterprisePanel(modifier = Modifier.widthIn(max = 460.dp)) {
@@ -1754,7 +1754,9 @@ fun EmptyStateView(
                     title,
                     color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("bousygram-empty-state-title")
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -1763,11 +1765,15 @@ fun EmptyStateView(
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     maxLines = 4,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("bousygram-empty-state-message")
                 )
                 if (actionText != null && onAction != null) {
                     Spacer(Modifier.height(18.dp))
-                    BousygramButton(actionText, onAction, selected = true)
+                    BousygramButton(
+                        actionText, onAction, selected = true,
+                        modifier = Modifier.testTag("bousygram-empty-state-action")
+                    )
                 }
             }
         }
