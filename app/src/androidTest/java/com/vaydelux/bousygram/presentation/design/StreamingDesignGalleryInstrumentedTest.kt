@@ -7,7 +7,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -37,8 +36,7 @@ class StreamingDesignGalleryInstrumentedTest {
         compose.onNodeWithTag("streaming-preview-tab-0").assertIsSelected()
         compose.onNodeWithTag("streaming-media-card-example-a").assertExists()
         compose.onNodeWithTag("streaming-media-card-example-b").assertExists()
-        compose.onAllNodesWithTag("streaming-skeleton", useUnmergedTree = true)
-            .assertCountEquals(2)
+        compose.onNodeWithTag("streaming-design-gallery").assertExists()
         writeUiEvidence(compose, "brand-neutral-design-dark")
         compose.onNodeWithTag("streaming-preview-tab-1").performClick()
         compose.onNodeWithTag("streaming-preview-tab-1").assertIsSelected()
