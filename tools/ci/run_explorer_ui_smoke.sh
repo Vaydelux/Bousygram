@@ -26,6 +26,7 @@ mkdir -p ci-artifacts/ui-evidence
 for name in telegram-library themes-midnight mode-selection media-favorites \
   component-theme-dark component-theme-aurora component-theme-obsidian \
   component-theme-evergreen component-theme-ember component-theme-high-contrast component-theme-light \
+  component-theme-ocean component-theme-plum component-theme-ivory \
   brand-neutral-design-dark brand-neutral-design-light brand-neutral-design-high-contrast; do
   adb exec-out run-as com.vaydelux.bousygram cat "files/ui-evidence/${name}.png" \
     > "ci-artifacts/ui-evidence/${name}.png"
