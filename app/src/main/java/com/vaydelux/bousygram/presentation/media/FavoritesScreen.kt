@@ -46,6 +46,8 @@ import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.theme.bousygramResponsiveTokens
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
+import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
+import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
 import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
@@ -171,26 +173,28 @@ fun FavoritesScreen(
                     color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else if (legacyImport.failed > 0) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "${legacyImport.failed} older favorites could not be imported. Original bookmarks are preserved.",
-                        color = androidx.compose.material3.MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    BousygramButton("Retry import", onClick = { TelegramCloudFavorites.startLegacyImport(retry = true) })
-                }
+                BousygramInlineStatus(
+                    message = "${legacyImport.failed} older favorites could not be imported. Original bookmarks are preserved.",
+                    tone = BousygramStatusTone.WARNING,
+                    trailingAction = {
+                        BousygramButton("Retry import", onClick = {
+                            TelegramCloudFavorites.startLegacyImport(retry = true)
+                        })
+                    }
+                )
             }
 
             if (state.unavailableCount > 0 && !state.isLoading && !adaptive.isShortWindow) {
-                Text(
-                    "${state.unavailableCount} saved item(s) could not be refreshed. Retry or remove them from the actions menu.",
-                    color = androidx.compose.material3.MaterialTheme.colorScheme.tertiary,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                BousygramInlineStatus(
+                    message = "${state.unavailableCount} saved item(s) could not be refreshed. Retry or remove them from the actions menu.",
+                    tone = BousygramStatusTone.WARNING
                 )
             }
             if (state.error != null && state.items.isNotEmpty()) {
-                Text(state.error.orEmpty(), color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                BousygramInlineStatus(
+                    message = state.error.orEmpty(),
+                    tone = BousygramStatusTone.ERROR
+                )
             }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
