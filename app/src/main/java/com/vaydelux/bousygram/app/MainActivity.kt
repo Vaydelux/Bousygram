@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -187,7 +188,10 @@ private fun BousygramAppRoot(
             CastReceiverManager.clearPendingRequest()
             modeName = BousygramMode.SELECT.name
         }
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center
+        ) {
             Column(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -200,8 +204,9 @@ private fun BousygramAppRoot(
                     )
                     Button(onClick = { telegramStartupAttempt += 1 }) { Text("Retry Telegram startup") }
                 } else {
-                    CircularProgressIndicator()
-                    Text("Starting Telegram Media…")
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    Text("Starting Telegram Media…",
+                        color = MaterialTheme.colorScheme.onBackground)
                 }
                 OutlinedButton(onClick = {
                     CastReceiverManager.clearPendingRequest()

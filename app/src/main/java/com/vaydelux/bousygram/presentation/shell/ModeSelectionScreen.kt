@@ -269,7 +269,9 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                 ) {
                     BousygramBrandMark(size = 76.dp)
                 }
-                Text("More to Explore", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text("More to Explore", style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(
                     "Movies, TV shows and anime are available through Extras. External source availability varies.",
                     style = MaterialTheme.typography.bodyLarge,
@@ -305,10 +307,15 @@ fun TelegramStartupLoadingScreen(connectionStatus: String?) {
                 Text(
                     "Preparing Telegram Media",
                     style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
                 Text(
                     connectionStatus?.takeIf { it.isNotBlank() } ?: "Connecting securely to your Telegram session…",
                     style = MaterialTheme.typography.bodyMedium,

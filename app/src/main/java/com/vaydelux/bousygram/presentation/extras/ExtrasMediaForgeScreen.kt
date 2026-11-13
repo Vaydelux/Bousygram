@@ -42,11 +42,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -230,6 +232,9 @@ internal fun ExtrasMediaForgeScreen(
     onBack: () -> Unit,
     isAndroidTv: Boolean
 ) {
+    // Extras draws its own backgrounds. Never inherit Android's default
+    // black content color on Midnight, Aurora, Evergreen or other themes.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
     var selectedServer by remember(request.tmdbId, request.anilistId, request.season, request.episode) {
         mutableStateOf(request.server)
     }
@@ -280,6 +285,7 @@ internal fun ExtrasMediaForgeScreen(
             )
         }
     }
+    }
 }
 
 @Composable
@@ -303,7 +309,11 @@ private fun ExtrasMediaForgePlayerScreen(
     val context = LocalContext.current
     var snapshot by remember(request.url) { mutableStateOf(session.snapshot()) }
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
+    // Android TV starts with native D-pad navigation; cursor is opt-in.
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
+    val dpadToolbarFocus = remember(request.url) { FocusRequester() }
+    val dpadImmersiveFocus = remember(request.url) { FocusRequester() }
+    val dpadFullscreenFocus = remember(request.url) { FocusRequester() }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
     // A provider may need third-party cookies or scripted autoplay to render its
     // nested player. Neither is granted until the user explicitly opts in.
@@ -368,7 +378,8 @@ private fun ExtrasMediaForgePlayerScreen(
             },
             onFullscreenRequested = { view ->
                 htmlFullscreenView = view
-                if (isAndroidTv) cursorEnabled = true
+                // HTML5 fullscreen must not silently activate pointer mode.
+                if (isAndroidTv) cursorEnabled = false
             },
             onFullscreenEnded = { htmlFullscreenView = null },
             onRendererGone = {
@@ -446,9 +457,9 @@ private fun ExtrasMediaForgePlayerScreen(
     BackHandler {
         when {
             nativeMedia != null -> returnToWebView()
+            cursorEnabled -> cursorEnabled = false
             htmlFullscreenView != null -> bridge.dismissFullscreen()
             immersiveWeb -> immersiveWeb = false
-            cursorEnabled -> cursorEnabled = false
             else -> onBack()
         }
     }
@@ -506,8 +517,29 @@ private fun ExtrasMediaForgePlayerScreen(
         return
     }
 
-    LaunchedEffect(cursorEnabled, webView) {
-        if (!cursorEnabled) webView?.requestFocus()
+    LaunchedEffect(isAndroidTv, cursorEnabled, webView, immersiveWeb, htmlFullscreenView) {
+        if (!isAndroidTv) return@LaunchedEffect
+        // Chromium can take remote focus after navigation even when pointer
+        // mode is OFF, forcing Back before the user can reach native controls.
+        // Browser touches still work via dispatchTouchEvent in cursor mode.
+        webView?.apply {
+            isFocusableInTouchMode = false
+            isFocusable = false
+            clearFocus()
+        }
+        if (!cursorEnabled) {
+            fun focusNativeControls(): Boolean = when {
+                htmlFullscreenView != null -> dpadFullscreenFocus.requestFocus()
+                immersiveWeb -> dpadImmersiveFocus.requestFocus()
+                else -> dpadToolbarFocus.requestFocus()
+            }
+            // Browser controls may attach one frame after WebView.
+            withFrameNanos { }
+            if (!runCatching { focusNativeControls() }.getOrDefault(false)) {
+                withFrameNanos { }
+                runCatching { focusNativeControls() }
+            }
+        }
     }
 
     DisposableEffect(bridge) {
@@ -566,6 +598,7 @@ private fun ExtrasMediaForgePlayerScreen(
                     ) { Text("Back") }
                     Text(
                         request.title,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -598,10 +631,11 @@ private fun ExtrasMediaForgePlayerScreen(
                                     modifier = Modifier.weight(1f).testTag("extras-embed-fullscreen")
                                 ) { Text("Fullscreen") }
                                 if (isAndroidTv) {
-                                    OutlinedButton(
-                                        onClick = { cursorEnabled = !cursorEnabled },
-                                        modifier = Modifier.weight(1f).testTag("extras-virtual-mouse")
-                                    ) { Text(if (cursorEnabled) "Cursor ON" else "Cursor OFF") }
+                                    ExtrasTvCursorModeButton(
+                                        cursorEnabled = cursorEnabled,
+                                        onToggle = { cursorEnabled = !cursorEnabled },
+                                        modifier = Modifier.weight(1f).focusRequester(dpadToolbarFocus)
+                                    )
                                 }
                             }
                         }
@@ -628,10 +662,11 @@ private fun ExtrasMediaForgePlayerScreen(
                                 modifier = Modifier.testTag("extras-embed-fullscreen")
                             ) { Text("Fullscreen") }
                             if (isAndroidTv) {
-                                OutlinedButton(
-                                    onClick = { cursorEnabled = !cursorEnabled },
-                                    modifier = Modifier.testTag("extras-virtual-mouse")
-                                ) { Text(if (cursorEnabled) "Cursor ON" else "Cursor OFF") }
+                                ExtrasTvCursorModeButton(
+                                    cursorEnabled = cursorEnabled,
+                                    onToggle = { cursorEnabled = !cursorEnabled },
+                                    modifier = Modifier.focusRequester(dpadToolbarFocus)
+                                )
                             }
                         }
                     }
@@ -643,8 +678,18 @@ private fun ExtrasMediaForgePlayerScreen(
                         else -> "TMDB #${request.tmdbId} · ${selectedServer.description}"
                     }) + " · Availability varies by provider.",
                     style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2
                 )
+                if (isAndroidTv) {
+                    Text(
+                        if (cursorEnabled) "Cursor mode: arrows move pointer, OK clicks; Back/Menu returns to D-pad."
+                        else "D-pad mode: navigate controls; Use cursor to click inside the web player.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2
+                    )
+                }
                 if (request.anilistId > 0) {
                     TextButton(
                         onClick = {
@@ -812,8 +857,34 @@ private fun ExtrasMediaForgePlayerScreen(
                     },
                     onConfirm = { webView?.let { bridge.click(it, pointerX.toFloat(), pointerY.toFloat()) } },
                     isActive = htmlFullscreenView == null,
-                    tag = "extras-virtual-cursor"
+                    tag = "extras-virtual-cursor",
+                    onMenu = { cursorEnabled = false }
                 )
+            }
+            if (immersiveWeb && isAndroidTv && htmlFullscreenView == null) {
+                // This trusted toolbar stays reachable in D-pad mode. It also
+                // gives the remote an exit when fullscreen hides the main UI.
+                Surface(
+                    modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        Modifier.padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { immersiveWeb = false },
+                            modifier = Modifier.focusRequester(dpadImmersiveFocus)
+                                .testTag("extras-embed-exit-immersive")
+                        ) { Text("Exit fullscreen") }
+                        ExtrasTvCursorModeButton(
+                            cursorEnabled = cursorEnabled,
+                            onToggle = { cursorEnabled = !cursorEnabled }
+                        )
+                    }
+                }
             }
         }
 
@@ -1065,10 +1136,7 @@ private fun ExtrasMediaForgePlayerScreen(
                     onConfirm = { bridge.click(videoView, pointerX.toFloat(), pointerY.toFloat()) },
                     isActive = true,
                     tag = "extras-fullscreen-virtual-cursor",
-                    onMenu = {
-                        bridge.dismissFullscreen()
-                        if (request.anilistId > 0) onChooseAnimeServer()
-                    }
+                    onMenu = { cursorEnabled = false }
                 )
             }
             // Always draw trusted recovery controls above the untrusted HTML surface.
@@ -1076,6 +1144,9 @@ private fun ExtrasMediaForgePlayerScreen(
                 ExtrasFullscreenRecoveryControls(
                     isAnime = request.anilistId > 0,
                     onExitFullscreen = { bridge.dismissFullscreen() },
+                    cursorEnabled = cursorEnabled,
+                    onToggleCursor = if (isAndroidTv) ({ cursorEnabled = !cursorEnabled }) else null,
+                    initialFocusRequester = if (isAndroidTv) dpadFullscreenFocus else null,
                     onChooseAnimeServer = {
                         bridge.dismissFullscreen()
                         onChooseAnimeServer()
@@ -1319,6 +1390,21 @@ internal fun ExtrasAnimeEmbedServerDropdown(
         isTv, modifier, pickerTitle = "Choose anime server", compactOptions = true)
 }
 
+/** Explicit remote-mode action. Off means native D-pad controls own focus. */
+@Composable
+internal fun ExtrasTvCursorModeButton(
+    cursorEnabled: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedButton(
+        onClick = onToggle,
+        modifier = modifier.testTag("extras-virtual-mouse")
+    ) {
+        Text(if (cursorEnabled) "Use D-pad" else "Use cursor", maxLines = 1)
+    }
+}
+
 /**
  * Reuses the same DPAD pointer for ordinary WebView and HTML5 custom fullscreen.
  * Pointer coordinates belong to the target view, not its outer Activity.
@@ -1337,6 +1423,8 @@ internal fun ExtrasVirtualCursor(
     onMenu: (() -> Unit)? = null
 ) {
     val focus = remember { FocusRequester() }
+    val pointerFill = MaterialTheme.colorScheme.primary
+    val pointerOutline = MaterialTheme.colorScheme.onPrimary
     // The HTML5 fullscreen window / WebView may attach after composition.
     // Two bounded frame attempts avoid an unresponsive remote on slow TVs.
     LaunchedEffect(isActive, target) {
@@ -1392,7 +1480,7 @@ internal fun ExtrasVirtualCursor(
                     xPx.coerceIn(0, widthPx - 1),
                     yPx.coerceIn(0, heightPx - 1)
                 )
-            }.size(30.dp)
+            }.size(30.dp).testTag("extras-cursor-pointer")
         ) {
             // Larger high-contrast arrow remains legible at TV viewing distances.
             // Pointer tip is also the exact synthesized tap hotspot.
@@ -1406,8 +1494,8 @@ internal fun ExtrasVirtualCursor(
                 lineTo(size.width * 0.96f, size.height * 0.52f)
                 close()
             }
-            drawPath(arrow, Color.White)
-            drawPath(arrow, Color.Black, style = Stroke(width = 2.dp.toPx()))
+            drawPath(arrow, pointerFill)
+            drawPath(arrow, pointerOutline, style = Stroke(width = 3.dp.toPx()))
         }
     }
 }
