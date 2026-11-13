@@ -72,7 +72,7 @@ fun BousygramThemeGallery(
                             verticalArrangement = Arrangement.spacedBy(7.dp)
                         ) {
                             Box(
-                                modifier = Modifier.fillMaxWidth().height(22.dp)
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 26.dp)
                                     .background(preset.background, RoundedCornerShape(8.dp))
                                     .border(1.dp, preset.outline.copy(alpha = 0.65f),
                                         RoundedCornerShape(8.dp))
