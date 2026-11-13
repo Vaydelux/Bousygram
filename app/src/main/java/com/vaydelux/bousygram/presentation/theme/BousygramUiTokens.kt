@@ -127,6 +127,7 @@ internal fun themeContrastRatio(foreground: Color, background: Color): Double {
 /** Select surface opacity without sacrificing the high-contrast reading mode. */
 internal fun playerHudSurfaceOpacity(background: Color): Float = when (background) {
     BousygramThemePreset.HIGH_CONTRAST.background -> BousygramUiTokens.contrastHudOpacity
-    BousygramThemePreset.LIGHT.background -> BousygramUiTokens.lightHudOpacity
+    BousygramThemePreset.LIGHT.background,
+    BousygramThemePreset.IVORY.background -> BousygramUiTokens.lightHudOpacity
     else -> BousygramUiTokens.darkHudOpacity
 }

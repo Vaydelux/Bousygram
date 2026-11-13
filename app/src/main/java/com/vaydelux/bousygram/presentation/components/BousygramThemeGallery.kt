@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.theme.schemeFor
 
 /** Adaptive color-preview gallery: identical cards, semantic states, and focus
  * behavior for phone, tablet, ARM32 TV and ARM64 TV. No nested lazy scrolling. */
@@ -55,6 +56,9 @@ fun BousygramThemeGallery(
                         BousygramThemePreset.EMBER -> "Peach · Rose"
                         BousygramThemePreset.HIGH_CONTRAST -> "High visibility"
                         BousygramThemePreset.LIGHT -> "Blue · Ice"
+                        BousygramThemePreset.OCEAN -> "Cyan · Marine"
+                        BousygramThemePreset.PLUM -> "Rose · Lavender"
+                        BousygramThemePreset.IVORY -> "Warm · Light"
                     }
                     TvFocusSurface(
                         onClick = { onSelect(preset) },
@@ -68,7 +72,7 @@ fun BousygramThemeGallery(
                             verticalArrangement = Arrangement.spacedBy(7.dp)
                         ) {
                             Box(
-                                modifier = Modifier.fillMaxWidth().height(22.dp)
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 26.dp)
                                     .background(preset.background, RoundedCornerShape(8.dp))
                                     .border(1.dp, preset.outline.copy(alpha = 0.65f),
                                         RoundedCornerShape(8.dp))
@@ -80,6 +84,15 @@ fun BousygramThemeGallery(
                                     for (color in listOf(preset.primary, preset.secondary, preset.tertiary)) {
                                         Box(Modifier.size(12.dp).background(color, CircleShape))
                                     }
+                                    Spacer(Modifier.weight(1f))
+                                    // Show a readable foreground sample from the candidate
+                                    // theme, not the currently active palette.
+                                    Text(
+                                        text = "Aa",
+                                        color = schemeFor(preset).onBackground,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1
+                                    )
                                 }
                             }
                             Text(

@@ -14,6 +14,48 @@ class ThemePresetTest {
         assertEquals(BousygramThemePreset.DARK, BousygramThemePreset.fromId("invalid"))
     }
 
+    @Test fun originalSevenThemeIdsAndPickerOrderRemainUnchanged() {
+        assertEquals(
+            listOf("dark", "aurora", "obsidian", "evergreen", "ember", "high_contrast", "light"),
+            BousygramThemePreset.entries.take(7).map { it.id }
+        )
+        assertEquals(BousygramThemePreset.DARK, BousygramThemePreset.MIDNIGHT)
+        // Existing default color remains exactly the same for established users.
+        assertEquals(androidx.compose.ui.graphics.Color(0xFF8AE8FA), BousygramThemePreset.DARK.primary)
+        assertEquals(androidx.compose.ui.graphics.Color(0xFFF5FAFF), BousygramThemePreset.LIGHT.background)
+    }
+
+    @Test fun expandedThemePresetsProvideReadableSemanticContrast() {
+        val expanded = listOf(
+            BousygramThemePreset.OCEAN,
+            BousygramThemePreset.PLUM,
+            BousygramThemePreset.IVORY
+        )
+        expanded.forEach { preset ->
+            assertEquals(preset, BousygramThemePreset.fromId(preset.id))
+            val c = schemeFor(preset)
+            val pairs = listOf(
+                c.onBackground to c.background,
+                c.onSurface to c.surfaceContainerLow,
+                c.onSurface to c.surfaceContainerHigh,
+                c.onSurfaceVariant to c.surfaceVariant,
+                c.onPrimary to c.primary,
+                c.onSecondary to c.secondary,
+                c.onTertiary to c.tertiary,
+                c.onPrimaryContainer to c.primaryContainer,
+                c.onSecondaryContainer to c.secondaryContainer,
+                c.onTertiaryContainer to c.tertiaryContainer,
+                c.onError to c.error
+            )
+            pairs.forEachIndexed { index, (foreground, background) ->
+                assertTrue(
+                    "${preset.id} semantic pair $index failed contrast",
+                    themeContrastRatio(foreground, background) >= 4.5
+                )
+            }
+        }
+    }
+
     @Test fun auroraPresetRemainsReadableAndPersistsIndependently() {
         val aurora = BousygramThemePreset.AURORA
         assertEquals(aurora, BousygramThemePreset.fromId("aurora"))
@@ -56,6 +98,7 @@ class ThemePresetTest {
     @Test fun hudOpacityRespectsHighContrastWhileShowingMoreVideoInDarkMode() {
         assertEquals(0.90f, playerHudSurfaceOpacity(BousygramThemePreset.DARK.background), 0.001f)
         assertEquals(0.96f, playerHudSurfaceOpacity(BousygramThemePreset.LIGHT.background), 0.001f)
+        assertEquals(0.96f, playerHudSurfaceOpacity(BousygramThemePreset.IVORY.background), 0.001f)
         assertEquals(0.99f, playerHudSurfaceOpacity(BousygramThemePreset.HIGH_CONTRAST.background), 0.001f)
     }
 
