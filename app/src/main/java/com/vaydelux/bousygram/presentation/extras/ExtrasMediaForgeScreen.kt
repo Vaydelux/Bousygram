@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import android.content.Intent
+import android.net.Uri
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -91,6 +93,7 @@ import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.MediaForgeInspectionFailure
 import com.vaydelux.mediaforge.core.MediaForgeSdk
+import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.core.MediaForgeSessionInspection
 import com.vaydelux.mediaforge.core.MediaForgeSessionRequest
 import com.vaydelux.mediaforge.players.MediaForgeMedia3
@@ -178,6 +181,18 @@ internal data class ExtrasEmbedRequest(
                 animeServer = source
             )
         }
+    }
+}
+
+/**
+ * A manual hand-off to the user's browser is preferable to bypassing the
+ * WebView's selected-title, host or TLS navigation restrictions.
+ * This is never automatic, and carries no Telegram credentials.
+ */
+internal fun extrasExternalBrowserIntent(selectedEmbedUrl: String): Intent? {
+    val approved = MediaForgeUrlPolicy.safeHttpsUrl(selectedEmbedUrl) ?: return null
+    return Intent(Intent.ACTION_VIEW, Uri.parse(approved.toString())).apply {
+        addCategory(Intent.CATEGORY_BROWSABLE)
     }
 }
 
@@ -285,6 +300,7 @@ private fun ExtrasMediaForgePlayerScreen(
         sdk.openSession(MediaForgeSessionRequest(embedUrl = request.url))
     }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var snapshot by remember(request.url) { mutableStateOf(session.snapshot()) }
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
     var cursorEnabled by remember(request.url) { mutableStateOf(false) }
@@ -342,6 +358,14 @@ private fun ExtrasMediaForgePlayerScreen(
                 status = message
                 webLoadFailed = true
             },
+            onPageLoadSucceeded = {
+                // A previous main-frame failure may have covered a now-valid
+                // iframe. This is page success, NOT proof of video playback.
+                webLoadFailed = false
+                if (snapshot.streams.isEmpty()) {
+                    status = "Web page opened. Tap Play or try another server if the video stays blank."
+                }
+            },
             onFullscreenRequested = { view ->
                 htmlFullscreenView = view
                 if (isAndroidTv) cursorEnabled = true
@@ -367,6 +391,18 @@ private fun ExtrasMediaForgePlayerScreen(
                 webLoadFailed = true
             }
         )
+    }
+
+    fun openSelectedInBrowser() {
+        val intent = extrasExternalBrowserIntent(request.url)
+        if (intent == null) {
+            status = "Only a valid public HTTPS web source can open externally."
+            return
+        }
+        runCatching { context.startActivity(intent) }
+            .onFailure {
+                status = "No compatible browser is available for this web source."
+            }
     }
 
     fun tryCompatibilityMode() {
@@ -640,6 +676,17 @@ private fun ExtrasMediaForgePlayerScreen(
                         )
                     }
                 }
+                if (request.anilistId > 0) {
+                    TextButton(
+                        onClick = { openSelectedInBrowser() },
+                        modifier = Modifier.testTag("extras-anime-open-browser")
+                    ) {
+                        Text(
+                            "Web player blocked? Open selected source in browser",
+                            maxLines = 2
+                        )
+                    }
+                }
                 if (request.tmdbId > 0 && request.season == null &&
                     selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
                 ) {
@@ -750,6 +797,10 @@ private fun ExtrasMediaForgePlayerScreen(
                                 modifier = Modifier.testTag("extras-anime-error-compatibility")
                             ) { Text("Try compatibility (cookies + autoplay)", maxLines = 2) }
                         }
+                        OutlinedButton(
+                            onClick = { openSelectedInBrowser() },
+                            modifier = Modifier.testTag("extras-anime-error-browser")
+                        ) { Text("Open in browser", maxLines = 2) }
                     }
                     OutlinedButton(onClick = {
                         webLoadFailed = false
@@ -830,6 +881,10 @@ private fun ExtrasMediaForgePlayerScreen(
                                     .testTag("extras-anime-blank-recovery")
                             ) { Text("Choose server", maxLines = 2) }
                         }
+                        TextButton(
+                            onClick = { openSelectedInBrowser() },
+                            modifier = Modifier.testTag("extras-anime-blank-browser")
+                        ) { Text("Open source in browser") }
                     }
                 }
             }
