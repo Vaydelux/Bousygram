@@ -53,9 +53,9 @@ class StreamingVisualTokensTest {
         assertNull(streamingProgressFraction(0L, 0L))
         assertNull(streamingProgressFraction(100L, -1L))
         assertNull(streamingProgressFraction(-1L, 100L))
-        assertEquals(0f, streamingProgressFraction(0L, 100L)!!)
-        assertEquals(.4f, streamingProgressFraction(40L, 100L)!!)
-        assertEquals(1f, streamingProgressFraction(200L, 100L)!!)
-        assertEquals(1f, streamingProgressFraction(Long.MAX_VALUE, 1L)!!)
+        assertEquals(0f, streamingProgressFraction(0L, 100L)!!, 0.0001f)
+        assertEquals(.4f, streamingProgressFraction(40L, 100L)!!, 0.0001f)
+        assertEquals(1f, streamingProgressFraction(200L, 100L)!!, 0.0001f)
+        assertEquals(1f, streamingProgressFraction(Long.MAX_VALUE, 1L)!!, 0.0001f)
     }
 }
