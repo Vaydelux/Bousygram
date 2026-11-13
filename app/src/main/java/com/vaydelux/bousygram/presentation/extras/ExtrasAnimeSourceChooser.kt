@@ -21,6 +21,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
@@ -110,7 +112,10 @@ internal fun ExtrasAnimeSourceChooser(
 internal fun ExtrasFullscreenRecoveryControls(
     isAnime: Boolean,
     onExitFullscreen: () -> Unit,
-    onChooseAnimeServer: () -> Unit
+    onChooseAnimeServer: () -> Unit,
+    cursorEnabled: Boolean = false,
+    onToggleCursor: (() -> Unit)? = null,
+    initialFocusRequester: FocusRequester? = null
 ) {
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth()
@@ -121,7 +126,10 @@ internal fun ExtrasFullscreenRecoveryControls(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(
                     onClick = onExitFullscreen,
-                    modifier = Modifier.fillMaxWidth().testTag("extras-embed-exit-html-fullscreen")
+                    modifier = Modifier.fillMaxWidth()
+                        .then(if (initialFocusRequester != null)
+                            Modifier.focusRequester(initialFocusRequester) else Modifier)
+                        .testTag("extras-embed-exit-html-fullscreen")
                 ) { Text("Exit fullscreen") }
                 if (isAnime) {
                     OutlinedButton(
@@ -129,18 +137,33 @@ internal fun ExtrasFullscreenRecoveryControls(
                         modifier = Modifier.fillMaxWidth().testTag("extras-anime-fullscreen-servers")
                     ) { Text("Choose server") }
                 }
+                if (onToggleCursor != null) {
+                    OutlinedButton(
+                        onClick = onToggleCursor,
+                        modifier = Modifier.fillMaxWidth().testTag("extras-fullscreen-cursor-mode")
+                    ) { Text(if (cursorEnabled) "Use D-pad" else "Use cursor") }
+                }
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = onExitFullscreen,
-                    modifier = Modifier.testTag("extras-embed-exit-html-fullscreen")
+                    modifier = Modifier
+                        .then(if (initialFocusRequester != null)
+                            Modifier.focusRequester(initialFocusRequester) else Modifier)
+                        .testTag("extras-embed-exit-html-fullscreen")
                 ) { Text("Exit fullscreen") }
                 if (isAnime) {
                     OutlinedButton(
                         onClick = onChooseAnimeServer,
                         modifier = Modifier.testTag("extras-anime-fullscreen-servers")
                     ) { Text("Choose server") }
+                }
+                if (onToggleCursor != null) {
+                    OutlinedButton(
+                        onClick = onToggleCursor,
+                        modifier = Modifier.testTag("extras-fullscreen-cursor-mode")
+                    ) { Text(if (cursorEnabled) "Use D-pad" else "Use cursor") }
                 }
             }
         }
