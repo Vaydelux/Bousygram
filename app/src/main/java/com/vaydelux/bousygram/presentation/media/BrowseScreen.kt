@@ -300,6 +300,7 @@ fun BrowseScreen(
     // Home/Library is not wrapped by the Material3 adaptive shell.
     Box(
         modifier = modifier.fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .then(if (adaptive.isTv) Modifier else Modifier.safeDrawingPadding())
     ) {
             TelegramExplorerDashboard(
