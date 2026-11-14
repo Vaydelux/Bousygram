@@ -122,6 +122,7 @@ fun TvVideoSearchScreen(
     val focusManager = LocalFocusManager.current
     var lastFocusedGridIndex by rememberSaveable { mutableIntStateOf(restoreGridIndex) }
     var selectedFilter by remember { mutableStateOf(SearchFilterOption.ALL) }
+    var historyExpanded by rememberSaveable { mutableStateOf(false) }
 
     fun clearSearch() {
         searchQuery = ""
@@ -169,7 +170,10 @@ fun TvVideoSearchScreen(
     LaunchedEffect(Unit) {
         when (restoreFocusTarget) {
             SearchFocusTarget.SearchField -> runCatching { searchInputFocusRequester.requestFocus() }
-            SearchFocusTarget.VoiceButton -> runCatching { voiceButtonFocusRequester.requestFocus() }
+            SearchFocusTarget.VoiceButton -> runCatching {
+                if (adaptive.isCompact) searchInputFocusRequester.requestFocus()
+                else voiceButtonFocusRequester.requestFocus()
+            }
             SearchFocusTarget.Grid -> {
                 if (restoreGridIndex > 0) {
                     runCatching { gridState.scrollToItem(restoreGridIndex) }
@@ -198,7 +202,10 @@ fun TvVideoSearchScreen(
                     .fillMaxSize()
                     .padding(if (adaptive.isCompact) 16.dp else 32.dp)
             ) {
-                BousygramPageHeading(
+                // Preserve vertical space for actual results on short landscape windows.
+                // Keep the heading for idle/error screens where orientation matters less.
+                if (uiState !is SearchUiState.Success && uiState !is SearchUiState.Loading) {
+                    BousygramPageHeading(
                     eyebrow = "Telegram media  /  Discover",
                     title = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
                         "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
@@ -207,8 +214,11 @@ fun TvVideoSearchScreen(
                     },
                     subtitle = "Find the right video across your accessible Telegram sources.",
                     compact = adaptive.isCompact
-                )
-                Spacer(Modifier.height(18.dp))
+                    )
+                    Spacer(Modifier.height(12.dp))
+                } else {
+                    Spacer(Modifier.height(4.dp))
+                }
                 if (adaptive.isCompact) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         SearchField(
@@ -228,20 +238,6 @@ fun TvVideoSearchScreen(
                             isVoiceListening = isVoiceListening
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            VoiceSearchButton(
-                                onClick = { launchVoiceSearch() },
-                                isListening = isVoiceListening,
-                                isCompact = true,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .focusRequester(voiceButtonFocusRequester)
-                                    .onFocusChanged {
-                                        if (it.isFocused) {
-                                            onFocusStateChanged(SearchFocusTarget.VoiceButton, lastFocusedGridIndex)
-                                            com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager.onFocusCleared()
-                                        }
-                                    }
-                            )
                             BousygramButton("Search", { executeSearch() }, modifier = Modifier.weight(1f))
                             BousygramButton("Clear", { clearSearch() }, modifier = Modifier.weight(1f))
                         }
@@ -299,7 +295,13 @@ fun TvVideoSearchScreen(
                 }
 
                 if (!privacyMode && recentSearches.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
+                    BousygramButton(
+                        if (historyExpanded) "Hide recent searches" else "Recent searches",
+                        { historyExpanded = !historyExpanded }
+                    )
+                }
+                if (!privacyMode && historyExpanded && recentSearches.isNotEmpty()) {
                     RecentSearchesSection(
                         recentSearches = recentSearches.take(10),
                         activeQuery = searchQuery.trim(),
@@ -313,7 +315,7 @@ fun TvVideoSearchScreen(
                     )
                 }
 
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()

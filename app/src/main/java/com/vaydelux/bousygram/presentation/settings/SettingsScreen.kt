@@ -133,14 +133,16 @@ fun SettingsScreen(
         "off" to "Off"
     )
 
+    // A wide but short landscape window must retain the compact settings header.
     val showSidebar = !adaptive.isCompact &&
         adaptive.effectiveWidthDp >= 1100.dp && adaptive.effectiveHeightDp >= 650.dp
+    val contentGutter = if (adaptive.isCompact) 16.dp else 24.dp
     BousygramScaffold(modifier) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(if (adaptive.isCompact) 16.dp else 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp)
+                .padding(contentGutter),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (showSidebar) {
                 Column(
