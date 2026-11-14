@@ -8,6 +8,8 @@ internal enum class ExtrasAnimeEmbedServer(
     val featured: Boolean = false
 ) {
     EMBED_HEAVEN("EmbedHeaven", ExtrasEmbedHeavenRoutes.ANIME_TEMPLATE, featured = true),
+    // Zoryva documents a season- AND episode-specific route using AniList IDs.
+    ZORYVA("Zoryva X", "https://zoryva.me/embed/anime/{anilistId}/{season}/{episode}", featured = true),
     VIDY("Vidy", "https://vidy.st/anime/{anilistId}/{episode}", mapOf("color" to "DC2626"), featured = true),
     XXIKU("XXIKU", "https://player.xxiku.com/embed/anime/{anilistId}/{episode}", featured = true),
     FILMU("Filmu", "https://embed.filmu.in/anime/{anilistId}/{season}/{episode}"),
@@ -29,6 +31,7 @@ internal enum class ExtrasAnimeEmbedServer(
 
     val description: String get() = when (this) {
         EMBED_HEAVEN -> "AniList episode route · unified movie/TV web player"
+        ZORYVA -> "Documented AniList season/episode iframe · availability and rights unverified"
         VIDY, XXIKU -> "AniList episode route · external availability varies"
         else -> "External anime embed · availability unverified"
     }
