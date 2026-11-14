@@ -74,6 +74,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
@@ -796,11 +799,25 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
  * A visible escape hatch when earlier pages leave the bounded results window.
  * This surface is independent of API credentials and is remote-accessible.
  */
+/**
+ * Certain Android TV firmware and Compose owners do not forward DPAD_CENTER
+ * through Material3's default keyboard click path. Consume both halves of the
+ * activation key and invoke the action once, on key up. Touch clicks still use
+ * the normal clickable/Button handler.
+ */
+private fun Modifier.activateOnTvDpad(onActivate: () -> Unit): Modifier =
+    this.onPreviewKeyEvent { event ->
+        if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+            if (event.type == KeyEventType.KeyUp) onActivate()
+            true
+        } else false
+    }
+
 /** Remote-focusable single-page rewind without keeping every earlier page in memory. */
 @Composable
 internal fun ExtrasPreviousPageAction(onPrevious: () -> Unit) {
     TextButton(
-        modifier = Modifier.testTag("extras-previous-page"),
+        modifier = Modifier.testTag("extras-previous-page").activateOnTvDpad(onPrevious),
         onClick = onPrevious
     ) { Text("Previous page") }
 }
@@ -819,7 +836,7 @@ internal fun ExtrasPagingWindowNotice(retainedCount: Int, onRestart: () -> Unit)
             modifier = Modifier.weight(1f)
         )
         TextButton(
-            modifier = Modifier.testTag("extras-start-over"),
+            modifier = Modifier.testTag("extras-start-over").activateOnTvDpad(onRestart),
             onClick = onRestart
         ) { Text("From start") }
     }
@@ -875,6 +892,7 @@ internal fun ExtrasSearchSuggestions(
                                     RoundedCornerShape(8.dp)
                                 ) else Modifier
                             )
+                            .activateOnTvDpad { onOpen(item) }
                             .clickable { onOpen(item) }
                             .padding(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -920,7 +938,7 @@ internal fun ExtrasTmdbPendingSetup(
                 message = "TMDB access will be enabled in a later build. Anime search is available separately through AniList."
             )
             Button(
-                modifier = Modifier.testTag("extras-go-anime"),
+                modifier = Modifier.testTag("extras-go-anime").activateOnTvDpad(onBrowseAnime),
                 onClick = onBrowseAnime
             ) { Text("Browse Anime") }
         }
