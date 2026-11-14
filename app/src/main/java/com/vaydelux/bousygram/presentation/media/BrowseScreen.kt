@@ -100,6 +100,7 @@ fun BrowseScreen(
     onOpenLibrary: () -> Unit,
     onOpenFavorites: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHome: () -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenSearchWithQuery: (chatId: Long?, chatTitle: String, query: String) -> Unit = { chatId, chatTitle, _ ->
         onOpenSearch(chatId, chatTitle)
@@ -348,6 +349,7 @@ fun BrowseScreen(
                 },
                 onFavorites = onOpenFavorites,
                 onSettings = onOpenSettings,
+                onNavigate = if (libraryMode) onOpenHome else onOpenLibrary,
                 hasResume = hasSourceResume,
                 onResume = ::openLastPlayed,
                 libraryMode = libraryMode,
