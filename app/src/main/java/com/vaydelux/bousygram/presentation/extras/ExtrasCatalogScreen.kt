@@ -7,10 +7,12 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ColumnScope
@@ -71,6 +73,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -970,14 +973,33 @@ private fun ExtrasPosterArtwork(
             .crossfade(false)
             .build()
     }
-    AsyncImage(
-        model = imageRequest,
-        contentDescription = contentDescription,
-        modifier = modifier,
-        contentScale = ContentScale.Crop,
-        placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh),
-        error = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh)
-    )
+    // Keep the full cover visible. Catalog grid cards and detail covers share a
+    // 2:3 frame so no provider artwork is cropped on phones or TVs.
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        contentAlignment = Alignment.Center
+    ) {
+        if (url.isNullOrBlank()) {
+            Text(
+                "Artwork unavailable",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                modifier = Modifier.padding(12.dp)
+            )
+        } else {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = contentDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+                placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh),
+                error = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh)
+            )
+        }
+    }
 }
 
 @Composable
@@ -987,8 +1009,6 @@ internal fun ExtrasPosterCard(
     onClick: () -> Unit
 ) {
     val metrics = rememberAdaptiveMetrics()
-    val shortViewport = metrics.heightDp < 650.dp
-    val posterHeight = if (shortViewport) 154.dp else 205.dp
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth()
@@ -998,7 +1018,8 @@ internal fun ExtrasPosterCard(
             ExtrasPosterArtwork(
                 url = item.poster,
                 contentDescription = item.title,
-                modifier = Modifier.fillMaxWidth().height(posterHeight),
+                modifier = Modifier.fillMaxWidth()
+                    .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO),
                 detail = false
             )
             Column(
@@ -1074,16 +1095,14 @@ private fun ExtrasDetailContent(
                     stacked -> 155.dp
                     else -> 185.dp
                 }
-                val posterHeight = when {
-                    shortViewport -> 168.dp
-                    stacked -> 225.dp
-                    else -> 270.dp
-                }
+                // Width follows the responsive pane; height is always the
+                // poster's full 2:3 aspect ratio, never an arbitrary crop.
                 if (stacked) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         ExtrasPosterArtwork(
                             url = info.item.poster, contentDescription = info.item.title,
-                            modifier = Modifier.width(posterWidth).height(posterHeight), detail = true
+                            modifier = Modifier.width(posterWidth)
+                                .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
                         )
                         DetailText(info)
                     }
@@ -1091,7 +1110,8 @@ private fun ExtrasDetailContent(
                     Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                         ExtrasPosterArtwork(
                             url = info.item.poster, contentDescription = info.item.title,
-                            modifier = Modifier.width(posterWidth).height(posterHeight), detail = true
+                            modifier = Modifier.width(posterWidth)
+                                .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
                         )
                         Column(Modifier.weight(1f)) { DetailText(info) }
                     }
