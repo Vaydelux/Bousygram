@@ -62,6 +62,7 @@ fun TvHybridPreviewHost() {
         onNavigate = {},
         hasResume = false,
         onResume = {},
+        libraryMode = true,
         modifier = Modifier.fillMaxSize()
     )
 }
