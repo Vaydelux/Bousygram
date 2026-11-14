@@ -1,0 +1,80 @@
+name: One-time Bousygram Extras unified UI debug prerelease request
+
+# Deliberately workflow-only: no Android or media engine source changes.
+# A squash merge on main may request the existing fully-qualified debug build.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/request-extras-unified-debug-once-20261115.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  request-debug:
+    name: Verify frozen Extras UI and request canonical prerelease
+    if: >-
+      github.repository == 'Vaydelux/Bousygram' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'ci(android): request unified Extras debug prerelease 2026-11-15')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check out exact merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify exact source, PR and mainline build gates
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROZEN_SOURCE_SHA: ff644ca24625b3133662f07b82661194d562e135
+          REQUEST_PATH: .github/workflows/request-extras-unified-debug-once-20261115.yml
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "::error::Checked-out source does not match the triggering commit." >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD^)" == "$FROZEN_SOURCE_SHA" ]] || {
+            echo "::error::Release request does not immediately follow frozen Extras app source." >&2
+            exit 1
+          }
+          [[ "$(git diff --name-only "$FROZEN_SOURCE_SHA" "$GITHUB_SHA")" == "$REQUEST_PATH" ]] || {
+            echo "::error::Release request changed more than the one-time workflow file." >&2
+            exit 1
+          }
+          main_sha="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved; refusing to publish from a stale source." >&2
+            exit 1
+          }
+
+          for run_id in 43629304467 43629304430 43629304464; do
+            verified="$(gh api "repos/$repo/actions/runs/$run_id" \
+              --jq '[.head_sha, .conclusion, .event] | join(":")')"
+            [[ "$verified" == "$FROZEN_SOURCE_SHA:success:push" ]] || {
+              echo "::error::Required mainline CI run $run_id failed or changed." >&2
+              exit 1
+            }
+          done
+          [[ "$(gh api "repos/$repo/pulls/193" --jq '.merged')" == true ]] || {
+            echo "::error::Extras UI PR #193 must be merged first." >&2
+            exit 1
+          }
+
+          gh api --method POST \
+            "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" \
+            -f ref=main
+          {
+            echo "## Qualified Extras debug prerelease requested"
+            echo "Frozen Android app source: $FROZEN_SOURCE_SHA"
+            echo "One-time release-request commit: $GITHUB_SHA"
+            echo "Canonical workflow independently builds, tests, checks ABI/checksums, and publishes."
+            echo "No Android app code changed after the verified source."
+          } >> "$GITHUB_STEP_SUMMARY"
