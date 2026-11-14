@@ -139,6 +139,13 @@ internal data class ExtrasEmbedRequest(
         }
     }
 
+    /** Zoryva publishes an iframe embed, not a native stream API. */
+    val webEmbedOnly: Boolean get() = if (anilistId > 0) {
+        animeServer == ExtrasAnimeEmbedServer.ZORYVA
+    } else {
+        server == ExtrasEmbedServer.ZORYVA
+    }
+
     fun forServer(next: ExtrasEmbedServer): ExtrasEmbedRequest {
         require(tmdbId > 0) { "TMDB server selection requires a TMDB title" }
         return copy(url = next.urlFor(tmdbId, season, episode), server = next, legacyEmbedHeaven = false)
@@ -307,6 +314,7 @@ private fun ExtrasMediaForgePlayerScreen(
     }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val webEmbedOnly = request.webEmbedOnly
     var snapshot by remember(request.url) { mutableStateOf(session.snapshot()) }
     var webView by remember(request.url) { mutableStateOf<WebView?>(null) }
     // Android TV starts with native D-pad navigation; cursor is opt-in.
@@ -359,7 +367,9 @@ private fun ExtrasMediaForgePlayerScreen(
     val bridge = remember(request.url, webGeneration) {
         MediaForgeWebBridge(
             onMediaResource = { url ->
-                if (session.observe(url)) snapshot = session.snapshot()
+                // The documented Zoryva integration is an iframe only;
+                // do not collect or inspect its media URLs as a native source.
+                if (!webEmbedOnly && session.observe(url)) snapshot = session.snapshot()
             },
             onNavigationBlocked = {
                 status = "Blocked a navigation outside the selected embed."
@@ -897,7 +907,8 @@ private fun ExtrasMediaForgePlayerScreen(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                "WebView playback · ${snapshot.streams.size} video candidate(s) · ${snapshot.captions.size} subtitle(s)",
+                if (webEmbedOnly) "Zoryva iframe · WebView playback only"
+                else "WebView playback · ${snapshot.streams.size} video candidate(s) · ${snapshot.captions.size} subtitle(s)",
                 style = MaterialTheme.typography.labelMedium
             )
             Text(status, style = MaterialTheme.typography.bodySmall, maxLines = 2)
@@ -950,7 +961,9 @@ private fun ExtrasMediaForgePlayerScreen(
             }
             if (snapshot.streams.isEmpty()) {
                 Text(
-                    "No accessible stream discovered yet. You can continue watching in WebView.",
+                    if (webEmbedOnly)
+                        "Use Zoryva's in-player controls. Native stream extraction is not offered for this iframe."
+                    else "No accessible stream discovered yet. You can continue watching in WebView.",
                     style = MaterialTheme.typography.labelSmall
                 )
             } else {
