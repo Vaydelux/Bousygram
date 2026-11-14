@@ -114,6 +114,7 @@ fun TelegramExplorerDashboard(
     onSettings: () -> Unit,
     hasResume: Boolean,
     onResume: () -> Unit,
+    libraryMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val adaptive = rememberAdaptiveMetrics()
@@ -221,6 +222,7 @@ fun TelegramExplorerDashboard(
         }
         TelegramExplorerCompactHeader(
             section = position.section,
+            screenTitle = if (libraryMode) "Your library" else "Home",
             folderTitle = folderTitle,
             collectionStatus = collectionStatus,
             widthDp = adaptive.widthDp,
