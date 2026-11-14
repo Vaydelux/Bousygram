@@ -301,8 +301,6 @@ fun BrowseScreen(
         }
     )
 
-    val pagePadding = if (adaptive.isCompact) 12.dp else 28.dp
-    val posterMin = if (adaptive.isCompact) 160.dp else 220.dp
     // One explorer implementation for Home and Library: no legacy horizontal rails.
     Box(modifier = modifier.fillMaxSize()) {
             TelegramExplorerDashboard(
