@@ -168,22 +168,17 @@ fun BrowseScreen(
         }
     }
 
-    // The library fetches media metadata a page at a time from TDLib. Near the end of the
-    // currently loaded grid, prefetch the next metadata page automatically, without downloading
-    // video bytes; playback remains the responsibility of the existing ExoPlayer stream path.
-    LaunchedEffect(libraryMode, videos.size, state.hasMore, state.isLoading, state.isLoadingMore, state.discardedMediaCount) {
+    // Persist the viewport of the active Library folder only. The explorer owns
+    // pagination; keying this observer by browseStateKey prevents old folders from
+    // overwriting the current folder's stored scroll position after navigation.
+    LaunchedEffect(libraryMode, browseStateKey, libraryGridState) {
         if (!libraryMode) return@LaunchedEffect
-        snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+        snapshotFlow {
+            libraryGridState.firstVisibleItemIndex to libraryGridState.firstVisibleItemScrollOffset
+        }
             .distinctUntilChanged()
-            .collect { _ ->
-                viewModel.saveBrowseViewport(
-                    browseStateKey,
-                    libraryGridState.firstVisibleItemIndex,
-                    libraryGridState.firstVisibleItemScrollOffset
-                )
-                // TelegramExplorerDashboard owns metadata pagination for both Home and Library.
-                // This collector only persists the viewport; a second loadMore call here
-                // could race the explorer collector when the grid reaches its final row.
+            .collect { (index, offset) ->
+                viewModel.saveBrowseViewport(browseStateKey, index, offset)
             }
     }
 
