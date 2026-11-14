@@ -6,6 +6,10 @@ internal data class ExtrasArtworkSize(val width: Int, val height: Int) {
 }
 
 internal object ExtrasImagePolicy {
+    // TMDB and AniList key art is portrait. Layout follows the artwork instead
+    // of cropping its top/bottom to a fixed pixel height.
+    const val POSTER_ASPECT_RATIO = 2f / 3f
+
     fun poster(
         lowMemory: Boolean,
         detail: Boolean,
