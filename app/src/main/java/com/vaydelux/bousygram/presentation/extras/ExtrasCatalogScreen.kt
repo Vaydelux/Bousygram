@@ -1103,6 +1103,13 @@ private fun ExtrasDetailContent(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             horizontal = if (compact) 14.dp else 28.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (!info.backdrop.isNullOrBlank()) {
+            item(key = "backdrop:${info.item.type}:${info.item.id}") {
+                ExtrasDetailBackdrop(
+                    info = info, compact = compact, shortViewport = shortViewport
+                )
+            }
+        }
         item {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 // React to the measured detail pane, not just phone-vs-TV.
