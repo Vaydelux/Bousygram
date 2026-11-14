@@ -1,6 +1,6 @@
 # Extras — UI, remote navigation and catalog API review
-**Scope:** Bousygram Android TV / phone Extras (Movies, TV Shows, Anime)  
-**Baseline:** Merged frozen debug source `17d5b0d09c1fce202c94ccf193898877a5f2f6a1`  
+**Scope:** Bousygram Android TV / phone Extras (Movies, TV Shows, Anime)
+**Baseline:** Merged frozen debug source `17d5b0d09c1fce202c94ccf193898877a5f2f6a1`
 **Branch:** `feat/extras-unified-focus-artwork-20261115`
 
 ## Objective and non-goals
