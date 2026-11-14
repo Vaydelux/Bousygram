@@ -985,7 +985,8 @@ private fun ExtrasPosterArtwork(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .testTag("extras-poster-artwork"),
         contentAlignment = Alignment.Center
     ) {
         if (url.isNullOrBlank()) {
@@ -1047,7 +1048,16 @@ internal fun ExtrasPosterCard(
                     listOf(item.year, item.rating.takeIf(String::isNotEmpty)?.let { "★ $it" })
                         .filterNotNull().joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    item.subtitle.ifBlank { item.type.label },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
