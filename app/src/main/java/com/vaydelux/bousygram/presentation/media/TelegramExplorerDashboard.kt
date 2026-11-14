@@ -193,9 +193,14 @@ fun TelegramExplorerDashboard(
         modifier = Modifier.fillMaxSize()
             .padding(
                 horizontal = design.pagePadding,
-                vertical = if (adaptive.isTv) 18.dp else 14.dp
+                // Short landscape viewports need room for the first visible media row.
+                vertical = if (adaptive.heightDp < 500.dp) 8.dp
+                    else if (adaptive.isTv) 18.dp else 14.dp
             ),
-        verticalArrangement = Arrangement.spacedBy(if (adaptive.isTv) 8.dp else 10.dp)
+        verticalArrangement = Arrangement.spacedBy(
+            if (adaptive.heightDp < 500.dp) 6.dp
+            else if (adaptive.isTv) 8.dp else 10.dp
+        )
     ) {
         // Content-first toolbar: two compact rows instead of a full page hero,
         // three separate navigation/action rows and an oversized collection panel.
