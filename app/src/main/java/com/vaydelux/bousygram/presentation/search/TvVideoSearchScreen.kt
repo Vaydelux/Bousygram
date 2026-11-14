@@ -170,7 +170,10 @@ fun TvVideoSearchScreen(
     LaunchedEffect(Unit) {
         when (restoreFocusTarget) {
             SearchFocusTarget.SearchField -> runCatching { searchInputFocusRequester.requestFocus() }
-            SearchFocusTarget.VoiceButton -> runCatching { voiceButtonFocusRequester.requestFocus() }
+            SearchFocusTarget.VoiceButton -> runCatching {
+                if (adaptive.isCompact) searchInputFocusRequester.requestFocus()
+                else voiceButtonFocusRequester.requestFocus()
+            }
             SearchFocusTarget.Grid -> {
                 if (restoreGridIndex > 0) {
                     runCatching { gridState.scrollToItem(restoreGridIndex) }
