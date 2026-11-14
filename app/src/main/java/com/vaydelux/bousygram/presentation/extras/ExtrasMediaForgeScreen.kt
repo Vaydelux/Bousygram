@@ -1184,6 +1184,7 @@ private fun ExtrasServerPicker(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth()
                 .heightIn(min = if (isTv) 56.dp else 48.dp)
+                .extrasFocusOutline()
                 .testTag("extras-server-dropdown")
         ) {
             Text("Server: $label  ▾", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1250,7 +1251,7 @@ private fun ExtrasServerPicker(
                                 )
                                 OutlinedButton(
                                     onClick = { expanded = false },
-                                    modifier = Modifier.testTag("extras-server-close")
+                                    modifier = Modifier.extrasFocusOutline().testTag("extras-server-close")
                                 ) { Text("Close") }
                             }
                             Text(
