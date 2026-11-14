@@ -784,17 +784,24 @@ internal fun ExtrasFilterDisclosure(
 @Composable
 internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
     val metrics = rememberAdaptiveMetrics()
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
+    // Three catalog destinations must remain visible at once on phone widths.
+    // A lazy horizontal row could hide Anime until the user guessed to scroll.
+    val compact = metrics.isCompact || metrics.effectiveWidthDp < 600.dp
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("extras-catalog-tabs"),
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
     ) {
-        items(ExtrasType.entries.toList(), key = { it.name }) { tab ->
+        ExtrasType.entries.forEach { tab ->
             BousygramSectionTab(
                 label = tab.label,
                 active = selectedTab == tab.ordinal,
                 isTv = metrics.isTv,
+                compact = compact,
+                accessibilityLabel = tab.label,
                 onClick = { onSelect(tab.ordinal) },
-                modifier = Modifier.testTag("extras-tab-${tab.name.lowercase()}")
+                modifier = (if (compact) Modifier.weight(1f)
+                    else Modifier.widthIn(min = 136.dp, max = 190.dp))
+                    .testTag("extras-tab-${tab.name.lowercase()}")
             )
         }
     }
