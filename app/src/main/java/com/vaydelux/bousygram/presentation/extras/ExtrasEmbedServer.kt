@@ -48,6 +48,11 @@ internal enum class ExtrasEmbedServer(
     CINESRC("CineSrc", "Original external embed", "https://cinesrc.st/embed/movie/{tmdbId}", "https://cinesrc.st/embed/tv/{tmdbId}?s={season}&e={episode}"),
     XXIKU("XXIKU", "External movie/TV embed; availability unverified", "https://player.xxiku.com/embed/movie/{tmdbId}", "https://player.xxiku.com/embed/tv/{tmdbId}/{season}/{episode}"),
     EMBED_HEAVEN("EmbedHeaven", "External movie/TV embed; availability unverified", ExtrasEmbedHeavenRoutes.MOVIE_TEMPLATE, ExtrasEmbedHeavenRoutes.TV_TEMPLATE),
+    // Documented at https://www.zoryva.me/embed (TMDB identity, direct paths).
+    // A selectable WebView embed, not an SDK, host authorization or direct HLS source.
+    ZORYVA("Zoryva X", "Documented TMDB movie/TV iframe · availability and rights unverified",
+        "https://zoryva.me/embed/movie/{tmdbId}",
+        "https://zoryva.me/embed/tv/{tmdbId}/{season}/{episode}", featured = true),
     SERVER_111MOVIES("111Movies", "External embed; playback and licensing unverified", "https://111movies.net/movie/{id}", "https://111movies.net/tv/{id}/{season}/{episode}"),
     SERVER_1EMBED("1Embed", "External embed; playback and licensing unverified", "https://1embed.cc/embed/movie/{id}", "https://1embed.cc/embed/tv/{id}/{season}/{episode}"),
     SERVER_2EMBED("2Embed", "External embed; playback and licensing unverified", "https://www.2embed.cc/embed/{id}", "https://www.2embed.cc/embedtv/{id}?s={season}&e={episode}"),
@@ -102,7 +107,12 @@ internal enum class ExtrasEmbedServer(
                startAtSec: Int? = null): String {
         require(selectable) { "This embed needs a configured absolute HTTPS host" }
         val template = if (season == null) movieTemplate else tvTemplate
-        val resume = if (this in setOf(VIDFAST, PEACHIFY, PRIMESRC)) startAtSec else null
+        val resume = when (this) {
+            // Zoryva documents startAt/t in seconds with an upper bound of 86,400.
+            ZORYVA -> startAtSec?.coerceIn(0, 86_400)
+            VIDFAST, PEACHIFY, PRIMESRC -> startAtSec
+            else -> null
+        }
         return ExtrasEmbedUrlTemplates.build(template, tmdbId, season, episode, queryParams, resume)
     }
 }
