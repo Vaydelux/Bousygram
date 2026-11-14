@@ -7,10 +7,12 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ColumnScope
@@ -71,6 +73,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -398,7 +401,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         onClick = {
                             if (detailItem != null) goBackFromDetails() else onExit()
                         },
-                        modifier = Modifier.heightIn(min = if (metrics.isTv) 52.dp else 44.dp)
+                        modifier = Modifier.heightIn(min = if (metrics.isTv) 52.dp else 44.dp).extrasFocusOutline()
                     ) { Text("‹ Back", maxLines = 1) }
                     // On a 320dp phone, the logo plus two actions squeezed the
                     // title to almost zero width. Keep the actions reachable.
@@ -422,7 +425,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             maxLines = 1
                         )
                     }
-                    TextButton(onClick = { showCredits = true }) {
+                    TextButton(onClick = { showCredits = true }, modifier = Modifier.extrasFocusOutline()) {
                         Text(if (metrics.widthDp < 430.dp) "Info" else "Credits", maxLines = 1)
                     }
                 }
@@ -451,7 +454,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     )
                     Button(
                         onClick = { detailRetry += 1 },
-                        modifier = Modifier.testTag("extras-detail-retry")
+                        modifier = Modifier.extrasFocusOutline().testTag("extras-detail-retry")
                     ) { Text("Retry") }
                 }
             } else detail?.let { info ->
@@ -501,7 +504,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     trailingIcon = {
                         if (state.query.isNotEmpty()) {
                             TextButton(
-                                modifier = Modifier.testTag("extras-search-clear"),
+                                modifier = Modifier.extrasFocusOutline().testTag("extras-search-clear"),
                                 onClick = {
                                     showSuggestions = false
                                     update(state.copy(
@@ -512,7 +515,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             ) { Text("Clear") }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().onFocusChanged {
+                    modifier = Modifier.fillMaxWidth().extrasFocusOutline().onFocusChanged {
                         if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
                     }
                 )
@@ -711,7 +714,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             item {
                                 Button(onClick = {
                                     if (!state.loading) update(state.copy(page = state.page + 1, loading = true, error = null))
-                                }, enabled = !state.loading) {
+                                }, modifier = Modifier.extrasFocusOutline(), enabled = !state.loading) {
                                     Text(if (state.loading) "Loading…" else "More titles")
                                 }
                             }
@@ -763,7 +766,7 @@ internal fun ExtrasFilterDisclosure(
     ) {
         OutlinedButton(
             onClick = onToggle,
-            modifier = Modifier.heightIn(min = 44.dp).testTag("extras-filter-toggle")
+            modifier = Modifier.heightIn(min = 44.dp).extrasFocusOutline().testTag("extras-filter-toggle")
         ) {
             Text(if (expanded) "Hide filters" else "Filters", maxLines = 1)
         }
@@ -781,17 +784,24 @@ internal fun ExtrasFilterDisclosure(
 @Composable
 internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
     val metrics = rememberAdaptiveMetrics()
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
+    // Three catalog destinations must remain visible at once on phone widths.
+    // A lazy horizontal row could hide Anime until the user guessed to scroll.
+    val compact = metrics.isCompact || metrics.effectiveWidthDp < 600.dp
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("extras-catalog-tabs"),
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
     ) {
-        items(ExtrasType.entries.toList(), key = { it.name }) { tab ->
+        ExtrasType.entries.forEach { tab ->
             BousygramSectionTab(
                 label = tab.label,
                 active = selectedTab == tab.ordinal,
                 isTv = metrics.isTv,
+                compact = compact,
+                accessibilityLabel = tab.label,
                 onClick = { onSelect(tab.ordinal) },
-                modifier = Modifier.testTag("extras-tab-${tab.name.lowercase()}")
+                modifier = (if (compact) Modifier.weight(1f)
+                    else Modifier.widthIn(min = 136.dp, max = 190.dp))
+                    .testTag("extras-tab-${tab.name.lowercase()}")
             )
         }
     }
@@ -819,7 +829,7 @@ private fun Modifier.activateOnTvDpad(onActivate: () -> Unit): Modifier =
 @Composable
 internal fun ExtrasPreviousPageAction(onPrevious: () -> Unit) {
     TextButton(
-        modifier = Modifier.testTag("extras-previous-page").activateOnTvDpad(onPrevious),
+        modifier = Modifier.extrasFocusOutline().testTag("extras-previous-page").activateOnTvDpad(onPrevious),
         onClick = onPrevious
     ) { Text("Previous page") }
 }
@@ -838,7 +848,7 @@ internal fun ExtrasPagingWindowNotice(retainedCount: Int, onRestart: () -> Unit)
             modifier = Modifier.weight(1f)
         )
         TextButton(
-            modifier = Modifier.testTag("extras-start-over").activateOnTvDpad(onRestart),
+            modifier = Modifier.extrasFocusOutline().testTag("extras-start-over").activateOnTvDpad(onRestart),
             onClick = onRestart
         ) { Text("From start") }
     }
@@ -877,7 +887,7 @@ internal fun ExtrasSearchSuggestions(
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(
-                    modifier = Modifier.testTag("extras-suggestions-dismiss"),
+                    modifier = Modifier.extrasFocusOutline().testTag("extras-suggestions-dismiss"),
                     onClick = onDismiss
                 ) { Text("Dismiss") }
             }
@@ -940,7 +950,7 @@ internal fun ExtrasTmdbPendingSetup(
                 message = "TMDB access will be enabled in a later build. Anime search is available separately through AniList."
             )
             Button(
-                modifier = Modifier.testTag("extras-go-anime").activateOnTvDpad(onBrowseAnime),
+                modifier = Modifier.extrasFocusOutline().testTag("extras-go-anime").activateOnTvDpad(onBrowseAnime),
                 onClick = onBrowseAnime
             ) { Text("Browse Anime") }
         }
@@ -970,14 +980,34 @@ private fun ExtrasPosterArtwork(
             .crossfade(false)
             .build()
     }
-    AsyncImage(
-        model = imageRequest,
-        contentDescription = contentDescription,
-        modifier = modifier,
-        contentScale = ContentScale.Crop,
-        placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh),
-        error = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh)
-    )
+    // Keep the full cover visible. Catalog grid cards and detail covers share a
+    // 2:3 frame so no provider artwork is cropped on phones or TVs.
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .testTag("extras-poster-artwork"),
+        contentAlignment = Alignment.Center
+    ) {
+        if (url.isNullOrBlank()) {
+            Text(
+                "Artwork unavailable",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                modifier = Modifier.padding(12.dp)
+            )
+        } else {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = contentDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+                placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh),
+                error = ColorPainter(MaterialTheme.colorScheme.surfaceContainerHigh)
+            )
+        }
+    }
 }
 
 @Composable
@@ -987,8 +1017,6 @@ internal fun ExtrasPosterCard(
     onClick: () -> Unit
 ) {
     val metrics = rememberAdaptiveMetrics()
-    val shortViewport = metrics.heightDp < 650.dp
-    val posterHeight = if (shortViewport) 154.dp else 205.dp
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth()
@@ -998,7 +1026,8 @@ internal fun ExtrasPosterCard(
             ExtrasPosterArtwork(
                 url = item.poster,
                 contentDescription = item.title,
-                modifier = Modifier.fillMaxWidth().height(posterHeight),
+                modifier = Modifier.fillMaxWidth()
+                    .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO),
                 detail = false
             )
             Column(
@@ -1019,7 +1048,16 @@ internal fun ExtrasPosterCard(
                     listOf(item.year, item.rating.takeIf(String::isNotEmpty)?.let { "★ $it" })
                         .filterNotNull().joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    item.subtitle.ifBlank { item.type.label },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -1030,10 +1068,10 @@ internal fun ExtrasPosterCard(
 private fun ExtrasDropdown(label: String, options: List<String>, onSelect: (Int) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }) { Text(label, maxLines = 1) }
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.extrasFocusOutline()) { Text(label, maxLines = 1) }
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEachIndexed { index, option ->
-                DropdownMenuItem(text = { Text(option) }, onClick = {
+                DropdownMenuItem(text = { Text(option) }, modifier = Modifier.extrasFocusOutline(), onClick = {
                     expanded = false
                     onSelect(index)
                 })
@@ -1065,6 +1103,13 @@ private fun ExtrasDetailContent(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             horizontal = if (compact) 14.dp else 28.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (!info.backdrop.isNullOrBlank()) {
+            item(key = "backdrop:${info.item.type}:${info.item.id}") {
+                ExtrasDetailBackdrop(
+                    info = info, compact = compact, shortViewport = shortViewport
+                )
+            }
+        }
         item {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 // React to the measured detail pane, not just phone-vs-TV.
@@ -1074,16 +1119,14 @@ private fun ExtrasDetailContent(
                     stacked -> 155.dp
                     else -> 185.dp
                 }
-                val posterHeight = when {
-                    shortViewport -> 168.dp
-                    stacked -> 225.dp
-                    else -> 270.dp
-                }
+                // Width follows the responsive pane; height is always the
+                // poster's full 2:3 aspect ratio, never an arbitrary crop.
                 if (stacked) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         ExtrasPosterArtwork(
                             url = info.item.poster, contentDescription = info.item.title,
-                            modifier = Modifier.width(posterWidth).height(posterHeight), detail = true
+                            modifier = Modifier.width(posterWidth)
+                                .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
                         )
                         DetailText(info)
                     }
@@ -1091,7 +1134,8 @@ private fun ExtrasDetailContent(
                     Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                         ExtrasPosterArtwork(
                             url = info.item.poster, contentDescription = info.item.title,
-                            modifier = Modifier.width(posterWidth).height(posterHeight), detail = true
+                            modifier = Modifier.width(posterWidth)
+                                .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
                         )
                         Column(Modifier.weight(1f)) { DetailText(info) }
                     }
@@ -1102,7 +1146,7 @@ private fun ExtrasDetailContent(
             item {
                 Button(
                     onClick = onPlayMovie,
-                    modifier = Modifier.fillMaxWidth().testTag("extras-play-movie")
+                    modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-movie")
                 ) { Text("Play · Web source") }
             }
         }
@@ -1119,18 +1163,18 @@ private fun ExtrasDetailContent(
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber - 1).coerceAtLeast(1) },
                             enabled = episodeNumber > 1,
-                            modifier = Modifier.testTag("extras-anime-previous-episode")
+                            modifier = Modifier.extrasFocusOutline().testTag("extras-anime-previous-episode")
                         ) { Text("−") }
                         Text("Episode $episodeNumber" + (total?.let { " / $it" } ?: ""),
                             style = MaterialTheme.typography.titleMedium)
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: 9999) },
                             enabled = episodeNumber < (total ?: 9999),
-                            modifier = Modifier.testTag("extras-anime-next-episode")
+                            modifier = Modifier.extrasFocusOutline().testTag("extras-anime-next-episode")
                         ) { Text("+") }
                     }
                     Button(onClick = { onPlayAnime(episodeNumber) },
-                        modifier = Modifier.fillMaxWidth().testTag("extras-play-anime")) {
+                        modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-anime")) {
                         Text("Play episode · Web source")
                     }
                     Text(
@@ -1215,7 +1259,7 @@ private fun ExtrasDetailContent(
             item { Text("Officially listed episode links", style = MaterialTheme.typography.titleMedium) }
             items(info.legalStreamingLinks, key = { it.url }) { link ->
                 OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().extrasFocusOutline(),
                     onClick = {
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link.url))
                         runCatching { context.startActivity(intent) }
@@ -1234,8 +1278,8 @@ private fun ExtrasDetailContent(
                     items(info.cast) { person ->
                         Column(Modifier.width(110.dp)) {
                             AsyncImage(model = person.portrait, contentDescription = person.name,
-                                modifier = Modifier.fillMaxWidth().height(130.dp),
-                                contentScale = ContentScale.Crop)
+                                modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                                contentScale = ContentScale.Fit)
                             Text(person.name, style = MaterialTheme.typography.labelMedium,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(person.role, style = MaterialTheme.typography.labelSmall,
@@ -1252,6 +1296,7 @@ private fun ExtrasDetailContent(
                     items(info.seasons, key = { it.number }) { season ->
                         FilterChip(selected = selectedSeason == season.number,
                             onClick = { onSeason(season.number) },
+                            modifier = Modifier.extrasFocusOutline(),
                             label = { Text("${season.name} (${season.episodeCount})") })
                     }
                 }
@@ -1304,7 +1349,7 @@ private fun ExtrasDetailContent(
                                 modifier = Modifier.size(
                                     width = if (narrow) 90.dp else 110.dp, height = 70.dp
                                 ),
-                                contentScale = ContentScale.Crop)
+                                contentScale = ContentScale.Fit)
                             Column(Modifier.weight(1f)) {
                                 Text("${episode.number}. ${episode.title}",
                                     fontWeight = FontWeight.SemiBold,
@@ -1316,14 +1361,14 @@ private fun ExtrasDetailContent(
                             if (canPlay && !narrow) {
                                 OutlinedButton(
                                     onClick = { onPlayEpisode(episode.number) },
-                                    modifier = Modifier.testTag("extras-play-episode")
+                                    modifier = Modifier.extrasFocusOutline().testTag("extras-play-episode")
                                 ) { Text("Play") }
                             }
                         }
                         if (canPlay && narrow) {
                             OutlinedButton(
                                 onClick = { onPlayEpisode(episode.number) },
-                                modifier = Modifier.fillMaxWidth().testTag("extras-play-episode")
+                                modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-episode")
                             ) { Text("Play episode ${episode.number}") }
                         }
                     }

@@ -7,7 +7,7 @@ adb install -r ci-artifacts/debug/Bousygram-debug.apk
 adb install -r ci-artifacts/debug/Bousygram-debug-androidTest.apk
 
 # Both ADB and the instrumentation test runner must report success.
-classes='com.vaydelux.bousygram.data.database.FavoritesInstrumentedTest,com.vaydelux.bousygram.presentation.components.MediaActionsDropdownInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramExplorerCompactHeaderInstrumentedTest,com.vaydelux.bousygram.presentation.media.PlayerLoadingBannerInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramLibraryDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.UniformPremiumDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramThemeGalleryInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramStatusComponentsInstrumentedTest,com.vaydelux.bousygram.presentation.design.StreamingDesignGalleryInstrumentedTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasSearchUiInstrumentedTest'
+classes='com.vaydelux.bousygram.data.database.FavoritesInstrumentedTest,com.vaydelux.bousygram.presentation.components.MediaActionsDropdownInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramExplorerCompactHeaderInstrumentedTest,com.vaydelux.bousygram.presentation.media.PlayerLoadingBannerInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramLibraryDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.UniformPremiumDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramThemeGalleryInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramStatusComponentsInstrumentedTest,com.vaydelux.bousygram.presentation.design.StreamingDesignGalleryInstrumentedTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasSearchUiInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasVisualConsistencyInstrumentedTest'
 runner='com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner'
 
 set +e
@@ -27,7 +27,8 @@ for name in telegram-library themes-midnight mode-selection media-favorites \
   component-theme-dark component-theme-aurora component-theme-obsidian \
   component-theme-evergreen component-theme-ember component-theme-high-contrast component-theme-light \
   component-theme-ocean component-theme-plum component-theme-ivory \
-  brand-neutral-design-dark brand-neutral-design-light brand-neutral-design-high-contrast; do
+  brand-neutral-design-dark brand-neutral-design-light brand-neutral-design-high-contrast \
+  extras-catalog-dark extras-catalog-light extras-catalog-focus extras-detail-hero extras-webview-pointer; do
   adb exec-out run-as com.vaydelux.bousygram cat "files/ui-evidence/${name}.png" \
     > "ci-artifacts/ui-evidence/${name}.png"
   test -s "ci-artifacts/ui-evidence/${name}.png" || {
