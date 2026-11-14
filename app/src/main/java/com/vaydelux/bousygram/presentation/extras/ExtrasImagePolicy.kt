@@ -10,6 +10,11 @@ internal object ExtrasImagePolicy {
     // of cropping its top/bottom to a fixed pixel height.
     const val POSTER_ASPECT_RATIO = 2f / 3f
 
+    /** Decode cinematic backdrops at a bounded resolution on ARM32 TVs. */
+    fun backdrop(lowMemory: Boolean): ExtrasArtworkSize =
+        if (lowMemory) ExtrasArtworkSize(640, 360)
+        else ExtrasArtworkSize(1280, 720)
+
     fun poster(
         lowMemory: Boolean,
         detail: Boolean,
