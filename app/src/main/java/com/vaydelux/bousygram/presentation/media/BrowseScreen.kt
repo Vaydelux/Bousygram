@@ -355,6 +355,7 @@ fun BrowseScreen(
                 onSettings = onOpenSettings,
                 hasResume = hasSourceResume,
                 onResume = ::openLastPlayed,
+                libraryMode = libraryMode,
                 modifier = Modifier.fillMaxSize()
             )
         LaunchOpeningIndicator(
