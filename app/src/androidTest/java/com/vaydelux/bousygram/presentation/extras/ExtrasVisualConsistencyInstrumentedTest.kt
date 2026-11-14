@@ -68,7 +68,7 @@ class ExtrasVisualConsistencyInstrumentedTest {
         compose.onNodeWithTag("extras-tab-movies").assertIsDisplayed()
         compose.onNodeWithTag("extras-tab-tv").assertIsDisplayed()
         compose.onNodeWithTag("extras-tab-anime").assertIsDisplayed()
-        val bounds = compose.onAllNodesWithTag("extras-poster-artwork")[0]
+        val bounds = compose.onAllNodesWithTag("extras-poster-artwork", useUnmergedTree = true)[0]
             .fetchSemanticsNode().boundsInRoot
         assertTrue("Poster should have measurable dimensions", bounds.height > 0f)
         assertEquals(ExtrasImagePolicy.POSTER_ASPECT_RATIO,
