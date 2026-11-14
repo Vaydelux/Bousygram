@@ -330,7 +330,11 @@ object ExtrasCatalogApi {
             "language" to "en-US",
             "append_to_response" to "credits,videos,reviews,recommendations,watch/providers"
         ))
-        val current = tmdbItem(item.type, obj) ?: item
+        // Detail covers use the provider's sharper image variant; Coil still
+        // decodes only the bounded target size from ExtrasImagePolicy.
+        val current = (tmdbItem(item.type, obj) ?: item).copy(
+            poster = tmdbImage(obj.optString("poster_path"), "w500") ?: item.poster
+        )
         val cast = arrayObjects(obj.optJSONObject("credits")?.optJSONArray("cast")).take(16).map {
             ExtrasPerson(it.optString("name"), it.optString("character"),
                 tmdbImage(it.optString("profile_path"), "w185"))
@@ -443,7 +447,11 @@ object ExtrasCatalogApi {
                 ?: obj.optJSONObject("startDate")?.optInt("year")?.takeIf { it > 1900 })
                 ?.toString().orEmpty(),
             plain(obj.optString("description")),
-            secureImage(obj.optJSONObject("coverImage")?.optString("large")),
+            secureImage(
+                obj.optJSONObject("coverImage")?.optString("extraLarge")
+                    ?.takeIf(String::isNotBlank)
+                    ?: obj.optJSONObject("coverImage")?.optString("large")
+            ),
             if (score > 0) "$score/100" else "",
             listOf(obj.optString("format"), obj.optInt("episodes").takeIf { it > 0 }?.let { "$it eps" })
                 .filterNotNull().filter(String::isNotBlank).joinToString(" · "))
@@ -456,7 +464,7 @@ object ExtrasCatalogApi {
               Media(id: ${'$'}id, type: ANIME, isAdult: false) {
                 id title { english romaji native }
                 description(asHtml: false)
-                coverImage { large } bannerImage
+                coverImage { extraLarge large } bannerImage
                 averageScore popularity episodes duration format status season seasonYear isAdult
                 startDate { year month day }
                 genres
@@ -593,13 +601,13 @@ object ExtrasCatalogApi {
     }
 
     private suspend fun animePost(query: String, variables: JSONObject): JSONObject {
-        val now = System.currentTimeMillis()
-        if (now < anilistBackoffUntil) {
+        val payload = JSONObject().put("query", query).put("variables", variables).toString()
+        // Serve fresh local metadata during a provider cooldown. Rate limiting
+        // applies to network calls, not already cached screens/back navigation.
+        cachedResponse(ANILIST, payload)?.let { return it }
+        if (System.currentTimeMillis() < anilistBackoffUntil) {
             throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
         }
-        val payload = JSONObject().put("query", query).put("variables", variables).toString()
-        // A warm response is local and must not spend scarce provider quota.
-        cachedResponse(ANILIST, payload)?.let { return it }
         reserveAniListToken()
         if (System.currentTimeMillis() < anilistBackoffUntil) {
             throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
