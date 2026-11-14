@@ -90,7 +90,11 @@ class ExtrasVisualConsistencyInstrumentedTest {
                             "DISCOVER", "Extras", "Movies · TV Shows · Anime", compact = true
                         )
                         ExtrasCatalogTabs(selectedTab = selected) { selected = it }
-                        Text("Popular titles", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Popular titles",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             ExtrasPosterCard(
                                 item = ExtrasItem(501, ExtrasType.MOVIES, "The Complete Story",
