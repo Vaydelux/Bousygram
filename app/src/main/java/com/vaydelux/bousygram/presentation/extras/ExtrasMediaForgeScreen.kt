@@ -1399,7 +1399,7 @@ internal fun ExtrasTvCursorModeButton(
 ) {
     OutlinedButton(
         onClick = onToggle,
-        modifier = modifier.testTag("extras-virtual-mouse")
+        modifier = modifier.extrasFocusOutline().testTag("extras-virtual-mouse")
     ) {
         Text(if (cursorEnabled) "Use D-pad" else "Use cursor", maxLines = 1)
     }
@@ -1423,8 +1423,9 @@ internal fun ExtrasVirtualCursor(
     onMenu: (() -> Unit)? = null
 ) {
     val focus = remember { FocusRequester() }
-    val pointerFill = MaterialTheme.colorScheme.primary
-    val pointerOutline = MaterialTheme.colorScheme.onPrimary
+    // Familiar high-contrast pointer (white fill, dark edge, theme-colored halo).
+    // Keep the tip at (0,0): it is the exact click hotspot within the WebView.
+    val pointerHalo = MaterialTheme.colorScheme.primary
     // The HTML5 fullscreen window / WebView may attach after composition.
     // Two bounded frame attempts avoid an unresponsive remote on slow TVs.
     LaunchedEffect(isActive, target) {
@@ -1482,20 +1483,23 @@ internal fun ExtrasVirtualCursor(
                 )
             }.size(30.dp).testTag("extras-cursor-pointer")
         ) {
-            // Larger high-contrast arrow remains legible at TV viewing distances.
-            // Pointer tip is also the exact synthesized tap hotspot.
-            val arrow = Path().apply {
+            // Conventional pointer silhouette, with a distinct stem and tip.
+            // Unlike the previous decorative polygon, it reads clearly at 720p.
+            val pointer = Path().apply {
                 moveTo(0f, 0f)
-                lineTo(size.width * 0.20f, size.height * 0.92f)
-                lineTo(size.width * 0.43f, size.height * 0.66f)
-                lineTo(size.width * 0.62f, size.height * 0.97f)
-                lineTo(size.width * 0.82f, size.height * 0.86f)
-                lineTo(size.width * 0.64f, size.height * 0.58f)
-                lineTo(size.width * 0.96f, size.height * 0.52f)
+                lineTo(0f, size.height * 0.88f)
+                lineTo(size.width * 0.24f, size.height * 0.66f)
+                lineTo(size.width * 0.44f, size.height * 0.99f)
+                lineTo(size.width * 0.63f, size.height * 0.89f)
+                lineTo(size.width * 0.44f, size.height * 0.57f)
+                lineTo(size.width * 0.82f, size.height * 0.54f)
                 close()
             }
-            drawPath(arrow, pointerFill)
-            drawPath(arrow, pointerOutline, style = Stroke(width = 3.dp.toPx()))
+            drawPath(pointer, pointerHalo.copy(alpha = 0.8f),
+                style = Stroke(width = 6.dp.toPx()))
+            drawPath(pointer, Color.White)
+            drawPath(pointer, Color.Black,
+                style = Stroke(width = 2.dp.toPx()))
         }
     }
 }
