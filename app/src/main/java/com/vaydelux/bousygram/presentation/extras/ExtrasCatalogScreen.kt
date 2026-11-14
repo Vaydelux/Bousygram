@@ -401,7 +401,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         onClick = {
                             if (detailItem != null) goBackFromDetails() else onExit()
                         },
-                        modifier = Modifier.heightIn(min = if (metrics.isTv) 52.dp else 44.dp)
+                        modifier = Modifier.heightIn(min = if (metrics.isTv) 52.dp else 44.dp).extrasFocusOutline()
                     ) { Text("‹ Back", maxLines = 1) }
                     // On a 320dp phone, the logo plus two actions squeezed the
                     // title to almost zero width. Keep the actions reachable.
@@ -425,7 +425,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             maxLines = 1
                         )
                     }
-                    TextButton(onClick = { showCredits = true }) {
+                    TextButton(onClick = { showCredits = true }, modifier = Modifier.extrasFocusOutline()) {
                         Text(if (metrics.widthDp < 430.dp) "Info" else "Credits", maxLines = 1)
                     }
                 }
@@ -454,7 +454,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     )
                     Button(
                         onClick = { detailRetry += 1 },
-                        modifier = Modifier.testTag("extras-detail-retry")
+                        modifier = Modifier.extrasFocusOutline().testTag("extras-detail-retry")
                     ) { Text("Retry") }
                 }
             } else detail?.let { info ->
@@ -504,7 +504,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     trailingIcon = {
                         if (state.query.isNotEmpty()) {
                             TextButton(
-                                modifier = Modifier.testTag("extras-search-clear"),
+                                modifier = Modifier.extrasFocusOutline().testTag("extras-search-clear"),
                                 onClick = {
                                     showSuggestions = false
                                     update(state.copy(
@@ -515,7 +515,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             ) { Text("Clear") }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().onFocusChanged {
+                    modifier = Modifier.fillMaxWidth().extrasFocusOutline().onFocusChanged {
                         if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
                     }
                 )
@@ -766,7 +766,7 @@ internal fun ExtrasFilterDisclosure(
     ) {
         OutlinedButton(
             onClick = onToggle,
-            modifier = Modifier.heightIn(min = 44.dp).testTag("extras-filter-toggle")
+            modifier = Modifier.heightIn(min = 44.dp).extrasFocusOutline().testTag("extras-filter-toggle")
         ) {
             Text(if (expanded) "Hide filters" else "Filters", maxLines = 1)
         }
@@ -829,7 +829,7 @@ private fun Modifier.activateOnTvDpad(onActivate: () -> Unit): Modifier =
 @Composable
 internal fun ExtrasPreviousPageAction(onPrevious: () -> Unit) {
     TextButton(
-        modifier = Modifier.testTag("extras-previous-page").activateOnTvDpad(onPrevious),
+        modifier = Modifier.extrasFocusOutline().testTag("extras-previous-page").activateOnTvDpad(onPrevious),
         onClick = onPrevious
     ) { Text("Previous page") }
 }
@@ -848,7 +848,7 @@ internal fun ExtrasPagingWindowNotice(retainedCount: Int, onRestart: () -> Unit)
             modifier = Modifier.weight(1f)
         )
         TextButton(
-            modifier = Modifier.testTag("extras-start-over").activateOnTvDpad(onRestart),
+            modifier = Modifier.extrasFocusOutline().testTag("extras-start-over").activateOnTvDpad(onRestart),
             onClick = onRestart
         ) { Text("From start") }
     }
@@ -950,7 +950,7 @@ internal fun ExtrasTmdbPendingSetup(
                 message = "TMDB access will be enabled in a later build. Anime search is available separately through AniList."
             )
             Button(
-                modifier = Modifier.testTag("extras-go-anime").activateOnTvDpad(onBrowseAnime),
+                modifier = Modifier.extrasFocusOutline().testTag("extras-go-anime").activateOnTvDpad(onBrowseAnime),
                 onClick = onBrowseAnime
             ) { Text("Browse Anime") }
         }
@@ -1058,10 +1058,10 @@ internal fun ExtrasPosterCard(
 private fun ExtrasDropdown(label: String, options: List<String>, onSelect: (Int) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }) { Text(label, maxLines = 1) }
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.extrasFocusOutline()) { Text(label, maxLines = 1) }
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEachIndexed { index, option ->
-                DropdownMenuItem(text = { Text(option) }, onClick = {
+                DropdownMenuItem(text = { Text(option) }, modifier = Modifier.extrasFocusOutline(), onClick = {
                     expanded = false
                     onSelect(index)
                 })
@@ -1129,7 +1129,7 @@ private fun ExtrasDetailContent(
             item {
                 Button(
                     onClick = onPlayMovie,
-                    modifier = Modifier.fillMaxWidth().testTag("extras-play-movie")
+                    modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-movie")
                 ) { Text("Play · Web source") }
             }
         }
@@ -1146,18 +1146,18 @@ private fun ExtrasDetailContent(
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber - 1).coerceAtLeast(1) },
                             enabled = episodeNumber > 1,
-                            modifier = Modifier.testTag("extras-anime-previous-episode")
+                            modifier = Modifier.extrasFocusOutline().testTag("extras-anime-previous-episode")
                         ) { Text("−") }
                         Text("Episode $episodeNumber" + (total?.let { " / $it" } ?: ""),
                             style = MaterialTheme.typography.titleMedium)
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: 9999) },
                             enabled = episodeNumber < (total ?: 9999),
-                            modifier = Modifier.testTag("extras-anime-next-episode")
+                            modifier = Modifier.extrasFocusOutline().testTag("extras-anime-next-episode")
                         ) { Text("+") }
                     }
                     Button(onClick = { onPlayAnime(episodeNumber) },
-                        modifier = Modifier.fillMaxWidth().testTag("extras-play-anime")) {
+                        modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-anime")) {
                         Text("Play episode · Web source")
                     }
                     Text(
