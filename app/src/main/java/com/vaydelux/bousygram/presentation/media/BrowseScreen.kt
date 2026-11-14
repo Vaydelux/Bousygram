@@ -175,18 +175,15 @@ fun BrowseScreen(
         if (!libraryMode) return@LaunchedEffect
         snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .distinctUntilChanged()
-            .collect { lastVisibleIndex ->
+            .collect { _ ->
                 viewModel.saveBrowseViewport(
                     browseStateKey,
                     libraryGridState.firstVisibleItemIndex,
                     libraryGridState.firstVisibleItemScrollOffset
                 )
-                val threshold = (videos.size - LIBRARY_PREFETCH_ITEMS_REMAINING).coerceAtLeast(0)
-                if (!state.isLoading && !state.isLoadingMore && state.hasMore && state.discardedMediaCount == 0 &&
-                    videos.isNotEmpty() && lastVisibleIndex >= threshold
-                ) {
-                    viewModel.loadMoreIfNeeded()
-                }
+                // TelegramExplorerDashboard owns metadata pagination for both Home and Library.
+                // This collector only persists the viewport; a second loadMore call here
+                // could race the explorer collector when the grid reaches its final row.
             }
     }
 
