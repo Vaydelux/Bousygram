@@ -47,6 +47,8 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
         BousygramTheme {
             TelegramExplorerCompactHeader(
                 section = section,
+                screenTitle = "Your library",
+                navigationLabel = "Home",
                 folderTitle = if (forum) "Forum topics" else "Saved Messages",
                 collectionStatus = if (forum) "18 topics" else "42 files",
                 widthDp = width,
@@ -70,7 +72,8 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
                 onResume = {},
                 onSearch = {},
                 onFavorites = onFavorites,
-                onSettings = {}
+                onSettings = {},
+                onNavigate = {}
             )
         }
     }
