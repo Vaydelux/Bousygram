@@ -112,6 +112,7 @@ fun TelegramExplorerDashboard(
     onSearch: () -> Unit,
     onFavorites: () -> Unit,
     onSettings: () -> Unit,
+    onNavigate: () -> Unit,
     hasResume: Boolean,
     onResume: () -> Unit,
     libraryMode: Boolean = false,
@@ -229,6 +230,7 @@ fun TelegramExplorerDashboard(
         TelegramExplorerCompactHeader(
             section = position.section,
             screenTitle = if (libraryMode) "Your library" else "Home",
+            navigationLabel = if (libraryMode) "Home" else "Library",
             folderTitle = folderTitle,
             collectionStatus = collectionStatus,
             widthDp = adaptive.widthDp,
@@ -254,7 +256,8 @@ fun TelegramExplorerDashboard(
             onResume = onResume,
             onSearch = onSearch,
             onFavorites = onFavorites,
-            onSettings = onSettings
+            onSettings = onSettings,
+            onNavigate = onNavigate
         )
         Box(Modifier.fillMaxWidth().weight(1f).testTag("telegram-explorer-grid")) {
             when {
