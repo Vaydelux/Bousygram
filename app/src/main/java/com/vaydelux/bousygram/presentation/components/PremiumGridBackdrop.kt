@@ -11,13 +11,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 
 /**
- * Premium ambient gradient + precision grid, rendered natively by Compose.
+ * Subtle theme-aware ambient background, rendered natively by Compose.
  *
+ * This legacy component name is retained for compatibility with callers.
+ * The repeated line grid has been removed to keep cards and typography legible.
  * Draw-only caching avoids an always-running animation loop, WebView layer,
  * GPU blur, timer, or retained bitmap. This is intentionally static on ARM32;
  * motion is confined to short, user-triggered focus transitions.
@@ -38,9 +39,6 @@ fun PremiumGridBackdrop(
         .testTag("bousygram-premium-backdrop")) {
         if (!highContrast) {
             Box(Modifier.matchParentSize().drawWithCache {
-                val spacing = 52.dp.toPx()
-                val hairline = 1.dp.toPx()
-                val gridColor = colors.onBackground.copy(alpha = if (light) 0.045f else 0.055f)
                 val primaryGlow = Brush.radialGradient(
                     colors = listOf(colors.primary.copy(alpha = if (light) 0.055f else 0.13f),
                         Color.Transparent),
@@ -56,14 +54,6 @@ fun PremiumGridBackdrop(
                 onDrawBehind {
                     drawRect(primaryGlow)
                     drawRect(secondaryGlow)
-                    repeat(((size.width / spacing).toInt() + 1).coerceIn(0, 128)) { index ->
-                        val x = index * spacing
-                        drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), hairline)
-                    }
-                    repeat(((size.height / spacing).toInt() + 1).coerceIn(0, 128)) { index ->
-                        val y = index * spacing
-                        drawLine(gridColor, Offset(0f, y), Offset(size.width, y), hairline)
-                    }
                 }
             })
         }
