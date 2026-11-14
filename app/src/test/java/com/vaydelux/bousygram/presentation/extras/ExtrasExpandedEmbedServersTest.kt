@@ -9,13 +9,13 @@ import org.junit.Test
 
 class ExtrasExpandedEmbedServersTest {
     @Test fun fullCatalogsAreRegisteredWithoutReplacingLegacyEntries() {
-        // 50 upstream TMDB entries include CineSrc; Bousygram has two additional legacy entries.
-        assertEquals(52, ExtrasEmbedServer.entries.size)
-        assertEquals(7, ExtrasAnimeEmbedServer.entries.size)
-        assertEquals(6, ExtrasAnimeEmbedServer.entries.count { it.selectable })
+        // Existing providers plus the independently documented Zoryva iframe.
+        assertEquals(53, ExtrasEmbedServer.entries.size)
+        assertEquals(8, ExtrasAnimeEmbedServer.entries.size)
+        assertEquals(7, ExtrasAnimeEmbedServer.entries.count { it.selectable })
         assertFalse(ExtrasAnimeEmbedServer.CINEZO.selectable)
         assertFalse(ExtrasEmbedServer.SUPEREMBED_VIP.selectable)
-        assertEquals(51, ExtrasEmbedServer.entries.count { it.selectable })
+        assertEquals(52, ExtrasEmbedServer.entries.count { it.selectable })
     }
 
     @Test fun tmdbTemplatesAreSafeAndHaveNoUnresolvedPlaceholders() {
@@ -39,6 +39,33 @@ class ExtrasExpandedEmbedServersTest {
         assertEquals("https://cinesrc.st/embed/tv/42?s=0&e=5",
             ExtrasEmbedServer.CINESRC.urlFor(42, 0, 5))
         assertEquals("https://embed.filmu.in/movie/42", ExtrasEmbedServer.EMBED_SU.urlFor(42))
+    }
+
+    @Test fun zoryvaDocumentedRoutesPreserveTmdbAndAnilistIdentities() {
+        // Direct route shapes and query limits are from https://www.zoryva.me/embed
+        assertEquals("https://zoryva.me/embed/movie/550",
+            ExtrasEmbedServer.ZORYVA.urlFor(550))
+        assertEquals("https://zoryva.me/embed/tv/1396/1/2",
+            ExtrasEmbedServer.ZORYVA.urlFor(1396, season = 1, episode = 2))
+        assertEquals("https://zoryva.me/embed/anime/21/2/4",
+            ExtrasAnimeEmbedServer.ZORYVA.urlFor(21, season = 2, episode = 4))
+        assertTrue(ExtrasAnimeEmbedServer.ZORYVA.supportsSeason(2))
+        assertEquals("https://zoryva.me/embed/movie/550?startAt=120",
+            ExtrasEmbedServer.ZORYVA.urlFor(550, startAtSec = 120))
+        assertEquals("https://zoryva.me/embed/movie/550?startAt=86400",
+            ExtrasEmbedServer.ZORYVA.urlFor(550, startAtSec = 200_000))
+        assertEquals("https://zoryva.me/embed/movie/550",
+            ExtrasEmbedServer.ZORYVA.urlFor(550, startAtSec = -1))
+        val episode = ExtrasEmbedRequest.episode(1396, 1, 2, "TV")
+            .forServer(ExtrasEmbedServer.ZORYVA)
+        assertEquals("https://zoryva.me/embed/tv/1396/1/2", episode.url)
+        assertEquals(1396, episode.tmdbId)
+        assertEquals(0, episode.anilistId)
+        val anime = ExtrasEmbedRequest.anime(21, episode = 4, title = "Anime", season = 2)
+            .forServer(ExtrasAnimeEmbedServer.ZORYVA)
+        assertEquals("https://zoryva.me/embed/anime/21/2/4", anime.url)
+        assertEquals(21, anime.anilistId)
+        assertEquals(0, anime.tmdbId)
     }
 
     @Test fun xxikuRoutesMatchProvidedUrlsWithoutUnverifiedParameters() {
