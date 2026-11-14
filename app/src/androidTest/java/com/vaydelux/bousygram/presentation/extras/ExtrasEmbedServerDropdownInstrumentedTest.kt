@@ -50,6 +50,24 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         compose.onNodeWithTag("extras-server-xxiku").assertIsSelected()
     }
 
+    @Test fun zoryvaCanBeSelectedThroughExistingTvServerPicker() {
+        var selected = ExtrasEmbedServer.CINESRC
+        compose.setContent {
+            BousygramTheme {
+                var current by remember { mutableStateOf(ExtrasEmbedServer.CINESRC) }
+                ExtrasEmbedServerDropdown(
+                    server = current, isTv = true,
+                    onSelected = { current = it; selected = it }
+                )
+            }
+        }
+        compose.onNodeWithTag("extras-server-dropdown").performClick()
+        compose.onNodeWithTag("extras-server-zoryva").assertExists().performClick()
+        compose.runOnIdle { assertEquals(ExtrasEmbedServer.ZORYVA, selected) }
+        compose.onNodeWithTag("extras-server-dropdown").performClick()
+        compose.onNodeWithTag("extras-server-zoryva").assertIsSelected()
+    }
+
     @Test fun animeSourceIsSelectableBeforeAnyWebViewIsCreated() {
         var picked = ExtrasAnimeEmbedServer.FILMU
         var launched = false
@@ -120,6 +138,7 @@ class ExtrasEmbedServerDropdownInstrumentedTest {
         compose.onNodeWithTag("extras-anime-server-cinezo").assertDoesNotExist()
         compose.onNodeWithTag("extras-anime-server-filmu").assertExists()
         compose.onNodeWithTag("extras-anime-server-fmov").assertExists()
+        compose.onNodeWithTag("extras-anime-server-zoryva").assertExists()
     }
 
     @Test fun fullscreenAlwaysHasNativeAnimeServerRecoveryControls() {
