@@ -714,7 +714,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             item {
                                 Button(onClick = {
                                     if (!state.loading) update(state.copy(page = state.page + 1, loading = true, error = null))
-                                }, enabled = !state.loading) {
+                                }, modifier = Modifier.extrasFocusOutline(), enabled = !state.loading) {
                                     Text(if (state.loading) "Loading…" else "More titles")
                                 }
                             }
@@ -887,7 +887,7 @@ internal fun ExtrasSearchSuggestions(
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(
-                    modifier = Modifier.testTag("extras-suggestions-dismiss"),
+                    modifier = Modifier.extrasFocusOutline().testTag("extras-suggestions-dismiss"),
                     onClick = onDismiss
                 ) { Text("Dismiss") }
             }
@@ -1252,7 +1252,7 @@ private fun ExtrasDetailContent(
             item { Text("Officially listed episode links", style = MaterialTheme.typography.titleMedium) }
             items(info.legalStreamingLinks, key = { it.url }) { link ->
                 OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().extrasFocusOutline(),
                     onClick = {
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link.url))
                         runCatching { context.startActivity(intent) }
@@ -1271,8 +1271,8 @@ private fun ExtrasDetailContent(
                     items(info.cast) { person ->
                         Column(Modifier.width(110.dp)) {
                             AsyncImage(model = person.portrait, contentDescription = person.name,
-                                modifier = Modifier.fillMaxWidth().height(130.dp),
-                                contentScale = ContentScale.Crop)
+                                modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                                contentScale = ContentScale.Fit)
                             Text(person.name, style = MaterialTheme.typography.labelMedium,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(person.role, style = MaterialTheme.typography.labelSmall,
@@ -1289,6 +1289,7 @@ private fun ExtrasDetailContent(
                     items(info.seasons, key = { it.number }) { season ->
                         FilterChip(selected = selectedSeason == season.number,
                             onClick = { onSeason(season.number) },
+                            modifier = Modifier.extrasFocusOutline(),
                             label = { Text("${season.name} (${season.episodeCount})") })
                     }
                 }
@@ -1341,7 +1342,7 @@ private fun ExtrasDetailContent(
                                 modifier = Modifier.size(
                                     width = if (narrow) 90.dp else 110.dp, height = 70.dp
                                 ),
-                                contentScale = ContentScale.Crop)
+                                contentScale = ContentScale.Fit)
                             Column(Modifier.weight(1f)) {
                                 Text("${episode.number}. ${episode.title}",
                                     fontWeight = FontWeight.SemiBold,
@@ -1353,14 +1354,14 @@ private fun ExtrasDetailContent(
                             if (canPlay && !narrow) {
                                 OutlinedButton(
                                     onClick = { onPlayEpisode(episode.number) },
-                                    modifier = Modifier.testTag("extras-play-episode")
+                                    modifier = Modifier.extrasFocusOutline().testTag("extras-play-episode")
                                 ) { Text("Play") }
                             }
                         }
                         if (canPlay && narrow) {
                             OutlinedButton(
                                 onClick = { onPlayEpisode(episode.number) },
-                                modifier = Modifier.fillMaxWidth().testTag("extras-play-episode")
+                                modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-episode")
                             ) { Text("Play episode ${episode.number}") }
                         }
                     }
