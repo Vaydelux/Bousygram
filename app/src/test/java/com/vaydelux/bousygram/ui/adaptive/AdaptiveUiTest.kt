@@ -14,7 +14,7 @@ class AdaptiveUiTest {
     @Test fun shortLandscapeUsesCompactHeader() {
         val ui = AdaptiveUi.resolve(873, 393, false)
         assertTrue(ui.compactHeader)
-        assertEquals(NavigationMode.RAIL, ui.navigationMode)
+        assertEquals(NavigationMode.BOTTOM_BAR, ui.navigationMode)
     }
 
     @Test fun televisionAlwaysUsesTvRail() {
