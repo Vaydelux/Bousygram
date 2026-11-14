@@ -66,6 +66,13 @@ class ExtrasExpandedEmbedServersTest {
         assertEquals("https://zoryva.me/embed/anime/21/2/4", anime.url)
         assertEquals(21, anime.anilistId)
         assertEquals(0, anime.tmdbId)
+
+        // Zoryva publishes iframe routes, not a documented stream-resolution API.
+        assertTrue(ExtrasEmbedRequest.movie(550, "Movie")
+            .forServer(ExtrasEmbedServer.ZORYVA).webEmbedOnly)
+        assertTrue(anime.webEmbedOnly)
+        assertFalse(episode.forServer(ExtrasEmbedServer.CINESRC).webEmbedOnly)
+        assertFalse(anime.forServer(ExtrasAnimeEmbedServer.FILMU).webEmbedOnly)
     }
 
     @Test fun xxikuRoutesMatchProvidedUrlsWithoutUnverifiedParameters() {
