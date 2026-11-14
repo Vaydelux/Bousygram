@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -294,8 +295,13 @@ fun BrowseScreen(
         }
     )
 
-    // One explorer implementation for Home and Library: no legacy horizontal rails.
-    Box(modifier = modifier.fillMaxSize()) {
+    // Keep the phone status/navigation bars clear. TV builds remain edge-to-edge
+    // within the leanback viewport, while the fullscreen player owns its own insets.
+    // Home/Library is not wrapped by the Material3 adaptive shell.
+    Box(
+        modifier = modifier.fillMaxSize()
+            .then(if (adaptive.isTv) Modifier else Modifier.safeDrawingPadding())
+    ) {
             TelegramExplorerDashboard(
                 position = explorerPosition,
                 sources = state.videoChats,
