@@ -54,6 +54,7 @@ internal fun explorerHeaderShowInlineActions(widthDp: Dp): Boolean = widthDp >= 
 internal fun TelegramExplorerCompactHeader(
     section: ExplorerSection,
     screenTitle: String,
+    navigationLabel: String,
     folderTitle: String,
     collectionStatus: String,
     widthDp: Dp,
@@ -77,7 +78,8 @@ internal fun TelegramExplorerCompactHeader(
     onResume: () -> Unit,
     onSearch: () -> Unit,
     onFavorites: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onNavigate: () -> Unit
 ) {
     val density = explorerHeaderDensity(isTv, widthDp, heightDp)
     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
@@ -146,6 +148,9 @@ internal fun TelegramExplorerCompactHeader(
             // When space is limited, exposing every option as a wide button
             // forces the grid off-screen. Keep Search immediately reachable.
             if (inlineActions) {
+                OutlinedButton(onClick = onNavigate, modifier = Modifier.heightIn(min = minControl)) {
+                    Text(navigationLabel, maxLines = 1)
+                }
                 if (hasResume) {
                     OutlinedButton(onClick = onResume, modifier = Modifier.heightIn(min = minControl)) {
                         Text("Continue", maxLines = 1)
@@ -182,6 +187,10 @@ internal fun TelegramExplorerCompactHeader(
                     DropdownMenuItem(text = { Text("Search media") }, onClick = {
                         menuExpanded = false
                         onSearch()
+                    })
+                    DropdownMenuItem(text = { Text("Go to $navigationLabel") }, onClick = {
+                        menuExpanded = false
+                        onNavigate()
                     })
                     DropdownMenuItem(text = { Text("Favorites") }, onClick = {
                         menuExpanded = false
