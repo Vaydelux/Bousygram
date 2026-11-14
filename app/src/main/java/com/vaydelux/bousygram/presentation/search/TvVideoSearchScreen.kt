@@ -199,7 +199,10 @@ fun TvVideoSearchScreen(
                     .fillMaxSize()
                     .padding(if (adaptive.isCompact) 16.dp else 32.dp)
             ) {
-                BousygramPageHeading(
+                // Preserve vertical space for actual results on short landscape windows.
+                // Keep the heading for idle/error screens where orientation matters less.
+                if (uiState !is SearchUiState.Success && uiState !is SearchUiState.Loading) {
+                    BousygramPageHeading(
                     eyebrow = "Telegram media  /  Discover",
                     title = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
                         "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
@@ -208,8 +211,11 @@ fun TvVideoSearchScreen(
                     },
                     subtitle = "Find the right video across your accessible Telegram sources.",
                     compact = adaptive.isCompact
-                )
-                Spacer(Modifier.height(18.dp))
+                    )
+                    Spacer(Modifier.height(12.dp))
+                } else {
+                    Spacer(Modifier.height(4.dp))
+                }
                 if (adaptive.isCompact) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         SearchField(
