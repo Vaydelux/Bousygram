@@ -39,7 +39,8 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
         forum: Boolean = false,
         hasError: Boolean = false,
         loading: Boolean = false,
-        onFavorites: () -> Unit = {}
+        onFavorites: () -> Unit = {},
+        onNavigate: () -> Unit = {}
     ) {
         var section by remember {
             mutableStateOf(if (forum) ExplorerSection.GROUPS else ExplorerSection.SAVED)
@@ -73,7 +74,7 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
                 onSearch = {},
                 onFavorites = onFavorites,
                 onSettings = {},
-                onNavigate = {}
+                onNavigate = onNavigate
             )
         }
     }
@@ -132,6 +133,17 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
         compose.onNodeWithText("Retry topics").assertExists()
         compose.onNodeWithTag("telegram-explorer-more").performClick()
         compose.onNodeWithText("Retry forum topics").assertExists()
+    }
+
+    @Test fun compactOverflowCanNavigateBackHome() {
+        var homeOpens = 0
+        compose.setContent {
+            HeaderFixture(393.dp, 852.dp, television = false,
+                onNavigate = { homeOpens++ })
+        }
+        compose.onNodeWithTag("telegram-explorer-more").performClick()
+        compose.onNodeWithText("Go to Home").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, homeOpens) }
     }
 
     @Test fun loadingForumDoesNotShowDuplicateRetryButton() {
