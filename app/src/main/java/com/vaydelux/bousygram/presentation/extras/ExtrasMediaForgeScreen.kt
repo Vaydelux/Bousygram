@@ -1441,7 +1441,23 @@ internal fun ExtrasVirtualCursor(
     Box(
         modifier = Modifier.fillMaxSize()
             .onPreviewKeyEvent { event ->
-                if (!isActive || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (!isActive) return@onPreviewKeyEvent false
+                // Consume D-pad key UP as well as DOWN while pointer mode owns
+                // focus. Letting UP escape into the WebView can move its hidden
+                // HTML focus even though DOWN moved our visible pointer.
+                if (event.type == KeyEventType.KeyUp) {
+                    return@onPreviewKeyEvent when (event.nativeKeyEvent.keyCode) {
+                        AndroidKeyEvent.KEYCODE_DPAD_UP,
+                        AndroidKeyEvent.KEYCODE_DPAD_DOWN,
+                        AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                        AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
+                        AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                        AndroidKeyEvent.KEYCODE_ENTER -> true
+                        AndroidKeyEvent.KEYCODE_MENU -> onMenu != null
+                        else -> false
+                    }
+                }
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val repeat = event.nativeKeyEvent.repeatCount
                 val step = ExtrasTvCursorPolicy.step(widthPx, heightPx, repeat)
                 when (event.nativeKeyEvent.keyCode) {
