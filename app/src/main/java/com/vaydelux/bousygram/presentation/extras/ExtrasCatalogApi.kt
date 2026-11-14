@@ -447,11 +447,8 @@ object ExtrasCatalogApi {
                 ?: obj.optJSONObject("startDate")?.optInt("year")?.takeIf { it > 1900 })
                 ?.toString().orEmpty(),
             plain(obj.optString("description")),
-            secureImage(
-                obj.optJSONObject("coverImage")?.optString("extraLarge")
-                    ?.takeIf(String::isNotBlank)
-                    ?: obj.optJSONObject("coverImage")?.optString("large")
-            ),
+            secureImage(obj.optJSONObject("coverImage")?.optString("extraLarge"))
+                ?: secureImage(obj.optJSONObject("coverImage")?.optString("large")),
             if (score > 0) "$score/100" else "",
             listOf(obj.optString("format"), obj.optInt("episodes").takeIf { it > 0 }?.let { "$it eps" })
                 .filterNotNull().filter(String::isNotBlank).joinToString(" · "))
