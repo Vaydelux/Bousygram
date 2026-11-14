@@ -470,6 +470,7 @@ private fun AuthorizedContent(
                 Toast.makeText(BousygramApp.instance, message, Toast.LENGTH_LONG).show()
             },
             libraryMode = true,
+            onOpenHome = { onAppScreenChange(AppScreen.Home) },
             onBackToNavBar = onBackToNavBar
         )
         is AppScreen.Favorites -> favoritesState.SaveableStateProvider(
