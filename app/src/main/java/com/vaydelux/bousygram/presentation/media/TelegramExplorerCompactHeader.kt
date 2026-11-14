@@ -53,6 +53,7 @@ internal fun explorerHeaderShowInlineActions(widthDp: Dp): Boolean = widthDp >= 
 @Composable
 internal fun TelegramExplorerCompactHeader(
     section: ExplorerSection,
+    screenTitle: String,
     folderTitle: String,
     collectionStatus: String,
     widthDp: Dp,
@@ -109,7 +110,7 @@ internal fun TelegramExplorerCompactHeader(
                 verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
                 Text(
-                    text = "Your library",
+                    text = screenTitle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = if (isTv) MaterialTheme.typography.titleLarge
@@ -239,7 +240,7 @@ internal fun TelegramExplorerCompactHeader(
             ) {
             ExplorerSection.entries.forEach { entry ->
                 val label = when (entry) {
-                    ExplorerSection.SAVED -> if (widthDp < 600.dp) "Saved" else "Saved messages"
+                    ExplorerSection.SAVED -> if (effectiveWidth < 600.dp) "Saved" else "Saved messages"
                     ExplorerSection.CHANNELS -> "Channels"
                     ExplorerSection.GROUPS -> "Groups"
                 }
@@ -248,7 +249,7 @@ internal fun TelegramExplorerCompactHeader(
                     ExplorerSection.CHANNELS -> channelCount
                     ExplorerSection.GROUPS -> groupCount
                 }
-                val text = if (count != null && widthDp >= 600.dp) "$label  $count" else label
+                val text = if (count != null && effectiveWidth >= 600.dp) "$label  $count" else label
                 BousygramSectionTab(
                     label = text,
                     active = entry == section,
