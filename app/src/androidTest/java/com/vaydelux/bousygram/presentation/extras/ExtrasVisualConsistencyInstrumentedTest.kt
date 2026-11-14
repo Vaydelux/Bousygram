@@ -118,6 +118,33 @@ class ExtrasVisualConsistencyInstrumentedTest {
         writeUiEvidence(compose, "extras-catalog-focus")
     }
 
+    @Test fun captureMetadataBackdropHeroWithBoundedArtwork() {
+        val backdrop = makeBackdropFixture("extras-qa-backdrop.png")
+        compose.setContent {
+            BousygramTheme(preset = BousygramThemePreset.DARK) {
+                PremiumGridBackdrop {
+                    Column(Modifier.fillMaxSize().padding(16.dp)) {
+                        ExtrasDetailBackdrop(
+                            info = ExtrasDetail(
+                                item = ExtrasItem(77, ExtrasType.TV,
+                                    "The New Series", "2026", rating = "8.7"),
+                                description = "A provider-supplied series synopsis",
+                                genres = listOf("Drama", "Sci-Fi"),
+                                facts = listOf("2026", "1 season"),
+                                cast = emptyList(), reviews = emptyList(),
+                                seasons = emptyList(), backdrop = backdrop
+                            ),
+                            compact = true,
+                            shortViewport = false
+                        )
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("extras-detail-backdrop").assertIsDisplayed()
+        writeUiEvidence(compose, "extras-detail-hero")
+    }
+
     @Test fun captureConventionalWebCursorAgainstThemeSurface() {
         compose.setContent {
             BousygramTheme {
@@ -143,6 +170,27 @@ class ExtrasVisualConsistencyInstrumentedTest {
         }
         compose.onNodeWithTag("extras-cursor-pointer").assertIsDisplayed()
         writeUiEvidence(compose, "extras-webview-pointer")
+    }
+
+    /** Abstract local cinematic banner; avoids network and copyright fixtures. */
+    private fun makeBackdropFixture(name: String): String {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(context.cacheDir, name)
+        val bitmap = Bitmap.createBitmap(640, 360, Bitmap.Config.ARGB_8888)
+        val painter = Paint(Paint.ANTI_ALIAS_FLAG)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(AndroidColor.rgb(12, 43, 69))
+        painter.color = AndroidColor.rgb(28, 104, 126)
+        canvas.drawRect(0f, 30f, 640f, 200f, painter)
+        painter.color = AndroidColor.rgb(247, 178, 99)
+        canvas.drawCircle(460f, 105f, 88f, painter)
+        painter.color = AndroidColor.rgb(11, 33, 50)
+        canvas.drawRect(0f, 270f, 640f, 360f, painter)
+        file.outputStream().use { output ->
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+        }
+        bitmap.recycle()
+        return file.toURI().toString()
     }
 
     /** A local synthetic poster with distinct top and bottom bands (not remote art). */
