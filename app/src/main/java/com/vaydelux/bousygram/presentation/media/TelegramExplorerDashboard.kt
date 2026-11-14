@@ -180,12 +180,18 @@ fun TelegramExplorerDashboard(
     BackHandler(enabled = position.section != ExplorerSection.SAVED && position.level != ExplorerLevel.SOURCES) {
         onGoUp()
     }
-    LaunchedEffect(showMedia, videos.size, hasMore, isLoading, isLoadingMore, discardedMediaCount) {
+    // Each Telegram folder receives its own gridState. Restart the viewport observer
+    // when that state changes or it will keep watching the previous folder's grid.
+    LaunchedEffect(gridState, showMedia, videos.size, hasMore, isLoading, isLoadingMore, discardedMediaCount) {
         if (!showMedia || videos.isEmpty()) return@LaunchedEffect
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .distinctUntilChanged()
             .collect { index ->
-                if (index >= videos.size - 6 && hasMore && discardedMediaCount == 0 && !isLoading && !isLoadingMore) onLoadMore()
+                // Ignore an unmeasured/empty viewport (index == -1). Otherwise short
+                // result sets could start fetching more before the grid is displayed.
+                if (index >= 0 && index >= (videos.size - 6).coerceAtLeast(0) &&
+                    hasMore && discardedMediaCount == 0 && !isLoading && !isLoadingMore
+                ) onLoadMore()
             }
     }
 
