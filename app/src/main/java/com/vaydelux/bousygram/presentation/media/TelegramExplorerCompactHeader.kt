@@ -85,6 +85,10 @@ internal fun TelegramExplorerCompactHeader(
     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
     val effectiveWidth = widthDp / fontScale.coerceAtLeast(1f)
     val inlineActions = explorerHeaderShowInlineActions(effectiveWidth)
+    // Show all primary destinations at normal phone widths instead of clipping
+    // Groups off the right edge; retain full TalkBack labels for abbreviations.
+    val compactTabs = !isTv && effectiveWidth < 450.dp
+    val tinyTabs = !isTv && effectiveWidth < 360.dp
     val minControl = if (isTv) BousygramUiTokens.tvControlHeight
         else BousygramUiTokens.compactControlHeight
     val colors = MaterialTheme.colorScheme
@@ -233,11 +237,13 @@ internal fun TelegramExplorerCompactHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             BousygramSectionTab(
-                label = "Favorites",
+                label = if (compactTabs) "Favs" else "Favorites",
+                accessibilityLabel = "Favorites",
+                compact = compactTabs,
                 active = false,
                 isTv = isTv,
                 onClick = onFavorites,
-                modifier = Modifier.widthIn(min = if (isTv) 128.dp else 104.dp)
+                modifier = Modifier.widthIn(min = if (isTv) 128.dp else if (compactTabs) 56.dp else 104.dp)
                     .testTag("telegram-library-tab-favorites")
             )
             Row(
@@ -250,7 +256,7 @@ internal fun TelegramExplorerCompactHeader(
             ExplorerSection.entries.forEach { entry ->
                 val label = when (entry) {
                     ExplorerSection.SAVED -> if (effectiveWidth < 600.dp) "Saved" else "Saved messages"
-                    ExplorerSection.CHANNELS -> "Channels"
+                    ExplorerSection.CHANNELS -> if (tinyTabs) "Chans" else "Channels"
                     ExplorerSection.GROUPS -> "Groups"
                 }
                 val count = when (entry) {
@@ -262,9 +268,15 @@ internal fun TelegramExplorerCompactHeader(
                 BousygramSectionTab(
                     label = text,
                     active = entry == section,
+                    compact = compactTabs,
+                    accessibilityLabel = when (entry) {
+                        ExplorerSection.SAVED -> "Saved messages"
+                        ExplorerSection.CHANNELS -> "Channels"
+                        ExplorerSection.GROUPS -> "Groups"
+                    },
                     isTv = isTv,
                     onClick = { if (entry != section) onSelectTab(entry) },
-                    modifier = Modifier.widthIn(min = if (isTv) 128.dp else 88.dp)
+                    modifier = Modifier.widthIn(min = if (isTv) 128.dp else if (compactTabs) 56.dp else 88.dp)
                         .testTag("telegram-library-tab-" + entry.name.lowercase())
                 )
             }
