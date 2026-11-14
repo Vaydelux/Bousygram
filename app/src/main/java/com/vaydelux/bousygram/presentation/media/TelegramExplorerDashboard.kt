@@ -112,8 +112,10 @@ fun TelegramExplorerDashboard(
     onSearch: () -> Unit,
     onFavorites: () -> Unit,
     onSettings: () -> Unit,
+    onNavigate: () -> Unit,
     hasResume: Boolean,
     onResume: () -> Unit,
+    libraryMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val adaptive = rememberAdaptiveMetrics()
@@ -179,12 +181,18 @@ fun TelegramExplorerDashboard(
     BackHandler(enabled = position.section != ExplorerSection.SAVED && position.level != ExplorerLevel.SOURCES) {
         onGoUp()
     }
-    LaunchedEffect(showMedia, videos.size, hasMore, isLoading, isLoadingMore, discardedMediaCount) {
+    // Each Telegram folder receives its own gridState. Restart the viewport observer
+    // when that state changes or it will keep watching the previous folder's grid.
+    LaunchedEffect(gridState, showMedia, videos.size, hasMore, isLoading, isLoadingMore, discardedMediaCount) {
         if (!showMedia || videos.isEmpty()) return@LaunchedEffect
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .distinctUntilChanged()
             .collect { index ->
-                if (index >= videos.size - 6 && hasMore && discardedMediaCount == 0 && !isLoading && !isLoadingMore) onLoadMore()
+                // Ignore an unmeasured/empty viewport (index == -1). Otherwise short
+                // result sets could start fetching more before the grid is displayed.
+                if (index >= 0 && index >= (videos.size - 6).coerceAtLeast(0) &&
+                    hasMore && discardedMediaCount == 0 && !isLoading && !isLoadingMore
+                ) onLoadMore()
             }
     }
 
@@ -193,9 +201,14 @@ fun TelegramExplorerDashboard(
         modifier = Modifier.fillMaxSize()
             .padding(
                 horizontal = design.pagePadding,
-                vertical = if (adaptive.isTv) 18.dp else 14.dp
+                // Short landscape viewports need room for the first visible media row.
+                vertical = if (adaptive.heightDp < 500.dp) 8.dp
+                    else if (adaptive.isTv) 18.dp else 14.dp
             ),
-        verticalArrangement = Arrangement.spacedBy(if (adaptive.isTv) 8.dp else 10.dp)
+        verticalArrangement = Arrangement.spacedBy(
+            if (adaptive.heightDp < 500.dp) 6.dp
+            else if (adaptive.isTv) 8.dp else 10.dp
+        )
     ) {
         // Content-first toolbar: two compact rows instead of a full page hero,
         // three separate navigation/action rows and an oversized collection panel.
@@ -216,6 +229,8 @@ fun TelegramExplorerDashboard(
         }
         TelegramExplorerCompactHeader(
             section = position.section,
+            screenTitle = if (libraryMode) "Your library" else "Home",
+            navigationLabel = if (libraryMode) "Home" else "Library",
             folderTitle = folderTitle,
             collectionStatus = collectionStatus,
             widthDp = adaptive.widthDp,
@@ -241,7 +256,8 @@ fun TelegramExplorerDashboard(
             onResume = onResume,
             onSearch = onSearch,
             onFavorites = onFavorites,
-            onSettings = onSettings
+            onSettings = onSettings,
+            onNavigate = onNavigate
         )
         Box(Modifier.fillMaxWidth().weight(1f).testTag("telegram-explorer-grid")) {
             when {

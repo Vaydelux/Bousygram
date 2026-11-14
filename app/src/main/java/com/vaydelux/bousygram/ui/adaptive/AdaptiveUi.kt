@@ -35,6 +35,9 @@ object AdaptiveUi {
         val short = heightDp < 480
         val nav = when {
             isTelevision -> NavigationMode.TV_RAIL
+            // Width-only classification misidentifies short landscape phones as tablets.
+            // Keep their full width for the content instead of inserting a rail.
+            short -> NavigationMode.BOTTOM_BAR
             size == WindowClass.EXPANDED -> NavigationMode.RAIL
             size == WindowClass.MEDIUM && !short && widthDp >= 720 -> NavigationMode.RAIL
             else -> NavigationMode.BOTTOM_BAR

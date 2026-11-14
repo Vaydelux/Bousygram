@@ -80,8 +80,10 @@ class TelegramLibraryDesignInstrumentedTest {
                     onSearch = {},
                     onFavorites = { favoritesOpens++ },
                     onSettings = {},
+                    onNavigate = {},
                     hasResume = false,
-                    onResume = {}
+                    onResume = {},
+                    libraryMode = true
                 )
             }
         }

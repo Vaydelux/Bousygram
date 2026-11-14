@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -130,7 +131,9 @@ fun BousygramSectionTab(
     active: Boolean,
     isTv: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    accessibilityLabel: String = label
 ) {
     val colors = MaterialTheme.colorScheme
     val motion = rememberBousygramMotionPolicy()
@@ -158,7 +161,7 @@ fun BousygramSectionTab(
         modifier = modifier
             .heightIn(min = if (isTv) BousygramUiTokens.tvControlHeight
                 else BousygramUiTokens.compactControlHeight)
-            .semantics { selected = active }
+            .semantics { selected = active; contentDescription = accessibilityLabel }
             .onFocusChanged { focused = it.isFocused },
         shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
         border = BorderStroke(
@@ -169,7 +172,7 @@ fun BousygramSectionTab(
             containerColor = highlight,
             contentColor = if (active) colors.onPrimaryContainer else colors.onSurface
         ),
-        contentPadding = PaddingValues(horizontal = if (isTv) 20.dp else 16.dp, vertical = 8.dp)
+        contentPadding = PaddingValues(horizontal = if (isTv) 20.dp else if (compact) 10.dp else 16.dp, vertical = 8.dp)
     ) {
         Text(
             label,

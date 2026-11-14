@@ -21,6 +21,12 @@ class AdaptiveUiTest {
         assertEquals(NavigationMode.TV_RAIL, AdaptiveUi.resolve(960, 540, true).navigationMode)
     }
 
+    @Test fun tallExpandedNonTvKeepsRail() {
+        val ui = AdaptiveUi.resolve(980, 720, false)
+        assertEquals(NavigationMode.RAIL, ui.navigationMode)
+        assertFalse(ui.compactHeader)
+    }
+
     @Test fun highContrastDisablesPatterns() {
         assertEquals(BackgroundPattern.NONE, AdaptiveUi.effectivePattern(BackgroundPattern.FINE_GRID, true, false))
     }

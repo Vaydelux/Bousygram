@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -100,6 +101,7 @@ fun BrowseScreen(
     onOpenLibrary: () -> Unit,
     onOpenFavorites: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHome: () -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenSearchWithQuery: (chatId: Long?, chatTitle: String, query: String) -> Unit = { chatId, chatTitle, _ ->
         onOpenSearch(chatId, chatTitle)
@@ -168,22 +170,17 @@ fun BrowseScreen(
         }
     }
 
-    // The library fetches media metadata a page at a time from TDLib. Near the end of the
-    // currently loaded grid, prefetch the next metadata page automatically, without downloading
-    // video bytes; playback remains the responsibility of the existing ExoPlayer stream path.
-    LaunchedEffect(libraryMode, videos.size, state.hasMore, state.isLoading, state.isLoadingMore, state.discardedMediaCount) {
+    // Persist the viewport of the active Library folder only. The explorer owns
+    // pagination; keying this observer by browseStateKey prevents old folders from
+    // overwriting the current folder's stored scroll position after navigation.
+    LaunchedEffect(libraryMode, browseStateKey, libraryGridState) {
         if (!libraryMode) return@LaunchedEffect
-        snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+        snapshotFlow {
+            libraryGridState.firstVisibleItemIndex to libraryGridState.firstVisibleItemScrollOffset
+        }
             .distinctUntilChanged()
-            .collect { _ ->
-                viewModel.saveBrowseViewport(
-                    browseStateKey,
-                    libraryGridState.firstVisibleItemIndex,
-                    libraryGridState.firstVisibleItemScrollOffset
-                )
-                // TelegramExplorerDashboard owns metadata pagination for both Home and Library.
-                // This collector only persists the viewport; a second loadMore call here
-                // could race the explorer collector when the grid reaches its final row.
+            .collect { (index, offset) ->
+                viewModel.saveBrowseViewport(browseStateKey, index, offset)
             }
     }
 
@@ -298,8 +295,14 @@ fun BrowseScreen(
         }
     )
 
-    // One explorer implementation for Home and Library: no legacy horizontal rails.
-    Box(modifier = modifier.fillMaxSize()) {
+    // Keep the phone status/navigation bars clear. TV builds remain edge-to-edge
+    // within the leanback viewport, while the fullscreen player owns its own insets.
+    // Home/Library is not wrapped by the Material3 adaptive shell.
+    Box(
+        modifier = modifier.fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .then(if (adaptive.isTv) Modifier else Modifier.safeDrawingPadding())
+    ) {
             TelegramExplorerDashboard(
                 position = explorerPosition,
                 sources = state.videoChats,
@@ -353,8 +356,10 @@ fun BrowseScreen(
                 },
                 onFavorites = onOpenFavorites,
                 onSettings = onOpenSettings,
+                onNavigate = if (libraryMode) onOpenHome else onOpenLibrary,
                 hasResume = hasSourceResume,
                 onResume = ::openLastPlayed,
+                libraryMode = libraryMode,
                 modifier = Modifier.fillMaxSize()
             )
         LaunchOpeningIndicator(
