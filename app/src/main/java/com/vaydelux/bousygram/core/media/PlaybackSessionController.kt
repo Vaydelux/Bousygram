@@ -361,8 +361,8 @@ object PlaybackSessionController {
         if (activeSessions.isEmpty()) isVideoPlayingFlag.set(false)
         record(session)
         // Run outside the player teardown on the cache worker. The ongoing
-        // media is no longer protected by this session; offline pins, other
-        // active leases and continue-watching entries remain protected.
+        // media is no longer protected by this session; offline pins and other
+        // active leases remain protected. Resume metadata survives byte eviction.
         CacheManager.triggerCacheCleanupIfNeeded()
         // Persisted Continue Watching is independent of cached bytes. When the
         // short replay grace expires, recheck storage pressure so the video can
