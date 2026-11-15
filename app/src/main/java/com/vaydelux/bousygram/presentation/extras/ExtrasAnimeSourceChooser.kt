@@ -88,6 +88,13 @@ internal fun ExtrasAnimeSourceChooser(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                ExtrasServerConnectionCheck(
+                    url = selected.urlFor(
+                        request.anilistId, request.season ?: 1, request.episode ?: 1
+                    ),
+                    isTv = isTv,
+                    modifier = Modifier.testTag("extras-anime-source-health")
+                )
                 Button(
                     onClick = onOpen,
                     modifier = Modifier.fillMaxWidth()

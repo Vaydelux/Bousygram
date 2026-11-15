@@ -28,6 +28,20 @@ import org.junit.runner.RunWith
 class ExtrasEmbedServerDropdownInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun manualServerCheckIsVisibleButNeverRunsOnInitialRender() {
+        compose.setContent {
+            BousygramTheme {
+                ExtrasServerConnectionCheck(
+                    url = ExtrasEmbedServer.CINESRC.urlFor(550),
+                    isTv = true
+                )
+            }
+        }
+        compose.onNodeWithTag("extras-server-check").assertExists()
+        // No state is inferred and no HTTP request starts until the user clicks.
+        compose.onNodeWithTag("extras-server-check-result").assertDoesNotExist()
+    }
+
     @Test fun tvRemoteCanOpenServerMenuAndChangeProvider() {
         var selected: ExtrasEmbedServer = ExtrasEmbedServer.CINESRC
         compose.setContent {
