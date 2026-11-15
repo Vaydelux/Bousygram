@@ -921,7 +921,9 @@ internal object TelegramChunkScheduler {
     }
 
     private fun prefetchAhead(fileId: Int, offset: Long, length: Int) {
-        if (isPlaybackBusy(fileId)) return // Open-ended playback owns TDLib's download window.
+        // Stream Only never launches speculative byte downloads, even during a
+        // transient gap before the foreground playback lease is registered.
+        if (StreamOnlyMode.isEnabled() || isPlaybackBusy(fileId)) return
         val totalSize = fileSizes[fileId] ?: 0L
         val nextOffset = saturatingPrefetchEnd(offset, length.toLong())
         // Media3 may deliver hundreds of short sequential reads while an existing
