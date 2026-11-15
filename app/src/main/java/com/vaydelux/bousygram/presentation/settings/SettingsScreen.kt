@@ -351,9 +351,16 @@ fun SettingsScreen(
                                     Text(
                                         "Cache directories: ${formatBytes(cacheSize)}. " +
                                             "Telegram media target: ${formatBytes(storageStats.cacheLimitBytes)} " +
-                                            "(maximum 160 MiB, within the 200 MiB disposable-media budget).",
+                                            "(up to 160 MiB; temporary streaming may exceed this target).",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "TDLib media folder: ${formatBytes(storageStats.tdLibCacheBytes)} · " +
+                                            "App cache folder: ${formatBytes(storageStats.appCacheBytes)} · " +
+                                            "Other persistent app files: ${formatBytes(storageStats.appFilesBytes)}.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall
                                     )
                                 }
                                 BousygramButton(
@@ -389,10 +396,11 @@ fun SettingsScreen(
                                 )
                             }
                             Text(
-                                text = "Other app files: ${formatBytes(storageStats.appFilesBytes)}. " +
-                                    "Measured directories: ${formatBytes(storageStats.totalBytes)} " +
-                                    "(not total installed app size; databases and APK excluded). " +
-                                    "Pinned or active downloads can exceed the cache target.",
+                                text = "Measured directories: ${formatBytes(storageStats.totalBytes)}. " +
+                                    "This includes TDLib databases in app files, but not the installed APK, " +
+                                    "all databases or WebView site storage. " +
+                                    "Offline pins and active streams can exceed the media cache target. " +
+                                    "Resume positions remain saved after safe video-byte eviction.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )

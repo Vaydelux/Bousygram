@@ -68,11 +68,50 @@ class CacheManagerTest {
     }
 
     @Test
-    fun completedLastPlayedFileCanBeEvictedButUnfinishedResumeIsProtected() {
-        assertEquals(123, CacheManager.protectedLastPlayedId(123, completed = false))
-        assertEquals(null, CacheManager.protectedLastPlayedId(123, completed = true))
-        assertEquals(null, CacheManager.protectedLastPlayedId(null, completed = false))
-        assertEquals(null, CacheManager.protectedLastPlayedId(0, completed = false))
+    fun resumeCheckpointDoesNotPinDisposableMediaWhenPlaybackHasStopped() {
+        // A persisted Continue Watching entry is metadata, not an offline pin.
+        val checkpoint = com.vaydelux.bousygram.data.repository.ContinueWatchingEntry(
+            chatId = 1L,
+            messageId = 99L,
+            fileId = 123,
+            title = "Resume this title",
+            positionMs = 60_000L,
+            durationMs = 120_000L,
+            completed = false
+        )
+        assertEquals(60_000L, checkpoint.positionMs)
+        assertTrue(canEvictTemporaryMedia(
+            offlinePinned = false,
+            activePlayback = false,
+            cacheAheadActive = false,
+            activeRange = false,
+            downloading = false,
+            focusPrefetch = false
+        ))
+        // A live decoder still protects the exact same video file.
+        assertFalse(canEvictTemporaryMedia(
+            offlinePinned = false,
+            activePlayback = true,
+            cacheAheadActive = false,
+            activeRange = false,
+            downloading = false,
+            focusPrefetch = false
+        ))
+    }
+
+    @Test
+    fun offlinePinsAndInflightStreamingRemainProtectedFromCleanup() {
+        val flags = listOf(
+            listOf(true, false, false, false, false, false), // offline pin
+            listOf(false, true, false, false, false, false), // playing
+            listOf(false, false, true, false, false, false), // cache ahead
+            listOf(false, false, false, true, false, false), // lease/chunk
+            listOf(false, false, false, false, true, false), // TDLib download
+            listOf(false, false, false, false, false, true)  // focus prefetch
+        )
+        flags.forEach { f ->
+            assertFalse(canEvictTemporaryMedia(f[0], f[1], f[2], f[3], f[4], f[5]))
+        }
     }
 
     @Test

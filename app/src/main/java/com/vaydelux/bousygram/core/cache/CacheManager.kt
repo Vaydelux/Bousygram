@@ -16,11 +16,13 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.data.database.AppDatabase
-import com.vaydelux.bousygram.data.repository.ContinueWatchingRepository
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.util.Collections
@@ -56,6 +58,9 @@ object CacheManager {
     private const val MAX_TRACKED_FILES_PER_SWEEP = 256
     private const val MAX_PINNED_FILES_TO_INSPECT = 64
     private const val RECENT_ACCESS_PROTECTION_MS = 2 * 60 * 1000L
+    // An explicit user-initiated prune may rotate through several tracked-ID
+    // pages, but remains bounded for slow eMMC and TDLib request budgets.
+    internal const val MAX_MANUAL_PRUNE_PASSES = 3
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val cleanupExecutor = Executors.newSingleThreadExecutor()
@@ -74,6 +79,7 @@ object CacheManager {
     private val isEvictionScheduled = AtomicBoolean(false)
     private data class AccessCleanupMarker(val accountId: Long, val elapsedMs: Long)
     private val lastAccessCleanupMarker = AtomicReference<AccessCleanupMarker?>(null)
+    private var postPlaybackCleanupJob: Job? = null
     private var pinnedAccountId: Long? = null
     // Access timestamps are sorted oldest first. Rotate a bounded TDLib
     // lookup page across sweeps so the first 256 entries cannot starve newer
@@ -103,6 +109,8 @@ object CacheManager {
         pinnedFiles.clear()
         pinnedAccountId = null
         lastAccessCleanupMarker.set(null)
+        postPlaybackCleanupJob?.cancel()
+        postPlaybackCleanupJob = null
         preloadedNextEpisodes.clear()
         preloadAttemptsMs.clear()
     }
@@ -322,8 +330,49 @@ object CacheManager {
         }
     }
 
+    /**
+     * Manual pruning is allowed to rotate through up to three different TDLib
+     * ID pages. Automatic sweeps remain single-pass for playback performance.
+     * Two empty pages stop work early when only protected/untracked data is left.
+     */
     fun pruneTrackedCacheNow(): TrackedCacheCleanupResult = synchronized(cleanupLock) {
-        performCacheCleanup()
+        var last = performCacheCleanup()
+        val firstOverLimit = last.initiallyOverLimit
+        var deleted = last.deletedFiles
+        var freed = last.freedBytes
+        var emptyPasses = if (last.deletedFiles == 0) 1 else 0
+        for (passIndex in 1 until MAX_MANUAL_PRUNE_PASSES) {
+            if (!shouldContinueManualCachePrune(last.initiallyOverLimit, emptyPasses)) break
+            last = performCacheCleanup()
+            deleted += last.deletedFiles
+            freed += last.freedBytes
+            emptyPasses = if (last.deletedFiles == 0) emptyPasses + 1 else 0
+        }
+        last.copy(
+            deletedFiles = deleted,
+            freedBytes = freed,
+            initiallyOverLimit = firstOverLimit
+        )
+    }
+
+    /**
+     * A player may close while its last-used media still has two minutes of
+     * replay grace. Schedule one account-scoped follow-up pass after that grace,
+     * so old resume checkpoints do not leave unpinned gigabyte files forever.
+     * This is best-effort; no worker keeps the app alive in the background.
+     */
+    @Synchronized
+    fun schedulePostPlaybackCleanup() {
+        val account = AccountSession.current() ?: return
+        postPlaybackCleanupJob?.cancel()
+        postPlaybackCleanupJob = scope.launch {
+            delay(RECENT_ACCESS_PROTECTION_MS + 1_000L)
+            // If another video started, its own stop will schedule cleanup.
+            // Avoid a discretionary directory scan in the middle of playback.
+            if (AccountSession.isCurrent(account) &&
+                !PlaybackSessionController.isVideoPlaying()
+            ) triggerCacheCleanupIfNeeded()
+        }
     }
 
     fun storageStats(context: Context, tdLibCacheDir: File): TelegramCacheStorageStats {
@@ -389,31 +438,25 @@ object CacheManager {
         val accessTime = accessed.toMap()
         val now = System.currentTimeMillis()
 
-        val continueWatchingIds = runCatching {
-            ContinueWatchingRepository.getContinueWatchingFileIds()
-        }.getOrDefault(emptySet())
-        val lastPlayedId = EnterprisePreferences.lastPlayed()?.fileId
-        // An unfinished last-played movie is protected for resume. A completed
-        // movie no longer needs a storage exemption after the player releases it.
-        val protectedLastPlayedId = protectedLastPlayedId(
-            lastPlayedId, lastPlayedId?.let { isWatched(it) } == true
-        )
+        // Continue Watching is stored in Room/preferences, not in the downloaded
+        // video payload. A saved resume position must NOT pin megabytes of media
+        // indefinitely; TDLib can re-fetch missing ranges on the next Play.
+        // Only explicit offline pins, live player ownership and active IO keep
+        // downloaded bytes non-evictable.
 
         val safeCandidates = files
             .filter { (id, file) ->
-                !pinnedFiles.contains(id) &&
-                    // Episode queue membership grants stream access, but is
-                    // not a reason to retain an otherwise evictable full file.
-                    // Protect only the active/resolving video; the safeguards
-                    // below still protect downloads, leases and prefetch.
-                    !PlaybackSessionController.isCacheProtectedPlaybackFile(id) &&
-                    !continueWatchingIds.contains(id) &&
-                    id != protectedLastPlayedId &&
-                    !TelegramPreCacheEngine.isCaching(id) &&
-                    TelegramChunkScheduler.activeLeaseCount(id) == 0 &&
-                    TelegramChunkScheduler.activeChunkCount(id) == 0 &&
-                    !file.local.isDownloadingActive &&
-                    !FocusPrefetchManager.isPrefetching(id) &&
+                // The resume/history record is intentionally NOT an eviction
+                // guard. The active stream and explicit offline pins still are.
+                canEvictTemporaryMedia(
+                    offlinePinned = pinnedFiles.contains(id),
+                    activePlayback = PlaybackSessionController.isCacheProtectedPlaybackFile(id),
+                    cacheAheadActive = TelegramPreCacheEngine.isCaching(id),
+                    activeRange = TelegramChunkScheduler.activeLeaseCount(id) > 0 ||
+                        TelegramChunkScheduler.activeChunkCount(id) > 0,
+                    downloading = file.local.isDownloadingActive,
+                    focusPrefetch = FocusPrefetchManager.isPrefetching(id)
+                ) &&
                     !file.local.path.isNullOrBlank() && file.local.downloadedSize > 0L
             }
 
@@ -478,10 +521,6 @@ object CacheManager {
             initiallyOverLimit = initiallyOverLimit
         )
     }
-
-    /** Completed last-played media can be recycled after its session closes. */
-    internal fun protectedLastPlayedId(lastPlayedId: Int?, completed: Boolean): Int? =
-        if (completed) null else lastPlayedId?.takeIf { it > 0 }
 
     fun isWatched(fileId: Int): Boolean {
         val account = AccountSession.current() ?: return false
@@ -607,12 +646,17 @@ object CacheManager {
      * responses are being collected.
      */
     private fun isTrackedFileDeletionProtected(fileId: Int): Boolean =
-        pinnedFiles.contains(fileId) ||
-            PlaybackSessionController.isCacheProtectedPlaybackFile(fileId) ||
-            TelegramPreCacheEngine.isCaching(fileId) ||
-            TelegramChunkScheduler.activeChunkCount(fileId) > 0 ||
-            TelegramChunkScheduler.activeLeaseCount(fileId) > 0 ||
-            FocusPrefetchManager.isPrefetching(fileId)
+        !canEvictTemporaryMedia(
+            offlinePinned = pinnedFiles.contains(fileId),
+            activePlayback = PlaybackSessionController.isCacheProtectedPlaybackFile(fileId),
+            cacheAheadActive = TelegramPreCacheEngine.isCaching(fileId),
+            activeRange = TelegramChunkScheduler.activeChunkCount(fileId) > 0 ||
+                TelegramChunkScheduler.activeLeaseCount(fileId) > 0,
+            // GetFile's latest download flag is checked when candidates are
+            // selected. This final recheck guards all locally owned activity.
+            downloading = false,
+            focusPrefetch = FocusPrefetchManager.isPrefetching(fileId)
+        )
 
     private fun deleteFilesBlocking(fileIds: List<Int>, account: AccountSnapshot): Set<Int> {
         if (fileIds.isEmpty() || !AccountSession.isCurrent(account)) return emptySet()
