@@ -691,6 +691,11 @@ private fun ExtrasMediaForgePlayerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2
                 )
+                ExtrasServerConnectionCheck(
+                    url = request.url,
+                    isTv = isAndroidTv,
+                    modifier = Modifier.testTag("extras-current-server-health")
+                )
                 if (isAndroidTv) {
                     Text(
                         if (cursorEnabled) "Cursor mode: arrows move pointer, OK clicks; Back/Menu returns to D-pad."

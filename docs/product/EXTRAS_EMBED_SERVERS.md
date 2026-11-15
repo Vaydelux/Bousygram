@@ -59,3 +59,19 @@ See `docs/reviews/EXTRAS_EMBED_DOMAIN_AUDIT_2026-11-16.md`. The current
 public web fetcher could not load most JS-based embed pages. That is not
 evidence of expiration. Remove only entries with affirmative retired/invalid
 evidence; avoid silently breaking providers whose WebView status is unknown.
+
+## No-ADB manual site check
+
+A user can choose any Extras movie, TV or anime provider and select
+**Check server** on the TV/phone screen. Bousygram sends one bounded
+HEAD request to the selected public HTTPS embed, with no cookies, tokens,
+Telegram credentials, automatic redirects or response-body downloads.
+It reports whether the current device saw an HTTPS response, a redirect,
+a rate limit, a restricted response, a missing specific title path,
+a temporary server error, or a connection failure. HEAD-not-supported is
+explicitly **inconclusive** rather than a dead-source verdict.
+
+This is **not** a playback test: a responsive page can have an absent movie,
+and a blank/403/bot-protected source may work in WebView. A single device
+failure never silently removes a server or changes the selected provider.
+The action is voluntary and stores no server status or personal metadata.
