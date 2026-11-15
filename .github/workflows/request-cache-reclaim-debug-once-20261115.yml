@@ -1,0 +1,80 @@
+name: One-time Bousygram cache reclaim debug prerelease request
+
+# Workflow-only release trigger. The app code remains frozen at the verified
+# post-merge safe cache reclaim commit; no Kotlin, player or TDLib changes; the existing APK workflow owns all build gates.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/request-cache-reclaim-debug-once-20261115.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  request-debug:
+    name: Verify frozen cache reclaim source and dispatch canonical debug prerelease
+    if: >-
+      github.repository == 'Vaydelux/Bousygram' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'ci(android): request cache-reclaim debug prerelease 2026-11-15')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check out exact merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify source freeze and successful CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROZEN_SOURCE_SHA: 4083f4723e9446655d6b2c6e104d80ee68a634bd
+          REQUEST_PATH: .github/workflows/request-cache-reclaim-debug-once-20261115.yml
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "::error::Checkout does not match triggering source." >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD^)" == "$FROZEN_SOURCE_SHA" ]] || {
+            echo "::error::Request does not immediately follow the frozen safe cache reclaim app source." >&2
+            exit 1
+          }
+          [[ "$(git diff --name-only "$FROZEN_SOURCE_SHA" "$GITHUB_SHA")" == "$REQUEST_PATH" ]] || {
+            echo "::error::Release request changed application files or other paths." >&2
+            exit 1
+          }
+          main_sha="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main advanced; refusing to dispatch a stale release." >&2
+            exit 1
+          }
+
+          # Exact post-merge cache checks: Enterprise, Explorer UI, Cast/media.
+          for run_id in 43699882220 43699882211 43699882237; do
+            verified="$(gh api "repos/$repo/actions/runs/$run_id" \
+              --jq '[.head_sha, .conclusion, .event] | join(":")')"
+            [[ "$verified" == "$FROZEN_SOURCE_SHA:success:push" ]] || {
+              echo "::error::Required source-verification run $run_id failed or changed." >&2
+              exit 1
+            }
+          done
+          [[ "$(gh api "repos/$repo/pulls/197" --jq '.merged')" == true ]] || {
+            echo "::error::Cache fix PR #197 must be merged." >&2
+            exit 1
+          }
+
+          gh api --method POST \
+            "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" \
+            -f ref=main
+          {
+            echo "## Frozen cache reclaim debug prerelease requested"
+            echo "App source: $FROZEN_SOURCE_SHA"
+            echo "Release-request commit: $GITHUB_SHA"
+            echo "No app code changed; canonical workflow independently qualifies and publishes the APK."
+          } >> "$GITHUB_STEP_SUMMARY"
