@@ -1,7 +1,7 @@
 name: One-time Bousygram cache reclaim debug prerelease request
 
 # Workflow-only release trigger. The app code remains frozen at the verified
-# post-merge safe cache reclaim commit; the existing APK workflow owns all build gates.
+# post-merge safe cache reclaim commit; no Kotlin, player or TDLib changes; the existing APK workflow owns all build gates.
 on:
   push:
     branches: [main]
