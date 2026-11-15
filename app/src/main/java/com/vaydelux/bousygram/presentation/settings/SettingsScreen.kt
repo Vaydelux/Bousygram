@@ -351,9 +351,16 @@ fun SettingsScreen(
                                     Text(
                                         "Cache directories: ${formatBytes(cacheSize)}. " +
                                             "Telegram media target: ${formatBytes(storageStats.cacheLimitBytes)} " +
-                                            "(maximum 160 MiB, within the 200 MiB disposable-media budget).",
+                                            "(up to 160 MiB; temporary streaming may exceed this target).",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "TDLib media folder: ${formatBytes(storageStats.tdLibCacheBytes)} · " +
+                                            "App cache folder: ${formatBytes(storageStats.appCacheBytes)} · " +
+                                            "Other persistent app files: ${formatBytes(storageStats.appFilesBytes)}.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall
                                     )
                                 }
                                 BousygramButton(
