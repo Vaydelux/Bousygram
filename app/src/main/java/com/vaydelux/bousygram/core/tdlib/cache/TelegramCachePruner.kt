@@ -84,9 +84,13 @@ object TelegramCachePruner {
             remainingBytes = stats.tdLibCacheBytes,
             limitBytes = cacheLimitBytes,
             note = when {
-                remainsOverLimit -> "Cache is still above the configured limit. Pinned, recent, active, and untracked data was preserved."
-                result.deletedFiles > 0 -> "Pinned and actively playing media were preserved."
-                else -> "TDLib cache is within the configured limit."
+                remainsOverLimit -> "The TDLib media folder is still above its target. " +
+                    "Untracked, offline-pinned, active, or recently used bytes may remain; " +
+                    "streaming downloads can temporarily exceed the target."
+                result.deletedFiles > 0 -> "Safe TDLib media cleanup completed. " +
+                    "Offline pins and current playback were preserved; resume history is unchanged."
+                else -> "The TDLib media folder is within its target. " +
+                    "No stored resume history or explicit offline pins were removed."
             }
         )
     }
