@@ -364,6 +364,10 @@ object PlaybackSessionController {
         // media is no longer protected by this session; offline pins, other
         // active leases and continue-watching entries remain protected.
         CacheManager.triggerCacheCleanupIfNeeded()
+        // Persisted Continue Watching is independent of cached bytes. When the
+        // short replay grace expires, recheck storage pressure so the video can
+        // be reclaimed even if the user does not play another title.
+        CacheManager.schedulePostPlaybackCleanup()
         ownerFailure?.let { throw it }
     }
 
