@@ -2,7 +2,9 @@
 <!-- Google TV home and move/remove surfaces use android:banner, not android:icon.
      Reuse the approved mascot instead of a screenshot of playback/navigation UI. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
+    <!-- Intrinsic 16:9 bounds prevent Google TV from treating this as
+         a square launcher icon in its home and app-management surfaces. -->
+    <item android:width="320dp" android:height="180dp">
         <shape android:shape="rectangle">
             <solid android:color="#061426" />
         </shape>
