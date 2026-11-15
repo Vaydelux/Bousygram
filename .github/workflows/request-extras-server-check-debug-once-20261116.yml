@@ -1,0 +1,73 @@
+name: One-time Extras no-ADB server check debug prerelease
+
+# Exact-source, workflow-only request. The canonical publisher owns validation.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/request-extras-server-check-debug-once-20261116.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  request-debug:
+    name: Verify no-ADB server-check merge and request debug APKs
+    if: >-
+      github.repository == 'Vaydelux/Bousygram' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'ci(android): request no-ADB Extras server check debug prerelease 2026-11-16')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check out exact workflow-only release request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify immutable source, CI and dispatch canonical debug publisher
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROZEN_SOURCE_SHA: 745354b3f7d5e75adbf2123abd63ae674b0cf447
+          REQUEST_PATH: .github/workflows/request-extras-server-check-debug-once-20261116.yml
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || exit 1
+          [[ "$(git rev-parse HEAD^)" == "$FROZEN_SOURCE_SHA" ]] || {
+            echo "::error::Source changed after qualified Extras server-check merge." >&2
+            exit 1
+          }
+          [[ "$(git diff --name-only "$FROZEN_SOURCE_SHA" "$GITHUB_SHA")" == "$REQUEST_PATH" ]] || {
+            echo "::error::Release request must change only its workflow file." >&2
+            exit 1
+          }
+          [[ "$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main moved, refuse stale release." >&2
+            exit 1
+          }
+          [[ "$(gh api "repos/$repo/pulls/203" --jq '.merged')" == true ]] || {
+            echo "::error::Extras no-ADB PR #203 has not been merged." >&2
+            exit 1
+          }
+          for run_id in 43754316111 43754316112 43754316140; do
+            verified="$(gh api "repos/$repo/actions/runs/$run_id" \
+              --jq '[.head_sha, .conclusion, .event, .head_branch] | join(":")')"
+            [[ "$verified" == "$FROZEN_SOURCE_SHA:success:push:main" ]] || {
+              echo "::error::Required exact-source CI $run_id not successful." >&2
+              exit 1
+            }
+          done
+
+          gh api --method POST \
+            "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" \
+            -f ref=main
+          {
+            echo '## No-ADB Extras server diagnostics debug APK request'
+            echo "Frozen app source: $FROZEN_SOURCE_SHA"
+            echo "Workflow-only request commit: $GITHUB_SHA"
+            echo 'Build must still pass canonical lint, unit, emulator, ABI and SHA256 verification.'
+          } >> "$GITHUB_STEP_SUMMARY"
