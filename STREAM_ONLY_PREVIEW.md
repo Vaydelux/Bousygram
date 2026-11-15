@@ -17,7 +17,7 @@ the established open-ended foreground TDLib behavior until on-device qualificati
 - No speculative cache-ahead or next-episode preload in the preview.
   User-driven requests, subtitle handling and essential first-byte preparation
   remain available.
-- Normal stop/track-switch schedules a **30-second** delayed, account-checked
+- Normal stop and playlist track transitions schedule a **30-second** delayed, account-checked
   targeted TDLib `DeleteFile`. Before deletion, the worker rechecks TDLib's
   download-active flag, playback owners, active range leases, speculative
   jobs and explicit offline pins. New playback cancels pending reclaim.

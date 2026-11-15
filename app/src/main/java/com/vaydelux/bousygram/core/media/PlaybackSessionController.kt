@@ -125,7 +125,8 @@ object PlaybackSessionController {
         queue: List<com.vaydelux.bousygram.presentation.media.PlaybackQueueItem>,
         startIndex: Int = 0,
         startPositionMs: Long = 0L,
-        onCancelDownloads: ((fileId: Int) -> Unit)? = null
+        onCancelDownloads: ((fileId: Int) -> Unit)? = null,
+        onTrackExit: ((fileId: Int) -> Unit)? = null
     ): PlaybackSession {
         FocusPrefetchManager.cancelAll()
         // Enforce strictly one active playback session across the entire app
@@ -142,7 +143,8 @@ object PlaybackSessionController {
             sessionId = "pb-${System.currentTimeMillis()}-${nextSessionNumber.getAndIncrement()}",
             startedAtMs = System.currentTimeMillis(),
             startPositionMs = startPositionMs.coerceAtLeast(0L),
-            onCancelDownloads = onCancelDownloads
+            onCancelDownloads = onCancelDownloads,
+            onTrackExit = onTrackExit
         )
         queue.forEach { item ->
             if (item.fileId > 0) {

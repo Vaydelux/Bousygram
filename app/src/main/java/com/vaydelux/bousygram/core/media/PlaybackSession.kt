@@ -29,7 +29,8 @@ class PlaybackSession(
     val sessionId: String = "pb-${System.currentTimeMillis()}",
     val startedAtMs: Long = System.currentTimeMillis(),
     startPositionMs: Long = 0L,
-    private val onCancelDownloads: ((fileId: Int) -> Unit)? = null
+    private val onCancelDownloads: ((fileId: Int) -> Unit)? = null,
+    private val onTrackExit: ((fileId: Int) -> Unit)? = null
 ) {
     sealed interface State {
         data object Idle : State
@@ -132,6 +133,7 @@ class PlaybackSession(
             retryCount = 0
             if (prevFileId > 0) {
                 onCancelDownloads?.invoke(prevFileId)
+                onTrackExit?.invoke(prevFileId)
             }
             val nextItem = queue[nextIdx]
             _state.value = PlaybackState.Preparing(nextItem)
@@ -155,6 +157,7 @@ class PlaybackSession(
             retryCount = 0
             if (prevFileId > 0) {
                 onCancelDownloads?.invoke(prevFileId)
+                onTrackExit?.invoke(prevFileId)
             }
             val prevItem = queue[prevIdx]
             _state.value = PlaybackState.Preparing(prevItem)
@@ -176,6 +179,7 @@ class PlaybackSession(
             retryCount = 0
             if (prevFileId > 0) {
                 onCancelDownloads?.invoke(prevFileId)
+                onTrackExit?.invoke(prevFileId)
             }
             val item = queue[newIndex]
             _state.value = PlaybackState.Preparing(item)
