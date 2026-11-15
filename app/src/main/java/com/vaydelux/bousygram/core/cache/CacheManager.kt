@@ -367,7 +367,11 @@ object CacheManager {
         postPlaybackCleanupJob?.cancel()
         postPlaybackCleanupJob = scope.launch {
             delay(RECENT_ACCESS_PROTECTION_MS + 1_000L)
-            if (AccountSession.isCurrent(account)) triggerCacheCleanupIfNeeded()
+            // If another video started, its own stop will schedule cleanup.
+            // Avoid a discretionary directory scan in the middle of playback.
+            if (AccountSession.isCurrent(account) &&
+                !PlaybackSessionController.isVideoPlaying()
+            ) triggerCacheCleanupIfNeeded()
         }
     }
 
