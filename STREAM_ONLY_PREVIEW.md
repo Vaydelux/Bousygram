@@ -39,6 +39,30 @@ offline-pinned videos, logout/account switch, and storage-pressure recovery.
 
 Verify both video bytes reclaimed and Continue Watching preserved; watch for
 full-file TDLib growth despite finite windows, and for stalls at the 16 MiB
-boundary. Capture logs/telemetry and use the non-experimental build if a seek
-or stall regression occurs. Do **not** ship this as production default based
-only on unit tests or Gradle compilation.
+boundary.
+
+### Physical TV aggregate storage observations (Windows PowerShell)
+
+Install an opt-in debug APK, connect and authorize an ARM32/ARM64 Android TV
+through ADB. In Developer Tools enable Stream Only, then use these sample runs:
+
+```powershell
+.\tools\qualification\Capture-BousygramStreamOnlyStorage.ps1 -Phase baseline -Samples 2 -SampleSeconds 5
+# Start an authorized test video in the app, then run:
+.\tools\qualification\Capture-BousygramStreamOnlyStorage.ps1 -Phase playback -Samples 20 -SampleSeconds 30
+# Stop playback, wait at least 30 seconds, then run:
+.\tools\qualification\Capture-BousygramStreamOnlyStorage.ps1 -Phase after-exit -Samples 12 -SampleSeconds 15
+```
+
+The sampler requires `adb` and Android's `run-as` for a debuggable APK.
+It records only TDLib directory aggregate size and optional device-wide free
+space, never Telegram messages, media paths, filenames, URLs, raw logs or
+serials. It fails if the private aggregate cannot be read. Existing pinned
+downloads, unrelated files and TDLib databases contribute to the aggregate,
+so a fall after exit is useful evidence but not a proof of exactly how many
+video bytes were deleted. The named phase and source commit are user claims,
+not independently verified by the script.
+
+Capture logs/telemetry and use the non-experimental build if a seek or stall
+regression occurs. Do **not** ship this as production default based only on
+unit tests or Gradle compilation.
