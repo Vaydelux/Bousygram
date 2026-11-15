@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.core.tdlib.prefetch
 import android.util.Log
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
 import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
@@ -69,7 +70,8 @@ object FocusPrefetchManager {
 
         // Low-storage TVs must never spend flash on a focused poster video.
         // Preserve the existing foreground-only streaming path.
-        if (PlaybackSessionController.isVideoPlaying() || StoragePressureMonitor.isLow()) {
+        if (PlaybackSessionController.isVideoPlaying() || StoragePressureMonitor.isLow() ||
+            StreamOnlyMode.isEnabled()) {
             onFocusCleared()
             return
         }
@@ -102,7 +104,8 @@ object FocusPrefetchManager {
             delay(FOCUS_DEBOUNCE_MS)
             if (!isActive) return@launch
 
-            if (PlaybackSessionController.isVideoPlaying() || StoragePressureMonitor.isLow()) {
+            if (PlaybackSessionController.isVideoPlaying() || StoragePressureMonitor.isLow() ||
+                StreamOnlyMode.isEnabled()) {
                 Log.d(TAG, "Playback or low storage; skipping focus prefetch for fileId=$fileId")
                 return@launch
             }
