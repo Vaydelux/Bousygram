@@ -1,0 +1,74 @@
+name: One-time Extras server and Google TV banner debug prerelease
+
+# Workflow-only, exact-source debug release request. No Android app code.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/request-extras-tv-banner-debug-once-20261116.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  request-debug:
+    name: Verify frozen banner and Extras source before dispatch
+    if: >-
+      github.repository == 'Vaydelux/Bousygram' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'ci(android): request Extras TV banner debug prerelease 2026-11-16')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check out exact one-time request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify immutable source and post-merge CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROZEN_SOURCE_SHA: 9d7f0125a440990847c8e5c134a3b026e641bff4
+          REQUEST_PATH: .github/workflows/request-extras-tv-banner-debug-once-20261116.yml
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || exit 1
+          [[ "$(git rev-parse HEAD^)" == "$FROZEN_SOURCE_SHA" ]] || {
+            echo "::error::Request does not immediately follow frozen source." >&2
+            exit 1
+          }
+          [[ "$(git diff --name-only "$FROZEN_SOURCE_SHA" "$GITHUB_SHA")" == "$REQUEST_PATH" ]] || {
+            echo "::error::Release request changes must be workflow-only." >&2
+            exit 1
+          }
+          [[ "$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main advanced, refuse stale source." >&2
+            exit 1
+          }
+          [[ "$(gh api "repos/$repo/pulls/201" --jq '.merged')" == true ]] || {
+            echo "::error::Extras and TV branding PR #201 not merged." >&2
+            exit 1
+          }
+
+          for run_id in 43748316980 43748317021 43748317056; do
+            verified="$(gh api "repos/$repo/actions/runs/$run_id" \
+              --jq '[.head_sha, .conclusion, .event, .head_branch] | join(":")')"
+            [[ "$verified" == "$FROZEN_SOURCE_SHA:success:push:main" ]] || {
+              echo "::error::Mainline verification $run_id did not pass on frozen source." >&2
+              exit 1
+            }
+          done
+
+          gh api --method POST \
+            "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" \
+            -f ref=main
+          {
+            echo '## Extras + Google TV banner debug APK request accepted'
+            echo "Frozen Android source: $FROZEN_SOURCE_SHA"
+            echo "One-time trigger commit: $GITHUB_SHA"
+            echo 'Canonical prerelease workflow validates tests, emulator, ABI packages and SHA256 before publication.'
+          } >> "$GITHUB_STEP_SUMMARY"
