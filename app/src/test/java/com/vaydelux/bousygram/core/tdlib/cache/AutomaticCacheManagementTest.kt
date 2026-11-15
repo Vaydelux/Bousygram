@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.tdlib.cache
 
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.cache.canEvictTemporaryMedia
 import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -110,7 +111,7 @@ class AutomaticCacheManagementTest {
     }
 
     @Test
-    fun testLruEvictionProtectsActivePlaybackAndContinueWatching() {
+    fun testLruEvictionProtectsPlaybackButResumeMetadataDoesNotPinVideoBytes() {
         val cap = 5L * 1024L * 1024L * 1024L
         val oneGb = 1024L * 1024L * 1024L
 
@@ -130,11 +131,21 @@ class AutomaticCacheManagementTest {
         )
         // Total 8 GB > 5 GB cap
 
-        // Safe candidates exclude active playback and continue watching
-        val eligibleCandidates = files.filter { !it.isPlaying && !it.isContinueWatching }
-        assertEquals(2, eligibleCandidates.size)
+        // Resume metadata remains stored; it no longer makes downloaded
+        // bytes unconditionally non-evictable under cache pressure.
+        val eligibleCandidates = files.filter {
+            canEvictTemporaryMedia(
+                offlinePinned = false,
+                activePlayback = it.isPlaying,
+                cacheAheadActive = false,
+                activeRange = false,
+                downloading = false,
+                focusPrefetch = false
+            )
+        }
+        assertEquals(3, eligibleCandidates.size)
         assertFalse(eligibleCandidates.any { it.id == 101 })
-        assertFalse(eligibleCandidates.any { it.id == 102 })
+        assertTrue(eligibleCandidates.any { it.id == 102 })
 
         var currentTotal = files.sumOf { it.size }
         val evicted = mutableListOf<Int>()
@@ -146,11 +157,11 @@ class AutomaticCacheManagementTest {
             currentTotal -= candidate.size
         }
 
-        // File 103 (t=700L) evicted first, then file 104 if needed
-        assertEquals(listOf(103, 104), evicted)
-        // Active and continue watching files preserved
-        assertFalse(evicted.contains(101))
-        assertFalse(evicted.contains(102))
+        // File 102 is an old, inactive Continue Watching item; its video bytes
+        // can be deleted while its resume checkpoint stays in the app DB.
+        assertEquals(listOf(102, 103), evicted)
+        assertFalse(evicted.contains(101)) // active stream
+        assertTrue(evicted.contains(102)) // inactive resume-media payload
         assertEquals(4 * oneGb, currentTotal)
         assertTrue(currentTotal <= cap)
     }
