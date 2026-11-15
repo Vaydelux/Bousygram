@@ -1,7 +1,7 @@
 # Bousygram — reclaim inactive Telegram media without losing Continue Watching
 
-**Date:** 2026-11-15  
-**Device report:** Approximately 1.3 GB shown as Bousygram storage/cache on a physical Android TV (not independently measured in CI).  
+**Date:** 2026-11-15
+**Device report:** Approximately 1.3 GB shown as Bousygram storage/cache on a physical Android TV (not independently measured in CI).
 **Branch:** `fix/tdlib-resume-cache-storage-20261115`
 
 ## Historical plan and existing limits
