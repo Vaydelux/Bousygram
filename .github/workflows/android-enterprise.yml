@@ -60,6 +60,9 @@ jobs:
             "tools/qualification/Capture-BousygramPlaybackPerf.ps1",
             "tools/qualification/Capture-BousygramPhysicalSoak.ps1",
             "tools/qualification/Parse-BousygramDataSpace.ps1",
+            "tools/qualification/Parse-BousygramPrivateDu.ps1",
+            "tools/qualification/Capture-BousygramStreamOnlyStorage.ps1",
+            "tools/ci/Test-BousygramPrivateDuParser.ps1",
             "tools/ci/Test-BousygramDataSpaceParser.ps1",
             "tools/qualification/Compare-BousygramPhysicalSoak.ps1",
             "tools/ci/Test-BousygramPhysicalSoakComparator.ps1",
@@ -82,6 +85,7 @@ jobs:
           & pwsh -NoProfile -File tools/ci/Test-BousygramPlaybackPerfComparator.ps1
           & pwsh -NoProfile -File tools/ci/Test-BousygramPhysicalSoakComparator.ps1
           & pwsh -NoProfile -File tools/ci/Test-BousygramDataSpaceParser.ps1
+          & pwsh -NoProfile -File tools/ci/Test-BousygramPrivateDuParser.ps1
 
       - name: Validate sanitized multi-run hardware evidence parsing
         shell: bash

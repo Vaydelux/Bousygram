@@ -268,6 +268,13 @@ fun PlayerScreen(
                     com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler.cancelPrefetch(prevFileId)
                     StreamAccessRegistry.revokeFile(prevFileId)
                 }
+            },
+            onTrackExit = { previousFileId ->
+                com.vaydelux.bousygram.core.cache.CacheManager.scheduleStreamOnlyReclaim(
+                    fileId = previousFileId,
+                    stopWasRecovery = false,
+                    downloadsCancelled = true
+                )
             }
         )
     }

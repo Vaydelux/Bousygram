@@ -9,6 +9,7 @@ import com.vaydelux.bousygram.app.BousygramApp
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
@@ -23,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.util.Collections
@@ -80,6 +82,10 @@ object CacheManager {
     private data class AccessCleanupMarker(val accountId: Long, val elapsedMs: Long)
     private val lastAccessCleanupMarker = AtomicReference<AccessCleanupMarker?>(null)
     private var postPlaybackCleanupJob: Job? = null
+    private const val STREAM_ONLY_RECLAIM_GRACE_MS = 30_000L
+    private const val STREAM_ONLY_RECLAIM_RETRY_MS = 60_000L
+    private const val STREAM_ONLY_RECLAIM_MAX_ATTEMPTS = 3
+    private val streamOnlyReclaimJobs = ConcurrentHashMap<Int, Job>()
     private var pinnedAccountId: Long? = null
     // Access timestamps are sorted oldest first. Rotate a bounded TDLib
     // lookup page across sweeps so the first 256 entries cannot starve newer
@@ -111,6 +117,8 @@ object CacheManager {
         lastAccessCleanupMarker.set(null)
         postPlaybackCleanupJob?.cancel()
         postPlaybackCleanupJob = null
+        streamOnlyReclaimJobs.values.forEach { it.cancel() }
+        streamOnlyReclaimJobs.clear()
         preloadedNextEpisodes.clear()
         preloadAttemptsMs.clear()
     }
@@ -276,7 +284,7 @@ object CacheManager {
     fun preloadNextEpisode(nextFileId: Int, totalSize: Long = 0L) {
         // This is optional next-episode work, never a foreground playback read.
         // On small TVs reserve free flash for the video already being watched.
-        if (StoragePressureMonitor.isLow()) return
+        if (StoragePressureMonitor.isLow() || StreamOnlyMode.isEnabled()) return
         val owner = AccountSession.current() ?: return
         if (nextFileId <= 0 || preloadedNextEpisodes.contains(nextFileId)) return
         val now = System.nanoTime() / 1_000_000L
@@ -373,6 +381,73 @@ object CacheManager {
                 !PlaybackSessionController.isVideoPlaying()
             ) triggerCacheCleanupIfNeeded()
         }
+    }
+
+    /** A resumed video must not be reclaimed by an earlier session's delayed sweep. */
+    fun cancelStreamOnlyReclaim(fileId: Int) {
+        if (fileId > 0) streamOnlyReclaimJobs.remove(fileId)?.cancel()
+    }
+
+    /**
+     * Stream Only uses TDLib's own DeleteFile once the last foreground owner exits.
+     * Never unlink TDLib files directly: native file metadata and leases must stay coherent.
+     * This is a targeted best-effort cleanup, not a hard bound on bytes during playback.
+     */
+    fun scheduleStreamOnlyReclaim(
+        fileId: Int,
+        stopWasRecovery: Boolean,
+        downloadsCancelled: Boolean
+    ) {
+        if (!shouldScheduleStreamOnlyReclaim(
+                StreamOnlyMode.isEnabled(), fileId, downloadsCancelled, stopWasRecovery
+            )) return
+        val account = AccountSession.current() ?: return
+        val job = scope.launch {
+            // A single transient TDLib active flag or GetFile timeout must not
+            // strand a large temporary video forever. Cap retries to avoid
+            // background polling on slow eMMC or an unreachable native client.
+            repeat(STREAM_ONLY_RECLAIM_MAX_ATTEMPTS) { attempt ->
+                delay(if (attempt == 0) STREAM_ONLY_RECLAIM_GRACE_MS
+                    else STREAM_ONLY_RECLAIM_RETRY_MS)
+                val runningJob = coroutineContext[Job]
+                val result = synchronized(cleanupLock) {
+                    if (!isActive || streamOnlyReclaimJobs[fileId] !== runningJob ||
+                        !AccountSession.isCurrent(account)
+                    ) return@synchronized StreamOnlyReclaimDecision.STOP
+                    ensurePinnedLoaded()
+                    if (pinnedFiles.contains(fileId) ||
+                        PlaybackSessionController.isCacheProtectedPlaybackFile(fileId)
+                    ) return@synchronized StreamOnlyReclaimDecision.STOP
+
+                    // Leases, in-flight chunks and competing prefetch can drain
+                    // shortly after a player closes; defer rather than deleting.
+                    if (isTrackedFileDeletionProtected(fileId))
+                        return@synchronized StreamOnlyReclaimDecision.RETRY
+
+                    val file = getFilesBlocking(listOf(fileId), account)[fileId]
+                    val decision = decideStreamOnlyReclaim(
+                        offlinePinned = pinnedFiles.contains(fileId),
+                        activePlayback = PlaybackSessionController.isCacheProtectedPlaybackFile(fileId),
+                        otherActiveConsumer = isTrackedFileDeletionProtected(fileId),
+                        fileResolved = file != null,
+                        downloadedBytes = file?.local?.downloadedSize ?: 0L,
+                        path = file?.local?.path,
+                        isDownloading = file?.local?.isDownloadingActive ?: false
+                    )
+                    if (decision != StreamOnlyReclaimDecision.DELETE) return@synchronized decision
+                    if (!isActive || streamOnlyReclaimJobs[fileId] !== runningJob)
+                        return@synchronized StreamOnlyReclaimDecision.STOP
+                    if (deleteFilesBlocking(listOf(fileId), account).contains(fileId)) {
+                        Log.i(TAG, "Stream Only reclaimed temporary TDLib media fileId=$fileId")
+                        StreamOnlyReclaimDecision.STOP
+                    } else StreamOnlyReclaimDecision.RETRY
+                }
+                if (result != StreamOnlyReclaimDecision.RETRY) return@launch
+            }
+            Log.d(TAG, "Stream Only deferred reclaim after bounded retries fileId=$fileId")
+        }
+        streamOnlyReclaimJobs.put(fileId, job)?.cancel()
+        job.invokeOnCompletion { streamOnlyReclaimJobs.remove(fileId, job) }
     }
 
     fun storageStats(context: Context, tdLibCacheDir: File): TelegramCacheStorageStats {

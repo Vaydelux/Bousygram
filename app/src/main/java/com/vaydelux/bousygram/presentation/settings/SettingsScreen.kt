@@ -93,6 +93,7 @@ fun SettingsScreen(
     var playerEngine by remember { mutableStateOf(EnterprisePreferences.selectedPlayerEngine()) }
     val audioProfile by EnterprisePreferences.audioProcessingProfileFlow.collectAsState()
     var videoDebugHud by remember { mutableStateOf(EnterprisePreferences.videoDebugHudEnabled()) }
+    var streamOnlyPreview by remember { mutableStateOf(EnterprisePreferences.streamOnlyPreviewEnabled()) }
     var surfaceType by remember { mutableStateOf(EnterprisePreferences.surfaceTypePreference()) }
     var mpvHwDecMode by remember { mutableStateOf(EnterprisePreferences.mpvHwDecMode()) }
     var storageRefresh by remember { mutableIntStateOf(0) }
@@ -500,6 +501,44 @@ fun SettingsScreen(
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )
+
+                                    // Debug-only streaming experiment. Never overrides production behavior.
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                            Text(
+                                                "Stream Only (Experimental)",
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                "Uses finite Telegram download windows and shorter player buffers. " +
+                                                    "Reclaims temporary video bytes 30 seconds after exit when safe; " +
+                                                    "offline downloads and Continue Watching are preserved. " +
+                                                    "Applies to the next playback, and is not yet production-qualified.",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        Switch(
+                                            checked = streamOnlyPreview || BuildConfig.BOUNDED_FOREGROUND_STREAMING_EXPERIMENT,
+                                            enabled = !BuildConfig.BOUNDED_FOREGROUND_STREAMING_EXPERIMENT,
+                                            onCheckedChange = {
+                                                streamOnlyPreview = it
+                                                EnterprisePreferences.setStreamOnlyPreviewEnabled(it)
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                                uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                            )
+                                        )
+                                    }
 
                                     // Live Video Debug HUD Toggle
                                     Row(

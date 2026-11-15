@@ -125,7 +125,8 @@ object PlaybackSessionController {
         queue: List<com.vaydelux.bousygram.presentation.media.PlaybackQueueItem>,
         startIndex: Int = 0,
         startPositionMs: Long = 0L,
-        onCancelDownloads: ((fileId: Int) -> Unit)? = null
+        onCancelDownloads: ((fileId: Int) -> Unit)? = null,
+        onTrackExit: ((fileId: Int) -> Unit)? = null
     ): PlaybackSession {
         FocusPrefetchManager.cancelAll()
         // Enforce strictly one active playback session across the entire app
@@ -142,8 +143,12 @@ object PlaybackSessionController {
             sessionId = "pb-${System.currentTimeMillis()}-${nextSessionNumber.getAndIncrement()}",
             startedAtMs = System.currentTimeMillis(),
             startPositionMs = startPositionMs.coerceAtLeast(0L),
-            onCancelDownloads = onCancelDownloads
+            onCancelDownloads = onCancelDownloads,
+            onTrackExit = onTrackExit
         )
+        // Only the selected episode is actively being opened. Do not cancel
+        // pending reclaim for other entries merely because they are queued.
+        CacheManager.cancelStreamOnlyReclaim(session.fileId)
         queue.forEach { item ->
             if (item.fileId > 0) {
                 bindActiveFile(item.fileId)
@@ -171,6 +176,7 @@ object PlaybackSessionController {
             startPositionMs = startPositionMs.coerceAtLeast(0L)
         )
         if (fileId > 0) {
+            CacheManager.cancelStreamOnlyReclaim(fileId)
             bindActiveFile(fileId)
         }
         activeSessions.add(session)
@@ -277,7 +283,7 @@ object PlaybackSessionController {
         )
         // This operation is entirely speculative and must not compete with
         // the active decoder when disk space is low.
-        if (maxBytes > 0L) {
+        if (maxBytes > 0L && !StreamOnlyMode.isEnabled()) {
             TelegramPreCacheEngine.cacheAhead(
                 fileId = session.fileId,
                 totalSize = totalSize,
@@ -368,6 +374,11 @@ object PlaybackSessionController {
         // short replay grace expires, recheck storage pressure so the video can
         // be reclaimed even if the user does not play another title.
         CacheManager.schedulePostPlaybackCleanup()
+        CacheManager.scheduleStreamOnlyReclaim(
+            fileId = session.fileId,
+            stopWasRecovery = reason == PlaybackCacheStopReason.ErrorRecovery,
+            downloadsCancelled = cancelTdLibDownload
+        )
         ownerFailure?.let { throw it }
     }
 

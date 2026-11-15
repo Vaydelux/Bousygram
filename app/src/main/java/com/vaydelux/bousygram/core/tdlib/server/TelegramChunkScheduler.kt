@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.core.tdlib.server
 import android.util.Log
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
@@ -164,8 +165,7 @@ internal object TelegramChunkScheduler {
     // Debug Gradle opt-in only. Reset test override on every new account/session.
     @Volatile internal var boundedForegroundWindowOverrideForTests = false
     private fun boundedForegroundWindowsEnabled(): Boolean =
-        BuildConfig.DEBUG && (BuildConfig.BOUNDED_FOREGROUND_STREAMING_EXPERIMENT ||
-            boundedForegroundWindowOverrideForTests)
+        StreamOnlyMode.isEnabled() || (BuildConfig.DEBUG && boundedForegroundWindowOverrideForTests)
 
     // This is a startup fallback for cache runway estimates, not a measured rate.
     @Volatile private var ewmaThroughputBps: Double = 3_000_000.0
@@ -921,7 +921,9 @@ internal object TelegramChunkScheduler {
     }
 
     private fun prefetchAhead(fileId: Int, offset: Long, length: Int) {
-        if (isPlaybackBusy(fileId)) return // Open-ended playback owns TDLib's download window.
+        // Stream Only never launches speculative byte downloads, even during a
+        // transient gap before the foreground playback lease is registered.
+        if (StreamOnlyMode.isEnabled() || isPlaybackBusy(fileId)) return
         val totalSize = fileSizes[fileId] ?: 0L
         val nextOffset = saturatingPrefetchEnd(offset, length.toLong())
         // Media3 may deliver hundreds of short sequential reads while an existing

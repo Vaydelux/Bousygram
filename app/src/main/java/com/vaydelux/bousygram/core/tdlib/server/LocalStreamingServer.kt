@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
+import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import android.media.MediaMetadataRetriever
 import android.util.Log
 import com.vaydelux.bousygram.BuildConfig
@@ -879,6 +880,9 @@ object LocalStreamingServer {
      * Hints TDLib to download bytes near [timeMs] so seek-preview extraction can read them.
      */
     fun requestPrefetch(fileId: Int, totalSize: Long, timeMs: Long, durationMs: Long) {
+        // Optional seek-preview hints may fetch up to 48 MiB without a decoder
+        // request. Stream Only lets the foreground HTTP Range/decoder drive I/O.
+        if (StreamOnlyMode.isEnabled()) return
         val window = calculateSeekPrefetchWindow(totalSize, timeMs, durationMs) ?: return
         if (window.length <= 0L) return
         TelegramChunkScheduler.prefetchRange(
