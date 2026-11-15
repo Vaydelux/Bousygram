@@ -6,7 +6,7 @@ foreach ($example in @(
     @{ Text = "4096    files/tdlib_files"; Want = 4096L },
     @{ Text = "0`tfiles/tdlib_files"; Want = 0L },
     @{ Text = "32`t/data/user/0/app/files/tdlib_files"; Want = 32L },
-    @{ Text = "8192`t./files/tdlib_files"; Want = $null }
+    @{ Text = "8192`t./files/tdlib_files"; Want = 8192L }
 )) {
     $actual = Read-BousygramPrivateDuKiB -DuText $example.Text
     if ($actual -ne $example.Want) {
