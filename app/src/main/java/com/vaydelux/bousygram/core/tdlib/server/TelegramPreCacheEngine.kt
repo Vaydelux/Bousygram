@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.cache.CacheManager
+import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
 import com.vaydelux.bousygram.core.cache.StoragePressurePolicy
 import kotlinx.coroutines.CoroutineScope
@@ -119,7 +120,8 @@ object TelegramPreCacheEngine {
         durationMs: Long,
         maxBytes: Long = CACHE_AHEAD_BYTES
     ) {
-        if (fileId <= 0 || totalSize <= 0L || StoragePressureMonitor.isLow()) return
+        if (fileId <= 0 || totalSize <= 0L || StoragePressureMonitor.isLow() ||
+            StreamOnlyMode.isEnabled()) return
         // Playback has an open-ended high-priority window; avoid competing cache requests.
         if (TelegramChunkScheduler.isPlaybackBusy(fileId)) return
         val offset = prefetchOffsetForPosition(totalSize, positionMs, durationMs)

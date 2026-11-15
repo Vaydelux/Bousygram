@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.core.tdlib.server
 import android.util.Log
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
@@ -164,8 +165,7 @@ internal object TelegramChunkScheduler {
     // Debug Gradle opt-in only. Reset test override on every new account/session.
     @Volatile internal var boundedForegroundWindowOverrideForTests = false
     private fun boundedForegroundWindowsEnabled(): Boolean =
-        BuildConfig.DEBUG && (BuildConfig.BOUNDED_FOREGROUND_STREAMING_EXPERIMENT ||
-            boundedForegroundWindowOverrideForTests)
+        StreamOnlyMode.isEnabled() || (BuildConfig.DEBUG && boundedForegroundWindowOverrideForTests)
 
     // This is a startup fallback for cache runway estimates, not a measured rate.
     @Volatile private var ewmaThroughputBps: Double = 3_000_000.0

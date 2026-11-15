@@ -9,6 +9,7 @@ import com.vaydelux.bousygram.app.BousygramApp
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
+import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
@@ -80,6 +81,8 @@ object CacheManager {
     private data class AccessCleanupMarker(val accountId: Long, val elapsedMs: Long)
     private val lastAccessCleanupMarker = AtomicReference<AccessCleanupMarker?>(null)
     private var postPlaybackCleanupJob: Job? = null
+    private const val STREAM_ONLY_RECLAIM_GRACE_MS = 30_000L
+    private val streamOnlyReclaimJobs = ConcurrentHashMap<Int, Job>()
     private var pinnedAccountId: Long? = null
     // Access timestamps are sorted oldest first. Rotate a bounded TDLib
     // lookup page across sweeps so the first 256 entries cannot starve newer
@@ -111,6 +114,8 @@ object CacheManager {
         lastAccessCleanupMarker.set(null)
         postPlaybackCleanupJob?.cancel()
         postPlaybackCleanupJob = null
+        streamOnlyReclaimJobs.values.forEach { it.cancel() }
+        streamOnlyReclaimJobs.clear()
         preloadedNextEpisodes.clear()
         preloadAttemptsMs.clear()
     }
@@ -276,7 +281,7 @@ object CacheManager {
     fun preloadNextEpisode(nextFileId: Int, totalSize: Long = 0L) {
         // This is optional next-episode work, never a foreground playback read.
         // On small TVs reserve free flash for the video already being watched.
-        if (StoragePressureMonitor.isLow()) return
+        if (StoragePressureMonitor.isLow() || StreamOnlyMode.isEnabled()) return
         val owner = AccountSession.current() ?: return
         if (nextFileId <= 0 || preloadedNextEpisodes.contains(nextFileId)) return
         val now = System.nanoTime() / 1_000_000L
@@ -373,6 +378,48 @@ object CacheManager {
                 !PlaybackSessionController.isVideoPlaying()
             ) triggerCacheCleanupIfNeeded()
         }
+    }
+
+    /** A resumed video must not be reclaimed by an earlier session's delayed sweep. */
+    fun cancelStreamOnlyReclaim(fileId: Int) {
+        if (fileId > 0) streamOnlyReclaimJobs.remove(fileId)?.cancel()
+    }
+
+    /**
+     * Stream Only uses TDLib's own DeleteFile once the last foreground owner exits.
+     * Never unlink TDLib files directly: native file metadata and leases must stay coherent.
+     * This is a targeted best-effort cleanup, not a hard bound on bytes during playback.
+     */
+    fun scheduleStreamOnlyReclaim(
+        fileId: Int,
+        stopWasRecovery: Boolean,
+        downloadsCancelled: Boolean
+    ) {
+        if (!shouldScheduleStreamOnlyReclaim(
+                StreamOnlyMode.isEnabled(), fileId, downloadsCancelled, stopWasRecovery
+            )) return
+        val account = AccountSession.current() ?: return
+        val job = scope.launch {
+            delay(STREAM_ONLY_RECLAIM_GRACE_MS)
+            synchronized(cleanupLock) {
+                if (!AccountSession.isCurrent(account)) return@synchronized
+                ensurePinnedLoaded()
+                if (isTrackedFileDeletionProtected(fileId)) return@synchronized
+                val file = getFilesBlocking(listOf(fileId), account)[fileId]
+                    ?: return@synchronized
+                if (!isStreamOnlyReclaimCandidate(
+                        downloadedBytes = file.local.downloadedSize,
+                        path = file.local.path,
+                        isDownloading = file.local.isDownloadingActive,
+                        protectedByApp = isTrackedFileDeletionProtected(fileId)
+                    )) return@synchronized
+                if (deleteFilesBlocking(listOf(fileId), account).contains(fileId)) {
+                    Log.i(TAG, "Stream Only reclaimed temporary TDLib media fileId=$fileId")
+                }
+            }
+        }
+        streamOnlyReclaimJobs.put(fileId, job)?.cancel()
+        job.invokeOnCompletion { streamOnlyReclaimJobs.remove(fileId, job) }
     }
 
     fun storageStats(context: Context, tdLibCacheDir: File): TelegramCacheStorageStats {

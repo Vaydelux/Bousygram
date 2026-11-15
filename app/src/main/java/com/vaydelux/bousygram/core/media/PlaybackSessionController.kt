@@ -146,6 +146,7 @@ object PlaybackSessionController {
         )
         queue.forEach { item ->
             if (item.fileId > 0) {
+                CacheManager.cancelStreamOnlyReclaim(item.fileId)
                 bindActiveFile(item.fileId)
             }
         }
@@ -171,6 +172,7 @@ object PlaybackSessionController {
             startPositionMs = startPositionMs.coerceAtLeast(0L)
         )
         if (fileId > 0) {
+            CacheManager.cancelStreamOnlyReclaim(fileId)
             bindActiveFile(fileId)
         }
         activeSessions.add(session)
@@ -277,7 +279,7 @@ object PlaybackSessionController {
         )
         // This operation is entirely speculative and must not compete with
         // the active decoder when disk space is low.
-        if (maxBytes > 0L) {
+        if (maxBytes > 0L && !StreamOnlyMode.isEnabled()) {
             TelegramPreCacheEngine.cacheAhead(
                 fileId = session.fileId,
                 totalSize = totalSize,
@@ -368,6 +370,11 @@ object PlaybackSessionController {
         // short replay grace expires, recheck storage pressure so the video can
         // be reclaimed even if the user does not play another title.
         CacheManager.schedulePostPlaybackCleanup()
+        CacheManager.scheduleStreamOnlyReclaim(
+            fileId = session.fileId,
+            stopWasRecovery = reason == PlaybackCacheStopReason.ErrorRecovery,
+            downloadsCancelled = cancelTdLibDownload
+        )
         ownerFailure?.let { throw it }
     }
 

@@ -73,6 +73,7 @@ object EnterprisePreferences {
     private const val KEY_SUBTITLE_COLOR_PRESET = "subtitle_color_preset"
     private const val KEY_SPEED = "preferred_speed"
     private const val KEY_BUFFER_MODE = "buffer_mode"
+    private const val KEY_STREAM_ONLY_PREVIEW = "stream_only_preview"
     private const val KEY_CACHE_LIMIT = "cache_limit"
     private const val KEY_LAST_ERROR = "last_error"
     private const val KEY_VISUAL_THEME = "visual_theme"
@@ -244,6 +245,12 @@ object EnterprisePreferences {
     }.getOrDefault(BufferMode.FastStart)
 
     fun setBufferMode(value: BufferMode) = prefs.edit { putString(KEY_BUFFER_MODE, value.name) }
+
+    /** Developer-only opt-in; production playback never reads this experimental switch. */
+    fun streamOnlyPreviewEnabled(): Boolean = prefs.getBoolean(KEY_STREAM_ONLY_PREVIEW, false)
+    fun setStreamOnlyPreviewEnabled(enabled: Boolean) = prefs.edit {
+        putBoolean(KEY_STREAM_ONLY_PREVIEW, enabled)
+    }
 
     @Deprecated("Cache limit is now automatically managed based on a fraction of free storage")
     fun cacheLimitOption(): CacheLimitOption = CacheLimitOption.TwoGb

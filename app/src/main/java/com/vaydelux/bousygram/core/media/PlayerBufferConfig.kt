@@ -182,7 +182,14 @@ object PlayerBufferConfig {
             is32BitProcess = !android.os.Process.is64Bit(),
             isTv = isTv(context)
         )
-    }.getOrElse { resolveExoConfig(isLowRam = false) }
+    }.getOrElse { resolveExoConfig(isLowRam = false) }.let { base ->
+        if (StreamOnlyMode.isEnabled()) base.copy(
+            minBufferMs = minOf(base.minBufferMs, 25_000),
+            maxBufferMs = minOf(base.maxBufferMs, if (base.isLowRam) 30_000 else 45_000),
+            backBufferMs = minOf(base.backBufferMs, 10_000),
+            description = base.description + ":stream_only"
+        ) else base
+    }
 
     @OptIn(UnstableApi::class)
     fun buildLoadControl(config: ExoBufferConfig): DefaultLoadControl {
@@ -250,7 +257,7 @@ object PlayerBufferConfig {
         val memoryClassMb = runCatching {
             (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.memoryClass ?: 0
         }.getOrDefault(0)
-        return resolveMpvConfig(
+        val resolved = resolveMpvConfig(
             isLowRam = lowRam,
             isTv = tv,
             isCellular = isCellular,
@@ -258,5 +265,11 @@ object PlayerBufferConfig {
                 tv, memoryClassMb, lowRam, is32BitProcess = !android.os.Process.is64Bit()
             )
         )
+        return if (StreamOnlyMode.isEnabled()) resolved.copy(
+            demuxerMaxBytes = minOf(resolved.demuxerMaxBytes, 32L * 1024L * 1024L),
+            demuxerMaxBackBytes = minOf(resolved.demuxerMaxBackBytes, 8L * 1024L * 1024L),
+            demuxerReadaheadSecs = minOf(resolved.demuxerReadaheadSecs, 30),
+            description = resolved.description + ":stream_only"
+        ) else resolved
     }
 }
