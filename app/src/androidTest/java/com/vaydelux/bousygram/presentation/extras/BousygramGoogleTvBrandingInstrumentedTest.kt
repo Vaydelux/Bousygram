@@ -21,6 +21,12 @@ class BousygramGoogleTvBrandingInstrumentedTest {
             ComponentName(context, MainActivity::class.java), 0
         )
         assertEquals(expected, launcher.banner)
-        assertNotNull(context.getDrawable(expected))
+        val banner = context.getDrawable(expected)
+        assertNotNull(banner)
+        val width = banner!!.intrinsicWidth
+        val height = banner.intrinsicHeight
+        org.junit.Assert.assertTrue("TV banner must have positive intrinsic dimensions", width > 0 && height > 0)
+        org.junit.Assert.assertEquals("TV banner must stay 16:9",
+            16f / 9f, width.toFloat() / height.toFloat(), 0.04f)
     }
 }
