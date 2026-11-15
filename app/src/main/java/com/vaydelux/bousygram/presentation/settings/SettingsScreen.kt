@@ -396,10 +396,11 @@ fun SettingsScreen(
                                 )
                             }
                             Text(
-                                text = "Other app files: ${formatBytes(storageStats.appFilesBytes)}. " +
-                                    "Measured directories: ${formatBytes(storageStats.totalBytes)} " +
-                                    "(not total installed app size; databases and APK excluded). " +
-                                    "Pinned or active downloads can exceed the cache target.",
+                                text = "Measured directories: ${formatBytes(storageStats.totalBytes)}. " +
+                                    "This includes TDLib databases in app files, but not the installed APK, " +
+                                    "all databases or WebView site storage. " +
+                                    "Offline pins and active streams can exceed the media cache target. " +
+                                    "Resume positions remain saved after safe video-byte eviction.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
