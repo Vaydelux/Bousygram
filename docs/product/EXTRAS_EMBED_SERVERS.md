@@ -4,10 +4,12 @@ Source lists: [zoku-tv TMDB catalog](https://github.com/Vaydelux/zoku-tv/blob/e0
 and [zoku-tv AniList catalog](https://github.com/Vaydelux/zoku-tv/blob/e094faeaa76376c2161dc3e66c7d033c3cf04374/lib/anime-embed.ts)
 (revision `e094fae`).
 
-- TMDB: 50 source entries from upstream, including CineSrc already present in Bousygram, plus
-  two retained Bousygram-specific servers (XXIKU and EmbedHeaven): **52 registered, 51 selectable**.
+- TMDB: **51 registered and selectable** entries after removing the explicitly
+  retired `vidsrc.xyz` domain and the unconfigured relative-path-only
+  `SUPEREMBED_VIP` placeholder.
   TMDB movie and series IDs are never substituted with AniList or IMDb IDs.
-- AniList: 5 source entries plus Bousygram XXIKU and EmbedHeaven: **7 total**, separate server picker. Selected episodes use the AniList media
+- AniList: **7 registered and selectable** entries, separate server picker.
+  `CINEZO` was removed because its title-only anime URL cannot identify an episode. Selected episodes use the AniList media
   ID, season 1, and a one-based episode number. AniList media IDs commonly refer to a
   specific season; do not assume one ID provides every sequel season.
 - Existing TMDB season 0 (specials) remains valid. Anime episode controls are one-based.
@@ -33,10 +35,8 @@ and [zoku-tv AniList catalog](https://github.com/Vaydelux/zoku-tv/blob/e094faeaa
   handoff; upstream availability and playback support remain unverified.
 - Both catalogs use a user-selected HTTPS WebView page. Switching servers disposes the
   previous MediaForge session and invalidates discovered streams, captions and checks.
-- `SUPEREMBED_VIP` is registered but **not selectable**. Its upstream
-  `/se_player.php` is relative and depends on a separately hosted/configured PHP
-  player. No trusted absolute HTTPS endpoint is supplied; never invent one or use
-  the `getsuperembed.link` metadata domain as a player URL.
+- `SUPEREMBED_VIP` has been removed. Its upstream `/se_player.php`
+  requires an unconfigured PHP host; no absolute HTTPS template was supplied.
 - Upstream's `embed-su` domain metadata points at `embed.su`, but the configured
   movie/TV template targets `embed.filmu.in`. The code deliberately preserves the
   upstream template; this discrepancy must be assessed before distribution.
@@ -52,3 +52,10 @@ automatic extraction is implemented.
 Validation: `./gradlew :app:testDebugUnitTest :app:compileDebugKotlin`, followed by
 Android TV/phone WebView, D-pad, season 0, AniList episode selection and real provider
 smoke checks. Do not treat unit tests as live service verification.
+
+## Current domain audit (2026-11-16)
+
+See `docs/reviews/EXTRAS_EMBED_DOMAIN_AUDIT_2026-11-16.md`. The current
+public web fetcher could not load most JS-based embed pages. That is not
+evidence of expiration. Remove only entries with affirmative retired/invalid
+evidence; avoid silently breaking providers whose WebView status is unknown.
