@@ -1,0 +1,79 @@
+name: One-time Stream Only debug APK prerelease request
+
+# Workflow-only dispatch. Do not modify Android player, TDLib or cache code.
+# The canonical debug prerelease workflow owns all qualification and APK checks.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/request-stream-only-debug-once-20261116.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  request-debug:
+    name: Confirm frozen Stream Only merge and request official debug prerelease
+    if: >-
+      github.repository == 'Vaydelux/Bousygram' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'ci(android): request Stream Only debug prerelease 2026-11-16')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check out exact release request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify frozen merged application and request prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROZEN_SOURCE_SHA: c554a7a5457f8c66fcfb2957be17afa7de34b7fb
+          REQUEST_PATH: .github/workflows/request-stream-only-debug-once-20261116.yml
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "::error::Checkout did not match release request." >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD^)" == "$FROZEN_SOURCE_SHA" ]] || {
+            echo "::error::Release request must immediately follow frozen PR #199 merge." >&2
+            exit 1
+          }
+          [[ "$(git diff --name-only "$FROZEN_SOURCE_SHA" "$GITHUB_SHA")" == "$REQUEST_PATH" ]] || {
+            echo "::error::Release request must modify only the one-time workflow." >&2
+            exit 1
+          }
+          [[ "$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')" == "$GITHUB_SHA" ]] || {
+            echo "::error::Main advanced; refuse stale prerelease request." >&2
+            exit 1
+          }
+          [[ "$(gh api "repos/$repo/pulls/199" --jq '.merged')" == true ]] || {
+            echo "::error::Stream Only PR #199 was not merged." >&2
+            exit 1
+          }
+          # Exactly source-verified mainline CI jobs, not an earlier PR head.
+          for run_id in 43741824219 43741824234 43741824262; do
+            verified="$(gh api "repos/$repo/actions/runs/$run_id" \
+              --jq '[.head_sha, .conclusion, .event, .head_branch] | join(":")')"
+            [[ "$verified" == "$FROZEN_SOURCE_SHA:success:push:main" ]] || {
+              echo "::error::Required exact-source mainline verification failed: $run_id" >&2
+              exit 1
+            }
+          done
+          gh api --method POST \
+            "repos/$repo/actions/workflows/android-debug-prerelease.yml/dispatches" \
+            -f ref=main
+          {
+            echo "## Stream Only debug prerelease requested"
+            echo "Frozen Android app source: $FROZEN_SOURCE_SHA"
+            echo "Workflow-only request commit: $GITHUB_SHA"
+            echo "All three post-merge CI checks verified."
+            echo "Canonical debug prerelease pipeline independently verifies APKs, instrumentation, and SHA256."
+            echo "Stream Only remains experimental and disabled by default."
+          } >> "$GITHUB_STEP_SUMMARY"
