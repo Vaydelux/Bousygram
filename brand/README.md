@@ -9,6 +9,7 @@ The Bousygram brand uses the **orange Chow Chow**, **cyan-to-blue circular halo*
 | Android adaptive foreground | `app/src/main/res/drawable-nodpi/ic_bousygram_mascot.webp` | Approved Chow + plane, cropped for icon legibility |
 | Android adaptive background | `app/src/main/res/drawable/ic_bousygram_adaptive_bg.xml` | Deep midnight navy |
 | Android monochrome | `app/src/main/res/drawable/ic_bousygram_mark.xml` | Simplified one-color Chow + plane for Android themed icons |
+| Android TV banner | `app/src/main/res/drawable/ic_bousygram_tv_banner.xml` | Navy 16:9 canvas using the **approved mascot**; no UI screenshot or navigation controls in launcher art |
 | Android pre-26 launcher | `app/src/main/res/mipmap-anydpi/ic_launcher.xml` | Uses the **same** mascot WebP; no stale density PNG duplicates |
 | Android API 26+ launcher | `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` | Same foreground, background and monochrome |
 | GitHub README | `brand/bousygram-mascot.webp` | Same artwork, not an unrelated stock image |
@@ -21,15 +22,17 @@ Android's `AndroidManifest.xml` points to `@mipmap/ic_launcher`, which chooses t
 
 The full-color mascot source is identical between the launcher and in-app
 headers. The favicon is a *downscaled* 16/32px derivative. Android launchers
-apply platform-specific adaptive-circle or squircle masks, and the Android TV
-launcher displays a separately composed **16:9 banner**. Consequently, the
-source design is unified, but the platform may crop it differently. Do not
+apply platform-specific adaptive-circle or squircle masks. Google TV uses a
+separate **16:9 banner** derived directly from the approved mascot; do not
+embed screenshots, tabs, or bottom navigation controls inside app artwork.
+Both the application and MainActivity reference the logo-only TV banner. Do not
 stretch a square favicon into a TV banner or pretend the different aspect
 ratios are pixel-identical.
 
 `tools/ci/verify_brand_identity.sh` enforces source equality between the
 README and Android mascot, verifies the launcher resource references,
-requires the canonical in-app component, and validates multi-size ICO frames.
+requires the canonical in-app component, validates multi-size ICO frames, and
+rejects the previous screenshot-style banner as the launcher resource.
 The verification does not claim pixel-identical cross-platform cropping;
 that requires the screenshot/device checklist in
 `docs/ci/UI_VISUAL_QUALIFICATION.md`.

@@ -10,12 +10,13 @@ import org.junit.Test
 class ExtrasExpandedEmbedServersTest {
     @Test fun fullCatalogsAreRegisteredWithoutReplacingLegacyEntries() {
         // Existing providers plus the independently documented Zoryva iframe.
-        assertEquals(53, ExtrasEmbedServer.entries.size)
-        assertEquals(8, ExtrasAnimeEmbedServer.entries.size)
+        assertEquals(51, ExtrasEmbedServer.entries.size)
+        assertEquals(7, ExtrasAnimeEmbedServer.entries.size)
         assertEquals(7, ExtrasAnimeEmbedServer.entries.count { it.selectable })
-        assertFalse(ExtrasAnimeEmbedServer.CINEZO.selectable)
-        assertFalse(ExtrasEmbedServer.SUPEREMBED_VIP.selectable)
-        assertEquals(52, ExtrasEmbedServer.entries.count { it.selectable })
+        assertEquals(51, ExtrasEmbedServer.entries.count { it.selectable })
+        assertFalse(ExtrasEmbedServer.entries.any { it.name == "VIDSRC_XYZ" })
+        assertFalse(ExtrasEmbedServer.entries.any { it.name == "SUPEREMBED_VIP" })
+        assertFalse(ExtrasAnimeEmbedServer.entries.any { it.name == "CINEZO" })
     }
 
     @Test fun tmdbTemplatesAreSafeAndHaveNoUnresolvedPlaceholders() {
@@ -148,11 +149,6 @@ class ExtrasExpandedEmbedServersTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun animeProviderWithoutEpisodeRouteIsNotSelectable() {
-        ExtrasAnimeEmbedServer.CINEZO.urlFor(16498, 1, 4)
-    }
-
-    @Test(expected = IllegalArgumentException::class)
     fun animeProviderWithoutSeasonRouteRejectsNonDefaultSeason() {
         ExtrasAnimeEmbedServer.VIDY.urlFor(16498, 2, 4)
     }
@@ -189,11 +185,6 @@ class ExtrasExpandedEmbedServersTest {
     @Test(expected = IllegalArgumentException::class)
     fun animeServerDoesNotAcceptTmdbRequest() {
         ExtrasEmbedRequest.movie(12, "Movie").forServer(ExtrasAnimeEmbedServer.FILMU)
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun unusableRelativePhpServerCannotBeOpened() {
-        ExtrasEmbedServer.SUPEREMBED_VIP.urlFor(12)
     }
 
     @Test(expected = IllegalArgumentException::class)

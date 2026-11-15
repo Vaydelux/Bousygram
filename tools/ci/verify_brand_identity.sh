@@ -8,7 +8,12 @@ grep -Fq '@drawable/ic_bousygram_mascot' app/src/main/res/mipmap-anydpi/ic_launc
 grep -Fq '@drawable/ic_bousygram_mascot' app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
 grep -Fq 'R.drawable.ic_bousygram_mascot' app/src/main/java/com/vaydelux/bousygram/presentation/components/BousygramBrandMark.kt
 grep -Fq 'BousygramBrandMark(size' app/src/main/java/com/vaydelux/bousygram/presentation/components/EnterpriseComponents.kt
-grep -Fq '@drawable/ic_banner_v2' app/src/main/AndroidManifest.xml
+grep -Fq 'android:banner="@drawable/ic_bousygram_tv_banner"' app/src/main/AndroidManifest.xml
+grep -Fq '@drawable/ic_bousygram_mascot' app/src/main/res/drawable/ic_bousygram_tv_banner.xml
+if grep -Fq '@drawable/ic_banner_v2' app/src/main/AndroidManifest.xml; then
+  echo 'Obsolete screenshot-based Android TV banner is still configured' >&2
+  exit 1
+fi
 
 # Verify the favicon is actually a 16/32px multi-resolution Windows ICO,
 # not a stale text placeholder. Pixel-level equivalence needs visual review
