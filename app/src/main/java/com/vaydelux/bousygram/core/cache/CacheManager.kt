@@ -18,6 +18,9 @@ import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.data.database.AppDatabase
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import org.drinkless.tdlib.TdApi
@@ -55,6 +58,9 @@ object CacheManager {
     private const val MAX_TRACKED_FILES_PER_SWEEP = 256
     private const val MAX_PINNED_FILES_TO_INSPECT = 64
     private const val RECENT_ACCESS_PROTECTION_MS = 2 * 60 * 1000L
+    // An explicit user-initiated prune may rotate through several tracked-ID
+    // pages, but remains bounded for slow eMMC and TDLib request budgets.
+    internal const val MAX_MANUAL_PRUNE_PASSES = 3
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val cleanupExecutor = Executors.newSingleThreadExecutor()
@@ -73,6 +79,7 @@ object CacheManager {
     private val isEvictionScheduled = AtomicBoolean(false)
     private data class AccessCleanupMarker(val accountId: Long, val elapsedMs: Long)
     private val lastAccessCleanupMarker = AtomicReference<AccessCleanupMarker?>(null)
+    private var postPlaybackCleanupJob: Job? = null
     private var pinnedAccountId: Long? = null
     // Access timestamps are sorted oldest first. Rotate a bounded TDLib
     // lookup page across sweeps so the first 256 entries cannot starve newer
@@ -102,6 +109,8 @@ object CacheManager {
         pinnedFiles.clear()
         pinnedAccountId = null
         lastAccessCleanupMarker.set(null)
+        postPlaybackCleanupJob?.cancel()
+        postPlaybackCleanupJob = null
         preloadedNextEpisodes.clear()
         preloadAttemptsMs.clear()
     }
@@ -321,8 +330,45 @@ object CacheManager {
         }
     }
 
+    /**
+     * Manual pruning is allowed to rotate through up to three different TDLib
+     * ID pages. Automatic sweeps remain single-pass for playback performance.
+     * Two empty pages stop work early when only protected/untracked data is left.
+     */
     fun pruneTrackedCacheNow(): TrackedCacheCleanupResult = synchronized(cleanupLock) {
-        performCacheCleanup()
+        var last = performCacheCleanup()
+        val firstOverLimit = last.initiallyOverLimit
+        var deleted = last.deletedFiles
+        var freed = last.freedBytes
+        var emptyPasses = if (last.deletedFiles == 0) 1 else 0
+        for (passIndex in 1 until MAX_MANUAL_PRUNE_PASSES) {
+            if (!shouldContinueManualCachePrune(last.initiallyOverLimit, emptyPasses)) break
+            last = performCacheCleanup()
+            deleted += last.deletedFiles
+            freed += last.freedBytes
+            emptyPasses = if (last.deletedFiles == 0) emptyPasses + 1 else 0
+        }
+        last.copy(
+            deletedFiles = deleted,
+            freedBytes = freed,
+            initiallyOverLimit = firstOverLimit
+        )
+    }
+
+    /**
+     * A player may close while its last-used media still has two minutes of
+     * replay grace. Schedule one account-scoped follow-up pass after that grace,
+     * so old resume checkpoints do not leave unpinned gigabyte files forever.
+     * This is best-effort; no worker keeps the app alive in the background.
+     */
+    @Synchronized
+    fun schedulePostPlaybackCleanup() {
+        val account = AccountSession.current() ?: return
+        postPlaybackCleanupJob?.cancel()
+        postPlaybackCleanupJob = scope.launch {
+            delay(RECENT_ACCESS_PROTECTION_MS + 1_000L)
+            if (AccountSession.isCurrent(account)) triggerCacheCleanupIfNeeded()
+        }
     }
 
     fun storageStats(context: Context, tdLibCacheDir: File): TelegramCacheStorageStats {
