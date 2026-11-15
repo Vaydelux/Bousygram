@@ -24,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.util.Collections
@@ -82,6 +83,8 @@ object CacheManager {
     private val lastAccessCleanupMarker = AtomicReference<AccessCleanupMarker?>(null)
     private var postPlaybackCleanupJob: Job? = null
     private const val STREAM_ONLY_RECLAIM_GRACE_MS = 30_000L
+    private const val STREAM_ONLY_RECLAIM_RETRY_MS = 60_000L
+    private const val STREAM_ONLY_RECLAIM_MAX_ATTEMPTS = 3
     private val streamOnlyReclaimJobs = ConcurrentHashMap<Int, Job>()
     private var pinnedAccountId: Long? = null
     // Access timestamps are sorted oldest first. Rotate a bounded TDLib
@@ -400,23 +403,48 @@ object CacheManager {
             )) return
         val account = AccountSession.current() ?: return
         val job = scope.launch {
-            delay(STREAM_ONLY_RECLAIM_GRACE_MS)
-            synchronized(cleanupLock) {
-                if (!AccountSession.isCurrent(account)) return@synchronized
-                ensurePinnedLoaded()
-                if (isTrackedFileDeletionProtected(fileId)) return@synchronized
-                val file = getFilesBlocking(listOf(fileId), account)[fileId]
-                    ?: return@synchronized
-                if (!isStreamOnlyReclaimCandidate(
-                        downloadedBytes = file.local.downloadedSize,
-                        path = file.local.path,
-                        isDownloading = file.local.isDownloadingActive,
-                        protectedByApp = isTrackedFileDeletionProtected(fileId)
-                    )) return@synchronized
-                if (deleteFilesBlocking(listOf(fileId), account).contains(fileId)) {
-                    Log.i(TAG, "Stream Only reclaimed temporary TDLib media fileId=$fileId")
+            // A single transient TDLib active flag or GetFile timeout must not
+            // strand a large temporary video forever. Cap retries to avoid
+            // background polling on slow eMMC or an unreachable native client.
+            repeat(STREAM_ONLY_RECLAIM_MAX_ATTEMPTS) { attempt ->
+                delay(if (attempt == 0) STREAM_ONLY_RECLAIM_GRACE_MS
+                    else STREAM_ONLY_RECLAIM_RETRY_MS)
+                val runningJob = coroutineContext[Job]
+                val result = synchronized(cleanupLock) {
+                    if (!isActive || streamOnlyReclaimJobs[fileId] !== runningJob ||
+                        !AccountSession.isCurrent(account)
+                    ) return@synchronized StreamOnlyReclaimDecision.STOP
+                    ensurePinnedLoaded()
+                    if (pinnedFiles.contains(fileId) ||
+                        PlaybackSessionController.isCacheProtectedPlaybackFile(fileId)
+                    ) return@synchronized StreamOnlyReclaimDecision.STOP
+
+                    // Leases, in-flight chunks and competing prefetch can drain
+                    // shortly after a player closes; defer rather than deleting.
+                    if (isTrackedFileDeletionProtected(fileId))
+                        return@synchronized StreamOnlyReclaimDecision.RETRY
+
+                    val file = getFilesBlocking(listOf(fileId), account)[fileId]
+                    val decision = decideStreamOnlyReclaim(
+                        offlinePinned = pinnedFiles.contains(fileId),
+                        activePlayback = PlaybackSessionController.isCacheProtectedPlaybackFile(fileId),
+                        otherActiveConsumer = isTrackedFileDeletionProtected(fileId),
+                        fileResolved = file != null,
+                        downloadedBytes = file?.local?.downloadedSize ?: 0L,
+                        path = file?.local?.path,
+                        isDownloading = file?.local?.isDownloadingActive ?: false
+                    )
+                    if (decision != StreamOnlyReclaimDecision.DELETE) return@synchronized decision
+                    if (!isActive || streamOnlyReclaimJobs[fileId] !== runningJob)
+                        return@synchronized StreamOnlyReclaimDecision.STOP
+                    if (deleteFilesBlocking(listOf(fileId), account).contains(fileId)) {
+                        Log.i(TAG, "Stream Only reclaimed temporary TDLib media fileId=$fileId")
+                        StreamOnlyReclaimDecision.STOP
+                    } else StreamOnlyReclaimDecision.RETRY
                 }
+                if (result != StreamOnlyReclaimDecision.RETRY) return@launch
             }
+            Log.d(TAG, "Stream Only deferred reclaim after bounded retries fileId=$fileId")
         }
         streamOnlyReclaimJobs.put(fileId, job)?.cancel()
         job.invokeOnCompletion { streamOnlyReclaimJobs.remove(fileId, job) }

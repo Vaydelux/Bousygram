@@ -18,10 +18,12 @@ the established open-ended foreground TDLib behavior until on-device qualificati
   User-driven requests, subtitle handling and essential first-byte preparation
   remain available.
 - Normal stop and playlist track transitions schedule a **30-second** delayed, account-checked
-  targeted TDLib `DeleteFile`. Before deletion, the worker rechecks TDLib's
-  download-active flag, playback owners, active range leases, speculative
-  jobs and explicit offline pins. New playback cancels pending reclaim.
-  Recovery stops do not schedule deletion.
+  targeted TDLib `DeleteFile`. Transient native-download status or GetFile
+  timeouts receive at most two additional attempts, spaced 60 seconds apart.
+  Before deletion, the worker rechecks TDLib's download-active flag,
+  playback owners, active range leases, speculative jobs and explicit offline pins.
+  New playback cancels pending reclaim for the currently selected episode,
+  not unrelated queued episodes. Recovery stops do not schedule deletion.
 - Continue Watching checkpoints are not removed by this operation.
   Normal 160 MiB managed cache quota and the safe-prune function remain.
 

@@ -146,9 +146,11 @@ object PlaybackSessionController {
             onCancelDownloads = onCancelDownloads,
             onTrackExit = onTrackExit
         )
+        // Only the selected episode is actively being opened. Do not cancel
+        // pending reclaim for other entries merely because they are queued.
+        CacheManager.cancelStreamOnlyReclaim(session.fileId)
         queue.forEach { item ->
             if (item.fileId > 0) {
-                CacheManager.cancelStreamOnlyReclaim(item.fileId)
                 bindActiveFile(item.fileId)
             }
         }
