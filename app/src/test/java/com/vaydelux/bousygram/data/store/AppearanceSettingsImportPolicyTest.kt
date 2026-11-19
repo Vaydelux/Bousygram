@@ -44,6 +44,17 @@ class AppearanceSettingsImportPolicyTest {
         assertEquals("ios_mesh", imported.visualBackdropPattern)
     }
 
+    @Test fun legacyThemeAliasesRemainImportable() {
+        assertEquals(
+            "midnight",
+            SettingsImportPolicy.parse("""{"visualTheme":"midnight"}""", null).visualTheme
+        )
+        assertEquals(
+            "ember",
+            SettingsImportPolicy.parse("""{"visualTheme":"sunset"}""", null).visualTheme
+        )
+    }
+
     @Test fun unspecifiedAppearanceFieldsDoNotOverwriteStoredPreferences() {
         val imported = SettingsImportPolicy.parse("""{"version":1,"safeMode":true}""", null)
         assertNull(imported.visualTheme)
