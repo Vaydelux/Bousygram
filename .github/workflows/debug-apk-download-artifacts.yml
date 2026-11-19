@@ -154,6 +154,8 @@ jobs:
         if: ${{ success() }}
         shell: bash
         run: |
-          echo 'Debug-signed QA APKs published to immutable GitHub Releases.' >> "$GITHUB_STEP_SUMMARY"
-          echo "Source SHA: $RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"
-          echo 'Physical TV and emulator qualification remain separate.' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo 'Debug-signed QA APKs published to immutable GitHub Releases.'
+            echo "Source SHA: $RELEASE_SHA"
+            echo 'Physical TV and emulator qualification remain separate.'
+          } >> "$GITHUB_STEP_SUMMARY"
