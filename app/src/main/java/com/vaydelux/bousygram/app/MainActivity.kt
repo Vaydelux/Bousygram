@@ -70,6 +70,8 @@ import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
+import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
+import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.shell.BousygramMode
 import com.vaydelux.bousygram.presentation.shell.BousygramModeSelection
 import com.vaydelux.bousygram.presentation.extras.ExtrasCatalogScreen
@@ -207,7 +209,13 @@ private fun BousygramAppRoot(
     if (mode == BousygramMode.SELECT) {
         BousygramModeSelection(
             onTelegram = { modeName = BousygramMode.TELEGRAM.name },
-            onExtras = { modeName = BousygramMode.EXTRAS_MAINTENANCE.name }
+            onExtras = { modeName = BousygramMode.EXTRAS_MAINTENANCE.name },
+            themePreset = themePreset,
+            designStyle = designStyle,
+            backdropPattern = backdropPattern,
+            onThemePresetChange = onThemePresetChange,
+            onDesignStyleChange = onDesignStyleChange,
+            onBackdropPatternChange = onBackdropPatternChange
         )
         return
     }
@@ -368,7 +376,14 @@ private fun BousygramAppRoot(
             }
             val lastPlayed = EnterprisePreferences.lastPlayed()
             val navFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-            if (appScreen == AppScreen.Home || appScreen == AppScreen.Library) {
+            val adaptive = rememberAdaptiveMetrics()
+            // Home/Library own the compact explorer. Phone subroutes should use
+            // the same single-header surface, not a second tablet navigation
+            // system with a landscape side rail and a redundant top bar.
+            val useRouteHeader = appScreen == AppScreen.Home ||
+                appScreen == AppScreen.Library ||
+                (!adaptive.isTv && adaptive.profile != DeviceProfile.Tablet)
+            if (useRouteHeader) {
                 // Dedicated, compact explorer owns Home navigation. Do not wrap
                 // a second oversized TV sidebar around the three-tab grid.
                 AuthorizedContent(

@@ -61,7 +61,9 @@ import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
 import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.tabular
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramPlaybackPalette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -647,7 +649,8 @@ internal fun ExtrasLibVlcPlayer(
         val halo = LocalBousygramHaloColors.current
         // Dark-video overlay tokens remain high-contrast on Color.Black across
         // all 10 presets, including Daylight (LIGHT) and Ivory.
-        val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
+        val playbackPalette = rememberBousygramPlaybackPalette()
+        val cinemaAccent = playbackPalette.played
         val cinemaErrorText = Color(0xFFFFB4AB)
         val cinemaPanelBg = if (halo.isHighContrast) Color(0xF5000000) else Color(0xE80A121E)
         val cinemaPanelBorder = if (halo.isHighContrast) halo.focusRing else cinemaAccent.copy(alpha = 0.34f)
@@ -902,7 +905,7 @@ internal fun ExtrasLibVlcPlayer(
                     colors = SliderDefaults.colors(
                         thumbColor = cinemaAccent,
                         activeTrackColor = cinemaAccent,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                        inactiveTrackColor = playbackPalette.unplayed
                     ),
                     onValueChange = { scrubFraction = it },
                     onValueChangeFinished = {
@@ -1063,12 +1066,12 @@ internal fun ExtrasLibVlcPlayer(
                         Modifier.fillMaxWidth()
                             .background(
                                 cinemaPanelBg,
-                                RoundedCornerShape(BousygramUiTokens.cardCorner)
+                                RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner)
                             )
                             .border(
                                 1.dp,
                                 cinemaPanelBorder,
-                                RoundedCornerShape(BousygramUiTokens.cardCorner)
+                                RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner)
                             )
                             .padding(12.dp)
                             .testTag("extras-libvlc-diagnostics"),
@@ -1153,9 +1156,10 @@ private fun ExtrasVlcAction(
 ) {
     var focused by remember { mutableStateOf(false) }
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
-    val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
-    val cinemaFocusRing = if (halo.isLight) Color(0xFF8AE8FA) else halo.focusRing
+    val shape = RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner)
+    val playbackPalette = rememberBousygramPlaybackPalette()
+    val cinemaAccent = playbackPalette.played
+    val cinemaFocusRing = playbackPalette.focusRing
     val focusColor = if (focused) cinemaFocusRing else Color.Transparent
     val accentBg = cinemaAccent
     val accentFg = Color(0xFF041724)

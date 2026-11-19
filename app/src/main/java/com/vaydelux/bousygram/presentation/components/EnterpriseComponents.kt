@@ -1815,13 +1815,20 @@ fun EmptyStateView(
     onAction: (() -> Unit)? = null,
     illustration: (@Composable () -> Unit)? = null
 ) {
+    val shortWindow = rememberAdaptiveMetrics().isShortWindow
     Box(
-        modifier = modifier.padding(24.dp).testTag("bousygram-empty-state"),
+        modifier = modifier.padding(if (shortWindow) 6.dp else 16.dp)
+            .testTag("bousygram-empty-state"),
         contentAlignment = Alignment.Center
     ) {
-        EnterprisePanel(modifier = Modifier.widthIn(max = 460.dp)) {
+        EnterprisePanel(modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(horizontal = 28.dp, vertical = 26.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(
+                        horizontal = if (shortWindow) 14.dp else 24.dp,
+                        vertical = if (shortWindow) 10.dp else 22.dp
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -1832,23 +1839,24 @@ fun EmptyStateView(
                 Text(
                     title,
                     color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = if (shortWindow) MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.testTag("bousygram-empty-state-title")
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(if (shortWindow) 4.dp else 8.dp))
                 Text(
                     message,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
-                    maxLines = 4,
+                    maxLines = if (shortWindow) 3 else 5,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.testTag("bousygram-empty-state-message")
                 )
                 if (actionText != null && onAction != null) {
-                    Spacer(Modifier.height(18.dp))
+                    Spacer(Modifier.height(if (shortWindow) 8.dp else 14.dp))
                     BousygramButton(
                         actionText, onAction, selected = true,
                         modifier = Modifier.testTag("bousygram-empty-state-action")

@@ -9,6 +9,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.assertIsSelected
+import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import org.junit.Assert.assertEquals
@@ -37,6 +40,27 @@ class ModeSelectionInstrumentedTest {
         composeRule.onNodeWithText("More to Explore").assertExists()
         composeRule.onNodeWithText("Back to Mode Selection").performClick()
         composeRule.onNodeWithText("Telegram Media").assertExists()
+    }
+
+    @Test fun startupAppearancePickerUsesTheSameThemeStateAsEveryRoute() {
+        composeRule.setContent {
+            var theme by remember { mutableStateOf(BousygramThemePreset.DARK) }
+            BousygramTheme(preset = theme) {
+                BousygramModeSelection(
+                    onTelegram = {}, onExtras = {},
+                    themePreset = theme,
+                    onThemePresetChange = { theme = it }
+                )
+            }
+        }
+        composeRule.onNodeWithTag("startup-change-appearance").performClick()
+        composeRule.onNodeWithTag("startup-appearance-studio").assertExists()
+        composeRule.onNodeWithTag("theme-preset-dark").assertIsSelected()
+        composeRule.onNodeWithTag("theme-preset-aurora").performScrollTo().performClick()
+        composeRule.onNodeWithTag("theme-preset-aurora").assertIsSelected()
+        composeRule.onNodeWithText("Done").performClick()
+        composeRule.onNodeWithTag("startup-appearance-studio").assertDoesNotExist()
+        composeRule.onNodeWithTag("mode-extras").assertExists()
     }
 
     @Test fun telegramChoiceIsSingleExplicitAction() {
