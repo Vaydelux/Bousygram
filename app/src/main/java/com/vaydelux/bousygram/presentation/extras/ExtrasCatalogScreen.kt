@@ -30,12 +30,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +70,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.key.Key
@@ -117,6 +122,10 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // Keep posters above the fold by reserving only one compact header row.
     val compactPhoneWindow = !metrics.isTv &&
         (metrics.isShortWindow || metrics.effectiveHeightDp < 520.dp)
+    val detailLayout = resolveExtrasDetailLayout(
+        metrics.widthDp, metrics.heightDp, isTv = metrics.isTv,
+        fontScale = metrics.fontScale
+    )
     val context = LocalContext.current
     // Some Android TV boxes advertise Leanback even when UiModeManager does not.
     // Keep all such devices on the native YouTube TV route, never the WebView.
@@ -219,6 +228,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var detailRetry by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<ExtrasDetail?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
+    val detailActionFocus = remember { FocusRequester() }
     var detailLoading by remember { mutableStateOf(false) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
     var episodes by remember { mutableStateOf<List<ExtrasEpisode>>(emptyList()) }
@@ -352,6 +362,15 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             if (detailItem == selected && detailRetry == retry) detailLoading = false
         }
     }
+    // When D-pad navigation enters details, focus the first meaningful action.
+    // Avoid focus requests for touch-only phones and loading placeholders.
+    LaunchedEffect(detail?.item?.id, detailLoading, metrics.keyboardNavigation, isAndroidTv) {
+        val loaded = detail ?: return@LaunchedEffect
+        if (detailLoading || !(isAndroidTv || metrics.keyboardNavigation)) return@LaunchedEffect
+        if (loaded.item.type == ExtrasType.TV && loaded.seasons.isEmpty()) return@LaunchedEffect
+        withFrameNanos { }
+        runCatching { detailActionFocus.requestFocus() }
+    }
     LaunchedEffect(detail?.item?.id, selectedSeason, seasonRetry) {
         val current = detail ?: return@LaunchedEffect
         val season = selectedSeason ?: return@LaunchedEffect
@@ -423,12 +442,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                     // On a 320dp phone, the logo plus two actions squeezed the
                     // title to almost zero width. Keep the actions reachable.
-                    if (!compactPhoneWindow && metrics.effectiveWidthDp >= 380.dp) {
+                    if (detailItem == null && !compactPhoneWindow &&
+                        metrics.effectiveWidthDp >= 380.dp) {
                         BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp, showHalo = true)
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text(
-                            if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
+                            if (detailItem == null) "Explore Extras" else "${detailItem?.type?.label} details",
                             style = if (metrics.isTv) MaterialTheme.typography.titleLarge
                                 else MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -438,14 +458,15 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         )
                         if (!compactPhoneWindow) {
                             Text(
-                                "Movies · TV shows · Anime",
+                                if (detailItem == null) "Movies · TV shows · Anime"
+                                else detailItem?.title.orEmpty(),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1
                             )
                         }
                     }
-                    if (compactPhoneWindow || metrics.widthDp < 430.dp) {
+                    if (detailItem != null || compactPhoneWindow || metrics.widthDp < 430.dp) {
                         BousygramIconButton(
                             icon = BousygramIcons.Info,
                             contentDescription = "Info",
@@ -511,8 +532,10 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     },
                     modifier = Modifier.padding(padding),
                     compact = metrics.isCompact,
-                    shortViewport = metrics.isShortWindow || metrics.effectiveHeightDp < 600.dp,
-                    isAndroidTv = isAndroidTv)
+                    shortViewport = detailLayout.tightSpacing,
+                    isAndroidTv = isAndroidTv,
+                    layout = detailLayout,
+                    primaryActionFocus = detailActionFocus)
             }
         } else if (type != ExtrasType.ANIME && !ExtrasCatalogApi.hasTmdbCredentials) {
             ExtrasTmdbPendingSetup(
