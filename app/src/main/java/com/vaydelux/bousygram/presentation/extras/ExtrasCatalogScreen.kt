@@ -112,6 +112,10 @@ import kotlinx.coroutines.ensureActive
 @Composable
 fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val metrics = rememberAdaptiveMetrics()
+    // This is a phone in landscape, not a tablet or a 10-foot TV.
+    // Keep posters above the fold by reserving only one compact header row.
+    val compactPhoneWindow = !metrics.isTv &&
+        (metrics.isShortWindow || metrics.effectiveHeightDp < 520.dp)
     val context = LocalContext.current
     // Some Android TV boxes advertise Leanback even when UiModeManager does not.
     // Keep all such devices on the native YouTube TV route, never the WebView.
@@ -388,8 +392,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         topBar = {
             Column(
                 Modifier.fillMaxWidth().statusBarsPadding().padding(
-                    horizontal = if (metrics.isCompact) 16.dp else 32.dp,
-                    vertical = if (metrics.isTv || metrics.heightDp < 660.dp) 6.dp else 10.dp
+                    horizontal = if (compactPhoneWindow) 12.dp else if (metrics.isCompact) 16.dp else 32.dp,
+                    vertical = if (compactPhoneWindow) 2.dp else if (metrics.isTv || metrics.heightDp < 660.dp) 6.dp else 10.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -397,17 +401,28 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    BousygramButton(
-                        text = "Back",
-                        onClick = {
-                            if (detailItem != null) goBackFromDetails() else onExit()
-                        },
-                        leadingIcon = BousygramIcons.Back,
-                        tooltip = if (detailItem != null) "Back to catalog" else "Back to mode selection"
-                    )
+                    if (compactPhoneWindow) {
+                        BousygramIconButton(
+                            icon = BousygramIcons.Back,
+                            contentDescription = "Back",
+                            tooltip = "Back to previous screen",
+                            onClick = {
+                                if (detailItem != null) goBackFromDetails() else onExit()
+                            }
+                        )
+                    } else {
+                        BousygramButton(
+                            text = "Back",
+                            onClick = {
+                                if (detailItem != null) goBackFromDetails() else onExit()
+                            },
+                            leadingIcon = BousygramIcons.Back,
+                            tooltip = if (detailItem != null) "Back to catalog" else "Back to mode selection"
+                        )
+                    }
                     // On a 320dp phone, the logo plus two actions squeezed the
                     // title to almost zero width. Keep the actions reachable.
-                    if (metrics.effectiveWidthDp >= 380.dp) {
+                    if (!compactPhoneWindow && metrics.effectiveWidthDp >= 380.dp) {
                         BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp, showHalo = true)
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -420,14 +435,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            "Movies · TV shows · Anime",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
+                        if (!compactPhoneWindow) {
+                            Text(
+                                "Movies · TV shows · Anime",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
                     }
-                    if (metrics.widthDp < 430.dp) {
+                    if (compactPhoneWindow || metrics.widthDp < 430.dp) {
                         BousygramIconButton(
                             icon = BousygramIcons.Info,
                             contentDescription = "Info",
@@ -503,7 +520,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             )
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
-                .padding(horizontal = if (metrics.isCompact) 16.dp else 32.dp)) {
+                .padding(horizontal = if (compactPhoneWindow) 12.dp else if (metrics.isCompact) 16.dp else 32.dp)) {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = { text ->
@@ -794,6 +811,7 @@ internal fun ExtrasFilterDisclosure(
     active: Boolean,
     onToggle: () -> Unit
 ) {
+    val compactWindow = rememberAdaptiveMetrics().isShortWindow
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -807,14 +825,16 @@ internal fun ExtrasFilterDisclosure(
             tooltip = if (expanded) "Hide sort and filter controls" else "Sort, genre, year, and rating filters",
             modifier = Modifier.testTag("extras-filter-toggle")
         )
-        Text(
-            if (active) "Custom filters active" else "Sort, genre, year and more",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+        if (!compactWindow) {
+            Text(
+                if (active) "Custom filters active" else "Sort, genre, year and more",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
@@ -823,7 +843,9 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
     val metrics = rememberAdaptiveMetrics()
     // Three catalog destinations must remain visible at once on phone widths.
     // A lazy horizontal row could hide Anime until the user guessed to scroll.
-    val compact = metrics.isCompact || metrics.effectiveWidthDp < 600.dp
+    val compact = metrics.isCompact || metrics.isShortWindow ||
+        (!metrics.isTv && metrics.effectiveHeightDp < 520.dp) ||
+        metrics.effectiveWidthDp < 600.dp
     Row(
         modifier = Modifier.fillMaxWidth().testTag("extras-catalog-tabs"),
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
@@ -845,7 +867,7 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
                 isTv = metrics.isTv,
                 compact = compact,
                 accessibilityLabel = tab.label,
-                icon = tabIcon,
+                icon = if (compact && !metrics.isTv) null else tabIcon,
                 tooltip = tab.label,
                 tooltipDetail = tabDetail,
                 onClick = { onSelect(tab.ordinal) },
