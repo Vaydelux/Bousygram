@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,7 +33,8 @@ internal fun ExtrasReviewCard(
     }
     var hasMore by remember(review.content, collapsedLines) { mutableStateOf(false) }
     Surface(
-        modifier = modifier.fillMaxWidth().testTag("extras-review-card"),
+        modifier = modifier.widthIn(max = 720.dp).fillMaxWidth()
+            .testTag("extras-review-card"),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.medium
