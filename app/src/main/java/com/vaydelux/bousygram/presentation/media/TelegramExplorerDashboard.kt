@@ -2,11 +2,7 @@ package com.vaydelux.bousygram.presentation.media
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,10 +20,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,7 +37,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
@@ -56,13 +48,22 @@ import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.VideoChatItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
+import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramCenteredStatus
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIconRef
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
+import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
+import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
+import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
+import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
-import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.bousygramResponsiveTokens
-import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
-import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.media.vm.BrowseRestoration
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel
@@ -120,8 +121,10 @@ fun TelegramExplorerDashboard(
 ) {
     val adaptive = rememberAdaptiveMetrics()
     val design = bousygramResponsiveTokens(adaptive)
-    val gap = design.gridGap
-    val cardMin = design.cardMinWidth
+    val displaySpec = LocalBousygramDisplaySpec.current
+    val gap = displaySpec.gridGap
+    val cardMin = maxOf(design.cardMinWidth, displaySpec.cardMinWidth)
+        .coerceAtMost((adaptive.widthDp - displaySpec.horizontalPadding * 2).coerceAtLeast(1.dp))
     val directory = remember(sources, position.section) {
         explorerSources(sources, position.section)
     }
@@ -200,10 +203,10 @@ fun TelegramExplorerDashboard(
     Column(
         modifier = Modifier.fillMaxSize()
             .padding(
-                horizontal = design.pagePadding,
+                horizontal = displaySpec.horizontalPadding,
                 // Short landscape viewports need room for the first visible media row.
                 vertical = if (adaptive.heightDp < 500.dp) 8.dp
-                    else if (adaptive.isTv) 18.dp else 14.dp
+                    else displaySpec.verticalPadding
             ),
         verticalArrangement = Arrangement.spacedBy(
             if (adaptive.heightDp < 500.dp) 6.dp
@@ -276,12 +279,19 @@ fun TelegramExplorerDashboard(
                         contentPadding = PaddingValues(3.dp, 4.dp, 3.dp, 16.dp)
                     ) {
                         items(directory, key = { "chat:" + it.chatId }) { source ->
+                            val folderIcon = when {
+                                source.isArchived -> BousygramIcons.Archive
+                                source.isForum -> BousygramIcons.Topic
+                                source.kind == com.vaydelux.bousygram.domain.model.ChatSourceKind.CHANNEL -> BousygramIcons.Channel
+                                else -> BousygramIcons.Group
+                            }
                             ExplorerFolderCard(
                                 title = source.title,
                                 subtitle = explorerSourceLabel(source),
                                 detail = explorerSourceDetail(source),
                                 badge = if (source.isArchived) "ARCHIVED" else if (source.isForum) "TOPICS" else "MEDIA",
-                                symbol = if (source.isForum) "▦" else if (source.kind == com.vaydelux.bousygram.domain.model.ChatSourceKind.CHANNEL) "▣" else "▤",
+                                icon = folderIcon,
+                                accentBadge = source.isForum,
                                 isTv = adaptive.isTv,
                                 modifier = if (sourceFolderRestoration.focusedMediaKey == source.chatId.toString()) {
                                     Modifier.focusRequester(sourceFocusRequester)
@@ -316,7 +326,8 @@ fun TelegramExplorerDashboard(
                                 subtitle = if (topic.isGeneral) "General topic" else "Forum topic",
                                 detail = "Open messages and shared media",
                                 badge = if (topic.isGeneral) "GENERAL" else "TOPIC",
-                                symbol = "▦",
+                                icon = BousygramIcons.Topic,
+                                accentBadge = topic.isGeneral,
                                 isTv = adaptive.isTv,
                                 modifier = if (focusedTopicId == topic.id) {
                                     Modifier.focusRequester(topicFocusRequester)
@@ -373,19 +384,23 @@ fun TelegramExplorerDashboard(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.weight(1f)
                                 )
-                                OutlinedButton(
+                                BousygramButton(
+                                    text = "From start",
+                                    leadingIcon = BousygramIcons.StartOver,
                                     onClick = onRefreshMedia,
                                     modifier = Modifier.heightIn(min = 48.dp).testTag("telegram-media-from-start")
-                                ) { Text("From start") }
+                                )
                             }
                         }
                         if (hasMore && !isLoadingMore) {
                             item(key = "manual-older-media", span = { GridItemSpan(maxLineSpan) }) {
-                                OutlinedButton(
+                                BousygramButton(
+                                    text = "More older media",
+                                    leadingIcon = BousygramIcons.ChevronDown,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                         .testTag("telegram-media-load-older"),
                                     onClick = onLoadMore
-                                ) { Text("More older media") }
+                                )
                             }
                         }
                     }
@@ -423,16 +438,27 @@ private fun ExplorerMessage(
     onRetry: (() -> Unit)? = null,
     actionLabel: String = "Retry"
 ) {
+    val isError = actionLabel.equals("Retry", ignoreCase = true)
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (onRetry != null) {
-                OutlinedButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(actionLabel)
+        EnterprisePanel(modifier = Modifier.widthIn(max = 460.dp)) {
+            Column(
+                modifier = Modifier.padding(horizontal = 26.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                BousygramCenteredStatus(
+                    title = if (isError) "Couldn't load folder" else "Nothing here yet",
+                    message = message,
+                    tone = if (isError) BousygramStatusTone.ERROR else BousygramStatusTone.NEUTRAL
+                )
+                if (onRetry != null) {
+                    BousygramButton(
+                        text = actionLabel,
+                        leadingIcon = BousygramIcons.Refresh,
+                        selected = true,
+                        onClick = onRetry,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    )
                 }
             }
         }
@@ -440,9 +466,8 @@ private fun ExplorerMessage(
 }
 
 /**
- * One shared card for channels, groups and real forum topics.
+ * Unified Cinema Halo card for channels, groups and real forum topics.
  * Metadata is derived from TDLib; no placeholder ratings, thumbnails or item counts.
- * The whole card remains accessible via touch, keyboard and TV D-pad.
  */
 @Composable
 private fun ExplorerFolderCard(
@@ -450,13 +475,16 @@ private fun ExplorerFolderCard(
     subtitle: String,
     detail: String,
     badge: String,
-    symbol: String,
+    icon: BousygramIconRef,
     isTv: Boolean,
     modifier: Modifier = Modifier,
+    accentBadge: Boolean = false,
     onFocused: () -> Unit = {},
     onClick: () -> Unit
 ) {
-    val accent = MaterialTheme.colorScheme.primary
+    val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
+    val accent = colors.primary
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier
@@ -466,60 +494,82 @@ private fun ExplorerFolderCard(
             .semantics { contentDescription = "$title, $subtitle. $detail" }
             .onFocusChanged { if (it.isFocused) onFocused() }
     ) { focused ->
-        Column(
-            modifier = Modifier.padding(if (isTv) 18.dp else 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        BousygramTooltipBox(
+            tooltip = title,
+            detail = subtitle,
+            icon = icon,
+            focused = focused,
+            placement = BousygramTooltipPlacement.AUTO_ABOVE
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Column(
+                modifier = Modifier.padding(if (isTv) 18.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        symbol,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    Surface(
+                        shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
+                        color = if (focused) colors.primary else colors.primaryContainer,
+                        border = BorderStroke(
+                            1.dp,
+                            if (focused) halo.haloStart else colors.primary.copy(alpha = 0.25f)
+                        )
+                    ) {
+                        Box(
+                            modifier = Modifier.size(42.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            BousygramIcon(
+                                icon = icon,
+                                contentDescription = null,
+                                tint = if (focused) colors.onPrimary else colors.onPrimaryContainer,
+                                size = 20.dp
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        BousygramStatusPill(
+                            label = badge,
+                            accent = focused || accentBadge
+                        )
+                    }
+                    BousygramIcon(
+                        icon = BousygramIcons.ChevronRight,
+                        contentDescription = null,
+                        tint = if (focused) accent else colors.onSurfaceVariant,
+                        size = 18.dp
                     )
                 }
                 Text(
-                    badge,
-                    color = if (focused) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.onSurface,
+                    fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    "›",
+                    subtitle,
+                    style = MaterialTheme.typography.labelMedium,
                     color = accent,
-                    style = MaterialTheme.typography.titleLarge
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.labelMedium,
-                color = accent,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }

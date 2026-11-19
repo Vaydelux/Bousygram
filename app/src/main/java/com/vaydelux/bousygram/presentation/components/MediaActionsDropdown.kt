@@ -56,25 +56,57 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
         }
     }
     fun dismiss() { expanded = false; restoreFocus = true }
+    val colors = MaterialTheme.colorScheme
     Box(modifier) {
-        FilledTonalIconButton(
-            onClick = { expanded = true },
-            shape = MaterialTheme.shapes.small,
-            modifier = Modifier.size(minimum).focusRequester(trigger)
-                .focusProperties { playbackFocusRequester?.let { left = it } }
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft)
-                        playbackFocusRequester?.requestFocus() ?: false
-                    else false
-                }
-                .onFocusChanged { focused = it.isFocused; onActionFocus(it.isFocused) }
-                .border(if (focused) 3.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
-                .semantics {
-                contentDescription = if (privacyMode) "Media actions" else "Actions for ${media.title}"
+        BousygramTooltipBox(
+            tooltip = "Media actions",
+            focused = focused && !expanded,
+            icon = BousygramIcons.MoreVertical,
+            placement = BousygramTooltipPlacement.AUTO_BELOW,
+            dwellMs = 0L
+        ) {
+            FilledTonalIconButton(
+                onClick = { expanded = true },
+                shape = MaterialTheme.shapes.small,
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = if (focused) colors.primaryContainer
+                        else colors.background.copy(alpha = 0.78f),
+                    contentColor = if (focused) colors.onPrimaryContainer else colors.onBackground
+                ),
+                modifier = Modifier.size(minimum).focusRequester(trigger)
+                    .focusProperties { playbackFocusRequester?.let { left = it } }
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft)
+                            playbackFocusRequester?.requestFocus() ?: false
+                        else false
+                    }
+                    .onFocusChanged { focused = it.isFocused; onActionFocus(it.isFocused) }
+                    .border(
+                        width = if (focused) 3.dp else 1.dp,
+                        color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.65f),
+                        shape = MaterialTheme.shapes.small
+                    )
+                    .semantics {
+                        contentDescription = if (privacyMode) "Media actions" else "Actions for ${media.title}"
+                    }
+            ) {
+                BousygramIcon(
+                    icon = BousygramIcons.MoreVertical,
+                    contentDescription = null,
+                    size = if (isTv) 20.dp else 18.dp
+                )
             }
-        ) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
+        }
         DropdownMenu(expanded = expanded, onDismissRequest = ::dismiss) {
             DropdownMenuItem(
+                leadingIcon = {
+                    BousygramIcon(
+                        icon = if (alreadySaved) BousygramIcons.Check else BousygramIcons.Favorites,
+                        contentDescription = null,
+                        tint = if (alreadySaved) colors.primary else colors.onSurface,
+                        size = 18.dp
+                    )
+                },
                 text = { Text(when {
                     pending -> "Adding to Favorites..."
                     alreadySaved -> "Already in Favorites"

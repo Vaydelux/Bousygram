@@ -27,6 +27,280 @@ enum class WindowLayoutType {
     Phone
 }
 
+/**
+ * Fine-grained viewport tiers covering compact phones, standard phones,
+ * landscape phones, tablets, 32"-43" 720p/1080p TVs, 43"-65" 4K Google TVs
+ * (960x540dp canvas), and 65"-85"+ large-canvas UHD TVs (1200-1920dp).
+ */
+enum class BousygramDisplayTier {
+    PhoneCompact,
+    PhoneStandard,
+    PhoneLandscape,
+    TabletMedium,
+    TabletExpanded,
+    TvCompact,
+    TvStandard,
+    TvLarge
+}
+
+/** Controls how section tabs render icons and labels to eliminate text cut-offs. */
+enum class TabPresentationMode {
+    /** Active tab shows Icon + full label; inactive tabs show crisp Icon-only + tooltip. */
+    ICON_EXPAND_ACTIVE,
+    /** All tabs show Icon + concise label without abbreviations or truncation. */
+    ICON_AND_CONCISE,
+    /** Spacious tablets & TVs show Icon + full label + optional count pill. */
+    ICON_AND_FULL
+}
+
+/**
+ * Exact dp geometry and density contract resolved from real window metrics
+ * (never CPU ABI). Used alongside existing BousygramResponsiveTokens.
+ */
+data class BousygramDisplaySpec(
+    val tier: BousygramDisplayTier,
+    val horizontalPadding: Dp,
+    val verticalPadding: Dp,
+    val gridGap: Dp,
+    val cardMinWidth: Dp,
+    val minControlHeight: Dp,
+    val iconSizeNav: Dp,
+    val iconSizeAction: Dp,
+    val iconSizeHero: Dp,
+    val playerHeroButtonSize: Dp,
+    val playerControlButtonSize: Dp,
+    val maxReadingWidth: Dp,
+    val dialogMaxWidth: Dp,
+    val tooltipMaxWidth: Dp,
+    val overscanSafeHorizontal: Dp,
+    val overscanSafeVertical: Dp,
+    val tabPresentation: TabPresentationMode,
+    val showTabBadges: Boolean,
+    val isTv: Boolean,
+    val isCompact: Boolean,
+    val isShortWindow: Boolean
+)
+
+internal fun resolveDisplayTier(metrics: AdaptiveMetrics): BousygramDisplayTier {
+    val w = metrics.effectiveWidthDp
+    val h = metrics.effectiveHeightDp
+    return when {
+        metrics.isTv -> when {
+            metrics.widthDp >= 1200.dp && metrics.heightDp >= 660.dp && metrics.fontScale <= 1.25f ->
+                BousygramDisplayTier.TvLarge
+            metrics.widthDp < 920.dp || metrics.heightDp < 520.dp || metrics.fontScale >= 1.35f ->
+                BousygramDisplayTier.TvCompact
+            else -> BousygramDisplayTier.TvStandard
+        }
+        metrics.profile == DeviceProfile.Tablet -> when {
+            w >= 840.dp -> BousygramDisplayTier.TabletExpanded
+            else -> BousygramDisplayTier.TabletMedium
+        }
+        metrics.profile == DeviceProfile.PhoneLandscape && h < 500.dp ->
+            BousygramDisplayTier.PhoneLandscape
+        w < 380.dp -> BousygramDisplayTier.PhoneCompact
+        else -> BousygramDisplayTier.PhoneStandard
+    }
+}
+
+internal fun resolveDisplaySpec(metrics: AdaptiveMetrics): BousygramDisplaySpec {
+    val tier = resolveDisplayTier(metrics)
+    val fontFactor = metrics.fontScale.coerceIn(1f, 1.5f)
+    fun safeCard(base: Dp, pad: Dp): Dp =
+        minOf(base * fontFactor, (metrics.widthDp - pad * 2).coerceAtLeast(1.dp))
+
+    return when (tier) {
+        BousygramDisplayTier.PhoneCompact -> BousygramDisplaySpec(
+            tier = tier,
+            horizontalPadding = 12.dp,
+            verticalPadding = 10.dp,
+            gridGap = 10.dp,
+            cardMinWidth = safeCard(140.dp, 12.dp),
+            minControlHeight = 48.dp,
+            iconSizeNav = 20.dp,
+            iconSizeAction = 18.dp,
+            iconSizeHero = 24.dp,
+            playerHeroButtonSize = 52.dp,
+            playerControlButtonSize = 48.dp,
+            maxReadingWidth = 540.dp,
+            dialogMaxWidth = 340.dp,
+            tooltipMaxWidth = 220.dp,
+            overscanSafeHorizontal = 12.dp,
+            overscanSafeVertical = 10.dp,
+            tabPresentation = TabPresentationMode.ICON_EXPAND_ACTIVE,
+            showTabBadges = false,
+            isTv = false,
+            isCompact = true,
+            isShortWindow = metrics.isShortWindow
+        )
+        BousygramDisplayTier.PhoneStandard -> BousygramDisplaySpec(
+            tier = tier,
+            horizontalPadding = 16.dp,
+            verticalPadding = 12.dp,
+            gridGap = 12.dp,
+            cardMinWidth = safeCard(152.dp, 16.dp),
+            minControlHeight = 48.dp,
+            iconSizeNav = 20.dp,
+            iconSizeAction = 20.dp,
+            iconSizeHero = 26.dp,
+            playerHeroButtonSize = 54.dp,
+            playerControlButtonSize = 48.dp,
+            maxReadingWidth = 600.dp,
+            dialogMaxWidth = 420.dp,
+            tooltipMaxWidth = 248.dp,
+            overscanSafeHorizontal = 16.dp,
+            overscanSafeVertical = 12.dp,
+            tabPresentation = TabPresentationMode.ICON_AND_CONCISE,
+            showTabBadges = false,
+            isTv = false,
+            isCompact = true,
+            isShortWindow = metrics.isShortWindow
+        )
+        BousygramDisplayTier.PhoneLandscape -> BousygramDisplaySpec(
+            tier = tier,
+            horizontalPadding = 16.dp,
+            verticalPadding = 8.dp,
+            gridGap = 10.dp,
+            cardMinWidth = safeCard(152.dp, 16.dp),
+            minControlHeight = 48.dp,
+            iconSizeNav = 20.dp,
+            iconSizeAction = 18.dp,
+            iconSizeHero = 24.dp,
+            playerHeroButtonSize = 50.dp,
+            playerControlButtonSize = 48.dp,
+            maxReadingWidth = 760.dp,
+            dialogMaxWidth = 520.dp,
+            tooltipMaxWidth = 260.dp,
+            overscanSafeHorizontal = 16.dp,
+            overscanSafeVertical = 8.dp,
+            tabPresentation = TabPresentationMode.ICON_AND_CONCISE,
+            showTabBadges = metrics.effectiveWidthDp >= 640.dp,
+            isTv = false,
+            isCompact = true,
+            isShortWindow = true
+        )
+        BousygramDisplayTier.TabletMedium -> BousygramDisplaySpec(
+            tier = tier,
+            horizontalPadding = 24.dp,
+            verticalPadding = 16.dp,
+            gridGap = 14.dp,
+            cardMinWidth = safeCard(184.dp, 24.dp),
+            minControlHeight = 48.dp,
+            iconSizeNav = 22.dp,
+            iconSizeAction = 20.dp,
+            iconSizeHero = 28.dp,
+            playerHeroButtonSize = 56.dp,
+            playerControlButtonSize = 48.dp,
+            maxReadingWidth = 840.dp,
+            dialogMaxWidth = 560.dp,
+            tooltipMaxWidth = 280.dp,
+            overscanSafeHorizontal = 24.dp,
+            overscanSafeVertical = 16.dp,
+            tabPresentation = TabPresentationMode.ICON_AND_FULL,
+            showTabBadges = true,
+            isTv = false,
+            isCompact = false,
+            isShortWindow = metrics.isShortWindow
+        )
+        BousygramDisplayTier.TabletExpanded -> BousygramDisplaySpec(
+            tier = tier,
+            horizontalPadding = 28.dp,
+            verticalPadding = 18.dp,
+            gridGap = 16.dp,
+            cardMinWidth = safeCard(196.dp, 28.dp),
+            minControlHeight = 48.dp,
+            iconSizeNav = 22.dp,
+            iconSizeAction = 20.dp,
+            iconSizeHero = 30.dp,
+            playerHeroButtonSize = 58.dp,
+            playerControlButtonSize = 50.dp,
+            maxReadingWidth = 1040.dp,
+            dialogMaxWidth = 680.dp,
+            tooltipMaxWidth = 300.dp,
+            overscanSafeHorizontal = 28.dp,
+            overscanSafeVertical = 18.dp,
+            tabPresentation = TabPresentationMode.ICON_AND_FULL,
+            showTabBadges = true,
+            isTv = false,
+            isCompact = false,
+            isShortWindow = metrics.isShortWindow
+        )
+        BousygramDisplayTier.TvCompact -> BousygramDisplaySpec(
+            tier = tier,
+            horizontalPadding = 28.dp,
+            verticalPadding = 14.dp,
+            gridGap = 14.dp,
+            cardMinWidth = safeCard(208.dp, 28.dp),
+            minControlHeight = 52.dp,
+            iconSizeNav = 20.dp,
+            iconSizeAction = 20.dp,
+            iconSizeHero = 28.dp,
+            playerHeroButtonSize = 56.dp,
+            playerControlButtonSize = 50.dp,
+            maxReadingWidth = 880.dp,
+            dialogMaxWidth = 640.dp,
+            tooltipMaxWidth = 280.dp,
+            overscanSafeHorizontal = 28.dp,
+            overscanSafeVertical = 18.dp,
+            tabPresentation = TabPresentationMode.ICON_AND_CONCISE,
+            showTabBadges = metrics.effectiveWidthDp >= 640.dp,
+            isTv = true,
+            isCompact = false,
+            isShortWindow = metrics.isShortWindow
+        )
+        BousygramDisplayTier.TvStandard -> BousygramDisplaySpec(
+            tier = tier,
+            horizontalPadding = 32.dp,
+            verticalPadding = 18.dp,
+            gridGap = 16.dp,
+            cardMinWidth = safeCard(208.dp, 32.dp),
+            minControlHeight = 56.dp,
+            iconSizeNav = 22.dp,
+            iconSizeAction = 20.dp,
+            iconSizeHero = 30.dp,
+            playerHeroButtonSize = 60.dp,
+            playerControlButtonSize = 52.dp,
+            maxReadingWidth = 960.dp,
+            dialogMaxWidth = 720.dp,
+            tooltipMaxWidth = 320.dp,
+            overscanSafeHorizontal = 32.dp,
+            overscanSafeVertical = 22.dp,
+            tabPresentation = TabPresentationMode.ICON_AND_FULL,
+            showTabBadges = true,
+            isTv = true,
+            isCompact = false,
+            isShortWindow = metrics.isShortWindow
+        )
+        BousygramDisplayTier.TvLarge -> BousygramDisplaySpec(
+            tier = tier,
+            horizontalPadding = 48.dp,
+            verticalPadding = 26.dp,
+            gridGap = 20.dp,
+            cardMinWidth = safeCard(244.dp, 48.dp),
+            minControlHeight = 58.dp,
+            iconSizeNav = 24.dp,
+            iconSizeAction = 22.dp,
+            iconSizeHero = 34.dp,
+            playerHeroButtonSize = 66.dp,
+            playerControlButtonSize = 56.dp,
+            maxReadingWidth = 1160.dp,
+            dialogMaxWidth = 860.dp,
+            tooltipMaxWidth = 360.dp,
+            overscanSafeHorizontal = 48.dp,
+            overscanSafeVertical = 27.dp,
+            tabPresentation = TabPresentationMode.ICON_AND_FULL,
+            showTabBadges = true,
+            isTv = true,
+            isCompact = false,
+            isShortWindow = false
+        )
+    }
+}
+
+@Composable
+fun rememberDisplaySpec(): BousygramDisplaySpec =
+    resolveDisplaySpec(rememberAdaptiveMetrics())
+
 data class AdaptiveMetrics(
     val profile: DeviceProfile,
     val widthDp: Dp,

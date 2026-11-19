@@ -31,6 +31,7 @@ import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.core.media.PlayerBufferConfig
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 
 /**
  * Detail hero uses backdrop metadata already returned by the TMDB/AniList
@@ -59,13 +60,14 @@ internal fun ExtrasDetailBackdrop(
             .build()
     }
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
+    val halo = LocalBousygramHaloColors.current
+    val shape = RoundedCornerShape(BousygramUiTokens.panelCorner)
     Box(
         modifier = modifier.fillMaxWidth()
             .height(if (shortViewport) 118.dp else if (compact) 164.dp else 218.dp)
             .clip(shape)
             .background(colors.surfaceContainerLow)
-            .border(1.dp, colors.outlineVariant, shape)
+            .border(1.dp, halo.glassBorder, shape)
             .testTag("extras-detail-backdrop")
     ) {
         AsyncImage(
@@ -95,7 +97,7 @@ internal fun ExtrasDetailBackdrop(
             Text(
                 info.item.type.label + "  ·  " + info.item.type.provider,
                 style = MaterialTheme.typography.labelMedium,
-                color = colors.primary,
+                color = halo.haloStart,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )

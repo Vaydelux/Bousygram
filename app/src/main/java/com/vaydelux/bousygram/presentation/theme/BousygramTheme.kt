@@ -8,7 +8,10 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -16,6 +19,11 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.ExperimentalTextApi
 import com.vaydelux.bousygram.R
+import com.vaydelux.bousygram.presentation.adaptive.AdaptiveMetrics
+import com.vaydelux.bousygram.presentation.adaptive.BousygramDisplayTier
+import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
+import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.adaptive.resolveDisplaySpec
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -396,16 +404,195 @@ private val BousygramShapes = Shapes(
     extraLarge = RoundedCornerShape(20.dp)
 )
 
+/**
+ * Cinema Halo extended visual tokens derived from the active preset while
+ * anchoring brand identity in the approved Chow Chow + Cyan-Blue Halo palette.
+ */
+@Immutable
+data class BousygramHaloColors(
+    val haloStart: Color,
+    val haloEnd: Color,
+    val focusRing: Color,
+    val goldAccent: Color,
+    val goldContainer: Color,
+    val onGoldContainer: Color,
+    val glassFill: Color,
+    val glassBorder: Color,
+    val tooltipFill: Color,
+    val tooltipContent: Color,
+    val tooltipBorder: Color,
+    val scrimTop: Color,
+    val scrimBottom: Color,
+    val isHighContrast: Boolean,
+    val isLight: Boolean
+)
+
+internal fun haloColorsFor(preset: BousygramThemePreset, scheme: ColorScheme): BousygramHaloColors {
+    val highContrast = preset == BousygramThemePreset.HIGH_CONTRAST
+    val light = preset == BousygramThemePreset.LIGHT || preset == BousygramThemePreset.IVORY
+    val brandCyan = Color(0xFF37D7F2)
+    val brandBlue = Color(0xFF2289F9)
+    val chowGold = Color(0xFFFFC67D)
+    return when {
+        highContrast -> BousygramHaloColors(
+            haloStart = scheme.primary,
+            haloEnd = scheme.secondary,
+            focusRing = scheme.primary,
+            goldAccent = scheme.primary,
+            goldContainer = scheme.primaryContainer,
+            onGoldContainer = scheme.onPrimaryContainer,
+            glassFill = scheme.surfaceContainerHigh,
+            glassBorder = scheme.outline,
+            tooltipFill = scheme.surfaceContainerHighest,
+            tooltipContent = scheme.onSurface,
+            tooltipBorder = scheme.primary,
+            scrimTop = Color(0xE6000000),
+            scrimBottom = Color(0xF5000000),
+            isHighContrast = true,
+            isLight = false
+        )
+        light -> BousygramHaloColors(
+            haloStart = scheme.primary,
+            haloEnd = scheme.secondary,
+            focusRing = scheme.primary,
+            goldAccent = scheme.tertiary,
+            goldContainer = if (preset == BousygramThemePreset.LIGHT) Color(0xFFFFF0D4) else scheme.tertiaryContainer,
+            onGoldContainer = if (preset == BousygramThemePreset.LIGHT) Color(0xFF4A2E07) else scheme.onTertiaryContainer,
+            glassFill = scheme.surface.copy(alpha = 0.94f),
+            glassBorder = scheme.outlineVariant.copy(alpha = 0.85f),
+            tooltipFill = Color(0xFF0E2236),
+            tooltipContent = Color(0xFFF5FAFF),
+            tooltipBorder = brandCyan.copy(alpha = 0.65f),
+            scrimTop = Color(0xB8050D18),
+            scrimBottom = Color(0xDE050D18),
+            isHighContrast = false,
+            isLight = true
+        )
+        preset == BousygramThemePreset.DARK -> BousygramHaloColors(
+            haloStart = brandCyan,
+            haloEnd = brandBlue,
+            focusRing = scheme.primary,
+            goldAccent = chowGold,
+            goldContainer = Color(0xFF3D2A15),
+            onGoldContainer = Color(0xFFFFE4BE),
+            glassFill = scheme.surfaceContainer.copy(alpha = 0.90f),
+            glassBorder = brandCyan.copy(alpha = 0.24f),
+            tooltipFill = scheme.surfaceContainerHighest.copy(alpha = 0.97f),
+            tooltipContent = scheme.onSurface,
+            tooltipBorder = brandCyan.copy(alpha = 0.62f),
+            scrimTop = Color(0xBA040A14),
+            scrimBottom = Color(0xE0040A14),
+            isHighContrast = false,
+            isLight = false
+        )
+        else -> BousygramHaloColors(
+            haloStart = scheme.primary,
+            haloEnd = scheme.secondary,
+            focusRing = scheme.primary,
+            goldAccent = scheme.tertiary,
+            goldContainer = scheme.tertiaryContainer,
+            onGoldContainer = scheme.onTertiaryContainer,
+            glassFill = scheme.surfaceContainer.copy(alpha = 0.90f),
+            glassBorder = scheme.outlineVariant.copy(alpha = 0.72f),
+            tooltipFill = scheme.surfaceContainerHighest.copy(alpha = 0.97f),
+            tooltipContent = scheme.onSurface,
+            tooltipBorder = scheme.primary.copy(alpha = 0.58f),
+            scrimTop = Color(0xB8050A12),
+            scrimBottom = Color(0xDF050A12),
+            isHighContrast = false,
+            isLight = false
+        )
+    }
+}
+
+/**
+ * Responsive Typography scale tuned per device tier while strictly keeping
+ * Space Grotesk on display/headline/title and Inter on label/body.
+ */
+internal fun bousygramTypographyFor(tier: BousygramDisplayTier): Typography = when (tier) {
+    BousygramDisplayTier.PhoneCompact -> BousygramTypography.copy(
+        headlineLarge = BousygramTypography.headlineLarge.copy(fontSize = 24.sp, lineHeight = 30.sp),
+        headlineMedium = BousygramTypography.headlineMedium.copy(fontSize = 20.sp, lineHeight = 26.sp),
+        headlineSmall = BousygramTypography.headlineSmall.copy(fontSize = 18.sp, lineHeight = 24.sp),
+        titleLarge = BousygramTypography.titleLarge.copy(fontSize = 17.sp, lineHeight = 23.sp),
+        titleMedium = BousygramTypography.titleMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+        titleSmall = BousygramTypography.titleSmall.copy(fontSize = 13.5.sp, lineHeight = 19.sp),
+        bodyLarge = BousygramTypography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 22.sp),
+        bodyMedium = BousygramTypography.bodyMedium.copy(fontSize = 13.5.sp, lineHeight = 19.sp),
+        labelLarge = BousygramTypography.labelLarge.copy(fontSize = 13.sp, lineHeight = 18.sp),
+        labelMedium = BousygramTypography.labelMedium.copy(fontSize = 11.5.sp, lineHeight = 15.sp)
+    )
+    BousygramDisplayTier.PhoneStandard,
+    BousygramDisplayTier.PhoneLandscape -> BousygramTypography.copy(
+        headlineLarge = BousygramTypography.headlineLarge.copy(fontSize = 28.sp, lineHeight = 34.sp),
+        headlineMedium = BousygramTypography.headlineMedium.copy(fontSize = 24.sp, lineHeight = 30.sp),
+        headlineSmall = BousygramTypography.headlineSmall.copy(fontSize = 20.sp, lineHeight = 26.sp),
+        titleLarge = BousygramTypography.titleLarge.copy(fontSize = 19.sp, lineHeight = 26.sp),
+        titleMedium = BousygramTypography.titleMedium.copy(fontSize = 16.sp, lineHeight = 22.sp)
+    )
+    BousygramDisplayTier.TabletMedium,
+    BousygramDisplayTier.TabletExpanded -> BousygramTypography.copy(
+        titleSmall = BousygramTypography.titleSmall.copy(fontSize = 14.5.sp, lineHeight = 20.sp),
+        bodySmall = BousygramTypography.bodySmall.copy(fontSize = 12.5.sp, lineHeight = 17.sp),
+        labelMedium = BousygramTypography.labelMedium.copy(fontSize = 12.5.sp, lineHeight = 16.sp),
+        labelSmall = BousygramTypography.labelSmall.copy(fontSize = 11.5.sp, lineHeight = 15.sp)
+    )
+    BousygramDisplayTier.TvCompact,
+    BousygramDisplayTier.TvStandard -> BousygramTypography.copy(
+        titleMedium = BousygramTypography.titleMedium.copy(fontSize = 17.sp, lineHeight = 24.sp),
+        titleSmall = BousygramTypography.titleSmall.copy(fontSize = 15.sp, lineHeight = 21.sp),
+        bodyMedium = BousygramTypography.bodyMedium.copy(fontSize = 14.5.sp, lineHeight = 21.sp),
+        bodySmall = BousygramTypography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+        labelLarge = BousygramTypography.labelLarge.copy(fontSize = 14.5.sp, lineHeight = 20.sp),
+        labelMedium = BousygramTypography.labelMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
+        labelSmall = BousygramTypography.labelSmall.copy(fontSize = 12.sp, lineHeight = 16.sp)
+    )
+    BousygramDisplayTier.TvLarge -> BousygramTypography.copy(
+        headlineLarge = BousygramTypography.headlineLarge.copy(fontSize = 36.sp, lineHeight = 44.sp),
+        headlineMedium = BousygramTypography.headlineMedium.copy(fontSize = 30.sp, lineHeight = 38.sp),
+        headlineSmall = BousygramTypography.headlineSmall.copy(fontSize = 26.sp, lineHeight = 34.sp),
+        titleLarge = BousygramTypography.titleLarge.copy(fontSize = 24.sp, lineHeight = 32.sp),
+        titleMedium = BousygramTypography.titleMedium.copy(fontSize = 19.sp, lineHeight = 26.sp),
+        titleSmall = BousygramTypography.titleSmall.copy(fontSize = 17.sp, lineHeight = 23.sp),
+        bodyLarge = BousygramTypography.bodyLarge.copy(fontSize = 18.sp, lineHeight = 26.sp),
+        bodyMedium = BousygramTypography.bodyMedium.copy(fontSize = 16.sp, lineHeight = 23.sp),
+        bodySmall = BousygramTypography.bodySmall.copy(fontSize = 14.sp, lineHeight = 20.sp),
+        labelLarge = BousygramTypography.labelLarge.copy(fontSize = 16.sp, lineHeight = 22.sp),
+        labelMedium = BousygramTypography.labelMedium.copy(fontSize = 14.sp, lineHeight = 19.sp),
+        labelSmall = BousygramTypography.labelSmall.copy(fontSize = 13.sp, lineHeight = 17.sp)
+    )
+}
+
+/** Tabular numerals prevent horizontal jitter on player clocks, durations, and counts. */
+fun TextStyle.tabular(): TextStyle = copy(fontFeatureSettings = "tnum")
+
+val LocalBousygramHaloColors = staticCompositionLocalOf {
+    haloColorsFor(BousygramThemePreset.DARK, schemeFor(BousygramThemePreset.DARK))
+}
+
+val LocalBousygramDisplaySpec = staticCompositionLocalOf {
+    resolveDisplaySpec(AdaptiveMetrics(DeviceProfile.PhonePortrait, 393.dp, 852.dp))
+}
+
 @Composable
 fun BousygramTheme(
     preset: BousygramThemePreset = BousygramThemePreset.MIDNIGHT,
     content: @Composable () -> Unit
 ) {
     val scheme = remember(preset) { schemeFor(preset) }
-    MaterialTheme(
-        colorScheme = scheme,
-        typography = BousygramTypography,
-        shapes = BousygramShapes,
-        content = content
-    )
+    val halo = remember(preset, scheme) { haloColorsFor(preset, scheme) }
+    val adaptive = rememberAdaptiveMetrics()
+    val displaySpec = remember(adaptive) { resolveDisplaySpec(adaptive) }
+    val typography = remember(displaySpec.tier) { bousygramTypographyFor(displaySpec.tier) }
+    CompositionLocalProvider(
+        LocalBousygramHaloColors provides halo,
+        LocalBousygramDisplaySpec provides displaySpec
+    ) {
+        MaterialTheme(
+            colorScheme = scheme,
+            typography = typography,
+            shapes = BousygramShapes,
+            content = content
+        )
+    }
 }

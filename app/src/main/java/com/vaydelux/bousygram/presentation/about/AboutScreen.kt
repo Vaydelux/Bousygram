@@ -1,14 +1,12 @@
 package com.vaydelux.bousygram.presentation.about
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,9 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -27,21 +24,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.R
+import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
-import com.vaydelux.bousygram.presentation.components.TvFocusSurface
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 
 /**
  * About screen displaying application information, architectural foundation,
@@ -55,102 +53,106 @@ fun AboutScreen(
 ) {
     BackHandler { onBack() }
     val scrollState = rememberScrollState()
+    val displaySpec = LocalBousygramDisplaySpec.current
 
     BousygramScaffold(
         modifier = modifier.fillMaxSize()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
         ) {
-            // Screen Top Header with Back action
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = displaySpec.maxReadingWidth)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = displaySpec.horizontalPadding, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "About BousyGram",
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
+                // Screen Top Header with Back action
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    BousygramPageHeading(
+                        eyebrow = "Bousygram  /  System & Attribution",
+                        title = "About BousyGram",
+                        subtitle = "System Information & Attribution",
+                        compact = displaySpec.isCompact,
+                        icon = BousygramIcons.Info,
+                        modifier = Modifier.weight(1f)
                     )
-                    Text(
-                        text = "System Information & Attribution",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium
+                    BousygramButton(
+                        text = "Back",
+                        onClick = onBack,
+                        leadingIcon = BousygramIcons.Back,
+                        tooltip = "Return to previous screen"
                     )
                 }
-                BousygramButton(
-                    text = "← Back",
-                    onClick = onBack
-                )
+
+                // App Banner Header
+                AppHeaderCard()
+
+                // Mandatory TMDB Attribution Notice Card
+                TmdbAttributionCard()
+
+                // Technology & Architecture Foundation Card
+                ArchitectureDetailsCard()
+
+                // Zero-Configuration Philosophy Notice Card
+                ZeroConfigCard()
+
+                // TV Navigation Action
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    BousygramButton(
+                        text = "Return to Previous Screen",
+                        onClick = onBack,
+                        selected = true,
+                        leadingIcon = BousygramIcons.Back,
+                        tooltip = "Return to previous screen"
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
             }
-
-            // App Banner Header
-            AppHeaderCard()
-
-            // Mandatory TMDB Attribution Notice Card
-            TmdbAttributionCard()
-
-            // Technology & Architecture Foundation Card
-            ArchitectureDetailsCard()
-
-            // Zero-Configuration Philosophy Notice Card
-            ZeroConfigCard()
-
-            // TV Navigation Action
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.Start
-            ) {
-                BousygramButton(
-                    text = "← Return to Previous Screen",
-                    onClick = onBack,
-                    selected = true
-                )
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AppHeaderCard() {
-    val shape = RoundedCornerShape(8.dp)
-    EnterprisePanel(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-    ) {
+    val halo = LocalBousygramHaloColors.current
+    val displaySpec = LocalBousygramDisplaySpec.current
+    EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(if (displaySpec.isCompact) 16.dp else 24.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(20.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (displaySpec.isCompact) 14.dp else 20.dp)
         ) {
             // Same approved Chow mascot shown by Android launcher, sign-in and README.
-            Image(
-                painter = painterResource(R.drawable.ic_bousygram_mascot),
-                contentDescription = "BousyGram Chow Chow and paper plane logo",
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(8.dp))
+            BousygramBrandMark(
+                size = if (displaySpec.isCompact) 52.dp else 64.dp,
+                showHalo = true
             )
 
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "BousyGram",
@@ -159,15 +161,16 @@ private fun AppHeaderCard() {
                         fontWeight = FontWeight.Bold
                     )
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder)
                     ) {
                         Text(
                             text = "v${BuildConfig.VERSION_NAME}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = halo.haloStart,
                             style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                         )
                     }
                 }
@@ -189,13 +192,8 @@ private fun AppHeaderCard() {
  */
 @Composable
 private fun TmdbAttributionCard() {
-    val shape = RoundedCornerShape(8.dp)
-    EnterprisePanel(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f), shape)
-    ) {
+    val halo = LocalBousygramHaloColors.current
+    EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -223,9 +221,9 @@ private fun TmdbAttributionCard() {
 
             // Mandatory Legal Attribution Statement
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -251,38 +249,46 @@ private fun TmdbAttributionCard() {
                 text = "• Zero-Configuration Matching: Filenames and captions are parsed on-device to resolve titles, years, seasons, and episodes without requiring user setup.\n" +
                     "• Offline Disk Cache: Metadata and high-definition posters/backdrops are cached locally to ensure instant rendering without network delays.\n" +
                     "• Seamless Fallback: When no TMDB match exists or while offline, Bousygram automatically falls back to Telegram thumbnails or embedded minithumbnails.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                 style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp)
             )
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ArchitectureDetailsCard() {
-    val shape = RoundedCornerShape(8.dp)
-    EnterprisePanel(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-    ) {
+    val halo = LocalBousygramHaloColors.current
+    EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "Engine & Platform Foundation",
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-
             Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                BousygramIcon(
+                    icon = BousygramIcons.Decoder,
+                    contentDescription = null,
+                    tint = halo.haloStart,
+                    size = 20.dp
+                )
+                Text(
+                    text = "Engine & Platform Foundation",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 FoundationChip(title = "Core", value = "TDLib Native C++")
                 FoundationChip(title = "Primary Engine", value = "Media3 ExoPlayer")
@@ -301,13 +307,14 @@ private fun ArchitectureDetailsCard() {
 
 @Composable
 private fun FoundationChip(title: String, value: String) {
+    val halo = LocalBousygramHaloColors.current
     Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder)
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+            Text(title, color = halo.haloStart, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
             Text(value, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         }
     }
@@ -315,25 +322,31 @@ private fun FoundationChip(title: String, value: String) {
 
 @Composable
 private fun ZeroConfigCard() {
-    val shape = RoundedCornerShape(8.dp)
-    EnterprisePanel(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-    ) {
+    val halo = LocalBousygramHaloColors.current
+    EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = "Zero-Configuration Philosophy",
-                color = MaterialTheme.colorScheme.secondary,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                BousygramIcon(
+                    icon = BousygramIcons.Shield,
+                    contentDescription = null,
+                    tint = halo.haloStart,
+                    size = 18.dp
+                )
+                Text(
+                    text = "Zero-Configuration Philosophy",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Text(
                 text = "Bousygram makes automatic playback, caching, and enrichment decisions behind the scenes so viewers never have to configure codecs, network timeouts, or API settings. Everything is designed for an effortless leanback TV experience.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

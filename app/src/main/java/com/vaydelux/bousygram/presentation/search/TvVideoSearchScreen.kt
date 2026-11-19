@@ -1,25 +1,9 @@
 package com.vaydelux.bousygram.presentation.search
 
-import android.app.Activity
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.speech.RecognizerIntent
 import android.view.KeyEvent
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.layout.Arrangement
-import com.vaydelux.bousygram.presentation.media.playableVideos
-import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
-import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,9 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,13 +43,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -70,18 +55,21 @@ import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramChip
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.BousygramTextField
 import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
-import com.vaydelux.bousygram.presentation.components.LoadingOverlay
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.components.NoSearchResultsEmptyState
-import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.RecentSearchesSection
-import com.vaydelux.bousygram.presentation.media.buildPlaybackRequest
+import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
+import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
 import com.vaydelux.bousygram.presentation.media.playableVideos
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusTarget
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 
 enum class SearchFilterOption(val label: String) {
     ALL("All Results"),
@@ -108,7 +96,7 @@ fun TvVideoSearchScreen(
     val searchScope by viewModel.scope.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
     val adaptive = rememberAdaptiveMetrics()
-    val context = LocalContext.current
+    val displaySpec = LocalBousygramDisplaySpec.current
     var searchQuery by rememberSaveable { mutableStateOf(initialQuery) }
     val launcher = rememberMediaLauncher(
         screenKey = "search",
@@ -200,20 +188,21 @@ fun TvVideoSearchScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (adaptive.isCompact) 16.dp else 32.dp)
+                    .padding(horizontal = displaySpec.horizontalPadding, vertical = if (adaptive.isCompact) 14.dp else 24.dp)
             ) {
                 // Preserve vertical space for actual results on short landscape windows.
                 // Keep the heading for idle/error screens where orientation matters less.
                 if (uiState !is SearchUiState.Success && uiState !is SearchUiState.Loading) {
                     BousygramPageHeading(
-                    eyebrow = "Telegram media  /  Discover",
-                    title = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
-                        "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
-                    } else {
-                        "Search Telegram videos"
-                    },
-                    subtitle = "Find the right video across your accessible Telegram sources.",
-                    compact = adaptive.isCompact
+                        eyebrow = "Telegram media  /  Discover",
+                        title = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
+                            "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
+                        } else {
+                            "Search Telegram videos"
+                        },
+                        subtitle = "Find the right video across your accessible Telegram sources.",
+                        compact = adaptive.isCompact,
+                        icon = BousygramIcons.Search
                     )
                     Spacer(Modifier.height(12.dp))
                 } else {
@@ -238,14 +227,33 @@ fun TvVideoSearchScreen(
                             isVoiceListening = isVoiceListening
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            BousygramButton("Search", { executeSearch() }, modifier = Modifier.weight(1f))
-                            BousygramButton("Clear", { clearSearch() }, modifier = Modifier.weight(1f))
+                            BousygramButton(
+                                text = "Search",
+                                onClick = { executeSearch() },
+                                selected = true,
+                                leadingIcon = BousygramIcons.Search,
+                                tooltip = "Run video search",
+                                modifier = Modifier.weight(1f)
+                            )
+                            BousygramButton(
+                                text = "Clear",
+                                onClick = { clearSearch() },
+                                leadingIcon = BousygramIcons.Close,
+                                tooltip = "Clear query and results",
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                         if (searchScope == SearchMode.InChat) {
-                            BousygramButton("Search all", {
-                                viewModel.setGlobalScope()
-                                executeSearch()
-                            }, modifier = Modifier.fillMaxWidth())
+                            BousygramButton(
+                                text = "Search all",
+                                onClick = {
+                                    viewModel.setGlobalScope()
+                                    executeSearch()
+                                },
+                                leadingIcon = BousygramIcons.Telegram,
+                                tooltip = "Expand search across all Telegram sources",
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                 } else {
@@ -283,13 +291,29 @@ fun TvVideoSearchScreen(
                                     }
                                 }
                         )
-                        BousygramButton("Search", { executeSearch() })
-                        BousygramButton("Clear", { clearSearch() })
+                        BousygramButton(
+                            text = "Search",
+                            onClick = { executeSearch() },
+                            selected = true,
+                            leadingIcon = BousygramIcons.Search,
+                            tooltip = "Run video search"
+                        )
+                        BousygramButton(
+                            text = "Clear",
+                            onClick = { clearSearch() },
+                            leadingIcon = BousygramIcons.Close,
+                            tooltip = "Clear query and results"
+                        )
                         if (searchScope == SearchMode.InChat) {
-                            BousygramButton("Search all", {
-                                viewModel.setGlobalScope()
-                                executeSearch()
-                            })
+                            BousygramButton(
+                                text = "Search all",
+                                onClick = {
+                                    viewModel.setGlobalScope()
+                                    executeSearch()
+                                },
+                                leadingIcon = BousygramIcons.Telegram,
+                                tooltip = "Expand search across all Telegram sources"
+                            )
                         }
                     }
                 }
@@ -297,8 +321,10 @@ fun TvVideoSearchScreen(
                 if (!privacyMode && recentSearches.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     BousygramButton(
-                        if (historyExpanded) "Hide recent searches" else "Recent searches",
-                        { historyExpanded = !historyExpanded }
+                        text = if (historyExpanded) "Hide recent searches" else "Recent searches",
+                        onClick = { historyExpanded = !historyExpanded },
+                        leadingIcon = BousygramIcons.History,
+                        tooltip = if (historyExpanded) "Collapse search history" else "Show recent search queries"
                     )
                 }
                 if (!privacyMode && historyExpanded && recentSearches.isNotEmpty()) {
@@ -497,6 +523,14 @@ private fun SearchField(
         modifier = modifier,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+        leadingIcon = {
+            BousygramIcon(
+                icon = BousygramIcons.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                size = 20.dp
+            )
+        },
         trailingIcon = onVoiceSearch?.let { voiceAction ->
             {
                 SearchBarVoiceButton(

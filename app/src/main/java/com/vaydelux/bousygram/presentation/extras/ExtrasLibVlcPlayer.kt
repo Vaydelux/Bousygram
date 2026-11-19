@@ -49,7 +49,19 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIconRef
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
+import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.tabular
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -632,24 +644,39 @@ internal fun ExtrasLibVlcPlayer(
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val compact = maxWidth < 620.dp
+        val halo = LocalBousygramHaloColors.current
+        // Dark-video overlay tokens remain high-contrast on Color.Black across
+        // all 10 presets, including Daylight (LIGHT) and Ivory.
+        val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
+        val cinemaErrorText = Color(0xFFFFB4AB)
+        val cinemaPanelBg = if (halo.isHighContrast) Color(0xF5000000) else Color(0xE80A121E)
+        val cinemaPanelBorder = if (halo.isHighContrast) halo.focusRing else cinemaAccent.copy(alpha = 0.34f)
         if (session == null) {
             Column(
                 Modifier.fillMaxSize().padding(if (isTv) 24.dp else 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ExtrasVlcAction("Back to WebView", onClick = onBack)
-                Text(title, color = Color.White, fontSize = if (isTv) 22.sp else 18.sp)
+                ExtrasVlcAction(
+                    label = "Back to WebView",
+                    icon = BousygramIcons.Back,
+                    tooltip = "Return to Extras WebView",
+                    tooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW,
+                    onClick = onBack
+                )
+                Text(title, color = Color.White, fontSize = if (isTv) 22.sp else 18.sp, fontWeight = FontWeight.Bold)
                 if (initError == null && source == null) {
-                    CircularProgressIndicator(Modifier.padding(16.dp), color = Color(0xFF84DEFF))
+                    CircularProgressIndicator(Modifier.padding(16.dp), color = cinemaAccent)
                     Text("Preparing guarded playback…", color = Color.White)
                 } else {
                     Text(
                         initError ?: "LibVLC is unavailable on this device. Use Media3.",
-                        color = Color(0xFFFFD5CF),
+                        color = cinemaErrorText,
                         fontSize = if (isTv) 20.sp else 16.sp
                     )
                     ExtrasVlcAction(
-                        "Continue with Media3",
+                        label = "Continue with Media3",
+                        icon = BousygramIcons.Decoder,
+                        tooltip = "Switch to Media3 ExoPlayer",
                         emphasized = true,
                         // A failed guarded-LibVLC probe must not erase the
                         // seekable position handed off by the Media3 player.
@@ -782,24 +809,50 @@ internal fun ExtrasLibVlcPlayer(
                     .onFocusChanged { headerFocused = it.hasFocus }
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color(0xED07101B), Color(0x0007101B))
+                            listOf(Color.Black.copy(alpha = 0.88f), Color.Transparent)
                         )
                     )
-                    .padding(horizontal = if (isTv) 22.dp else 12.dp, vertical = 12.dp),
+                    .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ExtrasVlcAction("Back", onClick = onBack)
-                Text(
-                    title, color = Color.White, modifier = Modifier.weight(1f),
-                    maxLines = 1, fontSize = if (isTv) 20.sp else 16.sp
-                )
-                Text(
-                    "FIT", color = Color(0xFFB5EAFB), fontSize = 13.sp,
-                    modifier = Modifier.testTag("extras-libvlc-aspect-fit")
-                )
                 ExtrasVlcAction(
-                    if (showDiagnostics) "Hide stats" else "Stats",
+                    label = "Back",
+                    icon = BousygramIcons.Back,
+                    tooltip = "Exit LibVLC player",
+                    tooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW,
+                    onClick = onBack
+                )
+                Text(
+                    title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = if (isTv) 20.sp else 16.sp
+                )
+                Surface(
+                    shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+                    color = Color.Black.copy(alpha = 0.56f),
+                    border = BorderStroke(1.dp, cinemaAccent.copy(alpha = 0.55f))
+                ) {
+                    Text(
+                        "FIT",
+                        color = cinemaAccent,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .testTag("extras-libvlc-aspect-fit")
+                    )
+                }
+                ExtrasVlcAction(
+                    label = if (showDiagnostics) "Hide stats" else "Stats",
+                    icon = BousygramIcons.Diagnostics,
+                    tooltip = if (showDiagnostics) "Hide playback diagnostics" else "Show stream and seek diagnostics",
+                    tooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW,
                     modifier = Modifier.testTag("extras-libvlc-diagnostics-toggle"),
                     onClick = { showDiagnostics = !showDiagnostics }
                 )
@@ -810,10 +863,14 @@ internal fun ExtrasLibVlcPlayer(
                     .onFocusChanged { footerFocused = it.hasFocus }
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0xDA06111C), Color(0xF506111C))
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.78f),
+                                Color.Black.copy(alpha = 0.94f)
+                            )
                         )
                     )
-                    .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 12.dp),
+                    .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)
             ) {
                 Row(
@@ -822,12 +879,13 @@ internal fun ExtrasLibVlcPlayer(
                 ) {
                     if (controls.playRequested && status.startsWith("Buffering")) {
                         CircularProgressIndicator(
-                            Modifier.size(20.dp), color = Color(0xFF88DFFC),
+                            Modifier.size(20.dp), color = cinemaAccent,
                             strokeWidth = 2.dp
                         )
                     }
                     Text(
-                        status, color = if (controls.failed) Color(0xFFFFD5CF) else Color.White,
+                        status,
+                        color = if (controls.failed) cinemaErrorText else Color.White,
                         fontSize = if (isTv) 18.sp else 14.sp,
                         maxLines = 2,
                         modifier = Modifier.testTag("extras-libvlc-playback-status")
@@ -841,6 +899,11 @@ internal fun ExtrasLibVlcPlayer(
                 Slider(
                     value = currentFraction.coerceIn(0f, 1f),
                     enabled = validDuration && controls.seekable && !controls.failed,
+                    colors = SliderDefaults.colors(
+                        thumbColor = cinemaAccent,
+                        activeTrackColor = cinemaAccent,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                    ),
                     onValueChange = { scrubFraction = it },
                     onValueChangeFinished = {
                         val chosen = scrubFraction
@@ -859,59 +922,84 @@ internal fun ExtrasLibVlcPlayer(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val displayedPosition = if (scrubFraction != null && validDuration) {
-                        (scrubFraction!!.toDouble() * controls.durationMs.toDouble()).toLong()
+                    val activeScrub = scrubFraction
+                    val displayedPosition = if (activeScrub != null && validDuration) {
+                        (activeScrub.toDouble() * controls.durationMs.toDouble()).toLong()
                     } else controls.positionMs
                     Text(
-                        extrasVlcTimeLabel(displayedPosition), color = Color.White,
+                        extrasVlcTimeLabel(displayedPosition),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge.tabular(),
                         fontSize = if (isTv) 17.sp else 14.sp
                     )
                     Text(
                         if (validDuration) extrasVlcTimeLabel(controls.durationMs) else "Time unavailable",
-                        color = Color(0xFFD1E2F3),
+                        color = Color.White.copy(alpha = 0.78f),
+                        style = MaterialTheme.typography.labelLarge.tabular(),
                         fontSize = if (isTv) 17.sp else 14.sp
                     )
+                }
+
+                val playIcon = when {
+                    controls.failed || controls.ended -> BousygramIcons.Refresh
+                    controls.playRequested -> BousygramIcons.Pause
+                    else -> BousygramIcons.Play
+                }
+                val playLabel = if (controls.failed) "Retry" else if (controls.ended) "Replay"
+                    else if (controls.playRequested) "Pause" else "Play"
+                val onPlayToggle: () -> Unit = {
+                    val starting = !controls.playRequested
+                    when {
+                        controls.failed -> session.retry()
+                        controls.playRequested -> session.pause()
+                        else -> session.play()
+                    }
+                    // After starting playback, let the video surface
+                    // hold focus so chrome can auto-hide on idle TV.
+                    if (starting) runCatching { videoFocus.requestFocus() }
                 }
 
                 if (compact) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ExtrasVlcAction(
-                            "-10s", enabled = controls.seekable,
+                            label = "-10s",
+                            icon = BousygramIcons.SeekBack,
+                            tooltip = "Rewind 10 seconds",
+                            enabled = controls.seekable,
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-rewind"),
                             onClick = { session.skip(-10_000L) }
                         )
                         ExtrasVlcAction(
-                            if (controls.failed) "Retry" else if (controls.ended) "Replay"
-                            else if (controls.playRequested) "Pause" else "Play",
+                            label = playLabel,
+                            icon = playIcon,
+                            tooltip = if (controls.playRequested) "Pause playback" else "Resume playback",
                             emphasized = true,
                             modifier = Modifier.weight(1f).focusRequester(playFocus)
                                 .testTag("extras-libvlc-play-pause"),
-                            onClick = {
-                                val starting = !controls.playRequested
-                                when {
-                                    controls.failed -> session.retry()
-                                    controls.playRequested -> session.pause()
-                                    else -> session.play()
-                                }
-                                // After starting playback, let the video surface
-                                // hold focus so chrome can auto-hide on idle TV.
-                                if (starting) runCatching { videoFocus.requestFocus() }
-                            }
+                            onClick = onPlayToggle
                         )
                         ExtrasVlcAction(
-                            "+10s", enabled = controls.seekable,
+                            label = "+10s",
+                            icon = BousygramIcons.SeekForward,
+                            tooltip = "Fast forward 10 seconds",
+                            enabled = controls.seekable,
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-forward"),
                             onClick = { session.skip(10_000L) }
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ExtrasVlcAction(
-                            "Subtitles", enabled = media.captions.isNotEmpty(),
+                            label = "Subtitles",
+                            icon = BousygramIcons.Subtitles,
+                            tooltip = "Choose subtitle captions",
+                            enabled = media.captions.isNotEmpty(),
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-subtitles"),
                             onClick = { onChooseSubtitles(extrasLibVlcHandoff(controls)) }
                         )
                         ExtrasVlcAction(
-                            "Use Media3",
+                            label = "Use Media3",
+                            icon = BousygramIcons.Decoder,
+                            tooltip = "Switch playback engine to Media3",
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-use-media3"),
                             onClick = {
                                 onUseMedia3(extrasLibVlcHandoff(controls))
@@ -924,41 +1012,42 @@ internal fun ExtrasLibVlcPlayer(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ExtrasVlcAction(
-                            "-10s", enabled = controls.seekable,
+                            label = "-10s",
+                            icon = BousygramIcons.SeekBack,
+                            tooltip = "Rewind 10 seconds",
+                            enabled = controls.seekable,
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-rewind"),
                             onClick = { session.skip(-10_000L) }
                         )
                         ExtrasVlcAction(
-                            if (controls.failed) "Retry" else if (controls.ended) "Replay"
-                            else if (controls.playRequested) "Pause" else "Play",
+                            label = playLabel,
+                            icon = playIcon,
+                            tooltip = if (controls.playRequested) "Pause playback" else "Resume playback",
                             emphasized = true,
                             modifier = Modifier.weight(1.15f).focusRequester(playFocus)
                                 .testTag("extras-libvlc-play-pause"),
-                            onClick = {
-                                val starting = !controls.playRequested
-                                when {
-                                    controls.failed -> session.retry()
-                                    controls.playRequested -> session.pause()
-                                    else -> session.play()
-                                }
-                                // After starting playback, let the video surface
-                                // hold focus so chrome can auto-hide on idle TV.
-                                if (starting) runCatching { videoFocus.requestFocus() }
-                            }
+                            onClick = onPlayToggle
                         )
                         ExtrasVlcAction(
-                            "+10s", enabled = controls.seekable,
+                            label = "+10s",
+                            icon = BousygramIcons.SeekForward,
+                            tooltip = "Fast forward 10 seconds",
+                            enabled = controls.seekable,
                             modifier = Modifier.weight(1f).testTag("extras-libvlc-forward"),
                             onClick = { session.skip(10_000L) }
                         )
                         ExtrasVlcAction(
-                            if (caption == null) "Subtitles" else "Captions ✓",
+                            label = if (caption == null) "Subtitles" else "Captions",
+                            icon = if (caption == null) BousygramIcons.Subtitles else BousygramIcons.Check,
+                            tooltip = if (caption == null) "Choose subtitle captions" else "Captions enabled · tap to change",
                             enabled = media.captions.isNotEmpty(),
                             modifier = Modifier.weight(1.2f).testTag("extras-libvlc-subtitles"),
                             onClick = { onChooseSubtitles(extrasLibVlcHandoff(controls)) }
                         )
                         ExtrasVlcAction(
-                            "Use Media3",
+                            label = "Use Media3",
+                            icon = BousygramIcons.Decoder,
+                            tooltip = "Switch playback engine to Media3",
                             modifier = Modifier.weight(1.2f).testTag("extras-libvlc-use-media3"),
                             onClick = {
                                 onUseMedia3(extrasLibVlcHandoff(controls))
@@ -972,14 +1061,22 @@ internal fun ExtrasLibVlcPlayer(
                     val pssLabel = processPssKiB?.let { "${it / 1024L} MiB" } ?: "unavailable"
                     Column(
                         Modifier.fillMaxWidth()
-                            .background(Color(0xFF132332), RoundedCornerShape(10.dp))
-                            .padding(10.dp)
+                            .background(
+                                cinemaPanelBg,
+                                RoundedCornerShape(BousygramUiTokens.cardCorner)
+                            )
+                            .border(
+                                1.dp,
+                                cinemaPanelBorder,
+                                RoundedCornerShape(BousygramUiTokens.cardCorner)
+                            )
+                            .padding(12.dp)
                             .testTag("extras-libvlc-diagnostics"),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             "Debug diagnostics · this playback only · no URLs recorded",
-                            color = Color(0xFFB5EAFB), fontSize = 14.sp
+                            color = cinemaAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             "Startup → native Playing: ${timing.startupToNativePlayingMs?.let { "${it} ms" } ?: "pending"}" +
@@ -989,33 +1086,39 @@ internal fun ExtrasLibVlcPlayer(
                                 " · superseded: ${timing.seekSupersededCount}" +
                                 " · timed out: ${timing.seekTimeouts}" +
                                 " · unchanged: ${timing.seekNoChangeCount}",
-                            color = Color.White, fontSize = 14.sp
+                            color = Color.White, fontSize = 14.sp,
+                            style = MaterialTheme.typography.bodySmall.tabular()
                         )
                         Text(
                             "Mean acknowledged seek: ${timing.averageSeekPositionMs?.let { "${it} ms" } ?: "no sample"}" +
                                 " · longest: ${timing.longestSeekPositionMs?.let { "${it} ms" } ?: "no sample"}",
-                            color = Color(0xFFD1E2F3), fontSize = 14.sp
+                            color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp,
+                            style = MaterialTheme.typography.bodySmall.tabular()
                         )
                         Text(
                             if (range == null) "Range metrics unavailable"
                             else "HTTP windows: ${range.httpRequests} · failed/canceled: ${range.failedRequests}" +
                                 " · cache hits: ${range.cacheHits} (${range.cacheHitPercent}%)" +
                                 " · downloaded: ${range.downloadedBytes / 1024L} KiB",
-                            color = Color.White, fontSize = 14.sp
+                            color = Color.White, fontSize = 14.sp,
+                            style = MaterialTheme.typography.bodySmall.tabular()
                         )
                         Text(
                             if (range == null) "Window cache unavailable"
                             else "Window cache: ${range.retainedCacheBytes / 1024} KiB" +
                                 " · longest HTTP fetch: ${range.longestFetchMillis} ms" +
                                 " · process PSS snapshot: $pssLabel",
-                            color = Color(0xFFD1E2F3), fontSize = 14.sp
+                            color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp,
+                            style = MaterialTheme.typography.bodySmall.tabular()
                         )
                         Text(
                             "PSS covers the whole app. Seek metric reflects native position, not rendered frames.",
-                            color = Color(0xFFA9BAC9), fontSize = 12.sp
+                            color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp
                         )
                         ExtrasVlcAction(
-                            "Sample PSS",
+                            label = "Sample PSS",
+                            icon = BousygramIcons.Refresh,
+                            tooltip = "Capture fresh memory PSS snapshot",
                             onClick = {
                                 pssSampleRequest += 1
                             },
@@ -1026,7 +1129,7 @@ internal fun ExtrasLibVlcPlayer(
                 if (isTv) {
                     Text(
                         "D-pad: select a control, or focus video and press Left/Right to seek 10 seconds",
-                        color = Color(0xFFC7D6E4), fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp,
                         maxLines = 2
                     )
                 }
@@ -1036,45 +1139,96 @@ internal fun ExtrasLibVlcPlayer(
     }
 }
 
-/** High-contrast controls with visible TV focus, independent of light/dark theme. */
+/** High-contrast Cinema Halo controls with visible TV focus, independent of light/dark theme. */
 @Composable
 private fun ExtrasVlcAction(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    emphasized: Boolean = false
+    emphasized: Boolean = false,
+    icon: BousygramIconRef? = null,
+    tooltip: String? = null,
+    tooltipPlacement: BousygramTooltipPlacement = BousygramTooltipPlacement.AUTO_ABOVE
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
-    val focusColor = if (focused) Color(0xFF95E8FF) else Color.Transparent
-    val surface = modifier.onFocusChanged { focused = it.isFocused }
-        .border(if (focused) 3.dp else 1.dp, focusColor, shape)
+    val halo = LocalBousygramHaloColors.current
+    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
+    val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
+    val cinemaFocusRing = if (halo.isLight) Color(0xFF8AE8FA) else halo.focusRing
+    val focusColor = if (focused) cinemaFocusRing else Color.Transparent
+    val accentBg = cinemaAccent
+    val accentFg = Color(0xFF041724)
+
+    val surface = modifier
+        .onFocusChanged { focused = it.isFocused }
+        .border(if (focused) 2.5.dp else 1.dp, focusColor, shape)
         .heightIn(min = 52.dp)
     if (emphasized) {
         Button(
             onClick = onClick, enabled = enabled, modifier = surface,
             shape = shape,
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF8EDFFF),
-                contentColor = Color(0xFF082333),
-                disabledContainerColor = Color(0xFF34505F),
-                disabledContentColor = Color(0xFFC4D0DA)
+                containerColor = accentBg,
+                contentColor = accentFg,
+                disabledContainerColor = Color.White.copy(alpha = 0.22f),
+                disabledContentColor = Color.White.copy(alpha = 0.56f)
             )
         ) {
-            Text(label, maxLines = 1, fontSize = 15.sp)
+            BousygramTooltipBox(
+                tooltip = tooltip,
+                icon = icon,
+                focused = focused,
+                placement = tooltipPlacement
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (icon != null) {
+                        BousygramIcon(
+                            icon = icon,
+                            contentDescription = null,
+                            tint = if (enabled) accentFg else Color.White.copy(alpha = 0.56f),
+                            size = 17.dp
+                        )
+                    }
+                    Text(label, maxLines = 1, fontSize = 15.sp, fontWeight = FontWeight.Bold, overflow = TextOverflow.Ellipsis)
+                }
+            }
         }
     } else {
         OutlinedButton(
             onClick = onClick, enabled = enabled, modifier = surface,
             shape = shape,
-            border = BorderStroke(1.dp, Color(0xFF8EA9BA)),
+            border = BorderStroke(1.dp, if (focused) cinemaFocusRing else Color.White.copy(alpha = 0.32f)),
             colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Color.Black.copy(alpha = 0.42f),
                 contentColor = Color.White,
-                disabledContentColor = Color(0xFF93A3B0)
+                disabledContentColor = Color.White.copy(alpha = 0.48f)
             )
         ) {
-            Text(label, maxLines = 1, fontSize = 15.sp)
+            BousygramTooltipBox(
+                tooltip = tooltip,
+                icon = icon,
+                focused = focused,
+                placement = tooltipPlacement
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (icon != null) {
+                        BousygramIcon(
+                            icon = icon,
+                            contentDescription = null,
+                            tint = if (enabled) (if (focused) cinemaAccent else Color.White) else Color.White.copy(alpha = 0.48f),
+                            size = 16.dp
+                        )
+                    }
+                    Text(label, maxLines = 1, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, overflow = TextOverflow.Ellipsis)
+                }
+            }
         }
     }
 }

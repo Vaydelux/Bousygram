@@ -45,6 +45,15 @@ object BousygramUiTokens {
     val mascotCyan = Color(0xFF37D7F2)
     val mascotBlue = Color(0xFF2289F9)
     val chowGold = Color(0xFFFFC67D)
+
+    /** Cinema Halo additive tokens (keep core contract radii/heights unchanged). */
+    val pillCorner = 999.dp
+    val tooltipCorner = 8.dp
+    val hairlineBorder = 1.dp
+    const val haloFocusGlowAlpha = 0.24f
+    const val tooltipDwellMs = 180L
+    const val tooltipTapDurationMs = 1_400L
+    const val tooltipFadeMs = 120
 }
 
 /**

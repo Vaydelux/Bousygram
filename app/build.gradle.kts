@@ -789,6 +789,7 @@ dependencies {
     implementation(libs.androidx.tv.foundation)
     implementation(libs.androidx.tv.material)
     implementation(libs.coil.compose)
+    implementation(libs.composables.icons.lucide)
 
     // AndroidX Media3 ExoPlayer for premium native video playback
     implementation(libs.androidx.media3.exoplayer)

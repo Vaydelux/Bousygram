@@ -1,9 +1,7 @@
 package com.vaydelux.bousygram.presentation.media
 
-import androidx.compose.foundation.background
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,45 +13,51 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.activity.compose.BackHandler
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vaydelux.bousygram.data.repository.TelegramCloudFavorites
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.domain.model.MediaItem
+import com.vaydelux.bousygram.presentation.adaptive.BousygramDisplayTier
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
-import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
-import com.vaydelux.bousygram.presentation.theme.bousygramResponsiveTokens
-import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
-import com.vaydelux.bousygram.presentation.components.EmptyStateView
+import com.vaydelux.bousygram.presentation.components.BousygramIconButton
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
+import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
-import com.vaydelux.bousygram.presentation.components.LoadingOverlay
+import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
+import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
+import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
 import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
 import com.vaydelux.bousygram.presentation.media.vm.CloudFavoritesViewModel
-import com.vaydelux.bousygram.data.repository.TelegramCloudFavorites
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
+import com.vaydelux.bousygram.presentation.theme.bousygramResponsiveTokens
 import kotlinx.coroutines.launch
 
 @Composable
@@ -89,8 +93,10 @@ fun FavoritesScreen(
     )
     val safeMode = remember { EnterprisePreferences.safeMode() }
     val adaptive = rememberAdaptiveMetrics()
+    val displaySpec = LocalBousygramDisplaySpec.current
     val responsive = bousygramResponsiveTokens(adaptive)
-    val horizontalPadding = responsive.pagePadding
+    val horizontalPadding = displaySpec.horizontalPadding
+    val compactIconActions = displaySpec.tier == BousygramDisplayTier.PhoneCompact
     var focusedKey by rememberSaveable { mutableStateOf<String?>(null) }
     var restoreKey by remember { mutableStateOf<String?>(null) }
     var previousKeys by remember { mutableStateOf(emptyList<String>()) }
@@ -142,26 +148,67 @@ fun FavoritesScreen(
                     subtitle = if (state.isLoading) "Loading your saved videos…"
                         else if (state.items.isEmpty()) "No saved videos"
                         else "${state.loadedStart + 1}-${state.loadedStart + state.items.size} loaded from Telegram${if (state.hasMore) " · More available" else ""}",
-                    compact = adaptive.isCompact || adaptive.isShortWindow
+                    compact = adaptive.isCompact || adaptive.isShortWindow,
+                    icon = BousygramIcons.Favorites
                 )
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    BousygramButton("← Back", onClick = { if (!launcher.cancel()) onBack() }, modifier = Modifier.focusRequester(emptyFocus))
-                    if (state.hasPrevious) BousygramButton(
-                        "Previous favorites", viewModel::loadPrevious,
-                        enabled = !state.isLoading && !state.isRefreshing
+                    BousygramButton(
+                        text = "Back",
+                        onClick = { if (!launcher.cancel()) onBack() },
+                        leadingIcon = BousygramIcons.Back,
+                        tooltip = "Return to previous screen",
+                        modifier = Modifier.focusRequester(emptyFocus)
                     )
-                    BousygramButton("Search", onOpenSearch)
-                    BousygramButton("Refresh", viewModel::refresh, enabled = !state.isLoading && !state.isRefreshing)
+                    if (state.hasPrevious) {
+                        BousygramButton(
+                            text = if (compactIconActions) "Previous" else "Previous favorites",
+                            onClick = viewModel::loadPrevious,
+                            enabled = !state.isLoading && !state.isRefreshing,
+                            leadingIcon = BousygramIcons.ChevronLeft,
+                            tooltip = "Load newer page of favorites"
+                        )
+                    }
+                    if (compactIconActions) {
+                        BousygramIconButton(
+                            icon = BousygramIcons.Search,
+                            contentDescription = "Search",
+                            onClick = onOpenSearch,
+                            tooltip = "Search Telegram videos"
+                        )
+                        BousygramIconButton(
+                            icon = BousygramIcons.Refresh,
+                            contentDescription = "Refresh",
+                            onClick = viewModel::refresh,
+                            enabled = !state.isLoading && !state.isRefreshing,
+                            tooltip = "Refresh cloud favorites"
+                        )
+                    } else {
+                        BousygramButton(
+                            text = "Search",
+                            onClick = onOpenSearch,
+                            leadingIcon = BousygramIcons.Search,
+                            tooltip = "Search Telegram videos"
+                        )
+                        BousygramButton(
+                            text = "Refresh",
+                            onClick = viewModel::refresh,
+                            enabled = !state.isLoading && !state.isRefreshing,
+                            leadingIcon = BousygramIcons.Refresh,
+                            tooltip = "Refresh cloud favorites"
+                        )
+                    }
                     if (state.items.isNotEmpty()) {
                         BousygramButton(
-                            text = "▶ Play loaded",
+                            text = if (compactIconActions) "Play" else "Play loaded",
                             onClick = { state.items.firstOrNull { it.fileId != null }?.let { launcher.launch(it, state.items.filter { media -> media.fileId != null }) } },
                             selected = true,
-                            enabled = !state.isLoading && !state.isRefreshing && !launcher.isPending
+                            enabled = !state.isLoading && !state.isRefreshing && !launcher.isPending,
+                            leadingIcon = BousygramIcons.Play,
+                            tooltip = "Play loaded favorites queue"
                         )
                     }
                 }
@@ -236,8 +283,13 @@ fun FavoritesScreen(
                         }
                         if (state.hasMore) {
                             item(key = "favorites-load-more", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                                BousygramButton("Next favorites", onClick = viewModel::loadMore,
-                                    modifier = Modifier.fillMaxWidth())
+                                BousygramButton(
+                                    text = "Next favorites",
+                                    onClick = viewModel::loadMore,
+                                    leadingIcon = BousygramIcons.ChevronRight,
+                                    tooltip = "Load older saved favorites",
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
                     }
@@ -256,6 +308,8 @@ fun FavoritesScreen(
         selectedMedia?.let { item ->
             AlertDialog(
                 onDismissRequest = { selectedMedia = null },
+                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 title = { Text("Favorite video") },
                 text = { Text((if (safeMode) "Private favorite" else item.title) +
                     "\nSaved in your private Telegram channel.") },
@@ -273,7 +327,7 @@ fun FavoritesScreen(
                     Row {
                         TextButton(onClick = { selectedMedia = null }) { Text("Cancel") }
                         TextButton(onClick = { selectedMedia = null; pendingDelete = item }) {
-                            Text("Delete", color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -282,6 +336,8 @@ fun FavoritesScreen(
         pendingDelete?.let { item ->
             AlertDialog(
                 onDismissRequest = { if (!deleting) pendingDelete = null },
+                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 title = { Text("Delete this saved favorite?") },
                 text = {
                     Text("This permanently deletes the saved message from your private Bousygram Favorites Telegram channel. " +
@@ -300,7 +356,7 @@ fun FavoritesScreen(
                             }
                         }
                     }) {
-                        Text("Delete Favorite", color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                        Text("Delete Favorite", color = MaterialTheme.colorScheme.error)
                     }
                 },
                 dismissButton = {

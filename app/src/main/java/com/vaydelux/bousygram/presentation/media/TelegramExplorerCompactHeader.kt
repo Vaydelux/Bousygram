@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -15,7 +14,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,23 +22,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
+import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIconButton
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
+import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerSection
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.tabular
 
 /**
- * A compact header, not a second home page. The library's primary content is
- * its grid; fixed decorative headings, descriptions and stacked stat panels
- * previously consumed much of a 540dp-high Android TV viewport.
- *
- * Short landscape / TV: two toolbar rows (and an optional forum action row).
- * Portrait: the same two rows, with overflow actions instead of wrapping.
- * Input controls remain accessible through touch, keyboard and D-pad.
+ * Compact Cinema Halo explorer toolbar. Keeps the media grid dominant above
+ * the fold on 540dp-high Android TVs and short landscape phones while eliminating
+ * text abbreviations ("Favs", "Chans") through Lucide iconography + tooltips.
  */
 internal enum class ExplorerHeaderDensity { COMPACT, NORMAL }
 
@@ -82,13 +84,15 @@ internal fun TelegramExplorerCompactHeader(
     onNavigate: () -> Unit
 ) {
     val density = explorerHeaderDensity(isTv, widthDp, heightDp)
-    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    val fontScale = LocalDensity.current.fontScale
     val effectiveWidth = widthDp / fontScale.coerceAtLeast(1f)
     val inlineActions = explorerHeaderShowInlineActions(effectiveWidth)
-    // Show all primary destinations at normal phone widths instead of clipping
-    // Groups off the right edge; retain full TalkBack labels for abbreviations.
-    val compactTabs = !isTv && effectiveWidth < 450.dp
-    val tinyTabs = !isTv && effectiveWidth < 360.dp
+    // On narrow phones (<380dp), collapse Favorites to a crisp 48dp Lucide heart
+    // pill with tooltip while preserving exact "Saved" / "Channels" / "Groups"
+    // text labels in the scrollable source row (zero abbreviations or cut-offs).
+    val ultraCompactTabs = !isTv && effectiveWidth < 380.dp
+    val compactTabs = !isTv && effectiveWidth < 520.dp
+    val showCounts = isTv || effectiveWidth >= 600.dp
     val minControl = if (isTv) BousygramUiTokens.tvControlHeight
         else BousygramUiTokens.compactControlHeight
     val colors = MaterialTheme.colorScheme
@@ -104,11 +108,31 @@ internal fun TelegramExplorerCompactHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (canGoUp) {
-                OutlinedButton(
-                    onClick = onGoUp,
-                    modifier = Modifier.heightIn(min = minControl)
-                        .testTag("telegram-explorer-go-up")
-                ) { Text("‹ Back", maxLines = 1) }
+                if (isTv && effectiveWidth >= 760.dp) {
+                    BousygramButton(
+                        text = "Back",
+                        leadingIcon = BousygramIcons.Back,
+                        tooltip = "Go up a folder",
+                        onClick = onGoUp,
+                        modifier = Modifier.heightIn(min = minControl)
+                            .testTag("telegram-explorer-go-up")
+                    )
+                } else {
+                    BousygramIconButton(
+                        icon = BousygramIcons.Back,
+                        contentDescription = "Back",
+                        tooltip = "Back",
+                        tooltipDetail = "Go up",
+                        minSize = minControl,
+                        onClick = onGoUp,
+                        modifier = Modifier.testTag("telegram-explorer-go-up")
+                    )
+                }
+            } else if (isTv || effectiveWidth >= 420.dp) {
+                BousygramBrandMark(
+                    size = if (isTv) 36.dp else 32.dp,
+                    showHalo = true
+                )
             }
 
             Column(
@@ -136,75 +160,153 @@ internal fun TelegramExplorerCompactHeader(
                         modifier = Modifier.weight(1f, fill = false),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        style = if (isTv) MaterialTheme.typography.labelMedium
-                            else MaterialTheme.typography.labelSmall,
+                        style = (if (isTv) MaterialTheme.typography.labelMedium
+                            else MaterialTheme.typography.labelSmall).tabular(),
                         color = colors.onSurfaceVariant
                     )
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(12.dp),
-                            strokeWidth = 1.5.dp
+                            strokeWidth = 1.5.dp,
+                            color = colors.primary
                         )
                     }
                 }
             }
 
-            // When space is limited, exposing every option as a wide button
-            // forces the grid off-screen. Keep Search immediately reachable.
+            // Adaptive action cluster: full labeled pills on wide TV/tablets,
+            // crisp Lucide icon buttons with tooltips on compact screens.
             if (inlineActions) {
-                OutlinedButton(onClick = onNavigate, modifier = Modifier.heightIn(min = minControl)) {
-                    Text(navigationLabel, maxLines = 1)
-                }
+                BousygramButton(
+                    text = navigationLabel,
+                    leadingIcon = if (navigationLabel.equals("Home", ignoreCase = true)) {
+                        BousygramIcons.Home
+                    } else {
+                        BousygramIcons.Library
+                    },
+                    tooltip = "Go to $navigationLabel",
+                    onClick = onNavigate,
+                    modifier = Modifier.heightIn(min = minControl)
+                )
                 if (hasResume) {
-                    OutlinedButton(onClick = onResume, modifier = Modifier.heightIn(min = minControl)) {
-                        Text("Continue", maxLines = 1)
-                    }
+                    BousygramButton(
+                        text = "Continue",
+                        leadingIcon = BousygramIcons.Continue,
+                        tooltip = "Continue watching",
+                        selected = true,
+                        onClick = onResume,
+                        modifier = Modifier.heightIn(min = minControl)
+                    )
                 }
-                OutlinedButton(onClick = onSearch, modifier = Modifier.heightIn(min = minControl)) {
-                    Text("Search", maxLines = 1)
-                }
-            } else if (effectiveWidth >= 480.dp) {
-                OutlinedButton(
+                BousygramButton(
+                    text = "Search",
+                    leadingIcon = BousygramIcons.Search,
+                    tooltip = "Search media",
                     onClick = onSearch,
-                    modifier = Modifier.heightIn(min = minControl).testTag("telegram-explorer-search")
-                ) { Text("Search", maxLines = 1) }
+                    modifier = Modifier.heightIn(min = minControl)
+                        .testTag("telegram-explorer-search")
+                )
+            } else {
+                if (hasResume && effectiveWidth >= 420.dp) {
+                    BousygramIconButton(
+                        icon = BousygramIcons.Continue,
+                        contentDescription = "Continue watching",
+                        tooltip = "Continue watching",
+                        selected = true,
+                        minSize = minControl,
+                        onClick = onResume
+                    )
+                }
+                if (effectiveWidth >= 360.dp) {
+                    BousygramIconButton(
+                        icon = BousygramIcons.Search,
+                        contentDescription = "Search",
+                        tooltip = "Search media",
+                        minSize = minControl,
+                        onClick = onSearch,
+                        modifier = Modifier.testTag("telegram-explorer-search")
+                    )
+                }
             }
 
             Box {
-                OutlinedButton(
-                    onClick = { menuExpanded = true },
-                    modifier = Modifier.heightIn(min = minControl)
-                        .testTag("telegram-explorer-more")
-                ) {
-                    Text("More", maxLines = 1)
+                if (inlineActions) {
+                    BousygramButton(
+                        text = "More",
+                        leadingIcon = BousygramIcons.MoreVertical,
+                        tooltip = "More actions",
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.heightIn(min = minControl)
+                            .testTag("telegram-explorer-more")
+                    )
+                } else {
+                    BousygramIconButton(
+                        icon = BousygramIcons.MoreVertical,
+                        contentDescription = "More",
+                        tooltip = "More actions",
+                        minSize = minControl,
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.testTag("telegram-explorer-more")
+                    )
                 }
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false }
                 ) {
                     if (hasResume) {
-                        DropdownMenuItem(text = { Text("Continue watching") }, onClick = {
-                            menuExpanded = false
-                            onResume()
-                        })
+                        DropdownMenuItem(
+                            leadingIcon = { BousygramIcon(BousygramIcons.Continue, null, size = 18.dp) },
+                            text = { Text("Continue watching") },
+                            onClick = {
+                                menuExpanded = false
+                                onResume()
+                            }
+                        )
                     }
-                    DropdownMenuItem(text = { Text("Search media") }, onClick = {
-                        menuExpanded = false
-                        onSearch()
-                    })
-                    DropdownMenuItem(text = { Text("Go to $navigationLabel") }, onClick = {
-                        menuExpanded = false
-                        onNavigate()
-                    })
-                    DropdownMenuItem(text = { Text("Favorites") }, onClick = {
-                        menuExpanded = false
-                        onFavorites()
-                    })
-                    DropdownMenuItem(text = { Text("Settings") }, onClick = {
-                        menuExpanded = false
-                        onSettings()
-                    })
                     DropdownMenuItem(
+                        leadingIcon = { BousygramIcon(BousygramIcons.Search, null, size = 18.dp) },
+                        text = { Text("Search media") },
+                        onClick = {
+                            menuExpanded = false
+                            onSearch()
+                        }
+                    )
+                    DropdownMenuItem(
+                        leadingIcon = {
+                            BousygramIcon(
+                                icon = if (navigationLabel.equals("Home", ignoreCase = true)) {
+                                    BousygramIcons.Home
+                                } else {
+                                    BousygramIcons.Library
+                                },
+                                contentDescription = null,
+                                size = 18.dp
+                            )
+                        },
+                        text = { Text("Go to $navigationLabel") },
+                        onClick = {
+                            menuExpanded = false
+                            onNavigate()
+                        }
+                    )
+                    DropdownMenuItem(
+                        leadingIcon = { BousygramIcon(BousygramIcons.Favorites, null, size = 18.dp) },
+                        text = { Text("Favorites") },
+                        onClick = {
+                            menuExpanded = false
+                            onFavorites()
+                        }
+                    )
+                    DropdownMenuItem(
+                        leadingIcon = { BousygramIcon(BousygramIcons.Settings, null, size = 18.dp) },
+                        text = { Text("Settings") },
+                        onClick = {
+                            menuExpanded = false
+                            onSettings()
+                        }
+                    )
+                    DropdownMenuItem(
+                        leadingIcon = { BousygramIcon(BousygramIcons.Refresh, null, size = 18.dp) },
                         text = {
                             Text(when {
                                 showSources -> "Refresh channels and groups"
@@ -227,23 +329,31 @@ internal fun TelegramExplorerCompactHeader(
             }
         }
 
-        // Favorites is a destination, not a Telegram source section. Keep its
-        // entry pinned rather than hiding it behind More or a scrolled-off tab:
-        // 320dp portrait, short landscape, tablets and Android TV all need an
-        // immediately visible way to open the saved collection.
+        // Favorites stays pinned alongside Telegram source tabs across 320dp
+        // portrait, landscape phones, tablets, and Android TV. Lucide icons +
+        // tooltips prevent text clipping without needing awkward abbreviations.
         Row(
             modifier = Modifier.fillMaxWidth().testTag("telegram-library-sections"),
             horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             BousygramSectionTab(
-                label = if (compactTabs) "Favs" else "Favorites",
+                label = "Favorites",
                 accessibilityLabel = "Favorites",
+                icon = BousygramIcons.Favorites,
+                iconOnly = ultraCompactTabs,
                 compact = compactTabs,
                 active = false,
                 isTv = isTv,
+                tooltip = "Favorites",
+                tooltipDetail = "Saved cloud collection",
+                tooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW,
                 onClick = onFavorites,
-                modifier = Modifier.widthIn(min = if (isTv) 128.dp else if (compactTabs) 56.dp else 104.dp)
+                modifier = Modifier
+                    .then(
+                        if (ultraCompactTabs) Modifier
+                        else Modifier.widthIn(min = if (isTv) 132.dp else if (compactTabs) 96.dp else 116.dp)
+                    )
                     .testTag("telegram-library-tab-favorites")
             )
             Row(
@@ -253,56 +363,74 @@ internal fun TelegramExplorerCompactHeader(
                 horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-            ExplorerSection.entries.forEach { entry ->
-                val label = when (entry) {
-                    ExplorerSection.SAVED -> if (effectiveWidth < 600.dp) "Saved" else "Saved messages"
-                    ExplorerSection.CHANNELS -> if (tinyTabs) "Chans" else "Channels"
-                    ExplorerSection.GROUPS -> "Groups"
-                }
-                val count = when (entry) {
-                    ExplorerSection.SAVED -> null
-                    ExplorerSection.CHANNELS -> channelCount
-                    ExplorerSection.GROUPS -> groupCount
-                }
-                val text = if (count != null && effectiveWidth >= 600.dp) "$label  $count" else label
-                BousygramSectionTab(
-                    label = text,
-                    active = entry == section,
-                    compact = compactTabs,
-                    accessibilityLabel = when (entry) {
+                ExplorerSection.entries.forEach { entry ->
+                    val isSelected = entry == section
+                    val tabIcon = when (entry) {
+                        ExplorerSection.SAVED -> BousygramIcons.Saved
+                        ExplorerSection.CHANNELS -> BousygramIcons.Channel
+                        ExplorerSection.GROUPS -> BousygramIcons.Group
+                    }
+                    val fullName = when (entry) {
                         ExplorerSection.SAVED -> "Saved messages"
                         ExplorerSection.CHANNELS -> "Channels"
                         ExplorerSection.GROUPS -> "Groups"
-                    },
-                    isTv = isTv,
-                    onClick = { if (entry != section) onSelectTab(entry) },
-                    modifier = Modifier.widthIn(min = if (isTv) 128.dp else if (compactTabs) 56.dp else 88.dp)
-                        .testTag("telegram-library-tab-" + entry.name.lowercase())
-                )
-            }
+                    }
+                    val displayLabel = when (entry) {
+                        ExplorerSection.SAVED -> "Saved"
+                        ExplorerSection.CHANNELS -> "Channels"
+                        ExplorerSection.GROUPS -> "Groups"
+                    }
+                    val count = when (entry) {
+                        ExplorerSection.SAVED -> null
+                        ExplorerSection.CHANNELS -> channelCount
+                        ExplorerSection.GROUPS -> groupCount
+                    }
+                    BousygramSectionTab(
+                        label = displayLabel,
+                        active = isSelected,
+                        compact = compactTabs,
+                        icon = tabIcon,
+                        badgeCount = if (showCounts) count else null,
+                        iconOnly = false,
+                        accessibilityLabel = fullName,
+                        tooltip = fullName,
+                        tooltipDetail = count?.let { "$it joined" } ?: "Personal library",
+                        tooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW,
+                        isTv = isTv,
+                        onClick = { if (entry != section) onSelectTab(entry) },
+                        modifier = Modifier
+                            .widthIn(min = if (isTv) 132.dp else if (compactTabs) 82.dp else 104.dp)
+                            .testTag("telegram-library-tab-" + entry.name.lowercase())
+                    )
+                }
             }
         }
 
-        // Group "browse all" is a real navigation action, not just a decoration.
-        // It remains visible in the only state where it is needed.
+        // Forum "browse all" stays visible only when exploring forum topics.
         if (showTopics) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
+                BousygramButton(
+                    text = "Browse group media",
+                    leadingIcon = BousygramIcons.Library,
+                    tooltip = "View all media across topics",
                     onClick = onBrowseAllMedia,
                     modifier = Modifier.weight(1f).heightIn(min = minControl)
                         .testTag("forum-browse-all-media")
-                ) { Text("Browse group media", maxLines = 1) }
+                )
                 if (hasTopicError) {
-                    OutlinedButton(
-                        onClick = onRefreshTopics,
+                    BousygramButton(
+                        text = if (isLoading) "Retrying…" else "Retry topics",
+                        leadingIcon = BousygramIcons.Refresh,
                         enabled = !isLoading,
+                        selected = true,
+                        onClick = onRefreshTopics,
                         modifier = Modifier.weight(1f).heightIn(min = minControl)
                             .testTag("forum-retry-topics")
-                    ) { Text(if (isLoading) "Retrying…" else "Retry topics", maxLines = 1) }
+                    )
                 }
             }
         }

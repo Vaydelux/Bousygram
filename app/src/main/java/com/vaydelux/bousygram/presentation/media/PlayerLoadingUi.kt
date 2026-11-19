@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -44,8 +42,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.rememberShimmerBrush
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import kotlinx.coroutines.delay
 
@@ -138,9 +139,15 @@ internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifi
             Box(
                 Modifier.fillMaxWidth()
                     .height(if (shortWindow) 76.dp else if (compact) 122.dp else 210.dp)
-                    .clip(RoundedCornerShape(if (compact) 16.dp else 24.dp))
-                    .background(shimmer)
-            )
+                    .clip(RoundedCornerShape(BousygramUiTokens.panelCorner))
+                    .background(shimmer),
+                contentAlignment = Alignment.Center
+            ) {
+                BousygramBrandMark(
+                    size = if (shortWindow) 34.dp else if (compact) 44.dp else 56.dp,
+                    showHalo = true
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -226,6 +233,7 @@ internal fun PlayerLoadingBanner(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center
         ) {
+            val halo = LocalBousygramHaloColors.current
             Surface(
                 modifier = Modifier
                     .widthIn(max = if (compact) 328.dp else 410.dp)
@@ -235,10 +243,10 @@ internal fun PlayerLoadingBanner(
                         liveRegion = LiveRegionMode.Polite
                         contentDescription = copy.title + ". " + copy.detail
                     },
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = MaterialTheme.colorScheme.onSurface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                border = BorderStroke(1.dp, halo.glassBorder),
                 shadowElevation = if (motion.lowRam) 0.dp else 6.dp
             ) {
                 Column {

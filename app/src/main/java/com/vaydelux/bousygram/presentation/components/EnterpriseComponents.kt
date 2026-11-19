@@ -3,12 +3,10 @@ package com.vaydelux.bousygram.presentation.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -16,7 +14,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,7 +64,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -78,9 +74,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.ColorPainter
@@ -93,7 +87,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -119,13 +112,14 @@ import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
 import com.vaydelux.bousygram.presentation.adaptive.shouldUseSideRail
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.MediaCardDensity
 import com.vaydelux.bousygram.presentation.theme.mediaCardDensity
+import com.vaydelux.bousygram.presentation.theme.tabular
 import com.vaydelux.bousygram.presentation.media.mediaDisplayLabels
 import java.io.File
-import kotlin.math.cos
-import kotlin.math.sin
 
 enum class ShellDestination(val label: String, val glyph: String) {
     Home("Home", "H"),
@@ -145,158 +139,57 @@ enum class ShellDestination(val label: String, val glyph: String) {
     }
 }
 
+internal fun shellDestinationIcon(destination: ShellDestination): BousygramIconRef = when (destination) {
+    ShellDestination.Home -> BousygramIcons.Home
+    ShellDestination.Continue -> BousygramIcons.Continue
+    ShellDestination.Favorites -> BousygramIcons.Favorites
+    ShellDestination.Offline -> BousygramIcons.Offline
+    ShellDestination.Library,
+    ShellDestination.Sources -> BousygramIcons.Library
+    ShellDestination.Search -> BousygramIcons.Search
+    ShellDestination.Me -> BousygramIcons.Profile
+    ShellDestination.Settings -> BousygramIcons.Settings
+    ShellDestination.About -> BousygramIcons.Info
+}
+
 @Composable
 fun ShellNavIcon(
     destination: ShellDestination,
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier = modifier.size(20.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(width = w * 0.105f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        when (destination) {
-            ShellDestination.Home -> {
-                val roof = Path().apply {
-                    moveTo(w * 0.14f, h * 0.48f)
-                    lineTo(w * 0.50f, h * 0.16f)
-                    lineTo(w * 0.86f, h * 0.48f)
-                }
-                drawPath(roof, color = tint, style = stroke)
-                val body = Path().apply {
-                    moveTo(w * 0.24f, h * 0.44f)
-                    lineTo(w * 0.24f, h * 0.84f)
-                    lineTo(w * 0.76f, h * 0.84f)
-                    lineTo(w * 0.76f, h * 0.44f)
-                }
-                drawPath(body, color = tint, style = stroke)
-            }
-            ShellDestination.Continue -> {
-                drawCircle(color = tint, radius = w * 0.38f, center = Offset(w * 0.5f, h * 0.5f), style = stroke)
-                val play = Path().apply {
-                    moveTo(w * 0.44f, h * 0.36f)
-                    lineTo(w * 0.64f, h * 0.50f)
-                    lineTo(w * 0.44f, h * 0.64f)
-                    close()
-                }
-                drawPath(play, color = tint)
-            }
-            ShellDestination.Favorites -> {
-                val heart = Path().apply {
-                    moveTo(w * 0.50f, h * 0.82f)
-                    cubicTo(w * 0.15f, h * 0.60f, w * 0.12f, h * 0.26f, w * 0.33f, h * 0.22f)
-                    cubicTo(w * 0.44f, h * 0.20f, w * 0.50f, h * 0.30f, w * 0.50f, h * 0.34f)
-                    cubicTo(w * 0.50f, h * 0.30f, w * 0.56f, h * 0.20f, w * 0.67f, h * 0.22f)
-                    cubicTo(w * 0.88f, h * 0.26f, w * 0.85f, h * 0.60f, w * 0.50f, h * 0.82f)
-                    close()
-                }
-                drawPath(heart, color = tint, style = stroke)
-            }
-            ShellDestination.Offline -> {
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.5f, h * 0.20f),
-                    end = Offset(w * 0.5f, h * 0.62f),
-                    strokeWidth = w * 0.10f,
-                    cap = StrokeCap.Round
-                )
-                val arrow = Path().apply {
-                    moveTo(w * 0.32f, h * 0.46f)
-                    lineTo(w * 0.50f, h * 0.64f)
-                    lineTo(w * 0.68f, h * 0.46f)
-                }
-                drawPath(arrow, color = tint, style = stroke)
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.24f, h * 0.80f),
-                    end = Offset(w * 0.76f, h * 0.80f),
-                    strokeWidth = w * 0.10f,
-                    cap = StrokeCap.Round
-                )
-            }
-            ShellDestination.Library,
-            ShellDestination.Sources -> {
-                val cell = w * 0.30f
-                val gap = w * 0.10f
-                val start = w * 0.15f
-                val radius = CornerRadius(w * 0.07f, w * 0.07f)
-                for (r in 0..1) {
-                    for (c in 0..1) {
-                        drawRoundRect(
-                            color = tint,
-                            topLeft = Offset(start + c * (cell + gap), start + r * (cell + gap)),
-                            size = Size(cell, cell),
-                            cornerRadius = radius,
-                            style = stroke
-                        )
-                    }
-                }
-            }
-            ShellDestination.Search -> {
-                drawCircle(
-                    color = tint,
-                    radius = w * 0.28f,
-                    center = Offset(w * 0.42f, h * 0.42f),
-                    style = stroke
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.63f, h * 0.63f),
-                    end = Offset(w * 0.86f, h * 0.86f),
-                    strokeWidth = w * 0.11f,
-                    cap = StrokeCap.Round
-                )
-            }
-            ShellDestination.Me,
-            ShellDestination.Settings -> {
-                val center = Offset(w * 0.50f, h * 0.36f)
-                drawCircle(color = tint, radius = w * 0.18f, center = center, style = stroke)
-                val body = Path().apply {
-                    moveTo(w * 0.22f, h * 0.82f)
-                    cubicTo(w * 0.25f, h * 0.60f, w * 0.75f, h * 0.60f, w * 0.78f, h * 0.82f)
-                }
-                drawPath(body, color = tint, style = stroke)
-            }
-            ShellDestination.About -> {
-                val center = Offset(w * 0.50f, h * 0.50f)
-                drawCircle(color = tint, radius = w * 0.38f, center = center, style = stroke)
-                drawCircle(color = tint, radius = w * 0.05f, center = Offset(w * 0.50f, h * 0.32f))
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.50f, h * 0.44f),
-                    end = Offset(w * 0.50f, h * 0.68f),
-                    strokeWidth = w * 0.10f,
-                    cap = StrokeCap.Round
-                )
-            }
-        }
-    }
+    BousygramIcon(
+        icon = shellDestinationIcon(destination),
+        contentDescription = null,
+        tint = tint,
+        size = 20.dp,
+        modifier = modifier
+    )
 }
 
 @Composable
 fun CenteredPlayBadge(
     modifier: Modifier = Modifier
 ) {
-    val playBg = MaterialTheme.colorScheme.onPrimary
-    val playIcon = MaterialTheme.colorScheme.primary
+    val halo = LocalBousygramHaloColors.current
+    val playBg = MaterialTheme.colorScheme.primary
+    val playIcon = MaterialTheme.colorScheme.onPrimary
     Box(
         modifier = modifier
-            .size(34.dp)
+            .size(40.dp)
             .clip(CircleShape)
-            .background(playBg),
+            .background(
+                Brush.linearGradient(listOf(halo.haloStart, playBg))
+            )
+            .border(1.5.dp, playIcon.copy(alpha = 0.70f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.size(13.dp)) {
-            val w = size.width
-            val h = size.height
-            val path = Path().apply {
-                moveTo(w * 0.28f, h * 0.18f)
-                lineTo(w * 0.82f, h * 0.50f)
-                lineTo(w * 0.28f, h * 0.82f)
-                close()
-            }
-            drawPath(path, color = playIcon)
-        }
+        BousygramIcon(
+            icon = BousygramIcons.Play,
+            contentDescription = null,
+            tint = playIcon,
+            size = 18.dp
+        )
     }
 }
 
@@ -305,31 +198,13 @@ fun ImagePlaceholderIcon(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier = modifier.size(26.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(width = w * 0.085f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.12f, h * 0.16f),
-            size = Size(w * 0.76f, h * 0.68f),
-            cornerRadius = CornerRadius(w * 0.12f, w * 0.12f),
-            style = stroke
-        )
-        drawCircle(
-            color = tint,
-            radius = w * 0.08f,
-            center = Offset(w * 0.65f, h * 0.38f)
-        )
-        val path = Path().apply {
-            moveTo(w * 0.22f, h * 0.72f)
-            lineTo(w * 0.42f, h * 0.48f)
-            lineTo(w * 0.56f, h * 0.62f)
-            lineTo(w * 0.68f, h * 0.52f)
-            lineTo(w * 0.78f, h * 0.64f)
-        }
-        drawPath(path, color = tint, style = stroke)
-    }
+    BousygramIcon(
+        icon = BousygramIcons.Film,
+        contentDescription = null,
+        tint = tint,
+        size = 26.dp,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -337,53 +212,13 @@ fun CastIcon(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier = modifier.size(24.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-        // Screen outline: top, right, partial bottom, partial left
-        val screenPath = Path().apply {
-            moveTo(w * 0.12f, h * 0.46f)
-            lineTo(w * 0.12f, h * 0.24f)
-            quadraticTo(w * 0.12f, h * 0.18f, w * 0.18f, h * 0.18f)
-            lineTo(w * 0.82f, h * 0.18f)
-            quadraticTo(w * 0.88f, h * 0.18f, w * 0.88f, h * 0.24f)
-            lineTo(w * 0.88f, h * 0.74f)
-            quadraticTo(w * 0.88f, h * 0.80f, w * 0.82f, h * 0.80f)
-            lineTo(w * 0.58f, h * 0.80f)
-        }
-        drawPath(screenPath, color = tint, style = stroke)
-
-        // Cast waves from bottom-left corner
-        drawCircle(
-            color = tint,
-            radius = w * 0.05f,
-            center = Offset(w * 0.14f, h * 0.80f)
-        )
-
-        val r1 = w * 0.20f
-        drawArc(
-            color = tint,
-            startAngle = 270f,
-            sweepAngle = 90f,
-            useCenter = false,
-            topLeft = Offset(w * 0.14f - r1, h * 0.80f - r1),
-            size = Size(r1 * 2f, r1 * 2f),
-            style = stroke
-        )
-
-        val r2 = w * 0.35f
-        drawArc(
-            color = tint,
-            startAngle = 270f,
-            sweepAngle = 90f,
-            useCenter = false,
-            topLeft = Offset(w * 0.14f - r2, h * 0.80f - r2),
-            size = Size(r2 * 2f, r2 * 2f),
-            style = stroke
-        )
-    }
+    BousygramIcon(
+        icon = BousygramIcons.Cast,
+        contentDescription = null,
+        tint = tint,
+        size = 22.dp,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -492,61 +327,87 @@ fun TabletNavRail(
     compact: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
-    NavigationRail(
-        modifier = modifier.fillMaxHeight().verticalScroll(rememberScrollState()),
-        containerColor = colors.surface,
-        contentColor = colors.onSurface,
-        header = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(
-                    top = if (compact) 2.dp else 16.dp,
-                    bottom = if (compact) 0.dp else 12.dp
-                )
-            ) {
-                BousygramBrandMark(size = if (compact) 28.dp else 40.dp)
+    val halo = LocalBousygramHaloColors.current
+    Row(modifier = modifier.fillMaxHeight()) {
+        NavigationRail(
+            modifier = Modifier.fillMaxHeight().verticalScroll(rememberScrollState()),
+            containerColor = colors.surfaceContainerLow,
+            contentColor = colors.onSurface,
+            header = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(
+                        top = if (compact) 4.dp else 14.dp,
+                        bottom = if (compact) 2.dp else 10.dp
+                    )
+                ) {
+                    BousygramBrandMark(size = if (compact) 28.dp else 38.dp, showHalo = !compact)
+                }
+            }
+        ) {
+            Spacer(Modifier.height(if (compact) 2.dp else 8.dp))
+            ShellDestination.navItems.forEach { destination ->
+                val isSelected = when (destination) {
+                    ShellDestination.Home -> selected == ShellDestination.Home
+                    ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
+                    ShellDestination.Search -> selected == ShellDestination.Search
+                    ShellDestination.Me -> selected == ShellDestination.Me || selected == ShellDestination.Settings
+                    else -> destination == selected
+                }
+                var itemFocused by remember { mutableStateOf(false) }
+                val tooltipState = rememberBousygramTooltipState()
+                BousygramTooltipBox(
+                    tooltip = if (destination == ShellDestination.Me) "Settings & Profile" else destination.label,
+                    icon = shellDestinationIcon(destination),
+                    focused = itemFocused,
+                    placement = BousygramTooltipPlacement.AUTO_END,
+                    state = tooltipState
+                ) {
+                    NavigationRailItem(
+                        modifier = Modifier
+                            .then(if (isSelected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                            .onFocusChanged { itemFocused = it.isFocused },
+                        selected = isSelected,
+                        onClick = {
+                            tooltipState.flashSelection()
+                            if (destination == ShellDestination.Search) onOpenSearch() else onSelect(destination)
+                        },
+                        icon = {
+                            ShellNavIcon(
+                                destination = destination,
+                                tint = if (isSelected || itemFocused) colors.primary else colors.onSurfaceVariant,
+                                modifier = Modifier.size(if (compact) 20.dp else 22.dp)
+                            )
+                        },
+                        label = if (compact) null else {
+                            {
+                                Text(
+                                    destination.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        },
+                        colors = NavigationRailItemDefaults.colors(
+                            selectedIconColor = colors.primary,
+                            selectedTextColor = colors.primary,
+                            indicatorColor = colors.primaryContainer,
+                            unselectedIconColor = colors.onSurfaceVariant,
+                            unselectedTextColor = colors.onSurfaceVariant
+                        )
+                    )
+                }
             }
         }
-    ) {
-        Spacer(Modifier.height(if (compact) 2.dp else 12.dp))
-        ShellDestination.navItems.forEach { destination ->
-            val isSelected = when (destination) {
-                ShellDestination.Home -> selected == ShellDestination.Home
-                ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
-                ShellDestination.Search -> selected == ShellDestination.Search
-                ShellDestination.Me -> selected == ShellDestination.Me || selected == ShellDestination.Settings
-                else -> destination == selected
-            }
-            NavigationRailItem(
-                modifier = if (isSelected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
-                selected = isSelected,
-                onClick = {
-                    if (destination == ShellDestination.Search) onOpenSearch() else onSelect(destination)
-                },
-                icon = {
-                    ShellNavIcon(
-                        destination = destination,
-                        tint = if (isSelected) colors.primary else colors.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp)
-                    )
-                },
-                label = {
-                    Text(
-                        destination.label,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                    )
-                },
-                colors = NavigationRailItemDefaults.colors(
-                    selectedIconColor = colors.primary,
-                    selectedTextColor = colors.primary,
-                    indicatorColor = colors.primary.copy(alpha = 0.20f),
-                    unselectedIconColor = colors.onSurfaceVariant,
-                    unselectedTextColor = colors.onSurfaceVariant
-                )
-            )
-        }
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(1.dp)
+                .background(halo.glassBorder)
+        )
     }
 }
 
@@ -560,130 +421,152 @@ fun TvTopNavBar(
     focusRequester: FocusRequester? = null
 ) {
     val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(colors.surfaceContainerLow)
-            .padding(horizontal = 28.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        // Left: Logo Badge + "Bousygram" title + [Home, Library, Search]
+    val halo = LocalBousygramHaloColors.current
+    val spec = LocalBousygramDisplaySpec.current
+    Column(modifier = modifier.fillMaxWidth().background(colors.surfaceContainerLow)) {
         Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = spec.horizontalPadding, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(24.dp)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            // Left: Brand Halo Badge + "Bousygram" wordmark + Frosted Cinema Nav Dock
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                BousygramBrandMark(size = 40.dp)
-                Text(
-                    text = "Bousygram",
-                    color = colors.onSurface,
-                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-                    fontWeight = FontWeight.Bold
-                )
-            }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    BousygramBrandMark(size = 38.dp, showHalo = true)
+                    Text(
+                        text = "Bousygram",
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
-            // Top Nav items
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                listOf(ShellDestination.Home, ShellDestination.Library, ShellDestination.Search).forEach { dest ->
-                    val isSelected = when (dest) {
-                        ShellDestination.Home -> selected == ShellDestination.Home
-                        ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
-                        ShellDestination.Search -> selected == ShellDestination.Search
-                        else -> false
-                    }
-                    var focused by remember { mutableStateOf(false) }
-                    val interaction = remember { MutableInteractionSource() }
-                    Box(
-                        modifier = Modifier
-                            .then(if (isSelected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                when {
-                                    focused -> colors.primary.copy(alpha = 0.22f)
-                                    isSelected -> colors.primaryContainer
-                                    else -> Color.Transparent
-                                }
-                            )
-                            .border(
-                                width = if (focused) 3.dp else 0.dp,
-                                color = if (focused) colors.primary else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .semantics {
-                                contentDescription = dest.label
-                                this.selected = isSelected
-                            }
-                            .onFocusChanged { focused = it.isFocused }
-                            .clickable(
-                                interactionSource = interaction,
-                                indication = ripple(color = colors.primary),
-                                role = Role.Button,
-                                onClick = {
-                                    if (dest == ShellDestination.Search) onOpenSearch() else onSelect(dest)
-                                }
-                            )
-                            .heightIn(min = 48.dp)
-                            .padding(horizontal = 18.dp, vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = dest.label,
-                            color = when {
-                                isSelected -> colors.primary
-                                focused -> colors.onSurface
-                                else -> colors.onSurfaceVariant
+                // Cinema Halo Top Nav Pill Dock
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(BousygramUiTokens.cardCorner))
+                        .background(colors.surfaceContainer)
+                        .border(1.dp, halo.glassBorder, RoundedCornerShape(BousygramUiTokens.cardCorner))
+                        .padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(ShellDestination.Home, ShellDestination.Library, ShellDestination.Search).forEach { dest ->
+                        val isSelected = when (dest) {
+                            ShellDestination.Home -> selected == ShellDestination.Home
+                            ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
+                            ShellDestination.Search -> selected == ShellDestination.Search
+                            else -> false
+                        }
+                        var focused by remember { mutableStateOf(false) }
+                        val interaction = remember { MutableInteractionSource() }
+                        val destIcon = shellDestinationIcon(dest)
+                        val tabShape = RoundedCornerShape(BousygramUiTokens.tabCorner)
+                        BousygramTooltipBox(
+                            tooltip = when (dest) {
+                                ShellDestination.Home -> "Home"
+                                ShellDestination.Library -> "Library"
+                                ShellDestination.Search -> "Search media"
+                                else -> dest.label
                             },
-                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp),
-                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium
-                        )
+                            detail = if (isSelected) "Active" else null,
+                            icon = destIcon,
+                            focused = focused,
+                            placement = BousygramTooltipPlacement.AUTO_BELOW
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .then(if (isSelected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                                    .clip(tabShape)
+                                    .background(
+                                        when {
+                                            focused -> colors.primary.copy(alpha = 0.22f)
+                                            isSelected -> colors.primaryContainer
+                                            else -> Color.Transparent
+                                        }
+                                    )
+                                    .border(
+                                        width = if (focused) BousygramUiTokens.tvFocusOutline else if (isSelected) 1.dp else 0.dp,
+                                        color = when {
+                                            focused -> colors.primary
+                                            isSelected -> halo.haloStart.copy(alpha = 0.55f)
+                                            else -> Color.Transparent
+                                        },
+                                        shape = tabShape
+                                    )
+                                    .semantics {
+                                        contentDescription = dest.label
+                                        this.selected = isSelected
+                                    }
+                                    .onFocusChanged { focused = it.isFocused }
+                                    .clickable(
+                                        interactionSource = interaction,
+                                        indication = ripple(color = colors.primary),
+                                        role = Role.Button,
+                                        onClick = {
+                                            if (dest == ShellDestination.Search) onOpenSearch() else onSelect(dest)
+                                        }
+                                    )
+                                    .heightIn(min = 48.dp)
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                BousygramIcon(
+                                    icon = destIcon,
+                                    contentDescription = null,
+                                    tint = when {
+                                        isSelected -> colors.onPrimaryContainer
+                                        focused -> colors.primary
+                                        else -> colors.onSurfaceVariant
+                                    },
+                                    size = spec.iconSizeAction
+                                )
+                                Text(
+                                    text = dest.label,
+                                    color = when {
+                                        isSelected -> colors.onPrimaryContainer
+                                        focused -> colors.onSurface
+                                        else -> colors.onSurfaceVariant
+                                    },
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
 
-        // Right: Profile action button
-        var profileFocused by remember { mutableStateOf(false) }
-        val profileInteraction = remember { MutableInteractionSource() }
-        val isProfileSelected = selected == ShellDestination.Me || selected == ShellDestination.Settings
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(
-                    when {
-                        profileFocused -> colors.primary.copy(alpha = 0.22f)
-                        isProfileSelected -> colors.onSurface.copy(alpha = 0.08f)
-                        else -> colors.surfaceContainerHigh
-                    }
-                )
-                .border(
-                    width = if (profileFocused) 3.dp else 1.dp,
-                    color = if (profileFocused) colors.primary else colors.outlineVariant,
-                    shape = CircleShape
-                )
-                .semantics { contentDescription = "Profile and settings" }
-                .onFocusChanged { profileFocused = it.isFocused }
-                .clickable(
-                    interactionSource = profileInteraction,
-                    indication = ripple(color = colors.primary),
-                    role = Role.Button,
-                    onClick = onOpenProfile
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            ShellNavIcon(
-                destination = ShellDestination.Me,
-                tint = if (profileFocused || isProfileSelected) colors.primary else colors.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
+            // Right: Profile & Settings action button with tooltip
+            val isProfileSelected = selected == ShellDestination.Me || selected == ShellDestination.Settings
+            BousygramIconButton(
+                icon = BousygramIcons.Settings,
+                contentDescription = "Profile and settings",
+                tooltip = "Settings & Profile",
+                selected = isProfileSelected,
+                circular = true,
+                minSize = 48.dp,
+                iconSize = spec.iconSizeAction,
+                tooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW,
+                onClick = onOpenProfile
             )
         }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(halo.glassBorder)
+        )
     }
 }
 
@@ -695,10 +578,11 @@ fun PhoneTopBar(
     onOpenCast: (() -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
+    val spec = LocalBousygramDisplaySpec.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = spec.horizontalPadding, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -706,17 +590,17 @@ fun PhoneTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            BousygramBrandMark(size = 36.dp)
+            BousygramBrandMark(size = 34.dp, showHalo = true)
             Text(
                 text = "Bousygram",
                 color = colors.onSurface,
-                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (onOpenCast != null) {
                 TopBarIconButton(onClick = onOpenCast, contentDescription = "Cast Receiver Info") { tint ->
@@ -726,8 +610,8 @@ fun PhoneTopBar(
             TopBarIconButton(onClick = onOpenSearch, contentDescription = "Search") { tint ->
                 ShellNavIcon(destination = ShellDestination.Search, tint = tint)
             }
-            TopBarIconButton(onClick = onOpenProfile, contentDescription = "Profile") { tint ->
-                ShellNavIcon(destination = ShellDestination.Me, tint = tint)
+            TopBarIconButton(onClick = onOpenProfile, contentDescription = "Settings & Profile") { tint ->
+                BousygramIcon(icon = BousygramIcons.Settings, contentDescription = null, tint = tint, size = 20.dp)
             }
         }
     }
@@ -742,18 +626,21 @@ fun TopBarIconButton(
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
+    val isTv = rememberAdaptiveMetrics().isTv
     val interaction = remember { MutableInteractionSource() }
+    val tooltipState = rememberBousygramTooltipState()
     val tint = if (focused) colors.primary else colors.onSurfaceVariant
+    val shape = RoundedCornerShape(BousygramUiTokens.tabCorner)
     Box(
         modifier = modifier
             // Match the minimum 48dp touch/focus target across phone and TV.
             .size(48.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (focused) colors.surfaceVariant else Color.Transparent)
+            .clip(shape)
+            .background(if (focused) colors.surfaceContainerHighest else colors.surfaceContainerLow.copy(alpha = 0.65f))
             .border(
-                width = if (focused) 3.dp else 0.dp,
-                color = if (focused) colors.primary else Color.Transparent,
-                shape = RoundedCornerShape(8.dp)
+                width = if (focused) BousygramUiTokens.tvFocusOutline else 1.dp,
+                color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.50f),
+                shape = shape
             )
             .semantics { this.contentDescription = contentDescription }
             .onFocusChanged { focused = it.isFocused }
@@ -761,11 +648,22 @@ fun TopBarIconButton(
                 interactionSource = interaction,
                 indication = ripple(color = colors.primary),
                 role = Role.Button,
-                onClick = onClick
+                onClick = {
+                    if (!isTv) tooltipState.flashSelection()
+                    onClick()
+                }
             ),
         contentAlignment = Alignment.Center
     ) {
-        icon(tint)
+        BousygramTooltipBox(
+            tooltip = contentDescription,
+            focused = focused,
+            placement = BousygramTooltipPlacement.AUTO_BELOW,
+            dwellMs = 0L,
+            state = tooltipState
+        ) {
+            icon(tint)
+        }
     }
 }
 
@@ -776,16 +674,18 @@ private fun GlassBottomBar(
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
+    val shape = RoundedCornerShape(topStart = BousygramUiTokens.panelCorner, topEnd = BousygramUiTokens.panelCorner)
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .border(
-                width = 0.5.dp,
-                color = colors.outlineVariant.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                width = 1.dp,
+                color = halo.glassBorder,
+                shape = shape
             )
-            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
-        color = colors.surface,
+            .clip(shape),
+        color = colors.surfaceContainer,
         tonalElevation = 4.dp
     ) {
         NavigationBar(
@@ -800,15 +700,29 @@ private fun GlassBottomBar(
                     ShellDestination.Me -> selected == ShellDestination.Me || selected == ShellDestination.Settings
                     else -> destination == selected
                 }
+                val tooltipState = rememberBousygramTooltipState()
+                var focused by remember { mutableStateOf(false) }
                 NavigationBarItem(
+                    modifier = Modifier.onFocusChanged { focused = it.isFocused },
                     selected = isSelected,
-                    onClick = { onSelect(destination) },
+                    onClick = {
+                        tooltipState.flashSelection()
+                        onSelect(destination)
+                    },
                     icon = {
-                        ShellNavIcon(
-                            destination = destination,
-                            tint = if (isSelected) colors.primary else colors.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        BousygramTooltipBox(
+                            tooltip = if (destination == ShellDestination.Me) "Settings & Profile" else destination.label,
+                            icon = shellDestinationIcon(destination),
+                            focused = focused,
+                            placement = BousygramTooltipPlacement.AUTO_ABOVE,
+                            state = tooltipState
+                        ) {
+                            ShellNavIcon(
+                                destination = destination,
+                                tint = if (isSelected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     },
                     label = {
                         Text(
@@ -816,13 +730,13 @@ private fun GlassBottomBar(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                     },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = colors.primary,
+                        selectedIconColor = colors.onPrimaryContainer,
                         selectedTextColor = colors.primary,
-                        indicatorColor = colors.primary.copy(alpha = 0.18f),
+                        indicatorColor = colors.primaryContainer,
                         unselectedIconColor = colors.onSurfaceVariant,
                         unselectedTextColor = colors.onSurfaceVariant
                     )
@@ -917,9 +831,14 @@ fun BousygramButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    leadingIcon: BousygramIconRef? = null,
+    tooltip: String? = null,
+    tooltipPlacement: BousygramTooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW
 ) {
     val isTv = rememberAdaptiveMetrics().isTv
+    val colors = MaterialTheme.colorScheme
+    val contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface
     TvFocusSurface(
         onClick = onClick,
         selected = selected,
@@ -929,20 +848,43 @@ fun BousygramButton(
                 else BousygramUiTokens.touchTarget
         )
     ) { focused ->
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+        BousygramTooltipBox(
+            tooltip = tooltip,
+            icon = leadingIcon,
+            focused = focused,
+            placement = tooltipPlacement
         ) {
-            Text(
-                text = text,
-                // The selected fill is translucent, so secondary-colored text
-                // can lose contrast in Light mode. Keep the text semantic.
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = if (text.isNotEmpty()) {
+                    Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                } else {
+                    Arrangement.Center
+                },
+                modifier = Modifier.padding(
+                    horizontal = if (text.isNotEmpty()) 16.dp else 12.dp,
+                    vertical = 10.dp
+                )
+            ) {
+                if (leadingIcon != null) {
+                    BousygramIcon(
+                        icon = leadingIcon,
+                        contentDescription = null,
+                        tint = if (focused && !selected) colors.primary else contentColor,
+                        size = if (isTv) 19.dp else 17.dp
+                    )
+                }
+                if (text.isNotEmpty()) {
+                    Text(
+                        text = text,
+                        color = contentColor,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
@@ -952,9 +894,16 @@ fun BousygramChip(
     text: String,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    leadingIcon: BousygramIconRef? = null
 ) {
-    BousygramButton(text = text, selected = selected, onClick = onClick, modifier = modifier)
+    BousygramButton(
+        text = text,
+        selected = selected,
+        onClick = onClick,
+        leadingIcon = leadingIcon,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -966,6 +915,7 @@ fun BousygramTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    leadingIcon: (@Composable () -> Unit)? = null,
     trailingIcon: (@Composable () -> Unit)? = null
 ) {
     OutlinedTextField(
@@ -976,20 +926,21 @@ fun BousygramTextField(
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
         visualTransformation = visualTransformation,
+        leadingIcon = leadingIcon,
         trailingIcon = trailingIcon,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 60.dp),
-        shape = RoundedCornerShape(8.dp),
+            .heightIn(min = 58.dp),
+        shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = MaterialTheme.colorScheme.onSurface,
             unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.85f),
             cursorColor = MaterialTheme.colorScheme.primary,
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-            focusedLabelColor = MaterialTheme.colorScheme.secondary,
+            focusedLabelColor = MaterialTheme.colorScheme.primary,
             unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     )
@@ -1195,27 +1146,14 @@ fun MediaPosterCard(
                     PosterFallback(privacyMode = privacyMode)
                 }
                 if (focused) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.88f))
-                            .border(1.5.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "▶",
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    CenteredPlayBadge()
                 }
                 if (isWatched) {
                     GlassPill(
-                        text = "✓ Watched",
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                        accent = true
+                        text = "Watched",
+                        icon = BousygramIcons.Check,
+                        gold = true,
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
                     )
                 } else {
                     val displayBadge = badge ?: when (media.type) {
@@ -1224,16 +1162,20 @@ fun MediaPosterCard(
                         else -> if (VideoFormatSupport.isTransportStream(media.fileName, media.mimeType)) "TS" else null
                     }
                     displayBadge?.let {
+                        val isFavoriteBadge = it.equals("FAVORITE", ignoreCase = true)
                         GlassPill(
                             text = it,
-                            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                            accent = true
+                            icon = if (isFavoriteBadge) BousygramIcons.Favorites else null,
+                            accent = !isFavoriteBadge,
+                            gold = isFavoriteBadge,
+                            modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
                         )
                     }
                 }
                 if (!isWatched && resumeFraction != null && resumeFraction in 0.05f..0.95f) {
                     GlassPill(
                         text = "Resume ${(resumeFraction * 100).toInt()}%",
+                        icon = BousygramIcons.Play,
                         modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)
                     )
                 }
@@ -1250,8 +1192,8 @@ fun MediaPosterCard(
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
                             .height(3.5.dp),
-                        color = MaterialTheme.colorScheme.secondary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        color = LocalBousygramHaloColors.current.haloStart,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
                     )
                 }
             }
@@ -1283,7 +1225,7 @@ fun MediaPosterCard(
                     ) {
                         Text(
                             text = if (privacyMode) "Details hidden" else labels.subtitle,
-                            color = if (focused) MaterialTheme.colorScheme.secondary
+                            color = if (focused) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
@@ -1295,7 +1237,7 @@ fun MediaPosterCard(
                             Text(
                                 text = labels.fileSizeLabel,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall.tabular(),
                                 maxLines = 1
                             )
                         }
@@ -1417,27 +1359,47 @@ fun SeriesPosterCard(
 internal fun GlassPill(
     text: String,
     modifier: Modifier = Modifier,
-    accent: Boolean = false
+    accent: Boolean = false,
+    gold: Boolean = false,
+    icon: BousygramIconRef? = null
 ) {
-    Box(
+    val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
+    val pillBg = when {
+        gold -> halo.goldContainer.copy(alpha = 0.94f)
+        accent -> colors.primary.copy(alpha = 0.90f)
+        else -> colors.background.copy(alpha = 0.84f)
+    }
+    val pillBorder = when {
+        gold -> halo.goldAccent.copy(alpha = 0.72f)
+        accent -> halo.haloStart.copy(alpha = 0.70f)
+        else -> colors.outlineVariant.copy(alpha = 0.75f)
+    }
+    val pillFg = when {
+        gold -> halo.onGoldContainer
+        accent -> colors.onPrimary
+        else -> colors.onBackground
+    }
+    Row(
         modifier = modifier
-            .background(
-                if (accent) MaterialTheme.colorScheme.primary.copy(alpha = 0.84f)
-                else MaterialTheme.colorScheme.background.copy(alpha = 0.82f),
-                RoundedCornerShape(999.dp)
-            )
-            .border(
-                1.dp,
-                if (accent) MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f)
-                else MaterialTheme.colorScheme.outlineVariant,
-                RoundedCornerShape(999.dp)
-            )
-            .padding(horizontal = 9.dp, vertical = 3.dp)
+            .background(pillBg, RoundedCornerShape(BousygramUiTokens.pillCorner))
+            .border(1.dp, pillBorder, RoundedCornerShape(BousygramUiTokens.pillCorner))
+            .padding(horizontal = 9.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        if (icon != null) {
+            BousygramIcon(
+                icon = icon,
+                contentDescription = null,
+                tint = pillFg,
+                size = 11.dp
+            )
+        }
         Text(
-            text,
-            color = if (accent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground,
-            style = MaterialTheme.typography.labelSmall,
+            text = text,
+            color = pillFg,
+            style = MaterialTheme.typography.labelSmall.tabular(),
             fontWeight = FontWeight.SemiBold,
             maxLines = 1
         )
@@ -1447,15 +1409,16 @@ internal fun GlassPill(
 @Composable
 private fun PosterFallback(privacyMode: Boolean = false) {
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.linearGradient(
                     listOf(
-                        colors.surfaceVariant,
-                        colors.primary.copy(alpha = 0.18f),
-                        colors.surface
+                        colors.surfaceContainerHigh,
+                        halo.haloStart.copy(alpha = if (halo.isHighContrast) 0f else 0.14f),
+                        colors.surfaceContainerLow
                     )
                 )
             ),
@@ -1467,16 +1430,17 @@ private fun PosterFallback(privacyMode: Boolean = false) {
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(colors.surface.copy(alpha = 0.68f))
-                    .border(1.dp, colors.outlineVariant, CircleShape),
+                    .background(colors.surfaceContainer.copy(alpha = 0.85f))
+                    .border(1.dp, halo.glassBorder, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (privacyMode) "●" else "▶",
-                    color = colors.secondary,
-                    style = MaterialTheme.typography.titleSmall
+                BousygramIcon(
+                    icon = if (privacyMode) BousygramIcons.PrivacyHidden else BousygramIcons.Film,
+                    contentDescription = null,
+                    tint = colors.primary,
+                    size = 18.dp
                 )
             }
             Text(
@@ -1821,7 +1785,7 @@ fun rememberShimmerBrush(): Brush {
 @Composable
 fun ShimmerCard(
     modifier: Modifier = Modifier,
-    rounded: Dp = 8.dp
+    rounded: Dp = BousygramUiTokens.cardCorner
 ) {
     val shimmerBrush = rememberShimmerBrush()
     Box(
@@ -1843,7 +1807,7 @@ fun MediaPosterSkeletonCard(
 ) {
     val shimmerBrush = rememberShimmerBrush()
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(8.dp)
+    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     Surface(
         modifier = modifier
             .then(if (cardWidth != null) Modifier.width(cardWidth) else Modifier)
@@ -1985,31 +1949,13 @@ fun RecentHistoryIcon(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier = modifier.size(16.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        drawCircle(
-            color = tint,
-            radius = w * 0.38f,
-            center = Offset(w * 0.50f, h * 0.50f),
-            style = stroke
-        )
-        drawLine(
-            color = tint,
-            start = Offset(w * 0.50f, h * 0.50f),
-            end = Offset(w * 0.50f, h * 0.28f),
-            strokeWidth = w * 0.12f,
-            cap = StrokeCap.Round
-        )
-        drawLine(
-            color = tint,
-            start = Offset(w * 0.50f, h * 0.50f),
-            end = Offset(w * 0.66f, h * 0.58f),
-            strokeWidth = w * 0.12f,
-            cap = StrokeCap.Round
-        )
-    }
+    BousygramIcon(
+        icon = BousygramIcons.History,
+        contentDescription = null,
+        tint = tint,
+        size = 16.dp,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -2086,14 +2032,14 @@ fun RecentSearchesSection(
                 ) { focused ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                     ) {
-                        Text(
-                            text = "✕",
-                            color = if (focused) colors.error else colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
+                        BousygramIcon(
+                            icon = BousygramIcons.Trash,
+                            contentDescription = null,
+                            tint = if (focused) colors.error else colors.onSurfaceVariant,
+                            size = 14.dp
                         )
                         Text(
                             text = "Clear History",
@@ -2121,11 +2067,18 @@ fun RecentSearchesSection(
                     ) { focused ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                         ) {
+                            BousygramIcon(
+                                icon = BousygramIcons.Close,
+                                contentDescription = null,
+                                tint = colors.onPrimaryContainer,
+                                size = 14.dp
+                            )
                             Text(
-                                text = "✕ Clear \"$activeQuery\"",
-                                color = if (focused) colors.onSurface else colors.primary,
+                                text = "Clear \"$activeQuery\"",
+                                color = colors.onPrimaryContainer,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -2141,13 +2094,20 @@ fun RecentSearchesSection(
                         ) { focused ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                             ) {
                                 Text(
-                                    text = "Search all Telegram for \"$activeQuery\" →",
+                                    text = "Search all Telegram for \"$activeQuery\"",
                                     color = if (focused) colors.primary else colors.secondary,
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold
+                                )
+                                BousygramIcon(
+                                    icon = BousygramIcons.Forward,
+                                    contentDescription = null,
+                                    tint = if (focused) colors.primary else colors.secondary,
+                                    size = 14.dp
                                 )
                             }
                         }
@@ -2166,15 +2126,15 @@ fun RecentSearchesSection(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                     ) {
-                        Text(
-                            text = if (isSelected) "↻" else "⌕",
-                            color = if (isSelected) colors.primary else if (focused) colors.onSurface else colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
+                        BousygramIcon(
+                            icon = if (isSelected) BousygramIcons.Refresh else BousygramIcons.Search,
+                            contentDescription = null,
+                            tint = if (isSelected) colors.onPrimaryContainer else if (focused) colors.primary else colors.onSurfaceVariant,
+                            size = 14.dp
                         )
                         Text(
                             text = entry.query,
-                            color = if (isSelected) colors.primary else colors.onSurface,
+                            color = if (isSelected) colors.onPrimaryContainer else colors.onSurface,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
                             maxLines = 1,
@@ -2182,15 +2142,15 @@ fun RecentSearchesSection(
                         )
                         if (entry.resultCount > 0) {
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
+                                shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
                                 color = if (isSelected) colors.primary.copy(alpha = 0.24f) else colors.surfaceVariant
                             ) {
                                 Text(
                                     text = "${entry.resultCount}",
-                                    color = if (isSelected) colors.primary else colors.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (isSelected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall.tabular(),
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -2205,11 +2165,11 @@ fun RecentSearchesSection(
                                     ) { onRemoveQuery(entry.query) },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "×",
-                                    color = colors.onSurfaceVariant,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
+                                BousygramIcon(
+                                    icon = BousygramIcons.Close,
+                                    contentDescription = null,
+                                    tint = colors.onSurfaceVariant,
+                                    size = 15.dp
                                 )
                             }
                         }
@@ -2289,14 +2249,16 @@ fun EnterprisePanel(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val halo = LocalBousygramHaloColors.current
+    val shape = RoundedCornerShape(BousygramUiTokens.panelCorner)
     Surface(
         modifier = modifier.border(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant,
-            RoundedCornerShape(12.dp)
+            width = 1.dp,
+            color = halo.glassBorder,
+            shape = shape
         ),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
-        shape = RoundedCornerShape(12.dp),
+        color = halo.glassFill,
+        shape = shape,
         tonalElevation = 2.dp
     ) {
         content()

@@ -18,7 +18,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,7 +29,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,13 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -68,7 +60,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
+import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import java.util.Locale
 
 fun buildVoiceSearchPrompt(searchMode: SearchMode, inChatTitle: String): String {
@@ -369,8 +366,8 @@ fun rememberVoiceSearchController(
 }
 
 /**
- * A vector-rendered microphone icon designed for crisp rendering at any display density.
- * Pulses gently when [isListening] is true for clear visual status feedback.
+ * A Lucide vector microphone icon for crisp rendering at any display density.
+ * Pulses gently when [isListening] is true and motion is enabled.
  */
 @Composable
 fun VoiceMicIcon(
@@ -379,7 +376,8 @@ fun VoiceMicIcon(
     isListening: Boolean = false,
     size: Dp = 20.dp
 ) {
-    val scale = if (isListening) {
+    val motion = rememberBousygramMotionPolicy()
+    val scale = if (isListening && motion.animateIndeterminateProgress) {
         val transition = rememberInfiniteTransition(label = "micPulse")
         val animatedScale by transition.animateFloat(
             initialValue = 0.92f,
@@ -395,76 +393,21 @@ fun VoiceMicIcon(
         1f
     }
 
-    Canvas(
-        modifier = modifier
-            .size(size)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-    ) {
-        val w = this.size.width
-        val h = this.size.height
-
-        // Capsule (main microphone body)
-        val capsuleWidth = w * 0.38f
-        val capsuleHeight = h * 0.50f
-        val capsuleLeft = (w - capsuleWidth) / 2f
-        val capsuleTop = h * 0.10f
-        val cornerRadius = CornerRadius(capsuleWidth / 2f, capsuleWidth / 2f)
-
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(capsuleLeft, capsuleTop),
-            size = Size(capsuleWidth, capsuleHeight),
-            cornerRadius = cornerRadius
-        )
-
-        // Arc around capsule
-        val strokeWidth = 2.dp.toPx()
-        val arcRadius = w * 0.30f
-        val arcRect = Rect(
-            left = (w / 2f) - arcRadius,
-            top = capsuleTop + (capsuleHeight * 0.22f),
-            right = (w / 2f) + arcRadius,
-            bottom = capsuleTop + (capsuleHeight * 0.22f) + (arcRadius * 2f)
-        )
-        drawArc(
-            color = tint,
-            startAngle = 0f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = arcRect.topLeft,
-            size = arcRect.size,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-        )
-
-        // Vertical stem
-        val arcBottom = arcRect.bottom
-        val stemBottom = h * 0.88f
-        drawLine(
-            color = tint,
-            start = Offset(w / 2f, arcBottom),
-            end = Offset(w / 2f, stemBottom),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
-        )
-
-        // Base bar
-        val baseHalfWidth = w * 0.22f
-        drawLine(
-            color = tint,
-            start = Offset((w / 2f) - baseHalfWidth, stemBottom),
-            end = Offset((w / 2f) + baseHalfWidth, stemBottom),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
-        )
-    }
+    BousygramIcon(
+        icon = BousygramIcons.Mic,
+        contentDescription = null,
+        tint = tint,
+        size = size,
+        modifier = modifier.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+    )
 }
 
 /**
  * Embedded microphone button for inside a search bar (`trailingIcon`), providing a 48.dp minimum
- * touch target, visual listening ring, D-pad focus support, and TalkBack accessibility semantics.
+ * touch target, visual listening ring, D-pad focus support, hover/focus tooltip, and TalkBack semantics.
  */
 @Composable
 fun SearchBarVoiceButton(
@@ -481,61 +424,69 @@ fun SearchBarVoiceButton(
         "Voice search using microphone"
     }
 
-    Box(
-        modifier = modifier
-            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-            .padding(end = 4.dp)
-            .clip(CircleShape)
-            .background(
-                when {
-                    isListening -> colors.error.copy(alpha = 0.20f)
-                    focused -> colors.primary.copy(alpha = 0.20f)
-                    else -> Color.Transparent
+    BousygramTooltipBox(
+        tooltip = if (isListening) "Stop listening" else "Voice search",
+        icon = BousygramIcons.Mic,
+        focused = focused,
+        dwellMs = 0L,
+        placement = BousygramTooltipPlacement.AUTO_BELOW
+    ) {
+        Box(
+            modifier = modifier
+                .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                .padding(end = 4.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        isListening -> colors.error.copy(alpha = 0.20f)
+                        focused -> colors.primary.copy(alpha = 0.20f)
+                        else -> Color.Transparent
+                    }
+                )
+                .border(
+                    width = if (isListening || focused) 1.5.dp else 0.dp,
+                    color = when {
+                        isListening -> colors.error
+                        focused -> colors.primary
+                        else -> Color.Transparent
+                    },
+                    shape = CircleShape
+                )
+                .clickable(
+                    interactionSource = interaction,
+                    indication = ripple(bounded = true, color = colors.primary),
+                    onClick = onClick
+                )
+                .onFocusChanged { focused = it.isFocused }
+                .focusable()
+                .semantics(mergeDescendants = true) {
+                    contentDescription = description
+                    role = Role.Button
+                    stateDescription = if (isListening) "Listening" else "Ready"
+                    onClick(label = description) {
+                        onClick()
+                        true
+                    }
                 }
-            )
-            .border(
-                width = if (isListening || focused) 1.5.dp else 0.dp,
-                color = when {
+                .testTag("search_bar_voice_button"),
+            contentAlignment = Alignment.Center
+        ) {
+            VoiceMicIcon(
+                tint = when {
                     isListening -> colors.error
                     focused -> colors.primary
-                    else -> Color.Transparent
+                    else -> colors.primary
                 },
-                shape = CircleShape
+                isListening = isListening,
+                size = 20.dp
             )
-            .clickable(
-                interactionSource = interaction,
-                indication = ripple(bounded = true, color = colors.primary),
-                onClick = onClick
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .focusable()
-            .semantics(mergeDescendants = true) {
-                contentDescription = description
-                role = Role.Button
-                stateDescription = if (isListening) "Listening" else "Ready"
-                onClick(label = description) {
-                    onClick()
-                    true
-                }
-            }
-            .testTag("search_bar_voice_button"),
-        contentAlignment = Alignment.Center
-    ) {
-        VoiceMicIcon(
-            tint = when {
-                isListening -> colors.error
-                focused -> colors.primary
-                else -> colors.primary
-            },
-            isListening = isListening,
-            size = 20.dp
-        )
+        }
     }
 }
 
 /**
  * Accessible Voice Search button built for Google Android TV and touch devices.
- * Integrates [TvFocusSurface] for full D-pad remote focus, animated glow, and TalkBack semantics.
+ * Integrates [TvFocusSurface] for full D-pad remote focus, animated glow, tooltip, and TalkBack semantics.
  */
 @Composable
 fun VoiceSearchButton(
@@ -568,36 +519,43 @@ fun VoiceSearchButton(
             }
             .testTag("voice_search_button")
     ) { focused ->
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+        BousygramTooltipBox(
+            tooltip = if (isListening) "Stop listening" else "Speak a video or title to search",
+            icon = BousygramIcons.Mic,
+            focused = focused,
+            placement = BousygramTooltipPlacement.AUTO_BELOW
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                val iconTint = when {
-                    isListening -> MaterialTheme.colorScheme.error
-                    focused -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurface
-                }
-                VoiceMicIcon(
-                    tint = iconTint,
-                    isListening = isListening,
-                    size = 18.dp
-                )
-                Text(
-                    text = if (isListening) "Listening..." else if (isCompact) "Voice" else "Voice Search",
-                    color = when {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val iconTint = when {
                         isListening -> MaterialTheme.colorScheme.error
-                        focused -> MaterialTheme.colorScheme.onSurface
+                        focused -> MaterialTheme.colorScheme.primary
                         else -> MaterialTheme.colorScheme.onSurface
-                    },
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    }
+                    VoiceMicIcon(
+                        tint = iconTint,
+                        isListening = isListening,
+                        size = 18.dp
+                    )
+                    Text(
+                        text = if (isListening) "Listening..." else if (isCompact) "Voice" else "Voice Search",
+                        color = when {
+                            isListening -> MaterialTheme.colorScheme.error
+                            focused -> MaterialTheme.colorScheme.onSurface
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }

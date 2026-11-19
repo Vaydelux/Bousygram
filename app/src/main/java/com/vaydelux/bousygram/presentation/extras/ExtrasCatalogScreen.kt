@@ -6,28 +6,27 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.border
-import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,27 +37,18 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.ui.graphics.painter.ColorPainter
-import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
-import com.vaydelux.bousygram.presentation.components.BousygramCenteredStatus
-import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
-import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -71,45 +61,53 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.platform.testTag
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import com.vaydelux.bousygram.R
-import com.vaydelux.bousygram.core.media.PlayerBufferConfig
-import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
-import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
+import com.vaydelux.bousygram.R
+import com.vaydelux.bousygram.core.media.PlayerBufferConfig
+import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
+import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
-import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
+import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramCenteredStatus
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIconButton
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
+import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
+import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
+import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
-import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.tabular
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.ensureActive
 
 @Composable
 fun ExtrasCatalogScreen(onExit: () -> Unit) {
@@ -262,6 +260,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     if (showCredits) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showCredits = false },
+            shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = { Text("Extras · Sources & Credits") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -397,16 +397,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(
+                    BousygramButton(
+                        text = "Back",
                         onClick = {
                             if (detailItem != null) goBackFromDetails() else onExit()
                         },
-                        modifier = Modifier.heightIn(min = if (metrics.isTv) 52.dp else 44.dp).extrasFocusOutline()
-                    ) { Text("‹ Back", maxLines = 1) }
+                        leadingIcon = BousygramIcons.Back,
+                        tooltip = if (detailItem != null) "Back to catalog" else "Back to mode selection"
+                    )
                     // On a 320dp phone, the logo plus two actions squeezed the
                     // title to almost zero width. Keep the actions reachable.
                     if (metrics.effectiveWidthDp >= 380.dp) {
-                        BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp)
+                        BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp, showHalo = true)
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text(
@@ -425,8 +427,20 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             maxLines = 1
                         )
                     }
-                    TextButton(onClick = { showCredits = true }, modifier = Modifier.extrasFocusOutline()) {
-                        Text(if (metrics.widthDp < 430.dp) "Info" else "Credits", maxLines = 1)
+                    if (metrics.widthDp < 430.dp) {
+                        BousygramIconButton(
+                            icon = BousygramIcons.Info,
+                            contentDescription = "Info",
+                            tooltip = "Sources & credits",
+                            onClick = { showCredits = true }
+                        )
+                    } else {
+                        BousygramButton(
+                            text = "Credits",
+                            leadingIcon = BousygramIcons.Info,
+                            tooltip = "View TMDB & AniList credits",
+                            onClick = { showCredits = true }
+                        )
                     }
                 }
                 if (detailItem == null) {
@@ -498,6 +512,15 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         update(state.copy(query = nextQuery, page = 1, results = emptyList(),
                             loading = true, hasMore = true, error = null))
                     },
+                    shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                    leadingIcon = {
+                        BousygramIcon(
+                            icon = BousygramIcons.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            size = 18.dp
+                        )
+                    },
                     label = { Text("Search ${type.label} · ${type.provider}") },
                     placeholder = { Text("Title or keyword") },
                     singleLine = true,
@@ -512,7 +535,19 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                         loading = true, hasMore = true, error = null
                                     ))
                                 }
-                            ) { Text("Clear") }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    BousygramIcon(
+                                        icon = BousygramIcons.Close,
+                                        contentDescription = null,
+                                        size = 15.dp
+                                    )
+                                    Text("Clear")
+                                }
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth().extrasFocusOutline().onFocusChanged {
@@ -764,12 +799,14 @@ internal fun ExtrasFilterDisclosure(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        OutlinedButton(
+        BousygramButton(
+            text = if (expanded) "Hide filters" else "Filters",
             onClick = onToggle,
-            modifier = Modifier.heightIn(min = 44.dp).extrasFocusOutline().testTag("extras-filter-toggle")
-        ) {
-            Text(if (expanded) "Hide filters" else "Filters", maxLines = 1)
-        }
+            selected = active || expanded,
+            leadingIcon = BousygramIcons.Options,
+            tooltip = if (expanded) "Hide sort and filter controls" else "Sort, genre, year, and rating filters",
+            modifier = Modifier.testTag("extras-filter-toggle")
+        )
         Text(
             if (active) "Custom filters active" else "Sort, genre, year and more",
             style = MaterialTheme.typography.labelSmall,
@@ -792,15 +829,28 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
     ) {
         ExtrasType.entries.forEach { tab ->
+            val tabIcon = when (tab) {
+                ExtrasType.MOVIES -> BousygramIcons.Movies
+                ExtrasType.TV -> BousygramIcons.TvShows
+                ExtrasType.ANIME -> BousygramIcons.Anime
+            }
+            val tabDetail = when (tab) {
+                ExtrasType.MOVIES -> "Explore movies via TMDB"
+                ExtrasType.TV -> "Explore TV series via TMDB"
+                ExtrasType.ANIME -> "Explore anime via AniList"
+            }
             BousygramSectionTab(
                 label = tab.label,
                 active = selectedTab == tab.ordinal,
                 isTv = metrics.isTv,
                 compact = compact,
                 accessibilityLabel = tab.label,
+                icon = tabIcon,
+                tooltip = tab.label,
+                tooltipDetail = tabDetail,
                 onClick = { onSelect(tab.ordinal) },
                 modifier = (if (compact) Modifier.weight(1f)
-                    else Modifier.widthIn(min = 136.dp, max = 190.dp))
+                    else Modifier.widthIn(min = 136.dp, max = 196.dp))
                     .testTag("extras-tab-${tab.name.lowercase()}")
             )
         }
@@ -1017,6 +1067,7 @@ internal fun ExtrasPosterCard(
     onClick: () -> Unit
 ) {
     val metrics = rememberAdaptiveMetrics()
+    val halo = LocalBousygramHaloColors.current
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth()
@@ -1044,14 +1095,41 @@ internal fun ExtrasPosterCard(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold
                 )
-                Text(
-                    listOf(item.year, item.rating.takeIf(String::isNotEmpty)?.let { "★ $it" })
-                        .filterNotNull().joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (item.year.isNotBlank()) {
+                        Text(
+                            item.year,
+                            style = MaterialTheme.typography.labelSmall.tabular(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                    if (item.rating.isNotBlank()) {
+                        if (item.year.isNotBlank()) {
+                            Text(
+                                "·",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        BousygramIcon(
+                            icon = BousygramIcons.Star,
+                            contentDescription = "Rating",
+                            tint = halo.goldAccent,
+                            size = 12.dp
+                        )
+                        Text(
+                            item.rating,
+                            style = MaterialTheme.typography.labelSmall.tabular(),
+                            color = halo.goldAccent,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                }
                 Text(
                     item.subtitle.ifBlank { item.type.label },
                     style = MaterialTheme.typography.labelSmall,
@@ -1146,8 +1224,17 @@ private fun ExtrasDetailContent(
             item {
                 Button(
                     onClick = onPlayMovie,
-                    modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-movie")
-                ) { Text("Play · Web source") }
+                    shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-play-movie")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        BousygramIcon(icon = BousygramIcons.Play, contentDescription = null, size = 18.dp)
+                        Text("Play · Web source")
+                    }
+                }
             }
         }
         if (info.item.type == ExtrasType.ANIME) {
@@ -1163,19 +1250,36 @@ private fun ExtrasDetailContent(
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber - 1).coerceAtLeast(1) },
                             enabled = episodeNumber > 1,
+                            shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
                             modifier = Modifier.extrasFocusOutline().testTag("extras-anime-previous-episode")
-                        ) { Text("−") }
-                        Text("Episode $episodeNumber" + (total?.let { " / $it" } ?: ""),
-                            style = MaterialTheme.typography.titleMedium)
+                        ) {
+                            BousygramIcon(icon = BousygramIcons.Minus, contentDescription = "Previous episode", size = 16.dp)
+                        }
+                        Text(
+                            "Episode $episodeNumber" + (total?.let { " / $it" } ?: ""),
+                            style = MaterialTheme.typography.titleMedium.tabular()
+                        )
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: 9999) },
                             enabled = episodeNumber < (total ?: 9999),
+                            shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
                             modifier = Modifier.extrasFocusOutline().testTag("extras-anime-next-episode")
-                        ) { Text("+") }
+                        ) {
+                            BousygramIcon(icon = BousygramIcons.Plus, contentDescription = "Next episode", size = 16.dp)
+                        }
                     }
-                    Button(onClick = { onPlayAnime(episodeNumber) },
-                        modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-anime")) {
-                        Text("Play episode · Web source")
+                    Button(
+                        onClick = { onPlayAnime(episodeNumber) },
+                        shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-play-anime")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            BousygramIcon(icon = BousygramIcons.Play, contentDescription = null, size = 18.dp)
+                            Text("Play episode · Web source")
+                        }
                     }
                     Text(
                         "AniList IDs identify individual anime entries. Source episode selection varies, and season defaults to 1.",
@@ -1412,12 +1516,39 @@ private fun ExtrasDetailContent(
 
 @Composable
 private fun DetailText(info: ExtrasDetail) {
+    val halo = LocalBousygramHaloColors.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(info.item.title, style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-        Text(listOfNotNull(info.item.year.takeIf(String::isNotBlank),
-            info.item.rating.takeIf(String::isNotBlank)?.let { "★ $it" })
-            .joinToString(" · "), color = MaterialTheme.colorScheme.primary)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (info.item.year.isNotBlank()) {
+                Text(
+                    info.item.year,
+                    style = MaterialTheme.typography.labelLarge.tabular(),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            if (info.item.rating.isNotBlank()) {
+                if (info.item.year.isNotBlank()) {
+                    Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                BousygramIcon(
+                    icon = BousygramIcons.Star,
+                    contentDescription = "Rating",
+                    tint = halo.goldAccent,
+                    size = 15.dp
+                )
+                Text(
+                    info.item.rating,
+                    style = MaterialTheme.typography.labelLarge.tabular(),
+                    color = halo.goldAccent,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
         if (info.genres.isNotEmpty()) Text(info.genres.joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)

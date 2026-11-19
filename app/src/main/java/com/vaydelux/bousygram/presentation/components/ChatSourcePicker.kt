@@ -8,20 +8,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -37,6 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -45,12 +43,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.vaydelux.bousygram.domain.model.ChatSourceKind
 import com.vaydelux.bousygram.domain.model.SAVED_MESSAGES_TITLE
 import com.vaydelux.bousygram.domain.model.VideoChatItem
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 
 /** Horizontal source tabs with a searchable full picker for accounts with many chats. */
 @Composable
@@ -125,56 +124,71 @@ private fun SourceTab(
     emphasized: Boolean = false
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(8.dp)
+    val halo = LocalBousygramHaloColors.current
+    val shape = RoundedCornerShape(BousygramUiTokens.tabCorner)
     val borderColor = when {
-        focused -> MaterialTheme.colorScheme.primary
-        selected -> MaterialTheme.colorScheme.primary
-        emphasized -> MaterialTheme.colorScheme.outline.copy(alpha = 0.8f)
-        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.56f)
+        focused -> halo.focusRing
+        selected -> halo.haloStart
+        emphasized -> halo.haloStart.copy(alpha = 0.55f)
+        else -> halo.glassBorder
     }
-    Surface(
-        modifier = Modifier
-            .heightIn(min = 56.dp)
-            .semantics {
-                role = Role.Button
-                contentDescription = "$title, $category" +
-                    if (selected) ", selected" else ""
-                this.selected = selected
-            }
-            .clip(shape)
-            .border(if (focused) 3.dp else if (selected) 2.dp else 1.dp, borderColor, shape)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick),
-        shape = shape,
-        color = when {
-            selected -> MaterialTheme.colorScheme.primaryContainer
-            focused -> MaterialTheme.colorScheme.surfaceContainerHighest
-            emphasized -> MaterialTheme.colorScheme.surfaceContainerHigh
-            else -> MaterialTheme.colorScheme.surfaceContainerLow
-        }
+    BousygramTooltipBox(
+        tooltip = title,
+        detail = if (archived) "Archived · $category" else category,
+        focused = focused,
+        placement = BousygramTooltipPlacement.AUTO_BELOW
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.Center
+        Surface(
+            modifier = Modifier
+                .heightIn(min = 56.dp)
+                .semantics {
+                    role = Role.Button
+                    contentDescription = "$title, $category" +
+                        if (selected) ", selected" else ""
+                    this.selected = selected
+                }
+                .clip(shape)
+                .border(if (focused) 2.5.dp else if (selected) 1.5.dp else 1.dp, borderColor, shape)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick),
+            shape = shape,
+            color = when {
+                selected -> MaterialTheme.colorScheme.primaryContainer
+                focused -> MaterialTheme.colorScheme.surfaceContainerHighest
+                emphasized -> MaterialTheme.colorScheme.surfaceContainerHigh
+                else -> MaterialTheme.colorScheme.surfaceContainerLow
+            }
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (pinned) Text("★", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelSmall)
+            Column(
+                modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (pinned) {
+                        BousygramIcon(
+                            icon = BousygramIcons.Star,
+                            contentDescription = "Pinned",
+                            tint = halo.goldAccent,
+                            size = 13.dp
+                        )
+                    }
+                    Text(
+                        text = title,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 210.dp),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
                 Text(
-                    text = title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 210.dp),
-                    style = MaterialTheme.typography.labelLarge
+                    text = if (archived) "ARCHIVED · $category" else category,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1
                 )
             }
-            Text(
-                text = if (archived) "ARCHIVED · $category" else category,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1
-            )
         }
     }
 }
@@ -229,16 +243,18 @@ fun AllChatsPickerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        val halo = LocalBousygramHaloColors.current
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .widthIn(max = 760.dp)
                 .heightIn(max = dialogMaxHeight)
                 .testTag("telegram-chat-source-dialog"),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
             color = MaterialTheme.colorScheme.surfaceContainer,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            shadowElevation = 12.dp
+            border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
+            shadowElevation = 16.dp
         ) {
             Column(
                 modifier = Modifier.padding(if (shortScreen) 12.dp else 20.dp),
@@ -263,7 +279,15 @@ fun AllChatsPickerDialog(
                     modifier = Modifier.fillMaxWidth()
                         .testTag("telegram-chat-source-search"),
                     singleLine = true,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                    leadingIcon = {
+                        BousygramIcon(
+                            icon = BousygramIcons.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            size = 18.dp
+                        )
+                    },
                     label = { Text("Search chats") },
                     placeholder = { Text("Chat, group, or channel name") }
                 )
@@ -363,7 +387,8 @@ private fun SourcePickerRow(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(8.dp)
+    val halo = LocalBousygramHaloColors.current
+    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -376,7 +401,15 @@ private fun SourcePickerRow(
                 this.selected = selected
             }
             .clip(shape)
-            .border(if (focused) 3.dp else 1.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, shape)
+            .border(
+                width = if (focused) 2.5.dp else if (selected) 1.5.dp else 1.dp,
+                color = when {
+                    focused -> halo.focusRing
+                    selected -> halo.haloStart
+                    else -> halo.glassBorder
+                },
+                shape = shape
+            )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
         shape = shape,
@@ -392,11 +425,35 @@ private fun SourcePickerRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    title,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    subtitle,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
-            if (pinned) Text("★", color = MaterialTheme.colorScheme.tertiary)
-            if (selected) Text("Selected", color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.labelSmall)
+            if (pinned) {
+                BousygramIcon(
+                    icon = BousygramIcons.Star,
+                    contentDescription = "Pinned",
+                    tint = halo.goldAccent,
+                    size = 15.dp
+                )
+            }
+            if (selected) {
+                BousygramIcon(
+                    icon = BousygramIcons.Check,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    size = 16.dp
+                )
+            }
         }
     }
 }

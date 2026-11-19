@@ -191,8 +191,22 @@ import com.vaydelux.bousygram.core.tdlib.server.StreamAccessRegistry
 import com.vaydelux.bousygram.core.tdlib.server.PlaybackCacheState
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.style.TextAlign
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIconButton
+import com.vaydelux.bousygram.presentation.components.BousygramIconRef
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
+import com.vaydelux.bousygram.presentation.theme.tabular
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -2838,51 +2852,73 @@ fun PlayerScreen(
             exit = fadeOut() + slideOutVertically { it / 2 },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 36.dp, bottom = 36.dp)
+                .padding(end = if (compactHud) 18.dp else 36.dp, bottom = if (compactHud) 24.dp else 36.dp)
         ) {
+            val halo = LocalBousygramHaloColors.current
+            val motion = rememberBousygramMotionPolicy()
             val nextEpisodeItem = queue.getOrNull(queueIndex + 1)
+            val countdownFraction = (autoNextCountdown.coerceIn(0, 5) / 5f)
+            val ringTrackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
+            val ringProgressColor = halo.haloStart
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, halo.haloStart.copy(alpha = 0.85f)),
                 tonalElevation = 12.dp,
-                modifier = Modifier.widthIn(min = 280.dp, max = 360.dp)
+                shadowElevation = if (motion.lowRam) 0.dp else 16.dp,
+                modifier = Modifier.widthIn(min = 280.dp, max = 380.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.size(38.dp),
                             contentAlignment = Alignment.Center
                         ) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val stroke = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                                drawCircle(color = ringTrackColor, style = stroke)
+                                drawArc(
+                                    color = ringProgressColor,
+                                    startAngle = -90f,
+                                    sweepAngle = countdownFraction * 360f,
+                                    useCenter = false,
+                                    style = stroke
+                                )
+                            }
                             Text(
                                 text = "$autoNextCountdown",
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.labelLarge.tabular(),
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Text(
-                            text = "Next video in ${autoNextCountdown}s",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "UP NEXT",
+                                color = halo.haloStart,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Starting in ${autoNextCountdown}s",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.titleSmall.tabular(),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                     if (nextEpisodeItem != null) {
                         Text(
                             text = nextEpisodeItem.title,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Medium,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -2900,10 +2936,12 @@ fun PlayerScreen(
                                 pauseLocalPlayback()
                                 hudVisible = true
                                 hudInteractionTick++
-                            }
+                            },
+                            leadingIcon = BousygramIcons.Close,
+                            tooltip = "Cancel auto-play next"
                         )
                         BousygramButton(
-                            text = "Play Now ▶",
+                            text = "Play Now",
                             onClick = {
                                 autoNextCardVisible = false
                                 playerInputController.isAutoNextActive = false
@@ -2913,6 +2951,8 @@ fun PlayerScreen(
                                 }
                             },
                             selected = true,
+                            leadingIcon = BousygramIcons.Play,
+                            tooltip = "Play next video immediately",
                             modifier = Modifier.focusRequester(playNowFocusRequester)
                         )
                     }
@@ -2929,6 +2969,8 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = if (compactHud) 110.dp else 135.dp)
         ) {
+            val halo = LocalBousygramHaloColors.current
+            val motion = rememberBousygramMotionPolicy()
             val relatedQueue = relatedSourceQueue(queue, queueIndex)
             val episodeGridState = rememberLazyGridState()
             val playingLocalIndex = relatedQueue.indexOfFirst { it.first == queueIndex }
@@ -2952,43 +2994,84 @@ fun PlayerScreen(
                 }
             }
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth(if (compactHud) 0.96f else 0.82f)
+                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
+                shadowElevation = if (motion.lowRam) 0.dp else 18.dp,
+                modifier = Modifier.fillMaxWidth(if (compactHud) 0.96f else 0.84f)
                     .padding(horizontal = 10.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        BousygramIcon(
+                            icon = BousygramIcons.Episodes,
+                            contentDescription = null,
+                            tint = halo.haloStart,
+                            size = 20.dp
+                        )
                         Text(
                             "More from this source",
                             color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.titleMedium
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                         if (playingLocalIndex >= 0) {
-                            BousygramButton("Current", {
+                            val jumpToCurrent = {
                                 scope.launch {
                                     episodeGridState.animateScrollToItem(playingLocalIndex)
                                     delay(90L)
                                     runCatching { trayCurrentFocusRequester.requestFocus() }
                                 }
-                            })
+                            }
+                            if (compactHud) {
+                                BousygramIconButton(
+                                    icon = BousygramIcons.Locate,
+                                    contentDescription = "Current",
+                                    tooltip = "Jump to currently playing item",
+                                    onClick = { jumpToCurrent() }
+                                )
+                            } else {
+                                BousygramButton(
+                                    text = "Current",
+                                    onClick = { jumpToCurrent() },
+                                    leadingIcon = BousygramIcons.Locate,
+                                    tooltip = "Jump to currently playing item"
+                                )
+                            }
                         }
-                        BousygramButton("Close", {
+                        val closeTray = {
                             episodesDrawerVisible = false
                             playerInputController.activeMenu = PlayerMenuType.NONE
                             scope.launch {
                                 delay(60L)
                                 runCatching { episodesButtonFocusRequester.requestFocus() }
                             }
-                        })
+                        }
+                        if (compactHud) {
+                            BousygramIconButton(
+                                icon = BousygramIcons.Close,
+                                contentDescription = "Close",
+                                tooltip = "Close queue tray",
+                                onClick = { closeTray() }
+                            )
+                        } else {
+                            BousygramButton(
+                                text = "Close",
+                                onClick = { closeTray() },
+                                leadingIcon = BousygramIcons.Close,
+                                tooltip = "Close queue tray"
+                            )
+                        }
                     }
                     if (relatedQueue.size <= 1 && !moreAvailable && !isLoadingOlderEpisodes) {
                         Text(
@@ -3025,14 +3108,19 @@ fun PlayerScreen(
                         gridItemsIndexed(relatedQueue, key = { _, pair -> pair.first }) { localIndex, pair ->
                             val (idx, item) = pair
                             val current = idx == queueIndex
-                            val shape = RoundedCornerShape(12.dp)
+                            val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
                             var focused by remember(item.chatId, item.messageId) { mutableStateOf(false) }
                             Surface(
                                 shape = shape,
-                                color = if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                color = if (current) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+                                else MaterialTheme.colorScheme.surfaceContainerHigh,
                                 border = androidx.compose.foundation.BorderStroke(
-                                    if (focused) 3.dp else if (current) 2.dp else 1.dp,
-                                    if (focused || current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                    if (focused) 2.5.dp else if (current) 1.5.dp else 1.dp,
+                                    when {
+                                        focused -> halo.focusRing
+                                        current -> halo.haloStart
+                                        else -> halo.glassBorder
+                                    }
                                 ),
                                 modifier = Modifier.fillMaxWidth()
                                     .then(if (localIndex == 0) Modifier.focusRequester(trayFirstFocus) else Modifier)
@@ -3047,27 +3135,57 @@ fun PlayerScreen(
                                         if (!current) goToTrack(idx)
                                     }
                             ) {
-                                Column(Modifier.padding(10.dp)) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val itemTitleColor = if (current) MaterialTheme.colorScheme.onPrimaryContainer
+                                        else MaterialTheme.colorScheme.onSurface
                                     Text(
                                         item.title,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = itemTitleColor
                                     )
-                                    Text(
-                                        if (current) "▶ Playing" else formatMs(item.durationSeconds * 1000L),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    if (current) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            BousygramIcon(
+                                                icon = BousygramIcons.Play,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                size = 12.dp
+                                            )
+                                            Text(
+                                                "Playing",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            formatMs(item.durationSeconds * 1000L),
+                                            style = MaterialTheme.typography.labelSmall.tabular(),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                     if (moreAvailable) {
-                        BousygramButton("Load older episodes", {
-                            if (!isLoadingOlderEpisodes) onLoadOlderEpisodes?.invoke()
-                        })
+                        BousygramButton(
+                            text = "Load older episodes",
+                            onClick = {
+                                if (!isLoadingOlderEpisodes) onLoadOlderEpisodes?.invoke()
+                            },
+                            leadingIcon = BousygramIcons.ChevronDown,
+                            tooltip = "Load older videos from this source"
+                        )
                     } else if (isLoadingOlderEpisodes) {
                         Text(
                             "Loading older episodes…",
@@ -3092,24 +3210,49 @@ fun PlayerScreen(
             exit = fadeOut() + scaleOut(),
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = 28.dp)
+                .padding(start = 24.dp)
         ) {
+            val halo = LocalBousygramHaloColors.current
+            val motion = rememberBousygramMotionPolicy()
+            val level = gestureBrightness.coerceIn(0f, 1f)
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.padding(8.dp)
+                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
+                shadowElevation = if (motion.lowRam) 0.dp else 10.dp,
+                modifier = Modifier.padding(6.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 18.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("☀️", fontSize = 22.sp)
+                    BousygramIcon(
+                        icon = BousygramIcons.Brightness,
+                        contentDescription = "Brightness",
+                        tint = halo.goldAccent,
+                        size = 20.dp
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(6.dp)
+                            .height(84.dp)
+                            .clip(RoundedCornerShape(BousygramUiTokens.pillCorner))
+                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .fillMaxHeight(level)
+                                .clip(RoundedCornerShape(BousygramUiTokens.pillCorner))
+                                .background(Brush.verticalGradient(listOf(halo.goldAccent, halo.haloStart)))
+                        )
+                    }
                     Text(
-                        "${(gestureBrightness * 100).toInt()}%",
+                        "${(level * 100).toInt()}%",
                         color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelMedium.tabular(),
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -3123,26 +3266,51 @@ fun PlayerScreen(
             exit = fadeOut() + scaleOut(),
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 28.dp)
+                .padding(end = 24.dp)
         ) {
+            val halo = LocalBousygramHaloColors.current
+            val motion = rememberBousygramMotionPolicy()
             val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
             val maxVol = remember(audioManager) { audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15 }
+            val volumeFraction = (gestureVolume.toFloat() / maxVol.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.padding(8.dp)
+                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
+                shadowElevation = if (motion.lowRam) 0.dp else 10.dp,
+                modifier = Modifier.padding(6.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 18.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("🔊", fontSize = 22.sp)
+                    BousygramIcon(
+                        icon = if (gestureVolume <= 0) BousygramIcons.VolumeMute else BousygramIcons.Audio,
+                        contentDescription = "Volume",
+                        tint = if (gestureVolume <= 0) MaterialTheme.colorScheme.onSurfaceVariant else halo.haloStart,
+                        size = 20.dp
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(6.dp)
+                            .height(84.dp)
+                            .clip(RoundedCornerShape(BousygramUiTokens.pillCorner))
+                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .fillMaxHeight(volumeFraction)
+                                .clip(RoundedCornerShape(BousygramUiTokens.pillCorner))
+                                .background(Brush.verticalGradient(listOf(halo.haloStart, halo.haloEnd)))
+                        )
+                    }
                     Text(
-                        "${(gestureVolume * 100 / maxVol.coerceAtLeast(1))}%",
+                        "${(volumeFraction * 100).toInt()}%",
                         color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelMedium.tabular(),
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -3160,6 +3328,8 @@ fun PlayerScreen(
                 else if (seekFeedbackSide < 0) Alignment.CenterStart else Alignment.CenterEnd
             ).padding(bottom = if (tvChrome && seekPreviewPositionMs >= 0L) 170.dp else 0.dp)
         ) {
+            val halo = LocalBousygramHaloColors.current
+            val motion = rememberBousygramMotionPolicy()
             val previewItem = queue.getOrNull(queueIndex)
             val previewKey = previewItem?.chatId?.toString() + ":" + previewItem?.messageId
             val knownDuration = playerSeekDurationMs(duration, castState.durationMs, castState.connected)
@@ -3167,11 +3337,12 @@ fun PlayerScreen(
                 SeekThumbnailManager.getSnapshotAt(previewKey, seekPreviewPositionMs, knownDuration)
             } else null
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                border = androidx.compose.foundation.BorderStroke(2.dp, halo.haloStart),
+                shadowElevation = if (motion.lowRam) 0.dp else 16.dp,
                 modifier = Modifier.padding(horizontal = 24.dp)
-                    .widthIn(max = if (tvChrome) 310.dp else 280.dp)
+                    .widthIn(max = if (tvChrome) 320.dp else 280.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -3182,8 +3353,8 @@ fun PlayerScreen(
                         Image(
                             bitmap = snapshot.asImageBitmap(),
                             contentDescription = "Actual cached seek preview frame",
-                            modifier = Modifier.width(160.dp).height(90.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                            modifier = Modifier.width(176.dp).height(99.dp)
+                                .clip(RoundedCornerShape(BousygramUiTokens.tabCorner))
                         )
                     } else if (tvChrome && seekPreviewPositionMs >= 0L) {
                         Text(
@@ -3196,15 +3367,21 @@ fun PlayerScreen(
                         text = if (seekPreviewPositionMs >= 0L) "Seek to " + formatMs(seekPreviewPositionMs)
                             else seekFeedbackText.orEmpty(),
                         color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.tabular(),
                         fontWeight = FontWeight.Bold
                     )
                     if (tvChrome && seekPreviewPositionMs >= 0L) {
-                        Text(
-                            "OK confirm · Back cancel",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelMedium
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            Text(
+                                "OK confirm · Back cancel",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -3217,18 +3394,19 @@ fun PlayerScreen(
             exit = fadeOut() + slideOutVertically(),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
+            val halo = LocalBousygramHaloColors.current
             Box(
                 modifier = Modifier
                     .padding(top = 36.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.70f), RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(BousygramUiTokens.pillCorner))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+                    .border(1.dp, halo.haloStart.copy(alpha = 0.72f), RoundedCornerShape(BousygramUiTokens.pillCorner))
                     .padding(horizontal = 20.dp, vertical = 9.dp)
             ) {
                 Text(
                     text = toastFeedbackText.orEmpty(),
                     color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelLarge.tabular(),
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -3241,28 +3419,36 @@ fun PlayerScreen(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopEnd)
         ) {
+            val halo = LocalBousygramHaloColors.current
             Surface(
                 modifier = Modifier
                     .padding(top = 28.dp, end = 28.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(BousygramUiTokens.pillCorner))
                     .clickable {
                         if (performTrackedSeek(0L)) {
                             showResumeRestartOption = false
                             toastFeedbackText = "Restarted from beginning"
                         }
                     },
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    BousygramIcon(
+                        icon = BousygramIcons.StartOver,
+                        contentDescription = null,
+                        tint = halo.haloStart,
+                        size = 16.dp
+                    )
                     Text(
-                        text = "↺ Start Over",
+                        text = "Start Over",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -3411,16 +3597,15 @@ private fun VideoDebugHud(
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
                 )
-                Text(
-                    text = "✕",
-                    color = Color.White,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
+                BousygramIcon(
+                    icon = BousygramIcons.Close,
+                    contentDescription = "Close video debug HUD",
+                    tint = Color.White,
+                    size = 16.dp,
                     modifier = Modifier
                         .clip(CircleShape)
                         .clickable(onClick = onClose)
-                        .padding(horizontal = 6.dp)
+                        .padding(4.dp)
                 )
             }
             Text(
@@ -3523,11 +3708,15 @@ private fun TrackPickerOverlay(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val halo = LocalBousygramHaloColors.current
+    val motion = rememberBousygramMotionPolicy()
     val tracks by playerEngine.tracks.collectAsStateWithLifecycle()
     var selectedType by remember { mutableStateOf(MediaTrackInfo.TrackType.SUBTITLE) }
     val firstChoiceFocus = remember { FocusRequester() }
     val visibleTracks = tracks.filter { it.type == selectedType }
     val hasSelectedTrack = visibleTracks.any { it.isSelected }
+    val hasVideoTab = tracks.count { it.type == MediaTrackInfo.TrackType.VIDEO } > 1
+    val showTabIcons = isTv || !(compact && hasVideoTab)
 
     LaunchedEffect(selectedType) {
         runCatching { firstChoiceFocus.requestFocus() }
@@ -3536,13 +3725,14 @@ private fun TrackPickerOverlay(
     Surface(
         modifier = modifier
             .padding(if (isTv) 24.dp else if (compact) 12.dp else 28.dp)
-            .widthIn(max = if (isTv) 880.dp else 420.dp)
-            .fillMaxWidth(if (isTv) 0.84f else if (compact) 0.94f else 0.42f)
+            .widthIn(max = if (isTv) 880.dp else 440.dp)
+            .fillMaxWidth(if (isTv) 0.84f else if (compact) 0.94f else 0.44f)
             .focusGroup(),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
         contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(if (isTv) 20.dp else 24.dp),
-        shadowElevation = if (isTv) 28.dp else 20.dp
+        shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+        border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
+        shadowElevation = if (motion.lowRam) 0.dp else if (isTv) 28.dp else 20.dp
     ) {
         Column(
             Modifier
@@ -3551,7 +3741,20 @@ private fun TrackPickerOverlay(
                 .padding(if (isTv) 24.dp else 18.dp),
             verticalArrangement = Arrangement.spacedBy(if (isTv) 16.dp else 10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                BousygramIcon(
+                    icon = when (selectedType) {
+                        MediaTrackInfo.TrackType.SUBTITLE -> BousygramIcons.Subtitles
+                        MediaTrackInfo.TrackType.AUDIO -> BousygramIcons.Audio
+                        MediaTrackInfo.TrackType.VIDEO -> BousygramIcons.Film
+                    },
+                    contentDescription = null,
+                    tint = halo.haloStart,
+                    size = if (isTv) 24.dp else 20.dp
+                )
                 Text(
                     when (selectedType) {
                         MediaTrackInfo.TrackType.SUBTITLE -> "Subtitles"
@@ -3559,35 +3762,45 @@ private fun TrackPickerOverlay(
                         MediaTrackInfo.TrackType.VIDEO -> "Video Streams"
                     },
                     modifier = Modifier.weight(1f),
-                    fontSize = if (isTv) 28.sp else 22.sp,
+                    fontSize = if (isTv) 26.sp else 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                BousygramButton("Close", onClose)
+                BousygramButton(
+                    text = "Close",
+                    onClick = onClose,
+                    leadingIcon = BousygramIcons.Close,
+                    tooltip = "Close track picker"
+                )
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)
             ) {
                 TrackChoice(
-                    label = "CC  Subtitles",
+                    label = "Subtitles",
                     selected = selectedType == MediaTrackInfo.TrackType.SUBTITLE,
                     isTv = isTv,
+                    leadingIcon = if (showTabIcons) BousygramIcons.Subtitles else null,
                     modifier = Modifier.weight(1f),
                     onSelect = { selectedType = MediaTrackInfo.TrackType.SUBTITLE }
                 )
                 TrackChoice(
-                    label = "♫  Audio",
+                    label = "Audio",
                     selected = selectedType == MediaTrackInfo.TrackType.AUDIO,
                     isTv = isTv,
+                    leadingIcon = if (showTabIcons) BousygramIcons.Audio else null,
                     modifier = Modifier.weight(1f),
                     onSelect = { selectedType = MediaTrackInfo.TrackType.AUDIO }
                 )
-                if (tracks.count { it.type == MediaTrackInfo.TrackType.VIDEO } > 1) {
+                if (hasVideoTab) {
                     TrackChoice(
                         label = "Video",
                         selected = selectedType == MediaTrackInfo.TrackType.VIDEO,
                         isTv = isTv,
+                        leadingIcon = if (showTabIcons) BousygramIcons.Film else null,
                         modifier = Modifier.weight(1f),
                         onSelect = { selectedType = MediaTrackInfo.TrackType.VIDEO }
                     )
@@ -3674,7 +3887,8 @@ private fun TrackPickerOverlay(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = Color(subtitleAppearance.preset.backgroundColor),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder)
                 ) {
                     Text(
                         "Sample subtitle · 123",
@@ -3690,6 +3904,8 @@ private fun TrackPickerOverlay(
                         label = "${preset.title} subtitles",
                         selected = subtitleAppearance.preset == preset,
                         isTv = isTv,
+                        swatchColor = Color(preset.textColor),
+                        swatchBackground = Color(preset.backgroundColor),
                         onSelect = {
                             onSubtitleAppearanceChange(subtitleAppearance.copy(preset = preset))
                         }
@@ -3700,22 +3916,35 @@ private fun TrackPickerOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    BousygramButton(if (isTv) "A− Smaller" else "A−", {
-                        onSubtitleAppearanceChange(
-                            subtitleAppearance.changedPercent(subtitleAppearance.safePercent - 10)
-                        )
-                    })
+                    BousygramButton(
+                        text = if (isTv) "Smaller" else "A−",
+                        onClick = {
+                            onSubtitleAppearanceChange(
+                                subtitleAppearance.changedPercent(subtitleAppearance.safePercent - 10)
+                            )
+                        },
+                        leadingIcon = if (isTv) BousygramIcons.Minus else null,
+                        tooltip = "Decrease subtitle size"
+                    )
                     Text(
                         "Size ${subtitleAppearance.safePercent}%",
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
-                        fontSize = if (isTv) 20.sp else 15.sp
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleSmall.tabular(),
+                        fontSize = if (isTv) 20.sp else 15.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    BousygramButton(if (isTv) "A+ Larger" else "A+", {
-                        onSubtitleAppearanceChange(
-                            subtitleAppearance.changedPercent(subtitleAppearance.safePercent + 10)
-                        )
-                    })
+                    BousygramButton(
+                        text = if (isTv) "Larger" else "A+",
+                        onClick = {
+                            onSubtitleAppearanceChange(
+                                subtitleAppearance.changedPercent(subtitleAppearance.safePercent + 10)
+                            )
+                        },
+                        leadingIcon = if (isTv) BousygramIcons.Plus else null,
+                        tooltip = "Increase subtitle size"
+                    )
                 }
             }
 
@@ -3729,10 +3958,14 @@ private fun TrackChoice(
     selected: Boolean,
     modifier: Modifier = Modifier,
     isTv: Boolean = false,
+    leadingIcon: BousygramIconRef? = null,
+    swatchColor: Color? = null,
+    swatchBackground: Color? = null,
     onSelect: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
     val fill = when {
         focused -> colors.primaryContainer
         selected -> colors.secondaryContainer
@@ -3743,44 +3976,76 @@ private fun TrackChoice(
         selected -> colors.onSecondaryContainer
         else -> colors.onSurface
     }
+    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = if (isTv) 60.dp else 44.dp)
+            .heightIn(min = if (isTv) 58.dp else 46.dp)
             .border(
-                if (focused) 3.dp else if (isTv) 1.dp else 0.dp,
-                if (focused) colors.primary
-                else if (isTv) colors.outline else Color.Transparent,
-                RoundedCornerShape(if (isTv) 12.dp else 16.dp)
+                width = if (focused) 2.5.dp else if (selected) 1.5.dp else 1.dp,
+                color = when {
+                    focused -> halo.focusRing
+                    selected -> halo.haloStart.copy(alpha = 0.72f)
+                    else -> halo.glassBorder
+                },
+                shape = shape
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onSelect),
         color = fill,
         contentColor = foreground,
-        shape = RoundedCornerShape(if (isTv) 12.dp else 16.dp)
+        shape = shape
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = if (isTv) 20.dp else 16.dp,
-                vertical = if (isTv) 16.dp else 13.dp
+                horizontal = if (isTv) 18.dp else 14.dp,
+                vertical = if (isTv) 14.dp else 11.dp
             ),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (leadingIcon != null) {
+                BousygramIcon(
+                    icon = leadingIcon,
+                    contentDescription = null,
+                    tint = foreground,
+                    size = if (isTv) 20.dp else 17.dp
+                )
+            }
+            if (swatchColor != null) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(swatchBackground ?: colors.surface)
+                        .border(1.5.dp, colors.outline, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(swatchColor)
+                    )
+                }
+            }
             Text(
                 label,
                 modifier = Modifier.weight(1f),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 color = foreground,
-                fontSize = if (isTv) 19.sp else 14.sp,
+                fontSize = if (isTv) 18.sp else 14.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
             )
-            if (selected) Text(
-                "✓",
-                color = foreground,
-                fontSize = if (isTv) 23.sp else 18.sp,
-                fontWeight = FontWeight.Bold
-            )
+            if (selected) {
+                BousygramIcon(
+                    icon = BousygramIcons.Check,
+                    contentDescription = "Selected",
+                    tint = foreground,
+                    size = if (isTv) 20.dp else 17.dp
+                )
+            }
         }
     }
 }

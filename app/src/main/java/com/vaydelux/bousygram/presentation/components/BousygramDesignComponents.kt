@@ -1,43 +1,56 @@
 package com.vaydelux.bousygram.presentation.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
+import com.vaydelux.bousygram.presentation.theme.tabular
 
 /** Shared information hierarchy for Telegram Library, Favorites and Extras. */
 @Composable
@@ -46,31 +59,41 @@ fun BousygramPageHeading(
     title: String,
     subtitle: String,
     compact: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    icon: BousygramIconRef? = null
 ) {
+    val halo = LocalBousygramHaloColors.current
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(
-                Modifier.width(22.dp).height(3.dp).background(
-                    Brush.horizontalGradient(listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.secondary
-                    )),
-                    RoundedCornerShape(3.dp)
-                )
+                Modifier
+                    .width(24.dp)
+                    .height(3.dp)
+                    .background(
+                        Brush.horizontalGradient(listOf(halo.haloStart, halo.haloEnd)),
+                        RoundedCornerShape(3.dp)
+                    )
             )
+            if (icon != null) {
+                BousygramIcon(
+                    icon = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    size = 14.dp
+                )
+            }
             Text(
                 eyebrow.uppercase(),
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.6.sp,
+                letterSpacing = 0.7.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -101,29 +124,63 @@ fun BousygramPageHeading(
 fun BousygramStatusPill(
     label: String,
     modifier: Modifier = Modifier,
-    accent: Boolean = false
+    accent: Boolean = false,
+    gold: Boolean = false,
+    icon: BousygramIconRef? = null
 ) {
+    val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
+    val containerColor = when {
+        gold -> halo.goldContainer
+        accent -> colors.primaryContainer
+        else -> colors.surfaceContainerHigh
+    }
+    val contentColor = when {
+        gold -> halo.onGoldContainer
+        accent -> colors.onPrimaryContainer
+        else -> colors.onSurface
+    }
+    val borderColor = when {
+        gold -> halo.goldAccent.copy(alpha = 0.45f)
+        accent -> colors.primary.copy(alpha = 0.42f)
+        else -> colors.outlineVariant.copy(alpha = 0.65f)
+    }
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(BousygramUiTokens.compactSpacing),
-        color = if (accent) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceContainerHigh
+        shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+        color = containerColor,
+        border = BorderStroke(1.dp, borderColor)
     ) {
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = if (accent) MaterialTheme.colorScheme.onPrimaryContainer
-                else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            if (icon != null) {
+                BousygramIcon(
+                    icon = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    size = 13.dp
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium.tabular(),
+                color = contentColor,
+                fontWeight = if (accent || gold) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
 /**
- * Shared navigation pill for Telegram, Extras, phone and Android TV.
- * Adapt only target sizing; use identical semantic colors and focus shape.
+ * Shared navigation tab pill for Telegram, Extras, phone, tablet, and Android TV.
+ * Supports Lucide icons, optional numeric count badges, icon-only compact mode
+ * (eliminating text cut-offs on narrow displays), and automatic tooltips on
+ * focus dwell, pointer hover, and touch selection.
  */
 @Composable
 fun BousygramSectionTab(
@@ -133,13 +190,24 @@ fun BousygramSectionTab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    accessibilityLabel: String = label
+    accessibilityLabel: String = label,
+    icon: BousygramIconRef? = null,
+    badgeCount: Int? = null,
+    iconOnly: Boolean = false,
+    tooltip: String? = accessibilityLabel,
+    tooltipDetail: String? = null,
+    tooltipPlacement: BousygramTooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW
 ) {
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
+    val spec = LocalBousygramDisplaySpec.current
     val motion = rememberBousygramMotionPolicy()
+    val tooltipState = rememberBousygramTooltipState()
     var focused by remember { mutableStateOf(false) }
+
     val highlight by animateColorAsState(
         targetValue = when {
+            active && focused -> colors.primaryContainer
             active -> colors.primaryContainer
             focused -> colors.surfaceContainerHighest
             else -> colors.surfaceContainerLow
@@ -150,36 +218,230 @@ fun BousygramSectionTab(
     val outline by animateColorAsState(
         targetValue = when {
             focused -> colors.primary
-            active -> colors.primary
-            else -> colors.outlineVariant
+            active -> halo.haloStart.copy(alpha = if (halo.isHighContrast) 1f else 0.72f)
+            else -> colors.outlineVariant.copy(alpha = 0.70f)
         },
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "sectionTabOutline"
     )
+    val contentColor = when {
+        active -> colors.onPrimaryContainer
+        focused -> colors.onSurface
+        else -> colors.onSurfaceVariant
+    }
+    val showLabel = !iconOnly || icon == null
+    val effectiveTooltipDetail = tooltipDetail ?: badgeCount?.let { "$it" }
+
     OutlinedButton(
-        onClick = onClick,
+        onClick = {
+            if (!isTv && iconOnly) {
+                tooltipState.flashSelection()
+            }
+            onClick()
+        },
         modifier = modifier
-            .heightIn(min = if (isTv) BousygramUiTokens.tvControlHeight
-                else BousygramUiTokens.compactControlHeight)
-            .semantics { selected = active; contentDescription = accessibilityLabel }
+            .defaultMinSize(
+                minWidth = if (iconOnly) {
+                    if (isTv) BousygramUiTokens.tvControlHeight else BousygramUiTokens.compactControlHeight
+                } else 1.dp,
+                minHeight = if (isTv) BousygramUiTokens.tvControlHeight
+                    else BousygramUiTokens.compactControlHeight
+            )
+            .heightIn(
+                min = if (isTv) BousygramUiTokens.tvControlHeight
+                    else BousygramUiTokens.compactControlHeight
+            )
+            .semantics {
+                selected = active
+                contentDescription = if (badgeCount != null) "$accessibilityLabel, $badgeCount"
+                    else accessibilityLabel
+            }
             .onFocusChanged { focused = it.isFocused },
         shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
         border = BorderStroke(
-            if (focused) BousygramUiTokens.tvFocusOutline else 1.dp,
-            outline
+            width = if (focused) BousygramUiTokens.tvFocusOutline else if (active) 1.5.dp else 1.dp,
+            color = outline
         ),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = highlight,
-            contentColor = if (active) colors.onPrimaryContainer else colors.onSurface
+            contentColor = contentColor
         ),
-        contentPadding = PaddingValues(horizontal = if (isTv) 20.dp else if (compact) 10.dp else 16.dp, vertical = 8.dp)
-    ) {
-        Text(
-            label,
-            style = if (isTv) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
-            fontWeight = if (active || focused) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+        contentPadding = PaddingValues(
+            horizontal = when {
+                iconOnly -> 12.dp
+                isTv -> 18.dp
+                compact -> 11.dp
+                else -> 14.dp
+            },
+            vertical = 8.dp
         )
+    ) {
+        BousygramTooltipBox(
+            tooltip = tooltip,
+            detail = effectiveTooltipDetail,
+            icon = icon,
+            focused = focused,
+            placement = tooltipPlacement,
+            dwellMs = if (iconOnly) 0L else BousygramUiTokens.tooltipDwellMs,
+            state = tooltipState
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (isTv) 8.dp else 6.dp)
+            ) {
+                if (icon != null) {
+                    BousygramIcon(
+                        icon = icon,
+                        contentDescription = null,
+                        tint = when {
+                            active -> colors.onPrimaryContainer
+                            focused -> colors.primary
+                            else -> colors.onSurfaceVariant
+                        },
+                        size = if (isTv) spec.iconSizeAction else 18.dp
+                    )
+                }
+                if (showLabel) {
+                    Text(
+                        text = label,
+                        style = if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge,
+                        fontWeight = if (active || focused) FontWeight.Bold else FontWeight.Medium,
+                        color = contentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (showLabel && badgeCount != null && badgeCount > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+                        color = if (active) colors.primary.copy(alpha = 0.22f)
+                            else colors.surfaceContainerHighest
+                    ) {
+                        Text(
+                            text = badgeCount.toString(),
+                            style = MaterialTheme.typography.labelSmall.tabular(),
+                            fontWeight = FontWeight.Bold,
+                            color = if (active) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Unified Cinema Halo icon button with built-in multi-input tooltip, guaranteed
+ * 48dp touch / 52-56dp TV focus targets, and high-visibility D-pad focus ring.
+ */
+@Composable
+fun BousygramIconButton(
+    icon: BousygramIconRef,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tooltip: String = contentDescription,
+    tooltipDetail: String? = null,
+    tooltipPlacement: BousygramTooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    emphasized: Boolean = false,
+    circular: Boolean = false,
+    minSize: Dp? = null,
+    iconSize: Dp? = null
+) {
+    val colors = MaterialTheme.colorScheme
+    val spec = LocalBousygramDisplaySpec.current
+    val motion = rememberBousygramMotionPolicy()
+    val tooltipState = rememberBousygramTooltipState()
+    var focused by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+
+    val targetSize = minSize ?: if (spec.isTv) spec.minControlHeight else BousygramUiTokens.touchTarget
+    val resolvedIconSize = iconSize ?: spec.iconSizeAction
+    val shape = if (circular) RoundedCornerShape(BousygramUiTokens.pillCorner)
+        else RoundedCornerShape(BousygramUiTokens.tabCorner)
+
+    val scale by animateFloatAsState(
+        targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
+        label = "iconBtnScale"
+    )
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            !enabled -> colors.surfaceContainerLow.copy(alpha = 0.45f)
+            emphasized -> colors.primary
+            selected -> colors.primaryContainer
+            focused -> colors.surfaceContainerHighest
+            else -> colors.surfaceContainerLow
+        },
+        animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
+        label = "iconBtnBg"
+    )
+    val tintColor = when {
+        !enabled -> colors.onSurface.copy(alpha = 0.38f)
+        emphasized -> colors.onPrimary
+        selected -> colors.onPrimaryContainer
+        focused -> colors.primary
+        else -> colors.onSurface
+    }
+    val borderColor = when {
+        focused -> colors.primary
+        selected -> colors.primary.copy(alpha = 0.72f)
+        emphasized -> Color.Transparent
+        else -> colors.outlineVariant.copy(alpha = 0.72f)
+    }
+
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = targetSize, minHeight = targetSize)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(shape)
+            .background(bgColor)
+            .border(
+                width = if (focused) BousygramUiTokens.tvFocusOutline else if (selected) 1.5.dp else 1.dp,
+                color = borderColor,
+                shape = shape
+            )
+            .semantics {
+                this.contentDescription = contentDescription
+                this.selected = selected
+            }
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(color = colors.primary),
+                enabled = enabled,
+                role = Role.Button,
+                onClick = {
+                    if (!spec.isTv) tooltipState.flashSelection()
+                    onClick()
+                }
+            )
+            .padding(10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        BousygramTooltipBox(
+            tooltip = tooltip,
+            detail = tooltipDetail,
+            icon = icon,
+            focused = focused,
+            placement = tooltipPlacement,
+            dwellMs = 0L,
+            state = tooltipState,
+            enabled = enabled
+        ) {
+            BousygramIcon(
+                icon = icon,
+                contentDescription = null,
+                tint = tintColor,
+                size = resolvedIconSize
+            )
+        }
     }
 }
