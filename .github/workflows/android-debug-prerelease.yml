@@ -114,6 +114,10 @@ jobs:
           sudo rm -rf -- /usr/share/dotnet /usr/local/share/powershell /opt/hostedtoolcache/CodeQL
           if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
 
+      - name: Retry external ATD emulator-image provisioning
+        shell: bash
+        run: bash tools/ci/provision_emulator_image.sh
+
       - name: Run Android UI and playback instrumentation
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
