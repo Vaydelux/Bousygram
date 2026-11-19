@@ -822,9 +822,12 @@ fun SettingsScreen(
                                                     tooltip = "Copy and share diagnostics report",
                                                     modifier = if (adaptive.isCompact) Modifier.fillMaxWidth() else Modifier,
                                                     onClick = {
-                                                        clipboard?.setPrimaryClip(
-                                                            ClipData.newPlainText("Bousygram Diagnostics", diagnosticsText)
-                                                        )
+                                                        val copied = runCatching {
+                                                            clipboard?.setPrimaryClip(
+                                                                ClipData.newPlainText("Bousygram Diagnostics", diagnosticsText)
+                                                            )
+                                                            clipboard != null
+                                                        }.getOrDefault(false)
                                                         val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                                             putExtra(Intent.EXTRA_TEXT, diagnosticsText)
                                                             type = "text/plain"
@@ -837,8 +840,11 @@ fun SettingsScreen(
                                                         }.getOrDefault(false)
                                                         Toast.makeText(
                                                             context,
-                                                            if (shared) "Diagnostics ready to share"
-                                                            else "Diagnostics copied; no sharing app is available",
+                                                            when {
+                                                                shared -> "Diagnostics ready to share"
+                                                                copied -> "Diagnostics copied; no sharing app is available"
+                                                                else -> "No clipboard or sharing app is available"
+                                                            },
                                                             Toast.LENGTH_SHORT
                                                         ).show()
                                                     }
