@@ -532,7 +532,6 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     },
                     modifier = Modifier.padding(padding),
                     compact = metrics.isCompact,
-                    shortViewport = detailLayout.tightSpacing,
                     isAndroidTv = isAndroidTv,
                     layout = detailLayout,
                     primaryActionFocus = detailActionFocus)
@@ -1205,7 +1204,7 @@ private fun ExtrasDropdown(label: String, options: List<String>, onSelect: (Int)
 }
 
 @Composable
-private fun ExtrasDetailContent(
+internal fun ExtrasDetailContent(
     info: ExtrasDetail,
     episodes: List<ExtrasEpisode>,
     selectedSeason: Int?,
@@ -1219,7 +1218,6 @@ private fun ExtrasDetailContent(
     onOpenItem: (ExtrasItem) -> Unit,
     modifier: Modifier,
     compact: Boolean,
-    shortViewport: Boolean,
     isAndroidTv: Boolean,
     layout: ExtrasDetailLayout,
     primaryActionFocus: FocusRequester
@@ -1252,7 +1250,7 @@ private fun ExtrasDetailContent(
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val inline = layout.metadataInline &&
                     maxWidth >= layout.posterWidth + 176.dp
-                val artwork = @Composable {
+                val artwork: @Composable () -> Unit = {
                     ExtrasPosterArtwork(
                         url = info.item.poster, contentDescription = info.item.title,
                         modifier = Modifier.width(layout.posterWidth)
@@ -1267,12 +1265,12 @@ private fun ExtrasDetailContent(
                         horizontalArrangement = Arrangement.spacedBy(if (layout.tightSpacing) 12.dp else 18.dp)
                     ) {
                         artwork()
-                        Column(Modifier.weight(1f)) { DetailText(info, showSynopsis = false) }
+                        Column(Modifier.weight(1f)) { DetailText(info) }
                     }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         artwork()
-                        DetailText(info, showSynopsis = false)
+                        DetailText(info)
                     }
                 }
             }
@@ -1537,7 +1535,7 @@ private fun ExtrasDetailContent(
                 style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(info.cast.take(30), key = { "${it.name}:${it.role}" }) { person ->
+                    items(info.cast, key = { "${it.name}:${it.role}" }) { person ->
                         Column(
                             Modifier.width(layout.castCardWidth)
                                 .extrasFocusOutline()
@@ -1561,7 +1559,7 @@ private fun ExtrasDetailContent(
         if (info.reviews.isNotEmpty()) {
             item { Text("Community Reviews", style = MaterialTheme.typography.titleMedium) }
             itemsIndexed(
-                info.reviews.take(16), key = { index, _ -> "review:$index" }
+                info.reviews, key = { index, _ -> "review:$index" }
             ) { _, review ->
                 ExtrasReviewCard(
                     review = review,
@@ -1590,7 +1588,7 @@ private fun ExtrasDetailContent(
 }
 
 @Composable
-private fun DetailText(info: ExtrasDetail, showSynopsis: Boolean = true) {
+private fun DetailText(info: ExtrasDetail) {
     val halo = LocalBousygramHaloColors.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
@@ -1644,8 +1642,7 @@ private fun DetailText(info: ExtrasDetail, showSynopsis: Boolean = true) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
-        if (showSynopsis) ExtrasSynopsis(info.description, compact = false)
-    }
+     }
 }
 
 /** Keep long descriptions from pushing the primary playback action offscreen. */
