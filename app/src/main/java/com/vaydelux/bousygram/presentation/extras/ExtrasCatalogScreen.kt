@@ -1663,6 +1663,7 @@ private fun DetailText(info: ExtrasDetail) {
 internal fun ExtrasSynopsis(description: String, compact: Boolean) {
     val text = description.ifBlank { "No description is available for this title." }
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
+    var hasMore by remember(text, compact) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text,
@@ -1670,9 +1671,14 @@ internal fun ExtrasSynopsis(description: String, compact: Boolean) {
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = if (expanded) Int.MAX_VALUE else if (compact) 2 else 4,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.testTag("extras-synopsis-text")
+            modifier = Modifier.testTag("extras-synopsis-text"),
+            onTextLayout = { measured ->
+                if (!expanded && hasMore != measured.hasVisualOverflow) {
+                    hasMore = measured.hasVisualOverflow
+                }
+            }
         )
-        if (text.length > 145) {
+        if (hasMore) {
             TextButton(
                 onClick = { expanded = !expanded },
                 modifier = Modifier.extrasFocusOutline().testTag("extras-synopsis-toggle")
