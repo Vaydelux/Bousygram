@@ -1537,9 +1537,16 @@ private fun ExtrasDetailContent(
                 style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(info.cast) { person ->
-                        Column(Modifier.width(110.dp)) {
-                            AsyncImage(model = person.portrait, contentDescription = person.name,
+                    items(info.cast.take(30), key = { "${it.name}:${it.role}" }) { person ->
+                        Column(
+                            Modifier.width(layout.castCardWidth)
+                                .extrasFocusOutline()
+                                .focusable()
+                                .semantics { contentDescription = "${person.name}, ${person.role}" }
+                                .testTag("extras-cast-person"),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            AsyncImage(model = person.portrait, contentDescription = null,
                                 modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                                 contentScale = ContentScale.Fit)
                             Text(person.name, style = MaterialTheme.typography.labelMedium,
@@ -1553,13 +1560,13 @@ private fun ExtrasDetailContent(
         }
         if (info.reviews.isNotEmpty()) {
             item { Text("Community Reviews", style = MaterialTheme.typography.titleMedium) }
-            items(info.reviews) { review ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(review.author + if (review.score.isNotBlank()) " · ${review.score}" else "",
-                        fontWeight = FontWeight.SemiBold)
-                    Text(review.content, style = MaterialTheme.typography.bodyMedium, maxLines = 8,
-                        overflow = TextOverflow.Ellipsis)
-                }
+            itemsIndexed(
+                info.reviews.take(16), key = { index, _ -> "review:$index" }
+            ) { _, review ->
+                ExtrasReviewCard(
+                    review = review,
+                    collapsedLines = layout.reviewCollapsedLines
+                )
             }
         }
         if (info.related.isNotEmpty()) {
@@ -1567,7 +1574,9 @@ private fun ExtrasDetailContent(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(info.related, key = { "${it.type}:${it.id}" }) { item ->
-                        Box(Modifier.width(148.dp)) { ExtrasPosterCard(item) { onOpenItem(item) } }
+                        Box(Modifier.width(layout.relatedCardWidth)) {
+                            ExtrasPosterCard(item) { onOpenItem(item) }
+                        }
                     }
                 }
             }
@@ -1581,11 +1590,17 @@ private fun ExtrasDetailContent(
 }
 
 @Composable
-private fun DetailText(info: ExtrasDetail) {
+private fun DetailText(info: ExtrasDetail, showSynopsis: Boolean = true) {
     val halo = LocalBousygramHaloColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(info.item.title, style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            info.item.title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1615,14 +1630,43 @@ private fun DetailText(info: ExtrasDetail) {
                 )
             }
         }
-        if (info.genres.isNotEmpty()) Text(info.genres.joinToString(" · "),
+        if (info.genres.isNotEmpty()) Text(
+            info.genres.joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (info.facts.isNotEmpty()) Text(info.facts.joinToString(" · "),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (info.facts.isNotEmpty()) Text(
+            info.facts.joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(info.description.ifBlank { "No description is available for this title." },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (showSynopsis) ExtrasSynopsis(info.description, compact = false)
+    }
+}
+
+/** Keep long descriptions from pushing the primary playback action offscreen. */
+@Composable
+internal fun ExtrasSynopsis(description: String, compact: Boolean) {
+    val text = description.ifBlank { "No description is available for this title." }
+    var expanded by rememberSaveable(text) { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface)
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = if (expanded) Int.MAX_VALUE else if (compact) 2 else 4,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.testTag("extras-synopsis-text")
+        )
+        if (text.length > 145) {
+            TextButton(
+                onClick = { expanded = !expanded },
+                modifier = Modifier.extrasFocusOutline().testTag("extras-synopsis-toggle")
+            ) { Text(if (expanded) "Show less" else "Read full synopsis") }
+        }
     }
 }
