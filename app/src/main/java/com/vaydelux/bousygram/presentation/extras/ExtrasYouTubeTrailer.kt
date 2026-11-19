@@ -137,13 +137,16 @@ internal fun ExtrasYouTubeTrailer(
     if (!ExtrasTrailerPolicy.isYoutubeVideoId(videoId)) return
     val context = LocalContext.current
     if (ExtrasTrailerPolicy.playbackMode(isAndroidTv) == TrailerMode.NATIVE_YOUTUBE_TV) {
-        Button(onClick = {
+        Button(
+            onClick = {
             if (!launchYouTubeTrailer(context, videoId)) {
                 android.widget.Toast.makeText(context,
                     "Unable to open YouTube. Install YouTube TV or a browser.",
                     android.widget.Toast.LENGTH_LONG).show()
             }
-        }) { Text("▶ Watch trailer in YouTube TV") }
+            },
+            modifier = Modifier.extrasFocusOutline()
+        ) { Text("Watch trailer in YouTube TV") }
         return
     }
 
@@ -154,7 +157,10 @@ internal fun ExtrasYouTubeTrailer(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Official YouTube trailer", style = MaterialTheme.typography.titleMedium)
         if (!showEmbed) {
-            Button(onClick = { showEmbed = true }) {
+            Button(
+                onClick = { showEmbed = true },
+                modifier = Modifier.extrasFocusOutline()
+            ) {
                 Text("▶ Play trailer here")
             }
         } else {
@@ -211,7 +217,10 @@ internal fun ExtrasYouTubeTrailer(
                     update = {}
                 )
             }
-            OutlinedButton(onClick = { showEmbed = false }) { Text("Close embedded player") }
+            OutlinedButton(
+                onClick = { showEmbed = false },
+                modifier = Modifier.extrasFocusOutline()
+            ) { Text("Close embedded player") }
         }
         OutlinedButton(onClick = {
             val url = ExtrasTrailerPolicy.watchUrl(videoId)
@@ -228,6 +237,8 @@ internal fun ExtrasYouTubeTrailer(
                         android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
-        }) { Text("Open in YouTube instead") }
+        }, modifier = Modifier.extrasFocusOutline()) {
+            Text("Open in YouTube instead")
+        }
     }
 }
