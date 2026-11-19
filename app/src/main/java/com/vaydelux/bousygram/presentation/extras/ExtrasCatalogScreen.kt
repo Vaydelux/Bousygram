@@ -421,11 +421,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (compactPhoneWindow) {
+                    if (compactPhoneWindow || (detailItem != null && metrics.isCompact)) {
                         BousygramIconButton(
                             icon = BousygramIcons.Back,
                             contentDescription = "Back",
-                            tooltip = "Back to previous screen",
+                            tooltip = if (detailItem != null) "Back to Extras catalog"
+                                else "Back to mode selection",
                             onClick = {
                                 if (detailItem != null) goBackFromDetails() else onExit()
                             }
