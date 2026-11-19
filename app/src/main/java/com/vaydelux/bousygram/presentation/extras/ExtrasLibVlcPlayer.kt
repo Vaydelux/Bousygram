@@ -61,6 +61,7 @@ import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
 import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.tabular
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramPlaybackPalette
 import androidx.compose.runtime.Composable
@@ -1065,12 +1066,12 @@ internal fun ExtrasLibVlcPlayer(
                         Modifier.fillMaxWidth()
                             .background(
                                 cinemaPanelBg,
-                                RoundedCornerShape(BousygramUiTokens.cardCorner)
+                                RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner)
                             )
                             .border(
                                 1.dp,
                                 cinemaPanelBorder,
-                                RoundedCornerShape(BousygramUiTokens.cardCorner)
+                                RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner)
                             )
                             .padding(12.dp)
                             .testTag("extras-libvlc-diagnostics"),
@@ -1155,7 +1156,7 @@ private fun ExtrasVlcAction(
 ) {
     var focused by remember { mutableStateOf(false) }
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
+    val shape = RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner)
     val playbackPalette = rememberBousygramPlaybackPalette()
     val cinemaAccent = playbackPalette.played
     val cinemaFocusRing = playbackPalette.focusRing
