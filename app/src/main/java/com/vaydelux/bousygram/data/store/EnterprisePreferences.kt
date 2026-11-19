@@ -182,6 +182,14 @@ object EnterprisePreferences {
     fun backdropPatternId(): String = prefs.getString(KEY_VISUAL_BACKDROP_PATTERN, "ambient_halo") ?: "ambient_halo"
     fun setBackdropPatternId(value: String) = prefs.edit { putString(KEY_VISUAL_BACKDROP_PATTERN, value) }
 
+    /** Persist an entire curated look in one preferences transaction. */
+    fun setVisualAppearance(themeId: String, designStyleId: String, backdropPatternId: String) =
+        prefs.edit {
+            putString(KEY_VISUAL_THEME, themeId)
+            putString(KEY_VISUAL_DESIGN_STYLE, designStyleId)
+            putString(KEY_VISUAL_BACKDROP_PATTERN, backdropPatternId)
+        }
+
     fun safeMode(): Boolean = prefs.getBoolean(KEY_SAFE_MODE, false)
     fun setSafeMode(value: Boolean) = prefs.edit { putBoolean(KEY_SAFE_MODE, value) }
 
@@ -296,6 +304,8 @@ object EnterprisePreferences {
         appendLine("Subtitles default: ${subtitlesDefault()}")
         appendLine("Privacy mode: ${safeMode()}")
         appendLine("Visual theme: ${visualThemeId()}")
+        appendLine("Design style: ${designStyleId()}")
+        appendLine("Background pattern: ${backdropPatternId()}")
         appendLine("Hide watched: ${hideWatched()}")
         appendLine("Favorites: ${favoriteKeys().size}")
         appendLine("Pinned chats: ${pinnedChatIds().size}")
@@ -317,6 +327,8 @@ object EnterprisePreferences {
         .put("continueOnly", hideWatched())
         .put("safeMode", safeMode())
         .put("visualTheme", visualThemeId())
+        .put("visualDesignStyle", designStyleId())
+        .put("visualBackdropPattern", backdropPatternId())
         .put("autoPlayNext", autoPlayNext())
         .put("subtitlesDefault", subtitlesDefault())
         .put("preferredSpeed", preferredSpeed().toDouble())
@@ -347,6 +359,8 @@ object EnterprisePreferences {
                 settings.speed?.let { putFloat(KEY_SPEED, it) }
                 settings.bufferMode?.let { putString(KEY_BUFFER_MODE, it.name) }
                 settings.visualTheme?.let { putString(KEY_VISUAL_THEME, it) }
+                settings.visualDesignStyle?.let { putString(KEY_VISUAL_DESIGN_STYLE, it) }
+                settings.visualBackdropPattern?.let { putString(KEY_VISUAL_BACKDROP_PATTERN, it) }
                 // Legacy EQ fields from old settings files are ignored.
                 remove(KEY_AUDIO_EQ_PRESET)
                 remove(KEY_AUDIO_CUSTOM_GAINS)
