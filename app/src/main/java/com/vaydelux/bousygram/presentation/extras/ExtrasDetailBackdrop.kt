@@ -26,12 +26,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.core.media.PlayerBufferConfig
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 
 /**
  * Detail hero uses backdrop metadata already returned by the TMDB/AniList
@@ -43,7 +45,8 @@ internal fun ExtrasDetailBackdrop(
     info: ExtrasDetail,
     compact: Boolean,
     shortViewport: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    heightOverride: Dp? = null
 ) {
     val url = info.backdrop?.takeIf { it.isNotBlank() } ?: return
     val context = LocalContext.current
@@ -61,10 +64,10 @@ internal fun ExtrasDetailBackdrop(
     }
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(BousygramUiTokens.panelCorner)
+    val shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner)
     Box(
         modifier = modifier.fillMaxWidth()
-            .height(if (shortViewport) 118.dp else if (compact) 164.dp else 218.dp)
+            .height(heightOverride ?: if (shortViewport) 118.dp else if (compact) 164.dp else 218.dp)
             .clip(shape)
             .background(colors.surfaceContainerLow)
             .border(1.dp, halo.glassBorder, shape)
@@ -101,15 +104,19 @@ internal fun ExtrasDetailBackdrop(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
-            Text(
-                info.item.title,
-                style = if (shortViewport) MaterialTheme.typography.titleMedium
-                    else MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = colors.onBackground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            // Mobile metadata repeats the full title immediately below in
+            // the accessible overview. Avoid a second oversized title here.
+            if (!compact) {
+                Text(
+                    info.item.title,
+                    style = if (shortViewport) MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
