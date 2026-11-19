@@ -93,7 +93,7 @@ fun BousygramDesignStyleGallery(
     val metrics = rememberAdaptiveMetrics()
     val colors = MaterialTheme.colorScheme
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val columns = (maxWidth / (164.dp * metrics.fontScale.coerceIn(1f, 2f))).toInt().coerceIn(2, 4)
+        val columns = (maxWidth / (164.dp * metrics.fontScale.coerceIn(1f, 2f))).toInt().coerceIn(1, 4)
         Column(
             modifier = Modifier.fillMaxWidth().testTag("bousygram-design-style-gallery"),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -258,7 +258,7 @@ fun BousygramBackdropGallery(
     val metrics = rememberAdaptiveMetrics()
     val colors = MaterialTheme.colorScheme
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val columns = (maxWidth / (132.dp * metrics.fontScale.coerceIn(1f, 2f))).toInt().coerceIn(2, 4)
+        val columns = (maxWidth / (132.dp * metrics.fontScale.coerceIn(1f, 2f))).toInt().coerceIn(1, 4)
         Column(
             modifier = Modifier.fillMaxWidth().testTag("bousygram-backdrop-gallery"),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -365,7 +365,7 @@ fun BousygramThemeGallery(
 ) {
     val metrics = rememberAdaptiveMetrics()
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val columns = (maxWidth / (108.dp * metrics.fontScale.coerceIn(1f, 2f))).toInt().coerceIn(2, 4)
+        val columns = (maxWidth / (108.dp * metrics.fontScale.coerceIn(1f, 2f))).toInt().coerceIn(1, 4)
         val compactCard = columns >= 3 && !metrics.isTv
         Column(
             modifier = Modifier.fillMaxWidth().testTag("bousygram-theme-gallery"),

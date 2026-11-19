@@ -182,6 +182,14 @@ object EnterprisePreferences {
     fun backdropPatternId(): String = prefs.getString(KEY_VISUAL_BACKDROP_PATTERN, "ambient_halo") ?: "ambient_halo"
     fun setBackdropPatternId(value: String) = prefs.edit { putString(KEY_VISUAL_BACKDROP_PATTERN, value) }
 
+    /** Persist an entire curated look in one preferences transaction. */
+    fun setVisualAppearance(themeId: String, designStyleId: String, backdropPatternId: String) =
+        prefs.edit {
+            putString(KEY_VISUAL_THEME, themeId)
+            putString(KEY_VISUAL_DESIGN_STYLE, designStyleId)
+            putString(KEY_VISUAL_BACKDROP_PATTERN, backdropPatternId)
+        }
+
     fun safeMode(): Boolean = prefs.getBoolean(KEY_SAFE_MODE, false)
     fun setSafeMode(value: Boolean) = prefs.edit { putBoolean(KEY_SAFE_MODE, value) }
 
@@ -296,6 +304,8 @@ object EnterprisePreferences {
         appendLine("Subtitles default: ${subtitlesDefault()}")
         appendLine("Privacy mode: ${safeMode()}")
         appendLine("Visual theme: ${visualThemeId()}")
+        appendLine("Design style: ${designStyleId()}")
+        appendLine("Background pattern: ${backdropPatternId()}")
         appendLine("Hide watched: ${hideWatched()}")
         appendLine("Favorites: ${favoriteKeys().size}")
         appendLine("Pinned chats: ${pinnedChatIds().size}")
@@ -307,23 +317,39 @@ object EnterprisePreferences {
         appendLine("Playback telemetry: ${com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder.summary()}")
     }
 
-    fun exportSettingsJson(): String = JSONObject()
-        .put("version", 1)
-        .put("accountId", AccountSession.current()?.accountId ?: JSONObject.NULL)
-        .put("favorites", JSONArray(favoriteKeys().toList()))
-        .put("pinnedChats", JSONArray(pinnedChatIds().map { it.toString() }))
-        .put("recentQueries", JSONArray(recentQueries()))
-        .put("lastPlayed", privatePrefs()?.getString(KEY_LAST_PLAYED, "").orEmpty())
-        .put("continueOnly", hideWatched())
-        .put("safeMode", safeMode())
-        .put("visualTheme", visualThemeId())
-        .put("autoPlayNext", autoPlayNext())
-        .put("subtitlesDefault", subtitlesDefault())
-        .put("preferredSpeed", preferredSpeed().toDouble())
-        .put("audioSmartVolume", audioProcessingProfile().smartVolume.name)
-        .put("bufferMode", bufferMode().name)
-        .put("cacheLimit", cacheLimitOption().name)
-        .toString(2)
+    /** Backups from Extras-only mode contain only public device preferences.
+     * Private Telegram data is included only for a stable, verified account.
+     */
+    fun exportSettingsJson(): String {
+        val result = JSONObject()
+            .put("version", 1)
+            .put("continueOnly", hideWatched())
+            .put("safeMode", safeMode())
+            .put("visualTheme", visualThemeId())
+            .put("visualDesignStyle", designStyleId())
+            .put("visualBackdropPattern", backdropPatternId())
+            .put("autoPlayNext", autoPlayNext())
+            .put("subtitlesDefault", subtitlesDefault())
+            .put("preferredSpeed", preferredSpeed().toDouble())
+            .put("audioSmartVolume", audioProcessingProfile().smartVolume.name)
+            .put("bufferMode", bufferMode().name)
+
+        val owner = AccountSession.current()
+        if (owner != null) {
+            check(AccountSession.isCurrent(owner)) { "Telegram account changed while exporting settings" }
+            val favorites = favoriteKeys().toList()
+            val pinned = pinnedChatIds().map { it.toString() }
+            val queries = recentQueries()
+            val playback = accountPrefs(owner).getString(KEY_LAST_PLAYED, "").orEmpty()
+            check(AccountSession.isCurrent(owner)) { "Telegram account changed while exporting settings" }
+            result.put("accountId", owner.accountId)
+                .put("favorites", JSONArray(favorites))
+                .put("pinnedChats", JSONArray(pinned))
+                .put("recentQueries", JSONArray(queries))
+                .put("lastPlayed", playback)
+        }
+        return result.toString(2)
+    }
 
     fun importSettingsJson(json: String): Result<Unit> = runCatching {
         val owner = AccountSession.current()
@@ -347,6 +373,8 @@ object EnterprisePreferences {
                 settings.speed?.let { putFloat(KEY_SPEED, it) }
                 settings.bufferMode?.let { putString(KEY_BUFFER_MODE, it.name) }
                 settings.visualTheme?.let { putString(KEY_VISUAL_THEME, it) }
+                settings.visualDesignStyle?.let { putString(KEY_VISUAL_DESIGN_STYLE, it) }
+                settings.visualBackdropPattern?.let { putString(KEY_VISUAL_BACKDROP_PATTERN, it) }
                 // Legacy EQ fields from old settings files are ignored.
                 remove(KEY_AUDIO_EQ_PRESET)
                 remove(KEY_AUDIO_CUSTOM_GAINS)

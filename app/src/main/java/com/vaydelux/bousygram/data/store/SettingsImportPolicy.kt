@@ -16,11 +16,27 @@ internal data class SettingsImport(
     val audioEqualizer: AudioEqualizerPreset? = null,
     val audioCustomGains: List<Float>? = null,
     val audioCustomLayout: CustomEqualizerLayout? = null,
-    val audioSmartVolume: SmartVolumeMode? = null
+    val audioSmartVolume: SmartVolumeMode? = null,
+    val visualDesignStyle: String? = null,
+    val visualBackdropPattern: String? = null
 )
 
 internal object SettingsImportPolicy {
     private val privateFields = setOf("favorites", "pinnedChats", "recentQueries", "lastPlayed")
+    // Keep these backup IDs compatible with the shipped appearance presets.
+    private val themeIds = setOf(
+        "dark", "aurora", "obsidian", "evergreen", "ember", "high_contrast",
+        "light", "ocean", "plum", "ivory", "sakura", "matcha",
+        "cotton_candy", "material_you", "cupertino", "midnight_glass",
+        "midnight", "sunset" // Legacy backup aliases
+    )
+    private val designStyleIds = setOf(
+        "cinema_halo", "material_expressive", "iphone_glass", "cozy_kawaii"
+    )
+    private val backdropIds = setOf(
+        "ambient_halo", "dot_matrix", "geometric_grid", "topo_waves",
+        "ios_mesh", "cutesy_kawaii", "cutesy_paws"
+    )
     fun parse(json: String, accountId: Long?): SettingsImport {
         require(json.length <= 65_536) { "Settings document exceeds 64 KiB" }
         val obj = JSONObject(json)
@@ -70,9 +86,17 @@ internal object SettingsImportPolicy {
             require(it.isFinite() && it in 0.25f..3f) { "Playback speed must be between 0.25 and 3" }
         } else null
         val mode = if (obj.has("bufferMode")) BufferMode.valueOf(obj.getString("bufferMode")) else null
-        val theme = if (obj.has("visualTheme")) obj.getString("visualTheme").also {
-            require(it in setOf("midnight", "aurora", "ocean", "sunset")) { "Unknown visual theme" }
-        } else null
+        fun appearanceId(name: String, allowed: Set<String>): String? {
+            if (!obj.has(name)) return null
+            val id = obj.get(name)
+            require(id is String && id in allowed) { "Unknown $name" }
+            return id
+        }
+        val theme = appearanceId("visualTheme", themeIds)?.let { id ->
+            if (id == "sunset") "ember" else id
+        }
+        val designStyle = appearanceId("visualDesignStyle", designStyleIds)
+        val backdrop = appearanceId("visualBackdropPattern", backdropIds)
         val eq = if (obj.has("audioEqPreset")) {
             val raw = obj.get("audioEqPreset")
             require(raw is String) { "Invalid equalizer preset" }
@@ -93,6 +117,7 @@ internal object SettingsImportPolicy {
         val smart = if (obj.has("audioSmartVolume"))
             SmartVolumeMode.valueOf(obj.getString("audioSmartVolume")) else null
         return SettingsImport(favorites, pinned, recent, last, bool("continueOnly"), bool("safeMode"),
-            bool("autoPlayNext"), bool("subtitlesDefault"), speed, mode, theme, eq, gains, layout, smart)
+            bool("autoPlayNext"), bool("subtitlesDefault"), speed, mode, theme, eq, gains, layout, smart,
+            designStyle, backdrop)
     }
 }

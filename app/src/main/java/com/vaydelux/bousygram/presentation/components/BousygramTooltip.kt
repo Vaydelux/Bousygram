@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -184,33 +185,37 @@ fun BousygramTooltipBox(
                             .widthIn(max = spec.tooltipMaxWidth)
                             .clearAndSetSemantics { testTag = "bousygram-tooltip-popup" }
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            if (icon != null) {
-                                BousygramIcon(
-                                    icon = icon,
-                                    contentDescription = null,
-                                    tint = tooltipIconTint,
-                                    size = 14.dp
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (icon != null) {
+                                    BousygramIcon(
+                                        icon = icon,
+                                        contentDescription = null,
+                                        tint = tooltipIconTint,
+                                        size = 14.dp
+                                    )
+                                }
+                                Text(
+                                    text = tooltip,
+                                    color = halo.tooltipContent,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            Text(
-                                text = tooltip,
-                                color = halo.tooltipContent,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
                             if (!detail.isNullOrBlank()) {
                                 Text(
-                                    text = "· $detail",
-                                    color = halo.tooltipContent.copy(alpha = 0.78f),
+                                    text = detail,
+                                    color = halo.tooltipContent.copy(alpha = 0.84f),
                                     style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
+                                    maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }

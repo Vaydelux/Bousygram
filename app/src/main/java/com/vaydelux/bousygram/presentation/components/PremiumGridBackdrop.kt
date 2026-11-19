@@ -210,7 +210,12 @@ private fun Modifier.drawBackdropPattern(
             BousygramBackdropPattern.DOT_MATRIX -> {
                 drawRect(primaryGlow)
                 drawRect(secondaryGlow)
-                val step = if (previewBoost) 9.dp.toPx() else 28.dp.toPx()
+                // Bound primitive count on 4K screens and high-density phones.
+                // Draw calls grow with area; cap density without retaining bitmaps.
+                val step = boundedBackdropPitch(
+                    w, h, if (previewBoost) 9.dp.toPx() else 28.dp.toPx(),
+                    if (previewBoost) 140 else 700
+                )
                 val radius = if (previewBoost) 1.35.dp.toPx() else 1.55.dp.toPx()
                 val baseAlpha = if (previewBoost) 0.34f else if (light) 0.11f else 0.14f
                 val dotPrimary = primary.copy(alpha = baseAlpha)
@@ -237,7 +242,10 @@ private fun Modifier.drawBackdropPattern(
             BousygramBackdropPattern.GEOMETRIC_GRID -> {
                 drawRect(primaryGlow)
                 drawRect(secondaryGlow)
-                val pitch = if (previewBoost) 14.dp.toPx() else 44.dp.toPx()
+                val pitch = boundedBackdropPitch(
+                    w, h, if (previewBoost) 14.dp.toPx() else 44.dp.toPx(),
+                    if (previewBoost) 100 else 320
+                )
                 val lineAlpha = if (previewBoost) 0.26f else if (light) 0.075f else 0.095f
                 val strokePx = if (previewBoost) 0.85.dp.toPx() else 0.9.dp.toPx()
                 val lineColor = halo.haloStart.copy(alpha = lineAlpha)
@@ -506,4 +514,21 @@ private fun DrawScope.drawCutePawPrint(
             )
         }
     }
+}
+
+/**
+ * Scale decorative Canvas spacing with viewport area. The limit bounds the
+ * approximate grid-cell count so 32-bit TVs do not issue thousands of tiny
+ * draw calls on every focus/recomposition frame.
+ */
+internal fun boundedBackdropPitch(
+    widthPx: Float,
+    heightPx: Float,
+    preferredPitchPx: Float,
+    maxCells: Int
+): Float {
+    require(maxCells > 0) { "maxCells must be positive" }
+    val area = widthPx.coerceAtLeast(0f) * heightPx.coerceAtLeast(0f)
+    val areaPitch = kotlin.math.sqrt(area / maxCells)
+    return maxOf(preferredPitchPx.coerceAtLeast(1f), areaPitch)
 }

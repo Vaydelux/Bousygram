@@ -358,7 +358,10 @@ internal fun TelegramExplorerCompactHeader(
             )
             Row(
                 modifier = Modifier.weight(1f)
-                    .horizontalScroll(rememberScrollState())
+                    // Compact widths must keep all three primary sections
+                    // visible; requiring sideways scrolling hides Groups
+                    // from both first-time users and 10-ft remote navigation.
+                    .then(if (compactTabs) Modifier else Modifier.horizontalScroll(rememberScrollState()))
                     .testTag("telegram-library-source-tabs"),
                 horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing),
                 verticalAlignment = Alignment.CenterVertically
@@ -389,7 +392,7 @@ internal fun TelegramExplorerCompactHeader(
                         label = displayLabel,
                         active = isSelected,
                         compact = compactTabs,
-                        icon = tabIcon,
+                        icon = if (compactTabs) null else tabIcon,
                         badgeCount = if (showCounts) count else null,
                         iconOnly = false,
                         accessibilityLabel = fullName,
@@ -399,7 +402,10 @@ internal fun TelegramExplorerCompactHeader(
                         isTv = isTv,
                         onClick = { if (entry != section) onSelectTab(entry) },
                         modifier = Modifier
-                            .widthIn(min = if (isTv) 132.dp else if (compactTabs) 82.dp else 104.dp)
+                            .then(
+                                if (compactTabs) Modifier.weight(1f)
+                                else Modifier.widthIn(min = if (isTv) 132.dp else 104.dp)
+                            )
                             .testTag("telegram-library-tab-" + entry.name.lowercase())
                     )
                 }

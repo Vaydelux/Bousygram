@@ -242,12 +242,13 @@ fun SettingsScreen(
                                     activeStyle = designStyle,
                                     activePattern = backdropPattern,
                                     onApplyLook = { look ->
+                                        // Save the complete look before updating Compose state.
+                                        EnterprisePreferences.setVisualAppearance(
+                                            look.preset.id, look.style.id, look.pattern.id
+                                        )
                                         onThemePresetChange(look.preset)
-                                        EnterprisePreferences.setVisualThemeId(look.preset.id)
                                         onDesignStyleChange(look.style)
-                                        EnterprisePreferences.setDesignStyleId(look.style.id)
                                         onBackdropPatternChange(look.pattern)
-                                        EnterprisePreferences.setBackdropPatternId(look.pattern.id)
                                     }
                                 )
                             }
@@ -698,37 +699,8 @@ fun SettingsScreen(
                                             )
                                         }
 
-                                        // Player Engine Switcher
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            Text(
-                                                "Playback Engine",
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                "Select player engine without restarting",
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
-                                            Spacer(Modifier.height(6.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth()
-                                                    .horizontalScroll(rememberScrollState()),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                EnterprisePreferences.supportedPlayerEngines().forEach { engine ->
-                                                    BousygramChip(
-                                                        text = engine.label,
-                                                        selected = playerEngine == engine,
-                                                        onClick = {
-                                                            playerEngine = engine
-                                                            EnterprisePreferences.setSelectedPlayerEngine(engine)
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        // Playback engine is already configured above.
+                                        // Avoid duplicate controls and D-pad focus stops.
 
                                         // Surface Type Switcher
                                         Column(modifier = Modifier.fillMaxWidth()) {
@@ -850,17 +822,31 @@ fun SettingsScreen(
                                                     tooltip = "Copy and share diagnostics report",
                                                     modifier = if (adaptive.isCompact) Modifier.fillMaxWidth() else Modifier,
                                                     onClick = {
-                                                        clipboard?.setPrimaryClip(
-                                                            ClipData.newPlainText("Bousygram Diagnostics", diagnosticsText)
-                                                        )
+                                                        val copied = runCatching {
+                                                            clipboard?.setPrimaryClip(
+                                                                ClipData.newPlainText("Bousygram Diagnostics", diagnosticsText)
+                                                            )
+                                                            clipboard != null
+                                                        }.getOrDefault(false)
                                                         val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                                             putExtra(Intent.EXTRA_TEXT, diagnosticsText)
                                                             type = "text/plain"
                                                         }
                                                         val chooser = Intent.createChooser(sendIntent, "Export diagnostics")
                                                         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                        context.startActivity(chooser)
-                                                        Toast.makeText(context, "Diagnostics copied to clipboard", Toast.LENGTH_SHORT).show()
+                                                        val shared = runCatching {
+                                                            context.startActivity(chooser)
+                                                            true
+                                                        }.getOrDefault(false)
+                                                        Toast.makeText(
+                                                            context,
+                                                            when {
+                                                                shared -> "Diagnostics ready to share"
+                                                                copied -> "Diagnostics copied; no sharing app is available"
+                                                                else -> "No clipboard or sharing app is available"
+                                                            },
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
                                                     }
                                                 )
                                             }

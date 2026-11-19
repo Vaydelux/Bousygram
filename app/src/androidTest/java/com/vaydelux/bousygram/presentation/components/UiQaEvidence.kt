@@ -4,7 +4,8 @@ import android.graphics.Bitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
-import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onFirst
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
@@ -22,7 +23,9 @@ internal fun writeUiEvidence(rule: ComposeContentTestRule, name: String) {
     check(directory.isDirectory || directory.mkdirs()) { "Cannot create UI evidence folder" }
     val file = File(directory, "$name.png")
     FileOutputStream(file).use { output ->
-        check(rule.onRoot().captureToImage().asAndroidBitmap()
+        // Dropdowns and tooltips can create additional Compose popup roots.
+        // Capture the primary app root rather than requiring a unique root.
+        check(rule.onAllNodes(isRoot()).onFirst().captureToImage().asAndroidBitmap()
             .compress(Bitmap.CompressFormat.PNG, 100, output)) {
             "Could not capture Compose screenshot"
         }
