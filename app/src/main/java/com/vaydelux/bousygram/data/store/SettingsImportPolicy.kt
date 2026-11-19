@@ -27,7 +27,8 @@ internal object SettingsImportPolicy {
     private val themeIds = setOf(
         "dark", "aurora", "obsidian", "evergreen", "ember", "high_contrast",
         "light", "ocean", "plum", "ivory", "sakura", "matcha",
-        "cotton_candy", "material_you", "cupertino", "midnight_glass"
+        "cotton_candy", "material_you", "cupertino", "midnight_glass",
+        "midnight", "sunset" // Legacy backup aliases
     )
     private val designStyleIds = setOf(
         "cinema_halo", "material_expressive", "iphone_glass", "cozy_kawaii"
@@ -91,7 +92,9 @@ internal object SettingsImportPolicy {
             require(id is String && id in allowed) { "Unknown $name" }
             return id
         }
-        val theme = appearanceId("visualTheme", themeIds)
+        val theme = appearanceId("visualTheme", themeIds)?.let { id ->
+            if (id == "sunset") "ember" else id
+        }
         val designStyle = appearanceId("visualDesignStyle", designStyleIds)
         val backdrop = appearanceId("visualBackdropPattern", backdropIds)
         val eq = if (obj.has("audioEqPreset")) {
