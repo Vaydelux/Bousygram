@@ -1220,48 +1220,59 @@ private fun ExtrasDetailContent(
     modifier: Modifier,
     compact: Boolean,
     shortViewport: Boolean,
-    isAndroidTv: Boolean
+    isAndroidTv: Boolean,
+    layout: ExtrasDetailLayout,
+    primaryActionFocus: FocusRequester
 ) {
     val context = LocalContext.current
-    LazyColumn(modifier = modifier.fillMaxSize(),
+    // This state is scoped to the selected title. Without an item key, opening
+    // a Related title retains the previous review's deep scroll position.
+    val listState = remember(info.item.type, info.item.id) { LazyListState() }
+    val spacing = if (layout.tightSpacing) 10.dp else 14.dp
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxSize()
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.80f))
+            .testTag("extras-detail-list"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = if (compact) 14.dp else 28.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        if (!info.backdrop.isNullOrBlank()) {
+            horizontal = layout.horizontalPadding,
+            vertical = if (layout.tightSpacing) 6.dp else 12.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(spacing)
+    ) {
+        if (layout.showBackdrop && !info.backdrop.isNullOrBlank()) {
             item(key = "backdrop:${info.item.type}:${info.item.id}") {
                 ExtrasDetailBackdrop(
-                    info = info, compact = compact, shortViewport = shortViewport
+                    info = info, compact = compact, shortViewport = shortViewport,
+                    heightOverride = layout.backdropHeight
                 )
             }
         }
-        item {
+        item(key = "details-overview") {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                // React to the measured detail pane, not just phone-vs-TV.
-                val stacked = compact || maxWidth < 520.dp
-                val posterWidth = when {
-                    shortViewport -> 116.dp
-                    stacked -> 155.dp
-                    else -> 185.dp
+                val inline = layout.metadataInline &&
+                    maxWidth >= layout.posterWidth + 176.dp
+                val artwork = @Composable {
+                    ExtrasPosterArtwork(
+                        url = info.item.poster, contentDescription = info.item.title,
+                        modifier = Modifier.width(layout.posterWidth)
+                            .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO),
+                        detail = true
+                    )
                 }
-                // Width follows the responsive pane; height is always the
-                // poster's full 2:3 aspect ratio, never an arbitrary crop.
-                if (stacked) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ExtrasPosterArtwork(
-                            url = info.item.poster, contentDescription = info.item.title,
-                            modifier = Modifier.width(posterWidth)
-                                .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
-                        )
-                        DetailText(info)
+                if (inline) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(if (layout.tightSpacing) 12.dp else 18.dp)
+                    ) {
+                        artwork()
+                        Column(Modifier.weight(1f)) { DetailText(info, showSynopsis = false) }
                     }
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                        ExtrasPosterArtwork(
-                            url = info.item.poster, contentDescription = info.item.title,
-                            modifier = Modifier.width(posterWidth)
-                                .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
-                        )
-                        Column(Modifier.weight(1f)) { DetailText(info) }
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        artwork()
+                        DetailText(info, showSynopsis = false)
                     }
                 }
             }
@@ -1271,7 +1282,9 @@ private fun ExtrasDetailContent(
                 Button(
                     onClick = onPlayMovie,
                     shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-play-movie")
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .focusRequester(primaryActionFocus).extrasFocusOutline()
+                        .testTag("extras-play-movie")
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1317,7 +1330,9 @@ private fun ExtrasDetailContent(
                     Button(
                         onClick = { onPlayAnime(episodeNumber) },
                         shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-play-anime")
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .focusRequester(primaryActionFocus).extrasFocusOutline()
+                            .testTag("extras-play-anime")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1334,6 +1349,103 @@ private fun ExtrasDetailContent(
                     )
                 }
             }
+        }
+        if (info.seasons.isNotEmpty()) {
+            item { Text("Seasons & Episodes", style = MaterialTheme.typography.titleMedium) }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(info.seasons, key = { it.number }) { season ->
+                        FilterChip(selected = selectedSeason == season.number,
+                            onClick = { onSeason(season.number) },
+                            modifier = (if (season.number == info.seasons.first().number)
+                                Modifier.focusRequester(primaryActionFocus) else Modifier)
+                                .extrasFocusOutline(),
+                            label = { Text("${season.name} (${season.episodeCount})") })
+                    }
+                }
+            }
+            if (selectedSeason == null) {
+                item {
+                    Text("Select a season to load its episodes.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            if (seasonLoading) item {
+                Row(
+                    modifier = Modifier.testTag("extras-episodes-loading"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "Loading episodes…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            if (episodeError != null) {
+                item {
+                    BousygramInlineStatus(
+                        message = episodeError,
+                        tone = BousygramStatusTone.ERROR,
+                        modifier = Modifier.testTag("extras-episodes-error"),
+                        trailingAction = {
+                            OutlinedButton(onClick = onSeasonRetry) { Text("Retry episodes") }
+                        }
+                    )
+                }
+            }
+            items(episodes, key = { it.number }) { episode ->
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                    val narrow = maxWidth < 480.dp
+                    val canPlay = selectedSeason != null && episode.number > 0
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            AsyncImage(model = episode.still, contentDescription = null,
+                                modifier = Modifier.size(
+                                    width = if (narrow) 90.dp else 110.dp, height = 70.dp
+                                ),
+                                contentScale = ContentScale.Fit)
+                            Column(Modifier.weight(1f)) {
+                                Text("${episode.number}. ${episode.title}",
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(episode.overview, maxLines = if (narrow) 2 else 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (canPlay && !narrow) {
+                                OutlinedButton(
+                                    onClick = { onPlayEpisode(episode.number) },
+                                    modifier = Modifier.extrasFocusOutline().testTag("extras-play-episode")
+                                ) { Text("Play") }
+                            }
+                        }
+                        if (canPlay && narrow) {
+                            OutlinedButton(
+                                onClick = { onPlayEpisode(episode.number) },
+                                modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-episode")
+                            ) { Text("Play episode ${episode.number}") }
+                        }
+                    }
+                }
+            }
+        } else if (info.item.type == ExtrasType.ANIME) {
+            item {
+                Text("AniList supplies episode counts, airing information and related series; it does not provide a complete per-episode guide for every anime.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        item(key = "details-synopsis") {
+            ExtrasSynopsis(info.description, compact = layout.compactLandscape)
         }
         info.youtubeId?.let { youtube ->
             item {
@@ -1437,98 +1549,6 @@ private fun ExtrasDetailContent(
                         }
                     }
                 }
-            }
-        }
-        if (info.seasons.isNotEmpty()) {
-            item { Text("Seasons & Episodes", style = MaterialTheme.typography.titleMedium) }
-            item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(info.seasons, key = { it.number }) { season ->
-                        FilterChip(selected = selectedSeason == season.number,
-                            onClick = { onSeason(season.number) },
-                            modifier = Modifier.extrasFocusOutline(),
-                            label = { Text("${season.name} (${season.episodeCount})") })
-                    }
-                }
-            }
-            if (selectedSeason == null) {
-                item {
-                    Text("Select a season to load its episodes.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            if (seasonLoading) item {
-                Row(
-                    modifier = Modifier.testTag("extras-episodes-loading"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        "Loading episodes…",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-            if (episodeError != null) {
-                item {
-                    BousygramInlineStatus(
-                        message = episodeError,
-                        tone = BousygramStatusTone.ERROR,
-                        modifier = Modifier.testTag("extras-episodes-error"),
-                        trailingAction = {
-                            OutlinedButton(onClick = onSeasonRetry) { Text("Retry episodes") }
-                        }
-                    )
-                }
-            }
-            items(episodes, key = { it.number }) { episode ->
-                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                    val narrow = maxWidth < 480.dp
-                    val canPlay = selectedSeason != null && episode.number > 0
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(model = episode.still, contentDescription = null,
-                                modifier = Modifier.size(
-                                    width = if (narrow) 90.dp else 110.dp, height = 70.dp
-                                ),
-                                contentScale = ContentScale.Fit)
-                            Column(Modifier.weight(1f)) {
-                                Text("${episode.number}. ${episode.title}",
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(episode.overview, maxLines = if (narrow) 2 else 3,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                            if (canPlay && !narrow) {
-                                OutlinedButton(
-                                    onClick = { onPlayEpisode(episode.number) },
-                                    modifier = Modifier.extrasFocusOutline().testTag("extras-play-episode")
-                                ) { Text("Play") }
-                            }
-                        }
-                        if (canPlay && narrow) {
-                            OutlinedButton(
-                                onClick = { onPlayEpisode(episode.number) },
-                                modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-episode")
-                            ) { Text("Play episode ${episode.number}") }
-                        }
-                    }
-                }
-            }
-        } else if (info.item.type == ExtrasType.ANIME) {
-            item {
-                Text("AniList supplies episode counts, airing information and related series; it does not provide a complete per-episode guide for every anime.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (info.reviews.isNotEmpty()) {
