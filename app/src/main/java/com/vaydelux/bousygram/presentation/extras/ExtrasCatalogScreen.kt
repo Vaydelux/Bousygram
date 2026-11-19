@@ -103,6 +103,7 @@ import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.tabular
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -264,7 +265,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     if (showCredits) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showCredits = false },
-            shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+            shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner),
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = { Text("Extras · Sources & Credits") },
             text = {
@@ -529,7 +530,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         update(state.copy(query = nextQuery, page = 1, results = emptyList(),
                             loading = true, hasMore = true, error = null))
                     },
-                    shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                    shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
                     leadingIcon = {
                         BousygramIcon(
                             icon = BousygramIcons.Search,
@@ -1246,7 +1247,7 @@ private fun ExtrasDetailContent(
             item {
                 Button(
                     onClick = onPlayMovie,
-                    shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                    shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-play-movie")
                 ) {
                     Row(
@@ -1272,7 +1273,7 @@ private fun ExtrasDetailContent(
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber - 1).coerceAtLeast(1) },
                             enabled = episodeNumber > 1,
-                            shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
+                            shape = RoundedCornerShape(LocalBousygramStyleSpec.current.tabCorner),
                             modifier = Modifier.extrasFocusOutline().testTag("extras-anime-previous-episode")
                         ) {
                             BousygramIcon(icon = BousygramIcons.Minus, contentDescription = "Previous episode", size = 16.dp)
@@ -1284,7 +1285,7 @@ private fun ExtrasDetailContent(
                         OutlinedButton(
                             onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: 9999) },
                             enabled = episodeNumber < (total ?: 9999),
-                            shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
+                            shape = RoundedCornerShape(LocalBousygramStyleSpec.current.tabCorner),
                             modifier = Modifier.extrasFocusOutline().testTag("extras-anime-next-episode")
                         ) {
                             BousygramIcon(icon = BousygramIcons.Plus, contentDescription = "Next episode", size = 16.dp)
@@ -1292,7 +1293,7 @@ private fun ExtrasDetailContent(
                     }
                     Button(
                         onClick = { onPlayAnime(episodeNumber) },
-                        shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                        shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-play-anime")
                     ) {
                         Row(
