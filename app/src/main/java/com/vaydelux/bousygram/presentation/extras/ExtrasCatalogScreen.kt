@@ -1247,7 +1247,7 @@ internal fun ExtrasDetailContent(
         if (layout.showBackdrop && !info.backdrop.isNullOrBlank()) {
             item(key = "backdrop:${info.item.type}:${info.item.id}") {
                 ExtrasDetailBackdrop(
-                    info = info, compact = compact, shortViewport = shortViewport,
+                    info = info, compact = compact, shortViewport = layout.tightSpacing,
                     heightOverride = layout.backdropHeight
                 )
             }
