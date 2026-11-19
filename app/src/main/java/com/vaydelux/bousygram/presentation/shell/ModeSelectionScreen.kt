@@ -56,6 +56,9 @@ import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
+import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
+import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
 
 /** Route boundary only. Neither screen creates a Telegram or Extras API client. */
 enum class BousygramMode { SELECT, TELEGRAM, EXTRAS_MAINTENANCE }
@@ -63,9 +66,27 @@ enum class BousygramMode { SELECT, TELEGRAM, EXTRAS_MAINTENANCE }
 @Composable
 fun BousygramModeSelection(
     onTelegram: () -> Unit,
-    onExtras: () -> Unit
+    onExtras: () -> Unit,
+    themePreset: BousygramThemePreset = BousygramThemePreset.DARK,
+    designStyle: BousygramDesignStyle = BousygramDesignStyle.CINEMA_HALO,
+    backdropPattern: BousygramBackdropPattern = BousygramBackdropPattern.AMBIENT_HALO,
+    onThemePresetChange: (BousygramThemePreset) -> Unit = {},
+    onDesignStyleChange: (BousygramDesignStyle) -> Unit = {},
+    onBackdropPatternChange: (BousygramBackdropPattern) -> Unit = {}
 ) {
     val metrics = rememberAdaptiveMetrics()
+    var appearanceOpen by remember { mutableStateOf(false) }
+    if (appearanceOpen) {
+        StartupAppearanceDialog(
+            themePreset = themePreset,
+            designStyle = designStyle,
+            backdropPattern = backdropPattern,
+            onThemePresetChange = onThemePresetChange,
+            onDesignStyleChange = onDesignStyleChange,
+            onBackdropPatternChange = onBackdropPatternChange,
+            onDismiss = { appearanceOpen = false }
+        )
+    }
     val compact = metrics.isTv || metrics.widthDp > metrics.heightDp ||
         metrics.heightDp < 620.dp
     val horizontalCards = compact && metrics.widthDp >= 690.dp
@@ -126,6 +147,13 @@ fun BousygramModeSelection(
                         textAlign = TextAlign.Center
                     )
                 }
+                BousygramButton(
+                    text = "Change appearance",
+                    onClick = { appearanceOpen = true },
+                    leadingIcon = BousygramIcons.Theme,
+                    tooltip = "Choose a theme, design style and background for every screen",
+                    modifier = Modifier.testTag("startup-change-appearance")
+                )
                 if (horizontalCards) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
