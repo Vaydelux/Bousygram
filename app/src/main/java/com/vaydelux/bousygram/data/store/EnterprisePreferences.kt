@@ -77,6 +77,8 @@ object EnterprisePreferences {
     private const val KEY_CACHE_LIMIT = "cache_limit"
     private const val KEY_LAST_ERROR = "last_error"
     private const val KEY_VISUAL_THEME = "visual_theme"
+    private const val KEY_VISUAL_DESIGN_STYLE = "visual_design_style"
+    private const val KEY_VISUAL_BACKDROP_PATTERN = "visual_backdrop_pattern"
     private const val KEY_PLAYER_ENGINE = "player_engine"
     private const val KEY_VIDEO_DEBUG_HUD = "video_debug_hud"
     private const val KEY_SURFACE_TYPE = "surface_type"
@@ -173,6 +175,12 @@ object EnterprisePreferences {
 
     fun visualThemeId(): String = prefs.getString(KEY_VISUAL_THEME, "midnight") ?: "midnight"
     fun setVisualThemeId(value: String) = prefs.edit { putString(KEY_VISUAL_THEME, value) }
+
+    fun designStyleId(): String = prefs.getString(KEY_VISUAL_DESIGN_STYLE, "cinema_halo") ?: "cinema_halo"
+    fun setDesignStyleId(value: String) = prefs.edit { putString(KEY_VISUAL_DESIGN_STYLE, value) }
+
+    fun backdropPatternId(): String = prefs.getString(KEY_VISUAL_BACKDROP_PATTERN, "ambient_halo") ?: "ambient_halo"
+    fun setBackdropPatternId(value: String) = prefs.edit { putString(KEY_VISUAL_BACKDROP_PATTERN, value) }
 
     fun safeMode(): Boolean = prefs.getBoolean(KEY_SAFE_MODE, false)
     fun setSafeMode(value: Boolean) = prefs.edit { putBoolean(KEY_SAFE_MODE, value) }

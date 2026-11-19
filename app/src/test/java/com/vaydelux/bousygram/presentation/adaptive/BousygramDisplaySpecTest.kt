@@ -3,11 +3,16 @@ package com.vaydelux.bousygram.presentation.adaptive
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
+import com.vaydelux.bousygram.presentation.theme.BousygramCuratedLooks
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.bousygramTypographyFor
 import com.vaydelux.bousygram.presentation.theme.haloColorsFor
+import com.vaydelux.bousygram.presentation.theme.playerHudSurfaceOpacity
 import com.vaydelux.bousygram.presentation.theme.schemeFor
+import com.vaydelux.bousygram.presentation.theme.styleSpecFor
 import com.vaydelux.bousygram.presentation.theme.themeContrastRatio
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -189,6 +194,60 @@ class BousygramDisplaySpecTest {
                 "${preset.id} cinema button ink on accent ($cinemaButtonInk) must be >= 7.0",
                 cinemaButtonInk >= 7.0
             )
+            if (preset.isLightPreset) {
+                assertEquals(
+                    BousygramUiTokens.lightHudOpacity,
+                    playerHudSurfaceOpacity(preset.background),
+                    0.001f
+                )
+            }
         }
+    }
+
+    @Test
+    fun expandedThemeCollectionIncludesCutesyMaterialAndIphonePresetsAndRoundTrips() {
+        assertEquals(16, BousygramThemePreset.entries.size)
+        listOf(
+            BousygramThemePreset.SAKURA,
+            BousygramThemePreset.MATCHA,
+            BousygramThemePreset.COTTON_CANDY,
+            BousygramThemePreset.MATERIAL_YOU,
+            BousygramThemePreset.CUPERTINO,
+            BousygramThemePreset.MIDNIGHT_GLASS
+        ).forEach { preset ->
+            assertEquals(preset, BousygramThemePreset.fromId(preset.id))
+            val scheme = schemeFor(preset)
+            assertTrue(themeContrastRatio(scheme.onBackground, scheme.background) >= 4.5)
+            assertTrue(themeContrastRatio(scheme.onSurface, scheme.surfaceContainerHigh) >= 4.5)
+            assertTrue(themeContrastRatio(scheme.onPrimaryContainer, scheme.primaryContainer) >= 4.5)
+        }
+    }
+
+    @Test
+    fun designStylesBackdropPatternsAndCuratedLooksRoundTripAndStayDistinct() {
+        BousygramDesignStyle.entries.forEach { style ->
+            assertEquals(style, BousygramDesignStyle.fromId(style.id))
+        }
+        assertEquals(BousygramDesignStyle.CINEMA_HALO, BousygramDesignStyle.fromId("unknown"))
+
+        BousygramBackdropPattern.entries.forEach { pattern ->
+            assertEquals(pattern, BousygramBackdropPattern.fromId(pattern.id))
+        }
+        assertEquals(BousygramBackdropPattern.AMBIENT_HALO, BousygramBackdropPattern.fromId("unknown"))
+
+        val material = styleSpecFor(BousygramDesignStyle.MATERIAL_EXPRESSIVE)
+        val iphone = styleSpecFor(BousygramDesignStyle.IPHONE_GLASS)
+        val cutesy = styleSpecFor(BousygramDesignStyle.COZY_KAWAII)
+        val halo = styleSpecFor(BousygramDesignStyle.CINEMA_HALO)
+
+        assertTrue(material.useTonalSurfaces)
+        assertEquals(BousygramUiTokens.pillCorner, material.buttonCorner)
+        assertTrue(iphone.floatingBottomBar)
+        assertTrue(iphone.segmentedTabs)
+        assertTrue(iphone.playerDockFloatingCapsule)
+        assertTrue(cutesy.panelCorner > halo.panelCorner)
+        assertTrue(cutesy.floatingBottomBar)
+        assertTrue(BousygramCuratedLooks.size >= 4)
+        assertEquals(BousygramCuratedLooks.size, BousygramCuratedLooks.map { it.id }.distinct().size)
     }
 }

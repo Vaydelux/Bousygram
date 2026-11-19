@@ -42,16 +42,21 @@ import com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCacheStorageStats
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.components.BousygramBackdropGallery
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramChip
+import com.vaydelux.bousygram.presentation.components.BousygramDesignStyleGallery
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
+import com.vaydelux.bousygram.presentation.components.BousygramQuickLookBar
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.BousygramThemeGallery
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
+import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
@@ -73,6 +78,10 @@ fun SettingsScreen(
     onBack: () -> Unit,
     themePreset: BousygramThemePreset = BousygramThemePreset.DARK,
     onThemePresetChange: (BousygramThemePreset) -> Unit = {},
+    designStyle: BousygramDesignStyle = BousygramDesignStyle.CINEMA_HALO,
+    onDesignStyleChange: (BousygramDesignStyle) -> Unit = {},
+    backdropPattern: BousygramBackdropPattern = BousygramBackdropPattern.AMBIENT_HALO,
+    onBackdropPatternChange: (BousygramBackdropPattern) -> Unit = {},
     modifier: Modifier = Modifier,
     onLogout: () -> Unit = {},
     onOpenAbout: () -> Unit = {}
@@ -210,7 +219,97 @@ fun SettingsScreen(
                         }
                     }
 
-                    // 1. Theme
+                    // 1. Appearance Studio (Quick Looks, Design Style, Patterned & Cutesy Backgrounds, 16 Themes)
+                    item {
+                        EnterprisePanel(Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                SettingsSectionTitle(
+                                    icon = BousygramIcons.Wand,
+                                    title = "Quick Looks"
+                                )
+                                Text(
+                                    "Switch the full aesthetic in one tap — Material You, iPhone Glass, Cutesy Pastel, or Cinema Halo.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                BousygramQuickLookBar(
+                                    activeTheme = themePreset,
+                                    activeStyle = designStyle,
+                                    activePattern = backdropPattern,
+                                    onApplyLook = { look ->
+                                        onThemePresetChange(look.preset)
+                                        EnterprisePreferences.setVisualThemeId(look.preset.id)
+                                        onDesignStyleChange(look.style)
+                                        EnterprisePreferences.setDesignStyleId(look.style.id)
+                                        onBackdropPatternChange(look.pattern)
+                                        EnterprisePreferences.setBackdropPatternId(look.pattern.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        EnterprisePanel(Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                SettingsSectionTitle(
+                                    icon = BousygramIcons.Layers,
+                                    title = "UI Design Style"
+                                )
+                                Text(
+                                    "Choose between Cinema Halo glass, Google Material You pills, iPhone Cupertino squircles & capsule bar, or Cutesy Soft bubbles.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                BousygramDesignStyleGallery(
+                                    selected = designStyle,
+                                    onSelect = { style ->
+                                        onDesignStyleChange(style)
+                                        EnterprisePreferences.setDesignStyleId(style.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        EnterprisePanel(Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                SettingsSectionTitle(
+                                    icon = BousygramIcons.GridPattern,
+                                    title = "Background Pattern"
+                                )
+                                Text(
+                                    "Native zero-lag vector backgrounds: Polka Dots, Cinema Grid, Silk Waves, iPhone Mesh, Cutesy Stars, and Chow Paws.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                BousygramBackdropGallery(
+                                    selected = backdropPattern,
+                                    onSelect = { pattern ->
+                                        onBackdropPatternChange(pattern)
+                                        EnterprisePreferences.setBackdropPatternId(pattern.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     item {
                         EnterprisePanel(Modifier.fillMaxWidth()) {
                             Column(
@@ -224,7 +323,7 @@ fun SettingsScreen(
                                     title = "Theme"
                                 )
                                 Text(
-                                    "Visual appearance and high-contrast display tuning for TV and mobile screens.",
+                                    "16 curated color palettes — including Cutesy Pastel, Material Tonal, iOS Cupertino, OLED, and High Contrast.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodyMedium
                                 )

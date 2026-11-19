@@ -137,6 +137,10 @@ internal fun themeContrastRatio(foreground: Color, background: Color): Double {
 internal fun playerHudSurfaceOpacity(background: Color): Float = when (background) {
     BousygramThemePreset.HIGH_CONTRAST.background -> BousygramUiTokens.contrastHudOpacity
     BousygramThemePreset.LIGHT.background,
-    BousygramThemePreset.IVORY.background -> BousygramUiTokens.lightHudOpacity
+    BousygramThemePreset.IVORY.background,
+    BousygramThemePreset.SAKURA.background,
+    BousygramThemePreset.MATCHA.background,
+    BousygramThemePreset.MATERIAL_YOU.background,
+    BousygramThemePreset.CUPERTINO.background -> BousygramUiTokens.lightHudOpacity
     else -> BousygramUiTokens.darkHudOpacity
 }

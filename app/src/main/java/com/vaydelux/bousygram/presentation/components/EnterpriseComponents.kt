@@ -111,9 +111,11 @@ import com.vaydelux.bousygram.domain.model.SeriesGroup
 import com.vaydelux.bousygram.presentation.adaptive.DeviceProfile
 import com.vaydelux.bousygram.presentation.adaptive.shouldUseSideRail
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.MediaCardDensity
 import com.vaydelux.bousygram.presentation.theme.mediaCardDensity
@@ -423,6 +425,15 @@ fun TvTopNavBar(
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
+    val styleSpec = LocalBousygramStyleSpec.current
+    val dockShape = RoundedCornerShape(
+        when (styleSpec.style) {
+            BousygramDesignStyle.MATERIAL_EXPRESSIVE,
+            BousygramDesignStyle.COZY_KAWAII -> BousygramUiTokens.pillCorner
+            BousygramDesignStyle.IPHONE_GLASS -> 16.dp
+            BousygramDesignStyle.CINEMA_HALO -> styleSpec.cardCorner
+        }
+    )
     Column(modifier = modifier.fillMaxWidth().background(colors.surfaceContainerLow)) {
         Row(
             modifier = Modifier
@@ -431,7 +442,7 @@ fun TvTopNavBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Left: Brand Halo Badge + "Bousygram" wordmark + Frosted Cinema Nav Dock
+            // Left: Brand Halo Badge + "Bousygram" wordmark + Style-Adaptive Nav Dock
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
@@ -449,12 +460,25 @@ fun TvTopNavBar(
                     )
                 }
 
-                // Cinema Halo Top Nav Pill Dock
+                // Adaptive Top Nav Pill / Segmented Dock
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(BousygramUiTokens.cardCorner))
-                        .background(colors.surfaceContainer)
-                        .border(1.dp, halo.glassBorder, RoundedCornerShape(BousygramUiTokens.cardCorner))
+                        .clip(dockShape)
+                        .background(
+                            if (styleSpec.segmentedTabs) colors.surfaceContainerHigh
+                            else colors.surfaceContainer
+                        )
+                        .then(
+                            if (styleSpec.panelBorderWidth > 0.dp || halo.isHighContrast) {
+                                Modifier.border(
+                                    width = if (halo.isHighContrast) 1.dp else styleSpec.panelBorderWidth,
+                                    color = if (styleSpec.style == BousygramDesignStyle.COZY_KAWAII && !halo.isHighContrast) {
+                                        colors.primary.copy(alpha = 0.28f)
+                                    } else halo.glassBorder,
+                                    shape = dockShape
+                                )
+                            } else Modifier
+                        )
                         .padding(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -469,7 +493,28 @@ fun TvTopNavBar(
                         var focused by remember { mutableStateOf(false) }
                         val interaction = remember { MutableInteractionSource() }
                         val destIcon = shellDestinationIcon(dest)
-                        val tabShape = RoundedCornerShape(BousygramUiTokens.tabCorner)
+                        val tabShape = RoundedCornerShape(styleSpec.tabCorner)
+                        val selectedFill = if (styleSpec.segmentedTabs && !halo.isHighContrast) {
+                            colors.surface
+                        } else {
+                            colors.primaryContainer
+                        }
+                        val selectedContent = if (styleSpec.segmentedTabs && !halo.isHighContrast) {
+                            colors.primary
+                        } else {
+                            colors.onPrimaryContainer
+                        }
+                        val tabBorderWidth = when {
+                            focused -> BousygramUiTokens.tvFocusOutline
+                            isSelected && (!styleSpec.useTonalSurfaces || halo.isHighContrast) -> 1.dp
+                            else -> 0.dp
+                        }
+                        val tabBorderColor = when {
+                            focused -> colors.primary
+                            isSelected && styleSpec.segmentedTabs && !halo.isHighContrast -> colors.outlineVariant.copy(alpha = 0.45f)
+                            isSelected -> halo.haloStart.copy(alpha = 0.55f)
+                            else -> Color.Transparent
+                        }
                         BousygramTooltipBox(
                             tooltip = when (dest) {
                                 ShellDestination.Home -> "Home"
@@ -489,18 +534,18 @@ fun TvTopNavBar(
                                     .background(
                                         when {
                                             focused -> colors.primary.copy(alpha = 0.22f)
-                                            isSelected -> colors.primaryContainer
+                                            isSelected -> selectedFill
                                             else -> Color.Transparent
                                         }
                                     )
-                                    .border(
-                                        width = if (focused) BousygramUiTokens.tvFocusOutline else if (isSelected) 1.dp else 0.dp,
-                                        color = when {
-                                            focused -> colors.primary
-                                            isSelected -> halo.haloStart.copy(alpha = 0.55f)
-                                            else -> Color.Transparent
-                                        },
-                                        shape = tabShape
+                                    .then(
+                                        if (tabBorderWidth > 0.dp) {
+                                            Modifier.border(
+                                                width = tabBorderWidth,
+                                                color = tabBorderColor,
+                                                shape = tabShape
+                                            )
+                                        } else Modifier
                                     )
                                     .semantics {
                                         contentDescription = dest.label
@@ -524,7 +569,7 @@ fun TvTopNavBar(
                                     icon = destIcon,
                                     contentDescription = null,
                                     tint = when {
-                                        isSelected -> colors.onPrimaryContainer
+                                        isSelected -> selectedContent
                                         focused -> colors.primary
                                         else -> colors.onSurfaceVariant
                                     },
@@ -533,7 +578,7 @@ fun TvTopNavBar(
                                 Text(
                                     text = dest.label,
                                     color = when {
-                                        isSelected -> colors.onPrimaryContainer
+                                        isSelected -> if (styleSpec.segmentedTabs && !halo.isHighContrast) colors.onSurface else colors.onPrimaryContainer
                                         focused -> colors.onSurface
                                         else -> colors.onSurfaceVariant
                                     },
@@ -627,20 +672,34 @@ fun TopBarIconButton(
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     val isTv = rememberAdaptiveMetrics().isTv
+    val styleSpec = LocalBousygramStyleSpec.current
+    val halo = LocalBousygramHaloColors.current
     val interaction = remember { MutableInteractionSource() }
     val tooltipState = rememberBousygramTooltipState()
     val tint = if (focused) colors.primary else colors.onSurfaceVariant
-    val shape = RoundedCornerShape(BousygramUiTokens.tabCorner)
+    val shape = RoundedCornerShape(styleSpec.tabCorner)
+    val restBorderWidth = if (halo.isHighContrast) 1.dp else styleSpec.cardBorderWidth
     Box(
         modifier = modifier
             // Match the minimum 48dp touch/focus target across phone and TV.
             .size(48.dp)
             .clip(shape)
-            .background(if (focused) colors.surfaceContainerHighest else colors.surfaceContainerLow.copy(alpha = 0.65f))
-            .border(
-                width = if (focused) BousygramUiTokens.tvFocusOutline else 1.dp,
-                color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.50f),
-                shape = shape
+            .background(
+                when {
+                    focused -> colors.surfaceContainerHighest
+                    styleSpec.useTonalSurfaces -> colors.surfaceContainerHigh
+                    styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> colors.surface.copy(alpha = 0.88f)
+                    else -> colors.surfaceContainerLow.copy(alpha = 0.65f)
+                }
+            )
+            .then(
+                if (focused || restBorderWidth > 0.dp) {
+                    Modifier.border(
+                        width = if (focused) BousygramUiTokens.tvFocusOutline else restBorderWidth,
+                        color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.50f),
+                        shape = shape
+                    )
+                } else Modifier
             )
             .semantics { this.contentDescription = contentDescription }
             .onFocusChanged { focused = it.isFocused }
@@ -675,72 +734,108 @@ private fun GlassBottomBar(
 ) {
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(topStart = BousygramUiTokens.panelCorner, topEnd = BousygramUiTokens.panelCorner)
-    Surface(
+    val styleSpec = LocalBousygramStyleSpec.current
+    val motion = rememberBousygramMotionPolicy()
+    val isFloating = styleSpec.floatingBottomBar
+    val barShape = when {
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> RoundedCornerShape(BousygramUiTokens.pillCorner)
+        styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> RoundedCornerShape(28.dp)
+        styleSpec.useTonalSurfaces -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        else -> RoundedCornerShape(topStart = styleSpec.panelCorner, topEnd = styleSpec.panelCorner)
+    }
+    val containerColor = when {
+        halo.isHighContrast -> colors.surfaceContainerHigh
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> colors.surface.copy(alpha = if (halo.isLight) 0.94f else 0.92f)
+        styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.surfaceContainerHigh.copy(alpha = 0.96f)
+        else -> colors.surfaceContainer
+    }
+    val borderColor = when {
+        halo.isHighContrast -> colors.outline
+        styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.primary.copy(alpha = 0.34f)
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> if (halo.isLight) Color.Black.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.16f)
+        else -> halo.glassBorder
+    }
+    val borderW = when {
+        halo.isHighContrast -> 1.5.dp
+        styleSpec.useTonalSurfaces -> 0.dp
+        styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> 1.5.dp
+        else -> 1.dp
+    }
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .border(
-                width = 1.dp,
-                color = halo.glassBorder,
-                shape = shape
+            .then(
+                if (isFloating) Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                else Modifier
             )
-            .clip(shape),
-        color = colors.surfaceContainer,
-        tonalElevation = 4.dp
     ) {
-        NavigationBar(
-            containerColor = Color.Transparent,
-            tonalElevation = 0.dp
-        ) {
-            ShellDestination.navItems.forEach { destination ->
-                val isSelected = when (destination) {
-                    ShellDestination.Home -> selected == ShellDestination.Home
-                    ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
-                    ShellDestination.Search -> selected == ShellDestination.Search
-                    ShellDestination.Me -> selected == ShellDestination.Me || selected == ShellDestination.Settings
-                    else -> destination == selected
-                }
-                val tooltipState = rememberBousygramTooltipState()
-                var focused by remember { mutableStateOf(false) }
-                NavigationBarItem(
-                    modifier = Modifier.onFocusChanged { focused = it.isFocused },
-                    selected = isSelected,
-                    onClick = {
-                        tooltipState.flashSelection()
-                        onSelect(destination)
-                    },
-                    icon = {
-                        BousygramTooltipBox(
-                            tooltip = if (destination == ShellDestination.Me) "Settings & Profile" else destination.label,
-                            icon = shellDestinationIcon(destination),
-                            focused = focused,
-                            placement = BousygramTooltipPlacement.AUTO_ABOVE,
-                            state = tooltipState
-                        ) {
-                            ShellNavIcon(
-                                destination = destination,
-                                tint = if (isSelected) colors.onPrimaryContainer else colors.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    },
-                    label = {
-                        Text(
-                            destination.label,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                        )
-                    },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = colors.onPrimaryContainer,
-                        selectedTextColor = colors.primary,
-                        indicatorColor = colors.primaryContainer,
-                        unselectedIconColor = colors.onSurfaceVariant,
-                        unselectedTextColor = colors.onSurfaceVariant
-                    )
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (borderW > 0.dp) Modifier.border(width = borderW, color = borderColor, shape = barShape)
+                    else Modifier
                 )
+                .clip(barShape),
+            color = containerColor,
+            shape = barShape,
+            tonalElevation = if (styleSpec.useTonalSurfaces) 6.dp else 4.dp,
+            shadowElevation = if (isFloating && !motion.lowRam) 10.dp else 0.dp
+        ) {
+            NavigationBar(
+                containerColor = Color.Transparent,
+                tonalElevation = 0.dp
+            ) {
+                ShellDestination.navItems.forEach { destination ->
+                    val isSelected = when (destination) {
+                        ShellDestination.Home -> selected == ShellDestination.Home
+                        ShellDestination.Library -> selected == ShellDestination.Library || selected == ShellDestination.Sources
+                        ShellDestination.Search -> selected == ShellDestination.Search
+                        ShellDestination.Me -> selected == ShellDestination.Me || selected == ShellDestination.Settings
+                        else -> destination == selected
+                    }
+                    val tooltipState = rememberBousygramTooltipState()
+                    var focused by remember { mutableStateOf(false) }
+                    NavigationBarItem(
+                        modifier = Modifier.onFocusChanged { focused = it.isFocused },
+                        selected = isSelected,
+                        onClick = {
+                            tooltipState.flashSelection()
+                            onSelect(destination)
+                        },
+                        icon = {
+                            BousygramTooltipBox(
+                                tooltip = if (destination == ShellDestination.Me) "Settings & Profile" else destination.label,
+                                icon = shellDestinationIcon(destination),
+                                focused = focused,
+                                placement = BousygramTooltipPlacement.AUTO_ABOVE,
+                                state = tooltipState
+                            ) {
+                                ShellNavIcon(
+                                    destination = destination,
+                                    tint = if (isSelected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        },
+                        label = {
+                            Text(
+                                destination.label,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = colors.onPrimaryContainer,
+                            selectedTextColor = colors.primary,
+                            indicatorColor = colors.primaryContainer,
+                            unselectedIconColor = colors.onSurfaceVariant,
+                            unselectedTextColor = colors.onSurfaceVariant
+                        )
+                    )
+                }
             }
         }
     }
@@ -766,11 +861,14 @@ fun TvFocusSurface(
     enabled: Boolean = true,
     width: Dp? = null,
     focusRequester: FocusRequester? = null,
+    cornerRadius: Dp? = null,
     content: @Composable (focused: Boolean) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
+    val halo = LocalBousygramHaloColors.current
+    val styleSpec = LocalBousygramStyleSpec.current
+    val shape = RoundedCornerShape(cornerRadius ?: styleSpec.cardCorner)
     val interaction = remember { MutableInteractionSource() }
     // Low-RAM TVs use an immediate focus scale while preserving the prominent ring.
     val motion = rememberBousygramMotionPolicy()
@@ -779,18 +877,32 @@ fun TvFocusSurface(
         animationSpec = tween(durationMillis = motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "focusScale"
     )
+    val restBorderColor = when {
+        halo.isHighContrast -> colors.outlineVariant.copy(alpha = 0.85f)
+        styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.primary.copy(alpha = 0.28f)
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> if (halo.isLight) Color.Black.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.14f)
+        else -> colors.outlineVariant.copy(alpha = 0.7f)
+    }
     val border by animateColorAsState(
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         targetValue = when {
             focused -> colors.primary
             selected -> colors.secondary
-            else -> colors.outlineVariant.copy(alpha = 0.7f)
+            else -> restBorderColor
         },
         label = "focusBorder"
     )
+    val borderWidth = when {
+        focused -> BousygramUiTokens.tvFocusOutline
+        selected -> if (styleSpec.useTonalSurfaces && !halo.isHighContrast) 1.dp else 2.dp
+        halo.isHighContrast -> 1.dp
+        else -> styleSpec.cardBorderWidth
+    }
     val surface = when {
         selected -> colors.primaryContainer
         focused -> colors.surfaceContainerHighest
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS && !halo.isHighContrast -> colors.surface
+        styleSpec.useTonalSurfaces -> colors.surfaceContainerHigh
         else -> colors.surfaceContainerLow
     }
     Surface(
@@ -800,10 +912,9 @@ fun TvFocusSurface(
                 scaleX = scale
                 scaleY = scale
             }
-            .border(
-                width = if (focused) BousygramUiTokens.tvFocusOutline else if (selected) 2.dp else 1.dp,
-                color = border,
-                shape = shape
+            .then(
+                if (borderWidth > 0.dp) Modifier.border(width = borderWidth, color = border, shape = shape)
+                else Modifier
             )
             .clip(shape)
             // Clickable owns the only focus target and the selected semantics.
@@ -819,7 +930,8 @@ fun TvFocusSurface(
                 onClick = onClick
             ),
         color = surface,
-        shape = shape
+        shape = shape,
+        tonalElevation = if (styleSpec.useTonalSurfaces && !selected) 2.dp else 0.dp
     ) {
         content(focused)
     }
@@ -838,11 +950,13 @@ fun BousygramButton(
 ) {
     val isTv = rememberAdaptiveMetrics().isTv
     val colors = MaterialTheme.colorScheme
+    val styleSpec = LocalBousygramStyleSpec.current
     val contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface
     TvFocusSurface(
         onClick = onClick,
         selected = selected,
         enabled = enabled,
+        cornerRadius = styleSpec.buttonCorner,
         modifier = modifier.heightIn(
             min = if (isTv) BousygramUiTokens.tvControlHeight
                 else BousygramUiTokens.touchTarget
@@ -918,6 +1032,7 @@ fun BousygramTextField(
     leadingIcon: (@Composable () -> Unit)? = null,
     trailingIcon: (@Composable () -> Unit)? = null
 ) {
+    val styleSpec = LocalBousygramStyleSpec.current
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -931,7 +1046,7 @@ fun BousygramTextField(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 58.dp),
-        shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+        shape = RoundedCornerShape(styleSpec.inputCorner),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = MaterialTheme.colorScheme.onSurface,
             unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -2249,17 +2364,34 @@ fun EnterprisePanel(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(BousygramUiTokens.panelCorner)
+    val styleSpec = LocalBousygramStyleSpec.current
+    val motion = rememberBousygramMotionPolicy()
+    val shape = RoundedCornerShape(styleSpec.panelCorner)
+    val panelColor = when {
+        halo.isHighContrast -> halo.glassFill
+        styleSpec.useTonalSurfaces -> colors.surfaceContainer
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> colors.surface.copy(alpha = if (halo.isLight) 0.96f else 0.90f)
+        styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.surfaceContainerLow.copy(alpha = 0.95f)
+        else -> halo.glassFill
+    }
+    val borderWidth = if (halo.isHighContrast) 1.5.dp else styleSpec.panelBorderWidth
+    val borderColor = when {
+        halo.isHighContrast -> halo.glassBorder
+        styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.primary.copy(alpha = 0.30f)
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> if (halo.isLight) Color.Black.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.14f)
+        else -> halo.glassBorder
+    }
     Surface(
-        modifier = modifier.border(
-            width = 1.dp,
-            color = halo.glassBorder,
-            shape = shape
+        modifier = modifier.then(
+            if (borderWidth > 0.dp) Modifier.border(width = borderWidth, color = borderColor, shape = shape)
+            else Modifier
         ),
-        color = halo.glassFill,
+        color = panelColor,
         shape = shape,
-        tonalElevation = 2.dp
+        tonalElevation = styleSpec.panelTonalElevation,
+        shadowElevation = if (styleSpec.useSpecularHighlight && !motion.lowRam && !halo.isHighContrast) 4.dp else 0.dp
     ) {
         content()
     }

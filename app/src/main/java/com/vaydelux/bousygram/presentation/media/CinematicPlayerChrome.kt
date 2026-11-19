@@ -89,9 +89,11 @@ import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
 import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
 import com.vaydelux.bousygram.presentation.components.rememberBousygramTooltipState
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
 import kotlin.math.roundToInt
@@ -323,6 +325,7 @@ private fun CinemaHudButton(
 ) {
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
+    val styleSpec = LocalBousygramStyleSpec.current
     val motion = rememberBousygramMotionPolicy()
     val tooltipState = rememberBousygramTooltipState()
     var focused by remember { mutableStateOf(false) }
@@ -339,8 +342,12 @@ private fun CinemaHudButton(
         isTv -> 22.dp
         else -> 20.dp
     }
-    val shape = if (hero && label == null) CircleShape
-        else RoundedCornerShape(if (label != null) BousygramUiTokens.tabCorner else BousygramUiTokens.pillCorner)
+    val shape = when {
+        hero && label == null -> if (styleSpec.style == BousygramDesignStyle.IPHONE_GLASS) RoundedCornerShape(18.dp) else CircleShape
+        label != null -> RoundedCornerShape(styleSpec.buttonCorner)
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> RoundedCornerShape(14.dp)
+        else -> RoundedCornerShape(BousygramUiTokens.pillCorner)
+    }
 
     val scale by animateFloatAsState(
         targetValue = if (focused && motion.animateFocusScale) 1.06f else 1f,
@@ -502,6 +509,8 @@ internal fun CinematicPlayerChrome(
     val motion = rememberBousygramMotionPolicy()
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
+    val styleSpec = LocalBousygramStyleSpec.current
+    val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
     val density = LocalDensity.current
     val windowWidth = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
@@ -580,15 +589,17 @@ internal fun CinematicPlayerChrome(
                             if (aspectLabel != "Fit") {
                                 CinemaMetaBadge(aspectLabel, accent = true)
                             }
-                            if (state.cacheStateLabel.isNotBlank() && windowWidth >= 480.dp) {
-                                Text(
-                                    text = state.cacheStateLabel,
-                                    color = Color.White.copy(alpha = 0.72f),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                            state.cacheStateLabel
+                                ?.takeIf { it.isNotBlank() && windowWidth >= 480.dp }
+                                ?.let { cacheLabel ->
+                                    Text(
+                                        text = cacheLabel,
+                                        color = Color.White.copy(alpha = 0.72f),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                         }
                     }
                     if (duration > 0L) {
@@ -624,6 +635,8 @@ internal fun CinematicPlayerChrome(
                             )
                         )
                 )
+                val dockCapsuleShape = RoundedCornerShape(styleSpec.panelCorner)
+                val useFloatingDock = styleSpec.playerDockFloatingCapsule && !halo.isHighContrast
                 Column(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -633,6 +646,25 @@ internal fun CinematicPlayerChrome(
                             start = horizontalPad,
                             end = horizontalPad,
                             bottom = if (isTv) 16.dp else 10.dp
+                        )
+                        .then(
+                            if (useFloatingDock) {
+                                val dockBg = when (styleSpec.style) {
+                                    BousygramDesignStyle.IPHONE_GLASS -> Color(0xCC0D111A)
+                                    BousygramDesignStyle.COZY_KAWAII -> Color(0xD4141022)
+                                    else -> Color(0xD60C121D)
+                                }
+                                val dockBorder = when (styleSpec.style) {
+                                    BousygramDesignStyle.IPHONE_GLASS -> Color.White.copy(alpha = 0.22f)
+                                    BousygramDesignStyle.COZY_KAWAII -> cinemaAccent.copy(alpha = 0.42f)
+                                    else -> Color.White.copy(alpha = 0.14f)
+                                }
+                                Modifier
+                                    .clip(dockCapsuleShape)
+                                    .background(dockBg)
+                                    .border(1.dp, dockBorder, dockCapsuleShape)
+                                    .padding(horizontal = if (isTv) 18.dp else 12.dp, vertical = 10.dp)
+                            } else Modifier
                         ),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -810,7 +842,7 @@ internal fun CinematicPlayerChrome(
         }
 
         // PLAYBACK ERROR CARD
-        if (state.error != null) {
+        state.error?.let { errorMessage ->
             Surface(
                 shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
@@ -844,7 +876,7 @@ internal fun CinematicPlayerChrome(
                         )
                     }
                     Text(
-                        text = state.error,
+                        text = errorMessage,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )

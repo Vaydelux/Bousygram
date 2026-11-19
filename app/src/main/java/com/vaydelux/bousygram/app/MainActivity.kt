@@ -65,6 +65,8 @@ import com.vaydelux.bousygram.presentation.about.AboutScreen
 import com.vaydelux.bousygram.core.cast.CastReceiverManager
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
+import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
@@ -88,7 +90,17 @@ class MainActivity : ComponentActivity() {
             var themePreset by remember {
                 mutableStateOf(BousygramThemePreset.fromId(EnterprisePreferences.visualThemeId()))
             }
-            BousygramTheme(preset = themePreset) {
+            var designStyle by remember {
+                mutableStateOf(BousygramDesignStyle.fromId(EnterprisePreferences.designStyleId()))
+            }
+            var backdropPattern by remember {
+                mutableStateOf(BousygramBackdropPattern.fromId(EnterprisePreferences.backdropPatternId()))
+            }
+            BousygramTheme(
+                preset = themePreset,
+                designStyle = designStyle,
+                backdropPattern = backdropPattern
+            ) {
                 if (designPreviewRequested) {
                     StreamingDesignGallery(onExit = { designPreviewRequested = false })
                 } else if (previewRequested) {
@@ -99,6 +111,16 @@ class MainActivity : ComponentActivity() {
                         onThemePresetChange = { preset ->
                             EnterprisePreferences.setVisualThemeId(preset.id)
                             themePreset = preset
+                        },
+                        designStyle = designStyle,
+                        onDesignStyleChange = { style ->
+                            EnterprisePreferences.setDesignStyleId(style.id)
+                            designStyle = style
+                        },
+                        backdropPattern = backdropPattern,
+                        onBackdropPatternChange = { pattern ->
+                            EnterprisePreferences.setBackdropPatternId(pattern.id)
+                            backdropPattern = pattern
                         }
                     )
                 }
@@ -130,7 +152,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun BousygramAppRoot(
     themePreset: BousygramThemePreset,
-    onThemePresetChange: (BousygramThemePreset) -> Unit
+    onThemePresetChange: (BousygramThemePreset) -> Unit,
+    designStyle: BousygramDesignStyle,
+    onDesignStyleChange: (BousygramDesignStyle) -> Unit,
+    backdropPattern: BousygramBackdropPattern,
+    onBackdropPatternChange: (BousygramBackdropPattern) -> Unit
 ) {
     val context = LocalContext.current
     LaunchedEffect(Unit) {
@@ -400,6 +426,10 @@ private fun BousygramAppRoot(
                     appScreen = appScreen,
                     themePreset = themePreset,
                     onThemePresetChange = onThemePresetChange,
+                    designStyle = designStyle,
+                    onDesignStyleChange = onDesignStyleChange,
+                    backdropPattern = backdropPattern,
+                    onBackdropPatternChange = onBackdropPatternChange,
                     searchFocus = searchFocus,
                     onSearchFocusChange = { searchFocus = it },
                     onAppScreenChange = { appScreen = it },
@@ -420,6 +450,10 @@ private fun AuthorizedContent(
     appScreen: AppScreen,
     themePreset: BousygramThemePreset,
     onThemePresetChange: (BousygramThemePreset) -> Unit,
+    designStyle: BousygramDesignStyle,
+    onDesignStyleChange: (BousygramDesignStyle) -> Unit,
+    backdropPattern: BousygramBackdropPattern,
+    onBackdropPatternChange: (BousygramBackdropPattern) -> Unit,
     searchFocus: SearchFocusState,
     onSearchFocusChange: (SearchFocusState) -> Unit,
     onAppScreenChange: (AppScreen) -> Unit,
@@ -486,6 +520,10 @@ private fun AuthorizedContent(
             onBack = { onAppScreenChange(screen.returnTo) },
             themePreset = themePreset,
             onThemePresetChange = onThemePresetChange,
+            designStyle = designStyle,
+            onDesignStyleChange = onDesignStyleChange,
+            backdropPattern = backdropPattern,
+            onBackdropPatternChange = onBackdropPatternChange,
             onLogout = onLogout,
             onOpenAbout = { onAppScreenChange(AppScreen.About(screen)) }
         )

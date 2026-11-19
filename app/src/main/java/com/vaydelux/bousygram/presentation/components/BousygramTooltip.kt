@@ -42,6 +42,7 @@ import androidx.compose.ui.window.PopupProperties
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import kotlinx.coroutines.delay
 
@@ -97,6 +98,7 @@ fun BousygramTooltipBox(
     val motion = rememberBousygramMotionPolicy()
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
+    val styleSpec = LocalBousygramStyleSpec.current
     val density = LocalDensity.current
 
     var hovered by remember { mutableStateOf(false) }
@@ -170,7 +172,7 @@ fun BousygramTooltipBox(
                 ) {
                     val tooltipIconTint = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
                     Surface(
-                        shape = RoundedCornerShape(BousygramUiTokens.tooltipCorner),
+                        shape = RoundedCornerShape(styleSpec.tooltipCorner),
                         color = halo.tooltipFill,
                         contentColor = halo.tooltipContent,
                         border = BorderStroke(

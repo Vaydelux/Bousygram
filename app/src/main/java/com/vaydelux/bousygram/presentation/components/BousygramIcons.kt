@@ -99,6 +99,13 @@ object BousygramIcons {
 
     // Settings, Auth & Status
     val Theme = BousygramIconRef(LucideR.drawable.lucide_ic_palette)
+    val Layers = BousygramIconRef(LucideR.drawable.lucide_ic_layers)
+    val Smartphone = BousygramIconRef(LucideR.drawable.lucide_ic_smartphone)
+    val PawPrint = BousygramIconRef(LucideR.drawable.lucide_ic_paw_print)
+    val Waves = BousygramIconRef(LucideR.drawable.lucide_ic_waves)
+    val GridPattern = BousygramIconRef(LucideR.drawable.lucide_ic_grid_3x3)
+    val Wand = BousygramIconRef(LucideR.drawable.lucide_ic_wand_sparkles)
+    val Flower = BousygramIconRef(LucideR.drawable.lucide_ic_flower_2)
     val Storage = BousygramIconRef(LucideR.drawable.lucide_ic_hard_drive)
     val Shield = BousygramIconRef(LucideR.drawable.lucide_ic_shield_check)
     val Logout = BousygramIconRef(LucideR.drawable.lucide_ic_log_out)

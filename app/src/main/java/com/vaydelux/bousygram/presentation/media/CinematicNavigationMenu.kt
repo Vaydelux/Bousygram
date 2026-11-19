@@ -52,6 +52,7 @@ import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
 
@@ -68,6 +69,7 @@ private fun MenuAction(
 ) {
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
+    val styleSpec = LocalBousygramStyleSpec.current
     val motion = rememberBousygramMotionPolicy()
     var focused by remember { mutableStateOf(false) }
 
@@ -82,7 +84,7 @@ private fun MenuAction(
         label = "cinematic-menu-focus-ring"
     )
     val fgColor = if (focused) colors.onPrimaryContainer else colors.onSurface
-    val rowShape = RoundedCornerShape(BousygramUiTokens.tabCorner)
+    val rowShape = RoundedCornerShape(styleSpec.tabCorner.coerceAtMost(20.dp))
 
     Row(
         modifier
@@ -190,12 +192,16 @@ internal fun CinematicNavigationMenu(
         }
     }
 
-    val panelShape = RoundedCornerShape(BousygramUiTokens.panelCorner)
+    val styleSpec = LocalBousygramStyleSpec.current
+    val panelShape = RoundedCornerShape(styleSpec.panelCorner)
     Surface(
         shape = panelShape,
         color = colors.surfaceContainerHigh.copy(alpha = if (halo.isHighContrast) 0.99f else 0.95f),
         contentColor = colors.onSurface,
-        border = BorderStroke(1.dp, halo.glassBorder),
+        border = BorderStroke(
+            width = if (halo.isHighContrast) 1.5.dp else styleSpec.panelBorderWidth.coerceAtLeast(0.75.dp),
+            color = halo.glassBorder
+        ),
         shadowElevation = if (motion.lowRam) 0.dp else 14.dp,
         modifier = modifier
             .widthIn(min = 240.dp, max = 320.dp)

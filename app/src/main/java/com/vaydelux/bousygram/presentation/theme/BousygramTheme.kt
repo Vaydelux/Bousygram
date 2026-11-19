@@ -1,9 +1,7 @@
 package com.vaydelux.bousygram.presentation.theme
 
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -90,7 +88,41 @@ enum class BousygramThemePreset(
         "ivory", "Ivory", "Warm light surfaces with earthy ink and muted accents",
         Color(0xFF79523F), Color(0xFF665181), Color(0xFF735D34),
         Color(0xFFFBF6EE), Color(0xFFFFFDF8), Color(0xFFEEE2D4), Color(0xFF85786B)
+    ),
+    SAKURA(
+        "sakura", "Sakura Blossom", "Cutesy pastel cherry-blossom pink with warm rose ink",
+        Color(0xFFA62359), Color(0xFF6A3A82), Color(0xFF8A4E10),
+        Color(0xFFFFF6F9), Color(0xFFFFFFFF), Color(0xFFFBE8F0), Color(0xFFC593A8)
+    ),
+    MATCHA(
+        "matcha", "Matcha Cream", "Cozy pastel sage & creamy oat milk palette",
+        Color(0xFF2B6640), Color(0xFF874150), Color(0xFF7D5211),
+        Color(0xFFF5FAF1), Color(0xFFFCFDF9), Color(0xFFE6F0E0), Color(0xFF93A896)
+    ),
+    COTTON_CANDY(
+        "cotton_candy", "Dreamy Pastel", "Kawaii lavender-sky twilight with candy pink highlights",
+        Color(0xFFFFA8DC), Color(0xFF8CE4FF), Color(0xFFFFE09E),
+        Color(0xFF131024), Color(0xFF1D1834), Color(0xFF342B58), Color(0xFFA799D1)
+    ),
+    MATERIAL_YOU(
+        "material_you", "Material Tonal", "Expressive Material 3 indigo-sage dynamic tonal palette",
+        Color(0xFF2D53A8), Color(0xFF216558), Color(0xFF8A4A1C),
+        Color(0xFFF6F8FE), Color(0xFFFFFFFF), Color(0xFFE6ECF8), Color(0xFF8C98B0)
+    ),
+    CUPERTINO(
+        "cupertino", "Cupertino Frost", "Crisp iPhone-inspired system blue over airy frosted gray",
+        Color(0xFF005EC4), Color(0xFF4C3FB5), Color(0xFF8C5100),
+        Color(0xFFF2F2F7), Color(0xFFFFFFFF), Color(0xFFE5E5EA), Color(0xFF9898A3)
+    ),
+    MIDNIGHT_GLASS(
+        "midnight_glass", "iOS Midnight", "True OLED obsidian with electric iOS blue & mint highlights",
+        Color(0xFF5AC8FA), Color(0xFF6CE8B8), Color(0xFFFFD27D),
+        Color(0xFF050508), Color(0xFF121217), Color(0xFF262630), Color(0xFF8C8C9A)
     );
+
+    val isLightPreset: Boolean
+        get() = this == LIGHT || this == IVORY || this == SAKURA ||
+            this == MATCHA || this == MATERIAL_YOU || this == CUPERTINO
 
     companion object {
         val MIDNIGHT = DARK
@@ -141,6 +173,16 @@ private fun darkLayers(preset: BousygramThemePreset): BousygramDarkLayers = when
         Color(0xFF42253F), Color(0xFF3D315B), Color(0xFF253C3B),
         Color(0xFF1F1425), Color(0xFF301C39), Color(0xFF412C47),
         Color(0xFF54365B), Color(0xFF82638B)
+    )
+    BousygramThemePreset.COTTON_CANDY -> BousygramDarkLayers(
+        Color(0xFF4A2546), Color(0xFF1A3D52), Color(0xFF4A381D),
+        Color(0xFF18142C), Color(0xFF231D3E), Color(0xFF2E264F),
+        Color(0xFF3A3161), Color(0xFF7264A0)
+    )
+    BousygramThemePreset.MIDNIGHT_GLASS -> BousygramDarkLayers(
+        Color(0xFF10394E), Color(0xFF113B2E), Color(0xFF463419),
+        Color(0xFF0D0D12), Color(0xFF16161D), Color(0xFF202029),
+        Color(0xFF2B2B37), Color(0xFF525263)
     )
     else -> BousygramDarkLayers(
         Color(0xFF153C4B), Color(0xFF233A56), Color(0xFF46321F),
@@ -219,6 +261,138 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
             onError = Color.White,
             errorContainer = Color(0xFFFFDADD),
             onErrorContainer = Color(0xFF65121E)
+        )
+    }
+    if (preset == BousygramThemePreset.SAKURA) {
+        return lightColorScheme(
+            primary = preset.primary,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFFFDCE8),
+            onPrimaryContainer = Color(0xFF4E0E2A),
+            secondary = preset.secondary,
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFFF0E0FB),
+            onSecondaryContainer = Color(0xFF37184A),
+            tertiary = preset.tertiary,
+            onTertiary = Color.White,
+            tertiaryContainer = Color(0xFFFCEBD4),
+            onTertiaryContainer = Color(0xFF4A2906),
+            background = preset.background,
+            onBackground = Color(0xFF381B27),
+            surface = preset.surface,
+            onSurface = Color(0xFF381B27),
+            surfaceVariant = preset.surfaceVariant,
+            onSurfaceVariant = Color(0xFF654150),
+            surfaceContainerLowest = preset.surface,
+            surfaceContainerLow = Color(0xFFFFF9FB),
+            surfaceContainer = Color(0xFFFDF0F5),
+            surfaceContainerHigh = Color(0xFFF8E3EC),
+            surfaceContainerHighest = Color(0xFFF2D6E3),
+            outline = preset.outline,
+            outlineVariant = Color(0xFFE7C2D2),
+            error = Color(0xFFB32037),
+            onError = Color.White,
+            errorContainer = Color(0xFFFFD9DE),
+            onErrorContainer = Color(0xFF630E1D)
+        )
+    }
+    if (preset == BousygramThemePreset.MATCHA) {
+        return lightColorScheme(
+            primary = preset.primary,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFD8EEDB),
+            onPrimaryContainer = Color(0xFF13351F),
+            secondary = preset.secondary,
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFFF8DFE4),
+            onSecondaryContainer = Color(0xFF471B25),
+            tertiary = preset.tertiary,
+            onTertiary = Color.White,
+            tertiaryContainer = Color(0xFFF4E7CE),
+            onTertiaryContainer = Color(0xFF402906),
+            background = preset.background,
+            onBackground = Color(0xFF223025),
+            surface = preset.surface,
+            onSurface = Color(0xFF223025),
+            surfaceVariant = preset.surfaceVariant,
+            onSurfaceVariant = Color(0xFF465848),
+            surfaceContainerLowest = preset.surface,
+            surfaceContainerLow = Color(0xFFF8FCF5),
+            surfaceContainer = Color(0xFFEFF6EA),
+            surfaceContainerHigh = Color(0xFFE5EEDF),
+            surfaceContainerHighest = Color(0xFFDBE6D3),
+            outline = preset.outline,
+            outlineVariant = Color(0xFFC5D6C2),
+            error = Color(0xFFAD2434),
+            onError = Color.White,
+            errorContainer = Color(0xFFFFDADD),
+            onErrorContainer = Color(0xFF65121E)
+        )
+    }
+    if (preset == BousygramThemePreset.MATERIAL_YOU) {
+        return lightColorScheme(
+            primary = preset.primary,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFDBE5FF),
+            onPrimaryContainer = Color(0xFF0E265C),
+            secondary = preset.secondary,
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFFD2F0E8),
+            onSecondaryContainer = Color(0xFF0A362E),
+            tertiary = preset.tertiary,
+            onTertiary = Color.White,
+            tertiaryContainer = Color(0xFFFBE3D1),
+            onTertiaryContainer = Color(0xFF472308),
+            background = preset.background,
+            onBackground = Color(0xFF192030),
+            surface = preset.surface,
+            onSurface = Color(0xFF192030),
+            surfaceVariant = preset.surfaceVariant,
+            onSurfaceVariant = Color(0xFF424E66),
+            surfaceContainerLowest = preset.surface,
+            surfaceContainerLow = Color(0xFFF9FAFF),
+            surfaceContainer = Color(0xFFEEF2FB),
+            surfaceContainerHigh = Color(0xFFE4EAF7),
+            surfaceContainerHighest = Color(0xFFD9E1F2),
+            outline = preset.outline,
+            outlineVariant = Color(0xFFC6D0E4),
+            error = Color(0xFFB3261E),
+            onError = Color.White,
+            errorContainer = Color(0xFFF9DEDC),
+            onErrorContainer = Color(0xFF410E0B)
+        )
+    }
+    if (preset == BousygramThemePreset.CUPERTINO) {
+        return lightColorScheme(
+            primary = preset.primary,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFD8EBFF),
+            onPrimaryContainer = Color(0xFF002B5C),
+            secondary = preset.secondary,
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFFE5E2FF),
+            onSecondaryContainer = Color(0xFF231966),
+            tertiary = preset.tertiary,
+            onTertiary = Color.White,
+            tertiaryContainer = Color(0xFFFFEBD0),
+            onTertiaryContainer = Color(0xFF472700),
+            background = preset.background,
+            onBackground = Color(0xFF1C1C1E),
+            surface = preset.surface,
+            onSurface = Color(0xFF1C1C1E),
+            surfaceVariant = preset.surfaceVariant,
+            onSurfaceVariant = Color(0xFF48484F),
+            surfaceContainerLowest = preset.surface,
+            surfaceContainerLow = Color(0xFFF7F7FA),
+            surfaceContainer = Color(0xFFEFEFF4),
+            surfaceContainerHigh = Color(0xFFE5E5EA),
+            surfaceContainerHighest = Color(0xFFDCDCE3),
+            outline = preset.outline,
+            outlineVariant = Color(0xFFC7C7CC),
+            error = Color(0xFFC41D2E),
+            onError = Color.White,
+            errorContainer = Color(0xFFFFDADC),
+            onErrorContainer = Color(0xFF640D16)
         )
     }
     if (preset == BousygramThemePreset.LIGHT) {
@@ -396,14 +570,6 @@ private val BousygramTypography = Typography(
     )
 )
 
-private val BousygramShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(20.dp)
-)
-
 /**
  * Cinema Halo extended visual tokens derived from the active preset while
  * anchoring brand identity in the approved Chow Chow + Cyan-Blue Halo palette.
@@ -429,7 +595,7 @@ data class BousygramHaloColors(
 
 internal fun haloColorsFor(preset: BousygramThemePreset, scheme: ColorScheme): BousygramHaloColors {
     val highContrast = preset == BousygramThemePreset.HIGH_CONTRAST
-    val light = preset == BousygramThemePreset.LIGHT || preset == BousygramThemePreset.IVORY
+    val light = preset.isLightPreset
     val brandCyan = Color(0xFF37D7F2)
     val brandBlue = Color(0xFF2289F9)
     val chowGold = Color(0xFFFFC67D)
@@ -577,21 +743,27 @@ val LocalBousygramDisplaySpec = staticCompositionLocalOf {
 @Composable
 fun BousygramTheme(
     preset: BousygramThemePreset = BousygramThemePreset.MIDNIGHT,
+    designStyle: BousygramDesignStyle = BousygramDesignStyle.CINEMA_HALO,
+    backdropPattern: BousygramBackdropPattern = BousygramBackdropPattern.AMBIENT_HALO,
     content: @Composable () -> Unit
 ) {
     val scheme = remember(preset) { schemeFor(preset) }
     val halo = remember(preset, scheme) { haloColorsFor(preset, scheme) }
+    val styleSpec = remember(designStyle) { styleSpecFor(designStyle) }
+    val shapes = remember(styleSpec) { shapesFor(styleSpec) }
     val adaptive = rememberAdaptiveMetrics()
     val displaySpec = remember(adaptive) { resolveDisplaySpec(adaptive) }
     val typography = remember(displaySpec.tier) { bousygramTypographyFor(displaySpec.tier) }
     CompositionLocalProvider(
         LocalBousygramHaloColors provides halo,
-        LocalBousygramDisplaySpec provides displaySpec
+        LocalBousygramDisplaySpec provides displaySpec,
+        LocalBousygramStyleSpec provides styleSpec,
+        LocalBousygramBackdropPattern provides backdropPattern
     ) {
         MaterialTheme(
             colorScheme = scheme,
             typography = typography,
-            shapes = BousygramShapes,
+            shapes = shapes,
             content = content
         )
     }

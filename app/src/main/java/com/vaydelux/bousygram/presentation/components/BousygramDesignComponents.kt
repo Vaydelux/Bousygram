@@ -46,9 +46,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
 
@@ -201,15 +203,17 @@ fun BousygramSectionTab(
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
+    val styleSpec = LocalBousygramStyleSpec.current
     val motion = rememberBousygramMotionPolicy()
     val tooltipState = rememberBousygramTooltipState()
     var focused by remember { mutableStateOf(false) }
 
     val highlight by animateColorAsState(
         targetValue = when {
-            active && focused -> colors.primaryContainer
+            active && styleSpec.segmentedTabs && !halo.isHighContrast -> colors.surface
             active -> colors.primaryContainer
             focused -> colors.surfaceContainerHighest
+            styleSpec.useTonalSurfaces -> colors.surfaceContainerHigh
             else -> colors.surfaceContainerLow
         },
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
@@ -218,19 +222,29 @@ fun BousygramSectionTab(
     val outline by animateColorAsState(
         targetValue = when {
             focused -> colors.primary
+            active && styleSpec.segmentedTabs && !halo.isHighContrast -> colors.outlineVariant.copy(alpha = 0.55f)
             active -> halo.haloStart.copy(alpha = if (halo.isHighContrast) 1f else 0.72f)
+            styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.primary.copy(alpha = 0.28f)
             else -> colors.outlineVariant.copy(alpha = 0.70f)
         },
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "sectionTabOutline"
     )
     val contentColor = when {
+        active && styleSpec.segmentedTabs && !halo.isHighContrast -> colors.onSurface
         active -> colors.onPrimaryContainer
         focused -> colors.onSurface
         else -> colors.onSurfaceVariant
     }
     val showLabel = !iconOnly || icon == null
     val effectiveTooltipDetail = tooltipDetail ?: badgeCount?.let { "$it" }
+
+    val tabBorderWidth = when {
+        focused -> BousygramUiTokens.tvFocusOutline
+        active -> if (styleSpec.useTonalSurfaces && !halo.isHighContrast) 0.dp else 1.5.dp
+        halo.isHighContrast -> 1.dp
+        else -> styleSpec.cardBorderWidth
+    }
 
     OutlinedButton(
         onClick = {
@@ -257,11 +271,8 @@ fun BousygramSectionTab(
                     else accessibilityLabel
             }
             .onFocusChanged { focused = it.isFocused },
-        shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
-        border = BorderStroke(
-            width = if (focused) BousygramUiTokens.tvFocusOutline else if (active) 1.5.dp else 1.dp,
-            color = outline
-        ),
+        shape = RoundedCornerShape(styleSpec.tabCorner),
+        border = if (tabBorderWidth > 0.dp) BorderStroke(width = tabBorderWidth, color = outline) else null,
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = highlight,
             contentColor = contentColor
@@ -294,6 +305,7 @@ fun BousygramSectionTab(
                         icon = icon,
                         contentDescription = null,
                         tint = when {
+                            active && styleSpec.segmentedTabs && !halo.isHighContrast -> colors.primary
                             active -> colors.onPrimaryContainer
                             focused -> colors.primary
                             else -> colors.onSurfaceVariant
@@ -321,7 +333,7 @@ fun BousygramSectionTab(
                             text = badgeCount.toString(),
                             style = MaterialTheme.typography.labelSmall.tabular(),
                             fontWeight = FontWeight.Bold,
-                            color = if (active) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                            color = if (active) contentColor else colors.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             maxLines = 1
                         )
@@ -353,7 +365,9 @@ fun BousygramIconButton(
     iconSize: Dp? = null
 ) {
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
+    val styleSpec = LocalBousygramStyleSpec.current
     val motion = rememberBousygramMotionPolicy()
     val tooltipState = rememberBousygramTooltipState()
     var focused by remember { mutableStateOf(false) }
@@ -362,7 +376,7 @@ fun BousygramIconButton(
     val targetSize = minSize ?: if (spec.isTv) spec.minControlHeight else BousygramUiTokens.touchTarget
     val resolvedIconSize = iconSize ?: spec.iconSizeAction
     val shape = if (circular) RoundedCornerShape(BousygramUiTokens.pillCorner)
-        else RoundedCornerShape(BousygramUiTokens.tabCorner)
+        else RoundedCornerShape(styleSpec.tabCorner)
 
     val scale by animateFloatAsState(
         targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
@@ -375,6 +389,8 @@ fun BousygramIconButton(
             emphasized -> colors.primary
             selected -> colors.primaryContainer
             focused -> colors.surfaceContainerHighest
+            styleSpec.useTonalSurfaces -> colors.surfaceContainerHigh
+            styleSpec.style == BousygramDesignStyle.IPHONE_GLASS && !halo.isHighContrast -> colors.surface.copy(alpha = 0.90f)
             else -> colors.surfaceContainerLow
         },
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
@@ -391,7 +407,14 @@ fun BousygramIconButton(
         focused -> colors.primary
         selected -> colors.primary.copy(alpha = 0.72f)
         emphasized -> Color.Transparent
+        styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.primary.copy(alpha = 0.30f)
         else -> colors.outlineVariant.copy(alpha = 0.72f)
+    }
+    val borderWidth = when {
+        focused -> BousygramUiTokens.tvFocusOutline
+        selected -> 1.5.dp
+        halo.isHighContrast -> 1.dp
+        else -> styleSpec.cardBorderWidth
     }
 
     Box(
@@ -403,10 +426,9 @@ fun BousygramIconButton(
             }
             .clip(shape)
             .background(bgColor)
-            .border(
-                width = if (focused) BousygramUiTokens.tvFocusOutline else if (selected) 1.5.dp else 1.dp,
-                color = borderColor,
-                shape = shape
+            .then(
+                if (borderWidth > 0.dp) Modifier.border(width = borderWidth, color = borderColor, shape = shape)
+                else Modifier
             )
             .semantics {
                 this.contentDescription = contentDescription
