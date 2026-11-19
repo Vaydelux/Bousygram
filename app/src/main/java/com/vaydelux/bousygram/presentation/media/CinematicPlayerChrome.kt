@@ -95,6 +95,7 @@ import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramPlaybackPalette
 import com.vaydelux.bousygram.presentation.theme.tabular
 import kotlin.math.roundToInt
 
@@ -104,13 +105,13 @@ internal fun cinematicFraction(position: Long, duration: Long) =
 @Composable
 internal fun CinematicPassiveProgress(position: Long, duration: Long, modifier: Modifier = Modifier) {
     val fraction = cinematicFraction(position, duration)
-    val halo = LocalBousygramHaloColors.current
-    val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
-    val cinemaAccentEnd = if (halo.isLight) BousygramUiTokens.mascotBlue else MaterialTheme.colorScheme.primary
+    val playback = rememberBousygramPlaybackPalette()
+    val cinemaAccent = playback.played
+    val cinemaAccentEnd = playback.playedEnd
     Canvas(modifier.fillMaxWidth().height(1.5.dp).testTag("cinematic_passive_progress")) {
         val h = size.height
         val y = h / 2f
-        drawLine(Color.White.copy(alpha = 0.20f), Offset(0f, y), Offset(size.width, y), h)
+        drawLine(playback.unplayed, Offset(0f, y), Offset(size.width, y), h)
         if (fraction > 0f) {
             drawLine(
                 brush = Brush.horizontalGradient(listOf(cinemaAccent, cinemaAccentEnd)),
@@ -142,8 +143,9 @@ internal fun CinematicScrubber(
     var isFocused by remember(mediaKey) { mutableStateOf(false) }
     val active = duration > 0L
     val halo = LocalBousygramHaloColors.current
-    val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
-    val cinemaAccentEnd = if (halo.isLight) BousygramUiTokens.mascotBlue else MaterialTheme.colorScheme.primary
+    val playback = rememberBousygramPlaybackPalette()
+    val cinemaAccent = playback.played
+    val cinemaAccentEnd = playback.playedEnd
     val latestDuration by rememberUpdatedState(duration)
     val latestPosition by rememberUpdatedState(position)
     val latestSeek by rememberUpdatedState(onSeek)
@@ -274,14 +276,14 @@ internal fun CinematicScrubber(
             val radius = CornerRadius(h / 2f, h / 2f)
             // Unplayed track
             drawRoundRect(
-                color = Color.White.copy(alpha = if (isFocused) 0.28f else 0.22f),
+                color = playback.unplayed.copy(alpha = if (isFocused) 0.40f else playback.unplayed.alpha),
                 size = Size(size.width, h),
                 cornerRadius = radius
             )
             // Buffered range
             if (bufferedFraction > 0f) {
                 drawRoundRect(
-                    color = Color.White.copy(alpha = 0.42f),
+                    color = playback.buffered,
                     size = Size(size.width * bufferedFraction, h),
                     cornerRadius = radius
                 )
@@ -299,7 +301,7 @@ internal fun CinematicScrubber(
             if (dragging) {
                 val center = Offset(fillWidth, h / 2f)
                 drawCircle(cinemaAccent.copy(alpha = 0.34f), 11.dp.toPx(), center)
-                drawCircle(Color.White, 6.dp.toPx(), center)
+                drawCircle(playback.thumb, 6.dp.toPx(), center)
                 drawCircle(cinemaAccentEnd, 4.dp.toPx(), center)
             }
         }
