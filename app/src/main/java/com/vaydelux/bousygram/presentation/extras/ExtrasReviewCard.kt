@@ -11,6 +11,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -29,7 +30,7 @@ internal fun ExtrasReviewCard(
     var expanded by rememberSaveable(review.author, review.content) {
         mutableStateOf(false)
     }
-    val hasMore = review.content.length > 140
+    var hasMore by remember(review.content, collapsedLines) { mutableStateOf(false) }
     Surface(
         modifier = modifier.fillMaxWidth().testTag("extras-review-card"),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -55,7 +56,12 @@ internal fun ExtrasReviewCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = if (expanded) Int.MAX_VALUE else collapsedLines.coerceAtLeast(2),
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.testTag("extras-review-content")
+                modifier = Modifier.testTag("extras-review-content"),
+                onTextLayout = { measured ->
+                    if (!expanded && hasMore != measured.hasVisualOverflow) {
+                        hasMore = measured.hasVisualOverflow
+                    }
+                }
             )
             if (hasMore) {
                 TextButton(
