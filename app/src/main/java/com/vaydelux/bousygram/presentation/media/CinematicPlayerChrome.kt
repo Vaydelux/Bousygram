@@ -332,7 +332,7 @@ private fun CinemaHudButton(
     val tooltipState = rememberBousygramTooltipState()
     var focused by remember { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
-    val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
+    val cinemaAccent = rememberBousygramPlaybackPalette().played
 
     val minTarget: Dp = when {
         hero -> spec.playerHeroButtonSize
@@ -453,7 +453,7 @@ private fun CinemaMetaBadge(
     accent: Boolean = false
 ) {
     val halo = LocalBousygramHaloColors.current
-    val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
+    val cinemaAccent = rememberBousygramPlaybackPalette().played
     Surface(
         shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
         color = if (accent) cinemaAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.14f),
@@ -512,7 +512,7 @@ internal fun CinematicPlayerChrome(
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
     val styleSpec = LocalBousygramStyleSpec.current
-    val cinemaAccent = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
+    val cinemaAccent = rememberBousygramPlaybackPalette().played
     val density = LocalDensity.current
     val windowWidth = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
