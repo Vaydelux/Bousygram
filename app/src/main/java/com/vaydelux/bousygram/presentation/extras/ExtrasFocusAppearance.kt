@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 
 /**
  * Extras uses the same theme tokens and focus outline as Telegram Media.
@@ -25,13 +26,14 @@ import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 internal fun Modifier.extrasFocusOutline(): Modifier {
     var hasRemoteFocus by remember { mutableStateOf(false) }
     val color = MaterialTheme.colorScheme.primary
+    val style = LocalBousygramStyleSpec.current
     return this
         .onFocusChanged { hasRemoteFocus = it.hasFocus }
         .then(
             if (hasRemoteFocus) Modifier.border(
                 width = BousygramUiTokens.tvFocusOutline,
                 color = color,
-                shape = RoundedCornerShape(BousygramUiTokens.tabCorner)
+                shape = RoundedCornerShape(style.tabCorner)
             ) else Modifier
         )
 }
