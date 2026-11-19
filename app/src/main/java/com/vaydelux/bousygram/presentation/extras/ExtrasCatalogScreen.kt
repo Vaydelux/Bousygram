@@ -448,7 +448,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text(
-                            if (detailItem == null) "Explore Extras" else "${detailItem?.type?.label} details",
+                            if (detailItem == null) "Explore Extras" else when (detailItem?.type) {
+                        ExtrasType.MOVIES -> "Movie details"
+                        ExtrasType.TV -> "Series details"
+                        ExtrasType.ANIME -> "Anime details"
+                        else -> "Extras details"
+                    },
                             style = if (metrics.isTv) MaterialTheme.typography.titleLarge
                                 else MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -1348,6 +1353,11 @@ internal fun ExtrasDetailContent(
                 }
             }
         }
+        if (info.item.type == ExtrasType.TV) {
+            item(key = "details-synopsis") {
+                ExtrasSynopsis(info.description, compact = layout.compactLandscape)
+            }
+        }
         if (info.seasons.isNotEmpty()) {
             item { Text("Seasons & Episodes", style = MaterialTheme.typography.titleMedium) }
             item {
@@ -1442,8 +1452,10 @@ internal fun ExtrasDetailContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        item(key = "details-synopsis") {
-            ExtrasSynopsis(info.description, compact = layout.compactLandscape)
+        if (info.item.type != ExtrasType.TV) {
+            item(key = "details-synopsis") {
+                ExtrasSynopsis(info.description, compact = layout.compactLandscape)
+            }
         }
         info.youtubeId?.let { youtube ->
             item {
@@ -1474,25 +1486,25 @@ internal fun ExtrasDetailContent(
                             selectedRegion = regions[index].region
                         }
                         region.offers.groupBy { it.method }.forEach { (method, offers) ->
-                            Text(method, fontWeight = FontWeight.SemiBold,
-                                style = MaterialTheme.typography.labelLarge)
-                            offers.forEach { offer ->
-                                Row(verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    AsyncImage(
-                                        model = offer.logo, contentDescription = null,
-                                        modifier = Modifier.size(32.dp),
-                                        contentScale = ContentScale.Fit
-                                    )
-                                    Text(offer.providerName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis)
+                            Text(
+                                method,
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.testTag("extras-provider-row")
+                            ) {
+                                itemsIndexed(offers, key = { index, _ -> "provider:$index" }) { _, offer ->
+                                    ExtrasProviderOfferCard(offer)
                                 }
                             }
                         }
                         region.tmdbLink?.let { url ->
-                            OutlinedButton(onClick = {
+                            OutlinedButton(
+                                modifier = Modifier.extrasFocusOutline(),
+                                onClick = {
                                 runCatching {
                                     context.startActivity(
                                         Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -1535,7 +1547,7 @@ internal fun ExtrasDetailContent(
                 style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(info.cast, key = { "${it.name}:${it.role}" }) { person ->
+                    itemsIndexed(info.cast, key = { index, _ -> "cast:$index" }) { _, person ->
                         Column(
                             Modifier.width(layout.castCardWidth)
                                 .extrasFocusOutline()
