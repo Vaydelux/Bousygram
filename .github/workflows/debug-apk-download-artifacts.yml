@@ -137,8 +137,11 @@ jobs:
           bindings, APK signing, native ABI matrix and SHA-256 hashes.
 
           This is a **debug-signed QA prerelease**, not a production release.
-          Visual QA: startup Appearance Studio, Extras compact landscape, Favorites
-          unified phone navigation, and theme-aware Telegram/LibVLC progress.
+          Visual QA: startup Appearance Studio, unified phone navigation,
+          theme-aware Telegram/LibVLC progress and adaptive Extras detail pages.
+          Extras regression scope: narrow/landscape/TV layout matrix, D-pad action
+          focus, scroll reset for Related titles, expandable reviews/synopses,
+          theme-aware provider/cast cards and compact artwork above the fold.
           Physical Android TV verification is still required. Emulator testing
           is tracked separately in the normal smoke workflows.
           EOF
