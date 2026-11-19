@@ -317,25 +317,39 @@ object EnterprisePreferences {
         appendLine("Playback telemetry: ${com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder.summary()}")
     }
 
-    fun exportSettingsJson(): String = JSONObject()
-        .put("version", 1)
-        .put("accountId", AccountSession.current()?.accountId ?: JSONObject.NULL)
-        .put("favorites", JSONArray(favoriteKeys().toList()))
-        .put("pinnedChats", JSONArray(pinnedChatIds().map { it.toString() }))
-        .put("recentQueries", JSONArray(recentQueries()))
-        .put("lastPlayed", privatePrefs()?.getString(KEY_LAST_PLAYED, "").orEmpty())
-        .put("continueOnly", hideWatched())
-        .put("safeMode", safeMode())
-        .put("visualTheme", visualThemeId())
-        .put("visualDesignStyle", designStyleId())
-        .put("visualBackdropPattern", backdropPatternId())
-        .put("autoPlayNext", autoPlayNext())
-        .put("subtitlesDefault", subtitlesDefault())
-        .put("preferredSpeed", preferredSpeed().toDouble())
-        .put("audioSmartVolume", audioProcessingProfile().smartVolume.name)
-        .put("bufferMode", bufferMode().name)
-        .put("cacheLimit", cacheLimitOption().name)
-        .toString(2)
+    /** Backups from Extras-only mode contain only public device preferences.
+     * Private Telegram data is included only for a stable, verified account.
+     */
+    fun exportSettingsJson(): String {
+        val result = JSONObject()
+            .put("version", 1)
+            .put("continueOnly", hideWatched())
+            .put("safeMode", safeMode())
+            .put("visualTheme", visualThemeId())
+            .put("visualDesignStyle", designStyleId())
+            .put("visualBackdropPattern", backdropPatternId())
+            .put("autoPlayNext", autoPlayNext())
+            .put("subtitlesDefault", subtitlesDefault())
+            .put("preferredSpeed", preferredSpeed().toDouble())
+            .put("audioSmartVolume", audioProcessingProfile().smartVolume.name)
+            .put("bufferMode", bufferMode().name)
+
+        val owner = AccountSession.current()
+        if (owner != null) {
+            check(AccountSession.isCurrent(owner)) { "Telegram account changed while exporting settings" }
+            val favorites = favoriteKeys().toList()
+            val pinned = pinnedChatIds().map { it.toString() }
+            val queries = recentQueries()
+            val playback = accountPrefs(owner).getString(KEY_LAST_PLAYED, "").orEmpty()
+            check(AccountSession.isCurrent(owner)) { "Telegram account changed while exporting settings" }
+            result.put("accountId", owner.accountId)
+                .put("favorites", JSONArray(favorites))
+                .put("pinnedChats", JSONArray(pinned))
+                .put("recentQueries", JSONArray(queries))
+                .put("lastPlayed", playback)
+        }
+        return result.toString(2)
+    }
 
     fun importSettingsJson(json: String): Result<Unit> = runCatching {
         val owner = AccountSession.current()
