@@ -96,7 +96,8 @@ fun FavoritesScreen(
     val displaySpec = LocalBousygramDisplaySpec.current
     val responsive = bousygramResponsiveTokens(adaptive)
     val horizontalPadding = displaySpec.horizontalPadding
-    val compactIconActions = displaySpec.tier == BousygramDisplayTier.PhoneCompact
+    val compactIconActions = displaySpec.tier == BousygramDisplayTier.PhoneCompact ||
+        adaptive.isShortWindow
     var focusedKey by rememberSaveable { mutableStateOf<String?>(null) }
     var restoreKey by remember { mutableStateOf<String?>(null) }
     var previousKeys by remember { mutableStateOf(emptyList<String>()) }
@@ -138,19 +139,42 @@ fun FavoritesScreen(
     ) { insets ->
         Box(modifier = Modifier.fillMaxSize().padding(insets)) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = horizontalPadding, vertical = if (adaptive.isCompact) 12.dp else 20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                modifier = Modifier.fillMaxSize().padding(
+                    horizontal = horizontalPadding,
+                    vertical = if (adaptive.isShortWindow) 6.dp else if (adaptive.isCompact) 12.dp else 20.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(if (adaptive.isShortWindow) 8.dp else 16.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                BousygramPageHeading(
-                    eyebrow = "Telegram media  /  Your collection",
-                    title = "Favorites",
-                    subtitle = if (state.isLoading) "Loading your saved videos…"
-                        else if (state.items.isEmpty()) "No saved videos"
-                        else "${state.loadedStart + 1}-${state.loadedStart + state.items.size} loaded from Telegram${if (state.hasMore) " · More available" else ""}",
-                    compact = adaptive.isCompact || adaptive.isShortWindow,
-                    icon = BousygramIcons.Favorites
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(if (adaptive.isShortWindow) 6.dp else 12.dp)) {
+                if (adaptive.isShortWindow) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Favorites",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            if (state.isLoading) "Loading…" else "${state.items.size} saved",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    BousygramPageHeading(
+                        eyebrow = "Telegram media  /  Your collection",
+                        title = "Favorites",
+                        subtitle = if (state.isLoading) "Loading your saved videos…"
+                            else if (state.items.isEmpty()) "No saved videos"
+                            else "${state.loadedStart + 1}-${state.loadedStart + state.items.size} loaded from Telegram${if (state.hasMore) " · More available" else ""}",
+                        compact = adaptive.isCompact,
+                        icon = BousygramIcons.Favorites
+                    )
+                }
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
