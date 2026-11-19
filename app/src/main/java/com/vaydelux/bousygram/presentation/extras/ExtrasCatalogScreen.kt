@@ -1603,7 +1603,10 @@ internal fun ExtrasDetailContent(
 @Composable
 private fun DetailText(info: ExtrasDetail) {
     val halo = LocalBousygramHaloColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(
+        modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
         Text(
             info.item.title,
             style = MaterialTheme.typography.titleLarge,
@@ -1664,7 +1667,10 @@ internal fun ExtrasSynopsis(description: String, compact: Boolean) {
     val text = description.ifBlank { "No description is available for this title." }
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     var hasMore by remember(text, compact) { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(
+        modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
         Text(
             text,
             style = MaterialTheme.typography.bodyMedium,
