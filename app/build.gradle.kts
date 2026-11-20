@@ -820,3 +820,35 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+/**
+ * Produce a human-readable, date-stamped debug APK without changing Android
+ * applicationId, versionCode or the standard AGP output used by Android Studio.
+ *
+ * Example: ./gradlew :app:exportDatedDebugApk
+ * Output: app/build/outputs/dated-debug/Bousygram-debug-Nov,21,2026.apk
+ * The build date uses UTC for reproducible naming across developer machines.
+ */
+tasks.register("exportDatedDebugApk") {
+    group = "distribution"
+    description = "Build and copy the debug APK with an MMM,dd,yyyy UTC filename"
+    dependsOn("assembleDebug")
+    val sourceApk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
+    val outputDirectory = layout.buildDirectory.dir("outputs/dated-debug")
+    inputs.file(sourceApk)
+    outputs.dir(outputDirectory)
+    doLast {
+        val source = sourceApk.get().asFile
+        check(source.isFile && source.length() > 0L) {
+            "Expected nonempty debug APK at ${source.absolutePath}"
+        }
+        val date = java.time.LocalDate.now(java.time.ZoneOffset.UTC)
+            .format(java.time.format.DateTimeFormatter.ofPattern(
+                "MMM,dd,yyyy", java.util.Locale.ENGLISH
+            ))
+        val target = outputDirectory.get().file("Bousygram-debug-${date}.apk").asFile
+        target.parentFile.mkdirs()
+        source.copyTo(target, overwrite = true)
+        logger.lifecycle("Dated debug APK: ${target.absolutePath}")
+    }
+}
