@@ -13,6 +13,12 @@ class ExtrasLayoutOrientationTest {
         assertEquals(48, layout.minControlHeightDp)
     }
 
+    @Test fun mediumLandscapeKeepsSearchAndFiltersStacked() {
+        val layout = ExtrasLayoutPolicy.resolve(700f, 390f, false)
+        assertFalse(layout.landscapeToolbar)
+        assertTrue(layout.compactHeader)
+    }
+
     @Test fun wideLandscapeAtLargeFontScaleCanFitToolbar() {
         val layout = ExtrasLayoutPolicy.resolve(960f, 480f, false, 1.5f)
         assertTrue(layout.landscapeToolbar)
