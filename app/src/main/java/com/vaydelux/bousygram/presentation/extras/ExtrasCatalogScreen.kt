@@ -1345,6 +1345,13 @@ internal fun ExtrasDetailContent(
         episodes.chunked(spec.episodeColumns)
     }
 
+    // Navigating to a related title on touch devices must not inherit the
+    // previous detail page's bottom-of-list scroll position. TV has its own
+    // primary-action focus entry below, so only reset touch/phone here.
+    LaunchedEffect(info.item.type, info.item.id, isAndroidTv) {
+        if (!isAndroidTv) detailList.scrollToItem(0)
+    }
+
     // Movies/anime enter directly on Play. TV titles enter on the first
     // season, now positioned above trailers/provider metadata. We scroll
     // the lazy item into composition before requesting focus.
