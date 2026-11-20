@@ -125,6 +125,44 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
         compose.runOnIdle { assertEquals(1, favoritesOpens) }
     }
 
+    @Test fun savedChannelsGroupsAndFavoritesAreAllReachableOnCompactPhones() {
+        var favoritesOpens = 0
+        compose.setContent {
+            Box(Modifier.width(320.dp)) {
+                HeaderFixture(320.dp, 660.dp, television = false,
+                    onFavorites = { favoritesOpens++ })
+            }
+        }
+        compose.onNodeWithTag("telegram-library-tab-favorites").assertIsDisplayed()
+        compose.onNodeWithTag("telegram-library-tab-saved").assertIsDisplayed()
+        compose.onNodeWithTag("telegram-library-tab-channels").assertIsDisplayed()
+        compose.onNodeWithTag("telegram-library-tab-groups").assertIsDisplayed()
+
+        compose.onNodeWithTag("telegram-library-tab-channels").performClick()
+        compose.onNodeWithTag("telegram-library-tab-channels").assertIsSelected()
+        compose.onNodeWithTag("telegram-library-tab-groups").performClick()
+        compose.onNodeWithTag("telegram-library-tab-groups").assertIsSelected()
+        compose.onNodeWithTag("telegram-library-tab-saved").performClick()
+        compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
+        compose.onNodeWithTag("telegram-library-tab-favorites").performClick()
+        compose.runOnIdle { assertEquals(1, favoritesOpens) }
+        compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
+    }
+
+    @Test fun allSourceSectionsRemainReachableOnTv() {
+        compose.setContent {
+            Box(Modifier.width(960.dp)) {
+                HeaderFixture(960.dp, 540.dp, television = true)
+            }
+        }
+        for (section in listOf("saved", "channels", "groups")) {
+            compose.onNodeWithTag("telegram-library-tab-$section").assertIsDisplayed()
+            compose.onNodeWithTag("telegram-library-tab-$section").performClick()
+            compose.onNodeWithTag("telegram-library-tab-$section").assertIsSelected()
+        }
+        compose.onNodeWithTag("telegram-library-tab-favorites").assertIsDisplayed()
+    }
+
     @Test fun retryButtonAppearsOnlyOnForumErrors() {
         compose.setContent {
             HeaderFixture(720.dp, 540.dp, television = true, forum = true, hasError = true)
