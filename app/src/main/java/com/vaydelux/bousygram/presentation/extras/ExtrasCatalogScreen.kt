@@ -870,7 +870,8 @@ internal fun ExtrasFilterDisclosure(
     modifier: Modifier = Modifier,
     minHeightDp: Int = 56
 ) {
-    val compactWindow = rememberAdaptiveMetrics().isShortWindow
+    val metrics = rememberAdaptiveMetrics()
+    val compactWindow = metrics.isShortWindow || metrics.effectiveWidthDp < 480.dp
     Row(
         modifier = Modifier.fillMaxWidth()
             .heightIn(min = minHeightDp.dp)
@@ -913,6 +914,8 @@ internal fun ExtrasCatalogTabs(
     val compact = metrics.isCompact || metrics.isShortWindow ||
         (!metrics.isTv && metrics.effectiveHeightDp < 520.dp) ||
         metrics.effectiveWidthDp < 600.dp
+    val iconOnlyCompact = !metrics.isTv &&
+        metrics.fontScale >= 1.35f && metrics.effectiveWidthDp < 440.dp
     Row(
         modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-catalog-tabs"),
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
@@ -934,7 +937,8 @@ internal fun ExtrasCatalogTabs(
                 isTv = metrics.isTv,
                 compact = compact,
                 accessibilityLabel = tab.label,
-                icon = if (compact && !metrics.isTv) null else tabIcon,
+                icon = if (iconOnlyCompact || !compact || metrics.isTv) tabIcon else null,
+                iconOnly = iconOnlyCompact,
                 tooltip = tab.label,
                 tooltipDetail = tabDetail,
                 onClick = { onSelect(tab.ordinal) },
