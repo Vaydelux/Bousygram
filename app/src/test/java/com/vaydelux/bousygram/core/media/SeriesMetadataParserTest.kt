@@ -76,35 +76,20 @@ class SeriesMetadataParserTest {
     }
 
     @Test
-    fun mapsParserOutputToTmdbQueryParameters() {
-        // 1. Movie mapping test
-        val movieParsed = SeriesMetadataParser.parse("The.Matrix.1999.1080p.mkv", null)
-        assertEquals("The Matrix", movieParsed.cleanTitle)
-        assertEquals(1999, movieParsed.year)
-        org.junit.Assert.assertFalse(movieParsed.isSeries)
+    fun movieAndSeriesNamesRemainLocalToTheFilenameParser() {
+        val movie = SeriesMetadataParser.parse("The.Matrix.1999.1080p.mkv", null)
+        assertEquals("The Matrix", movie.cleanTitle)
+        assertEquals(1999, movie.year)
+        org.junit.Assert.assertFalse(movie.isSeries)
+        org.junit.Assert.assertNull(movie.seasonNumber)
 
-        val movieKey = com.vaydelux.bousygram.data.repository.TmdbRepository.generateCacheKey(
-            title = movieParsed.cleanTitle!!,
-            year = movieParsed.year,
-            isSeries = movieParsed.isSeries
+        val show = SeriesMetadataParser.parse(
+            "Breaking.Bad.S02E08.Better.Call.Saul.1080p.mkv", null
         )
-        org.junit.Assert.assertTrue(movieKey.isNotBlank())
-
-        // 2. TV Series with Season and Episode mapping test
-        val tvParsed = SeriesMetadataParser.parse("Breaking.Bad.S02E08.Better.Call.Saul.1080p.mkv", null)
-        assertEquals("Breaking Bad", tvParsed.cleanTitle)
-        assertEquals(2, tvParsed.seasonNumber)
-        assertEquals(8, tvParsed.episodeNumber)
-        org.junit.Assert.assertTrue(tvParsed.isSeries)
-
-        val tvKey = com.vaydelux.bousygram.data.repository.TmdbRepository.generateCacheKey(
-            title = tvParsed.cleanTitle!!,
-            year = tvParsed.year,
-            isSeries = tvParsed.isSeries,
-            seasonNumber = tvParsed.seasonNumber,
-            episodeNumber = tvParsed.episodeNumber
-        )
-        org.junit.Assert.assertTrue(tvKey.isNotBlank())
-        org.junit.Assert.assertNotEquals(movieKey, tvKey)
+        assertEquals("Breaking Bad", show.cleanTitle)
+        assertEquals(2, show.seasonNumber)
+        assertEquals(8, show.episodeNumber)
+        org.junit.Assert.assertTrue(show.isSeries)
+        org.junit.Assert.assertNotEquals(movie.cleanTitle, show.cleanTitle)
     }
 }
