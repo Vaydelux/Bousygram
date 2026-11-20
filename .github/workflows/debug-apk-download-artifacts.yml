@@ -139,6 +139,8 @@ jobs:
           This is a **debug-signed QA prerelease**, not a production release.
           Visual QA: startup Appearance Studio, Extras compact landscape, Favorites
           unified phone navigation, and theme-aware Telegram/LibVLC progress.
+          Extras details QA: responsive backdrop/poster hierarchy, readable expandable
+          reviews, compact cast cards, related-media D-pad focus and TV spacing.
           Physical Android TV verification is still required. Emulator testing
           is tracked separately in the normal smoke workflows.
           EOF
