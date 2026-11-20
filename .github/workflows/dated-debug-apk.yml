@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-debug:
@@ -44,3 +44,18 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+      - name: Publish debug pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          apk="$(find app/build/outputs/dated-debug -maxdepth 1 -name 'Bousygram-debug-*.apk' -type f -print -quit)"
+          test -n "$apk" && test -s "$apk"
+          tag="debug-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          gh release create "$tag" "$apk" \
+            --target "$GITHUB_SHA" \
+            --title "Bousygram Debug — $(date -u '+%b %d, %Y')" \
+            --notes "Debug APK for device testing. Built from commit ${GITHUB_SHA}. Not a production-signed release." \
+            --prerelease
