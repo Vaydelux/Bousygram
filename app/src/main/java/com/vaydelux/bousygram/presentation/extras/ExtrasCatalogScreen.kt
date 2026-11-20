@@ -822,7 +822,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             item {
                                 Button(onClick = {
                                     if (!state.loading) update(state.copy(page = state.page + 1, loading = true, error = null))
-                                }, modifier = Modifier.extrasFocusOutline(), enabled = !state.loading) {
+                                }, modifier = Modifier.extrasFocusOutline().heightIn(min = 48.dp)
+                                    .testTag("extras-more-titles"), enabled = !state.loading) {
                                     Text(if (state.loading) "Loading…" else "More titles")
                                 }
                             }
@@ -1016,7 +1017,7 @@ internal fun ExtrasSearchSuggestions(
         tonalElevation = 4.dp,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().heightIn(max = 210.dp)
-            .testTag("extras-search-suggestions")
+            .focusGroup().testTag("extras-search-suggestions")
     ) {
         Column {
             Row(
@@ -1034,7 +1035,7 @@ internal fun ExtrasSearchSuggestions(
                     onClick = onDismiss
                 ) { Text("Dismiss") }
             }
-            LazyColumn(modifier = Modifier.heightIn(max = 154.dp)) {
+            LazyColumn(modifier = Modifier.heightIn(max = 154.dp).focusGroup()) {
                 items(visible, key = { "${it.type}:${it.id}" }) { item ->
                     var focused by remember(item.type, item.id) { mutableStateOf(false) }
                     Row(
@@ -1049,6 +1050,7 @@ internal fun ExtrasSearchSuggestions(
                             )
                             .activateOnTvDpad { onOpen(item) }
                             .clickable { onOpen(item) }
+                            .heightIn(min = 64.dp)
                             .padding(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1496,7 +1498,7 @@ private fun ExtrasDetailContent(
                 style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(
-                    modifier = Modifier.testTag("extras-cast-row"),
+                    modifier = Modifier.fillMaxWidth().testTag("extras-cast-row"),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
                 ) {
@@ -1517,7 +1519,11 @@ private fun ExtrasDetailContent(
         if (info.seasons.isNotEmpty()) {
             item { Text("Seasons & Episodes", style = MaterialTheme.typography.titleMedium) }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-seasons-row"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
+                ) {
                     items(info.seasons, key = { it.number }) { season ->
                         FilterChip(selected = selectedSeason == season.number,
                             onClick = { onSeason(season.number) },
@@ -1651,7 +1657,7 @@ private fun ExtrasDetailContent(
             item { Text("Related & recommended", style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(
-                    modifier = Modifier.testTag("extras-related-row"),
+                    modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-related-row"),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
                 ) {
