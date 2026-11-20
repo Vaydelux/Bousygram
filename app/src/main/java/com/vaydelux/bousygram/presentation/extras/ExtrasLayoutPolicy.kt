@@ -52,7 +52,7 @@ internal object ExtrasLayoutPolicy {
                 else -> 178
             },
             gridGapDp = if (width < 600f) 10 else if (isTv) 16 else 14,
-            minControlHeightDp = if (isTv) 56 else 48,
+            minControlHeightDp = 56,
             compactHeader = compactHeader
         )
     }
