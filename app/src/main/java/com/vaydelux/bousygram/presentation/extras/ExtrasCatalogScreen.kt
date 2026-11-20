@@ -462,7 +462,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text(
-                            if (detailItem == null) "Explore Extras" else detailItem?.title.orEmpty(),
+                            if (detailItem == null) "Explore Extras" else "Title details",
                             style = if (metrics.isTv) MaterialTheme.typography.titleLarge
                                 else MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -472,7 +472,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         )
                         if (!compactPhoneWindow) {
                             Text(
-                                "Movies · TV shows · Anime",
+                                if (detailItem == null) "Movies · TV shows · Anime"
+                                    else "${detailItem?.type?.label} · ${detailItem?.type?.provider}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1

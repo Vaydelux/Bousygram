@@ -34,8 +34,10 @@ internal object ExtrasDetailLayoutPolicy {
         val rawWidth = widthDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
         val rawHeight = heightDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
         val scale = fontScale.takeIf(Float::isFinite)?.coerceIn(1f, 2f) ?: 1f
-        val effectiveWidth = rawWidth / if (isTv) 1f else scale
-        val effectiveHeight = rawHeight / if (isTv) 1f else scale
+        // Font scale changes how many text columns fit on TVs too, without
+        // changing the device into a "phone" or reducing TV control targets.
+        val effectiveWidth = rawWidth / scale
+        val effectiveHeight = rawHeight / scale
 
         val shortPhone = !isTv && effectiveHeight < 520f
         val narrowPhone = !isTv && effectiveWidth < 600f
@@ -75,7 +77,11 @@ internal object ExtrasDetailLayoutPolicy {
             synopsisCollapsedLines = if (shortPhone) 3 else 4,
             controlHeightDp = if (isTv) 56 else 52,
             castWidthDp = if (narrowPhone) 100 else if (isTv) 124 else 112,
-            sideBySideProfile = isTv || (effectiveWidth >= 720f && !shortPhone),
+            sideBySideProfile = if (isTv) {
+                rawWidth >= 840f && effectiveWidth >= 680f
+            } else {
+                effectiveWidth >= 720f && !shortPhone
+            },
             episodeColumns = if (effectiveWidth >= 1180f) 2 else 1,
             compactChrome = compactChrome
         )

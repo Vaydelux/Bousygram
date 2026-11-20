@@ -53,6 +53,18 @@ class ExtrasDetailLayoutPolicyTest {
         assertTrue(huge.controlHeightDp >= 48)
     }
 
+    @Test fun extraLargeTvFontsReflowWithoutLosingTvSizedButtons() {
+        val regular = ExtrasDetailLayoutPolicy.resolve(960f, 540f, true, 1f)
+        val large = ExtrasDetailLayoutPolicy.resolve(960f, 540f, true, 1.8f)
+        assertTrue(regular.sideBySideProfile)
+        assertFalse(large.sideBySideProfile)
+        assertFalse(large.compactChrome)
+        assertEquals(56, large.controlHeightDp)
+        assertEquals(1, large.episodeColumns)
+        val wide = ExtrasDetailLayoutPolicy.resolve(1920f, 1080f, true, 1.8f)
+        assertEquals(1, wide.episodeColumns)
+    }
+
     @Test fun badDimensionsAndFontScalesHaveSafeFallback() {
         val s = ExtrasDetailLayoutPolicy.resolve(
             Float.NaN, Float.NEGATIVE_INFINITY, false, Float.NaN)

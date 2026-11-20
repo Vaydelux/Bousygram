@@ -40,8 +40,9 @@ Media3, LibVLC, WebView/source chooser, TMDB and AniList responsibilities.
 
 `dp` represents the actual Android Compose window size, **not panel pixels**.
 A 4K TV is commonly a much smaller window in dp. Folded, multi-window and
-large-font phone layouts are treated by effective window width and font scale,
-not a hard-coded device model. Use `ExtrasDetailLayoutPolicy.resolve` for
+large-font layouts (including TVs) reflow by effective available width and
+font scale rather than a hard-coded device model. TV focus targets remain
+56dp even when its two-column title profile must become stacked. Use `ExtrasDetailLayoutPolicy.resolve` for
 configuration decisions and actual `BoxWithConstraints.maxWidth` for card
 content measurement.
 
