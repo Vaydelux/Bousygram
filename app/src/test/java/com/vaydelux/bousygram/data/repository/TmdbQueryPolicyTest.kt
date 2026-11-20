@@ -27,6 +27,12 @@ class TmdbQueryPolicyTest {
         )) assertNull("Unexpected TMDB query for $value", TmdbQueryPolicy.cleanedTitle(value, null))
     }
 
+    @Test fun networkLookupRequiresExplicitConsent() {
+        assertNull(TmdbQueryPolicy.forNetwork(false, "The Matrix", 1999))
+        assertEquals("The Matrix", TmdbQueryPolicy.forNetwork(true, "The Matrix", 1999))
+        assertNull(TmdbQueryPolicy.forNetwork(true, "VID_20261120", null))
+    }
+
     @Test fun boundsMetadataQueries() {
         assertNull(TmdbQueryPolicy.cleanedTitle("X".repeat(121), null))
         assertNull(TmdbQueryPolicy.cleanedTitle("Example", 1899))

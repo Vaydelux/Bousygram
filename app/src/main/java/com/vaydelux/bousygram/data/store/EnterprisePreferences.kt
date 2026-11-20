@@ -66,6 +66,7 @@ object EnterprisePreferences {
     private const val KEY_LAST_PLAYED = "last_played"
     private const val KEY_HIDE_WATCHED = "hide_watched"
     private const val KEY_SAFE_MODE = "safe_mode"
+    private const val KEY_TMDB_EXTERNAL_DISCOVERY = "tmdb_external_discovery_opt_in"
     private const val KEY_AUTO_PLAY_NEXT = "auto_play_next"
     private const val KEY_SUBTITLES_DEFAULT = "subtitles_default"
     private const val KEY_SUBTITLE_LANGUAGE = "subtitle_language"
@@ -192,6 +193,18 @@ object EnterprisePreferences {
 
     fun safeMode(): Boolean = prefs.getBoolean(KEY_SAFE_MODE, false)
     fun setSafeMode(value: Boolean) = prefs.edit { putBoolean(KEY_SAFE_MODE, value) }
+
+    /** Explicit per-account permission to send cleaned Telegram video titles
+     * to TMDB for identification. Off by default and never backed up globally. */
+    fun tmdbExternalDiscoveryEnabled(): Boolean =
+        privatePrefs()?.getBoolean(KEY_TMDB_EXTERNAL_DISCOVERY, false) == true
+
+    fun setTmdbExternalDiscoveryEnabled(enabled: Boolean) {
+        val owner = AccountSession.current() ?: return
+        AccountSession.runIfCurrent(owner) {
+            accountPrefs(owner).edit { putBoolean(KEY_TMDB_EXTERNAL_DISCOVERY, enabled) }
+        }
+    }
 
     fun autoPlayNext(): Boolean = prefs.getBoolean(KEY_AUTO_PLAY_NEXT, true)
     fun setAutoPlayNext(value: Boolean) = prefs.edit { putBoolean(KEY_AUTO_PLAY_NEXT, value) }

@@ -7,6 +7,7 @@ import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.media.SeriesMetadataParser
+import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.domain.model.MediaItem
 import java.io.File
 import java.io.FileOutputStream
@@ -179,6 +180,13 @@ object TmdbRepository {
         context: Context? = null
     ): TmdbMetadata? = withContext(Dispatchers.IO) {
         val scope = cacheScope(context) ?: return@withContext null
+        // Telegram media may be private; third-party identification requires
+        // explicit opt-in for the currently authenticated Telegram account.
+        // JVM tests / uninitialized app contexts must fail closed.
+        val externalDiscoveryAllowed = runCatching {
+            EnterprisePreferences.tmdbExternalDiscoveryEnabled()
+        }.getOrDefault(false)
+        if (!externalDiscoveryAllowed) return@withContext null
         val apiKey = BuildConfig.TMDB_API_KEY
         if (apiKey.isBlank() || apiKey == "TMDB_API_KEY_DEFAULT_VALUE") {
             return@withContext null
@@ -186,7 +194,9 @@ object TmdbRepository {
 
         // The original Telegram filename may be private user data. Search
         // only a cleaned plausible public title and year, never a raw path.
-        val queryTitle = TmdbQueryPolicy.cleanedTitle(title, year) ?: return@withContext null
+        val queryTitle = TmdbQueryPolicy.forNetwork(
+            externalDiscoveryAllowed, title, year
+        ) ?: return@withContext null
         val cacheKey = generateCacheKey(queryTitle, year, isSeries, seasonNumber, episodeNumber)
         val memoryKey = "${scope.account.accountId}:$cacheKey"
 

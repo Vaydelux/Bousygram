@@ -14,6 +14,9 @@ internal object TmdbQueryPolicy {
     private val cameraNames = Regex("""(?i)^(?:img|vid|dsc|pxl|screen[_ -]?record(?:ing)?)[_ -]?\d{4,}.*$""")
     private val longIdentifier = Regex("""(?i)^[0-9a-f]{24,}$""")
 
+    fun forNetwork(consented: Boolean, title: String, year: Int?): String? =
+        if (consented) cleanedTitle(title, year) else null
+
     fun cleanedTitle(title: String, year: Int?): String? {
         if (title.any { it.isISOControl() }) return null
         val clean = title.trim().replace(whitespace, " ")

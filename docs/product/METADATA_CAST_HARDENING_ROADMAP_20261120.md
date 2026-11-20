@@ -60,9 +60,22 @@ Retain existing TMDB repository and Cast access registry regression suites,
 Android Enterprise compilation and release fail-closed checks, both emulator
 workflows, and physical device gates.
 
+## H1.1 — Implemented: opt-in Telegram title lookup
+
+- Telegram TMDB enrichment now requires a **per-account, off-by-default**
+  setting under Settings → Advanced → TMDB discovery for Telegram videos.
+  A cleaned title and year may leave the device **only after opt-in**.
+- Extras catalog searches remain separate and explicit; this control does not
+  disable the dedicated TMDB/AniList Extras catalog.
+- The switch does not remove previously downloaded artwork; clearing the
+  local metadata cache remains a separate user decision.
+- Settings require an active Telegram account to enable the switch; a missing
+  app context or logged-out account must fail closed.
+- Parsing filename/year/season/episode remains local even when consent is off.
+
 ## H2 — Enrichment coordinator, progressive disclosure and user override
 
-- Add an explicit per-library / per-folder opt-in for third-party metadata
+- Extend the current per-account opt-in into optional per-library / per-folder choices; third-party metadata
   lookup. Even a cleaned movie-like title **may be personal information**;
   heuristics alone are not a privacy guarantee. Make discovery optional and
   usable offline, and surface a short in-app notice before first lookup.

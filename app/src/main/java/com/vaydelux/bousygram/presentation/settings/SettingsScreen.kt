@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.BuildConfig
+import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCachePruner
 import com.vaydelux.bousygram.core.tdlib.cache.TelegramCacheStorageStats
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
@@ -93,6 +94,9 @@ fun SettingsScreen(
     val tdLibCacheDir = remember(context) { File(context.filesDir, "tdlib_files") }
 
     var safeMode by remember { mutableStateOf(EnterprisePreferences.safeMode()) }
+    var externalMetadataEnabled by remember {
+        mutableStateOf(EnterprisePreferences.tmdbExternalDiscoveryEnabled())
+    }
     var subtitleLang by remember { mutableStateOf(EnterprisePreferences.subtitleLanguage()) }
     var playerEngine by remember { mutableStateOf(EnterprisePreferences.selectedPlayerEngine()) }
     val audioProfile by EnterprisePreferences.audioProcessingProfileFlow.collectAsState()
@@ -606,6 +610,49 @@ fun SettingsScreen(
                                             onCheckedChange = {
                                                 safeMode = it
                                                 EnterprisePreferences.setSafeMode(it)
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                                uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(Modifier.height(12.dp))
+
+                                    // Telegram titles can be private. No
+                                    // automatic third-party metadata request
+                                    // without account-scoped user consent.
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                            Text(
+                                                "TMDB discovery for Telegram videos",
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                "Optional: send cleaned video titles and release years to TMDB for posters, " +
+                                                    "synopses and ratings. Telegram chat IDs, filenames, media bytes and " +
+                                                    "login credentials are not sent. Off by default; existing cached " +
+                                                    "metadata can be cleared separately.",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        Switch(
+                                            checked = externalMetadataEnabled,
+                                            enabled = AccountSession.current() != null,
+                                            onCheckedChange = { enabled ->
+                                                EnterprisePreferences.setTmdbExternalDiscoveryEnabled(enabled)
+                                                externalMetadataEnabled =
+                                                    EnterprisePreferences.tmdbExternalDiscoveryEnabled()
                                             },
                                             colors = SwitchDefaults.colors(
                                                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
