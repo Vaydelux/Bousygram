@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items as rowItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -206,7 +205,7 @@ internal fun ExtrasPersonalLibraryPanel(
         ) {
             val options = listOf("ALL" to "All", "MOVIES" to "Movies",
                 "TV" to "TV shows", "ANIME" to "Anime")
-            rowItems(options.size) { index ->
+            items(options.size) { index ->
                 val option = options[index]
                 FilterChip(
                     selected = type == option.first,
