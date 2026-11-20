@@ -40,6 +40,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -1287,11 +1288,27 @@ private fun ExtrasDetailContent(
     isAndroidTv: Boolean
 ) {
     val context = LocalContext.current
+    val detailList = rememberLazyListState()
+    val primaryFocus = remember(info.item.type, info.item.id) { FocusRequester() }
+
+    // Movies/anime enter directly on Play. TV titles enter on the first
+    // season, now positioned above trailers/provider metadata. We scroll
+    // the lazy item into composition before requesting focus.
+    LaunchedEffect(info.item.type, info.item.id, isAndroidTv, info.seasons.isNotEmpty()) {
+        if (!isAndroidTv) return@LaunchedEffect
+        if (info.item.type == ExtrasType.TV && info.seasons.isEmpty()) return@LaunchedEffect
+        val heroOffset = if (!info.backdrop.isNullOrBlank()) 1 else 0
+        val primaryIndex = heroOffset + if (info.item.type == ExtrasType.TV) 2 else 1
+        detailList.scrollToItem(primaryIndex)
+        withFrameNanos { }
+        runCatching { primaryFocus.requestFocus() }
+    }
     // The phone screenshots exposed excessive blank space from a full-size
     // backdrop plus a duplicate 2:3 poster. Keep a single hero on compact
     // devices; tablets and TVs retain the poster alongside the synopsis.
     val compactHero = compact || shortViewport
     LazyColumn(
+        state = detailList,
         modifier = modifier.fillMaxSize().testTag("extras-detail-scroll"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             horizontal = if (compact) 14.dp else 28.dp,
@@ -1348,7 +1365,8 @@ private fun ExtrasDetailContent(
                 Button(
                     onClick = onPlayMovie,
                     shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-play-movie")
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .focusRequester(primaryFocus).extrasFocusOutline().testTag("extras-play-movie")
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1394,7 +1412,8 @@ private fun ExtrasDetailContent(
                     Button(
                         onClick = { onPlayAnime(episodeNumber) },
                         shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-play-anime")
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .focusRequester(primaryFocus).extrasFocusOutline().testTag("extras-play-anime")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1410,6 +1429,113 @@ private fun ExtrasDetailContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+        }
+        if (info.seasons.isNotEmpty()) {
+            item {
+                Text(
+                    "Seasons & Episodes",
+                    modifier = Modifier.testTag("extras-seasons-heading"),
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+            item {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-seasons-row"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
+                ) {
+                    items(info.seasons, key = { it.number }) { season ->
+                        FilterChip(selected = selectedSeason == season.number,
+                            onClick = { onSeason(season.number) },
+                            modifier = Modifier
+                                .then(if (season == info.seasons.first()) Modifier.focusRequester(primaryFocus)
+                                    else Modifier)
+                                .extrasFocusOutline()
+                                .heightIn(min = 48.dp)
+                                .testTag("extras-season-${season.number}"),
+                            label = { Text("${season.name} (${season.episodeCount})") })
+                    }
+                }
+            }
+            if (selectedSeason == null) {
+                item {
+                    Text("Select a season to load its episodes.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            if (seasonLoading) item {
+                Row(
+                    modifier = Modifier.testTag("extras-episodes-loading"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "Loading episodes…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            if (episodeError != null) {
+                item {
+                    BousygramInlineStatus(
+                        message = episodeError,
+                        tone = BousygramStatusTone.ERROR,
+                        modifier = Modifier.testTag("extras-episodes-error"),
+                        trailingAction = {
+                            OutlinedButton(onClick = onSeasonRetry) { Text("Retry episodes") }
+                        }
+                    )
+                }
+            }
+            items(episodes, key = { it.number }) { episode ->
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                    val narrow = maxWidth < 480.dp
+                    val canPlay = selectedSeason != null && episode.number > 0
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            AsyncImage(model = episode.still, contentDescription = null,
+                                modifier = Modifier.size(
+                                    width = if (narrow) 90.dp else 110.dp, height = 70.dp
+                                ),
+                                contentScale = ContentScale.Fit)
+                            Column(Modifier.weight(1f)) {
+                                Text("${episode.number}. ${episode.title}",
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(episode.overview, maxLines = if (narrow) 2 else 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (canPlay && !narrow) {
+                                OutlinedButton(
+                                    onClick = { onPlayEpisode(episode.number) },
+                                    modifier = Modifier.extrasFocusOutline().testTag("extras-play-episode")
+                                ) { Text("Play") }
+                            }
+                        }
+                        if (canPlay && narrow) {
+                            OutlinedButton(
+                                onClick = { onPlayEpisode(episode.number) },
+                                modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-episode")
+                            ) { Text("Play episode ${episode.number}") }
+                        }
+                    }
+                }
+            }
+        } else if (info.item.type == ExtrasType.ANIME) {
+            item {
+                Text("AniList supplies episode counts, airing information and related series; it does not provide a complete per-episode guide for every anime.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         info.youtubeId?.let { youtube ->
@@ -1518,102 +1644,6 @@ private fun ExtrasDetailContent(
                         }
                     }
                 }
-            }
-        }
-        if (info.seasons.isNotEmpty()) {
-            item { Text("Seasons & Episodes", style = MaterialTheme.typography.titleMedium) }
-            item {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-seasons-row"),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
-                ) {
-                    items(info.seasons, key = { it.number }) { season ->
-                        FilterChip(selected = selectedSeason == season.number,
-                            onClick = { onSeason(season.number) },
-                            modifier = Modifier.extrasFocusOutline(),
-                            label = { Text("${season.name} (${season.episodeCount})") })
-                    }
-                }
-            }
-            if (selectedSeason == null) {
-                item {
-                    Text("Select a season to load its episodes.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            if (seasonLoading) item {
-                Row(
-                    modifier = Modifier.testTag("extras-episodes-loading"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        "Loading episodes…",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-            if (episodeError != null) {
-                item {
-                    BousygramInlineStatus(
-                        message = episodeError,
-                        tone = BousygramStatusTone.ERROR,
-                        modifier = Modifier.testTag("extras-episodes-error"),
-                        trailingAction = {
-                            OutlinedButton(onClick = onSeasonRetry) { Text("Retry episodes") }
-                        }
-                    )
-                }
-            }
-            items(episodes, key = { it.number }) { episode ->
-                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                    val narrow = maxWidth < 480.dp
-                    val canPlay = selectedSeason != null && episode.number > 0
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(model = episode.still, contentDescription = null,
-                                modifier = Modifier.size(
-                                    width = if (narrow) 90.dp else 110.dp, height = 70.dp
-                                ),
-                                contentScale = ContentScale.Fit)
-                            Column(Modifier.weight(1f)) {
-                                Text("${episode.number}. ${episode.title}",
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(episode.overview, maxLines = if (narrow) 2 else 3,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                            if (canPlay && !narrow) {
-                                OutlinedButton(
-                                    onClick = { onPlayEpisode(episode.number) },
-                                    modifier = Modifier.extrasFocusOutline().testTag("extras-play-episode")
-                                ) { Text("Play") }
-                            }
-                        }
-                        if (canPlay && narrow) {
-                            OutlinedButton(
-                                onClick = { onPlayEpisode(episode.number) },
-                                modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-episode")
-                            ) { Text("Play episode ${episode.number}") }
-                        }
-                    }
-                }
-            }
-        } else if (info.item.type == ExtrasType.ANIME) {
-            item {
-                Text("AniList supplies episode counts, airing information and related series; it does not provide a complete per-episode guide for every anime.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (info.reviews.isNotEmpty()) {
