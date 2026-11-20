@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -66,6 +68,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusGroup
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -77,10 +81,12 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -113,11 +119,8 @@ import kotlinx.coroutines.ensureActive
 @Composable
 fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val metrics = rememberAdaptiveMetrics()
-    // This is a phone in landscape, not a tablet or a 10-foot TV.
-    // Keep posters above the fold by reserving only one compact header row.
-    val compactPhoneWindow = !metrics.isTv &&
-        (metrics.isShortWindow || metrics.effectiveHeightDp < 520.dp)
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     // Some Android TV boxes advertise Leanback even when UiModeManager does not.
     // Keep all such devices on the native YouTube TV route, never the WebView.
     val supportsLeanback = remember(context) {
@@ -125,6 +128,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
     }
     val isAndroidTv = metrics.isTv || supportsLeanback
+    val layout = remember(metrics.widthDp, metrics.heightDp, metrics.fontScale, isAndroidTv) {
+        ExtrasLayoutPolicy.resolve(
+            metrics.widthDp.value, metrics.heightDp.value,
+            isAndroidTv, metrics.fontScale
+        )
+    }
+    val compactPhoneWindow = layout.compactHeader
     val lowMemoryDevice = remember(context) {
         PlayerBufferConfig.isLowRamDevice(context) || !android.os.Process.is64Bit()
     }
@@ -174,6 +184,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // Only show autocomplete while the user is deliberately editing a query.
     // Tab switches keep independent queries but dismiss the former tab's popup.
     var showSuggestions by remember(type) { mutableStateOf(false) }
+    var filtersExpanded by rememberSaveable(type.name) { mutableStateOf(false) }
     fun update(new: TabState) {
         when (type) {
             ExtrasType.MOVIES -> movies = new
@@ -208,6 +219,17 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val moviePosterFocus = remember { FocusRequester() }
     val tvPosterFocus = remember { FocusRequester() }
     val animePosterFocus = remember { FocusRequester() }
+    val searchFocus = remember { FocusRequester() }
+    val filterFocus = remember { FocusRequester() }
+    val firstPosterFocus = remember { FocusRequester() }
+    val entryTabFocus = remember { FocusRequester() }
+    // Set initial TV focus once; category switches retain user-controlled focus.
+    LaunchedEffect(isAndroidTv) {
+        if (isAndroidTv) {
+            withFrameNanos { }
+            runCatching { entryTabFocus.requestFocus() }
+        }
+    }
     val posterFocus = when (type) {
         ExtrasType.MOVIES -> moviePosterFocus
         ExtrasType.TV -> tvPosterFocus
@@ -258,6 +280,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             detailItem != null -> goBackFromDetails()
             showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty() ->
                 showSuggestions = false
+            filtersExpanded -> filtersExpanded = false
             else -> onExit()
         }
     }
@@ -393,7 +416,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         topBar = {
             Column(
                 Modifier.fillMaxWidth().statusBarsPadding().padding(
-                    horizontal = if (compactPhoneWindow) 12.dp else if (metrics.isCompact) 16.dp else 32.dp,
+                    horizontal = layout.horizontalGutterDp.dp,
                     vertical = if (compactPhoneWindow) 2.dp else if (metrics.isTv || metrics.heightDp < 660.dp) 6.dp else 10.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -462,7 +485,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                 }
                 if (detailItem == null) {
-                    ExtrasCatalogTabs(activeTabIndex, onSelect = { selectedTab = it })
+                    ExtrasCatalogTabs(
+                        activeTabIndex,
+                        onSelect = { selectedTab = it },
+                        entryFocusRequester = entryTabFocus
+                    )
                 }
             }
         }
@@ -521,7 +548,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             )
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
-                .padding(horizontal = if (compactPhoneWindow) 12.dp else if (metrics.isCompact) 16.dp else 32.dp)) {
+                .padding(horizontal = layout.horizontalGutterDp.dp)) {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = { text ->
@@ -542,6 +569,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     label = { Text("Search ${type.label} · ${type.provider}") },
                     placeholder = { Text("Title or keyword") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        showSuggestions = false
+                        keyboardController?.hide()
+                    }),
                     trailingIcon = {
                         if (state.query.isNotEmpty()) {
                             TextButton(
@@ -568,9 +600,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().extrasFocusOutline().onFocusChanged {
-                        if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
-                    }
+                    modifier = Modifier.fillMaxWidth()
+                        .focusRequester(searchFocus)
+                        .focusProperties {
+                            if (!showSuggestions || state.query.isBlank()) down = filterFocus
+                        }
+                        .testTag("extras-search-field")
+                        .extrasFocusOutline()
+                        .onFocusChanged {
+                            if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
+                        }
                 )
                 if (showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty()) {
                     ExtrasSearchSuggestions(
@@ -580,17 +619,23 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         onDismiss = { showSuggestions = false }
                     )
                 }
-                var filtersExpanded by rememberSaveable(type.name) { mutableStateOf(false) }
+                Spacer(Modifier.height(layout.searchFilterGapDp.dp))
                 ExtrasFilterDisclosure(
                     expanded = filtersExpanded,
                     active = state.filters != ExtrasFilters(),
-                    onToggle = { filtersExpanded = !filtersExpanded }
+                    onToggle = { filtersExpanded = !filtersExpanded },
+                    minHeightDp = layout.minControlHeightDp,
+                    modifier = Modifier.focusRequester(filterFocus).focusProperties {
+                        up = searchFocus
+                        if (!filtersExpanded && state.results.isNotEmpty()) down = firstPosterFocus
+                    }
                 )
                 if (filtersExpanded) {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(8.dp))
                     LazyRow(
-                        modifier = Modifier.testTag("extras-filter-row"),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-filter-row"),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(layout.filterChipGapDp.dp)
                     ) {
                     item {
                         ExtrasDropdown("Sort: ${state.filters.sort.label}",
@@ -668,14 +713,19 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         }
                     }
                     item {
-                        TextButton(onClick = {
-                            update(state.copy(filters = ExtrasFilters(), page = 1, results = emptyList(),
-                                loading = true, hasMore = true))
-                        }) { Text("Reset filters") }
+                        TextButton(
+                            onClick = {
+                                update(state.copy(filters = ExtrasFilters(), page = 1, results = emptyList(),
+                                    loading = true, hasMore = true))
+                            },
+                            modifier = Modifier.extrasFocusOutline().heightIn(
+                                min = layout.minControlHeightDp.dp
+                            ).testTag("extras-reset-filters")
+                        ) { Text("Reset filters") }
                     }
                     }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(layout.filterResultsGapDp.dp))
                 if (state.error != null) {
                     BousygramInlineStatus(
                         message = state.error.orEmpty(),
@@ -746,21 +796,25 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                     }
                 } else {
-                    val minWidth = when {
-                        metrics.isTv -> 160.dp
-                        metrics.isCompact -> 132.dp
-                        else -> 155.dp
-                    }
+                    val minWidth = layout.gridCardMinWidthDp.dp
                     ExtrasCatalogViewport {
                     LazyVerticalGrid(columns = GridCells.Adaptive(minWidth), state = activeGrid,
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        items(state.results, key = { "${it.type}:${it.id}" }) { item ->
-                            ExtrasPosterCard(item,
-                                modifier = if (selectedPoster[type] == item.id) {
+                        modifier = Modifier.fillMaxSize().focusGroup().testTag("extras-poster-grid"),
+                        horizontalArrangement = Arrangement.spacedBy(layout.gridGapDp.dp),
+                        verticalArrangement = Arrangement.spacedBy(layout.gridGapDp.dp + 2.dp)) {
+                        androidx.compose.foundation.lazy.grid.itemsIndexed(
+                            state.results, key = { _, item -> "${item.type}:${item.id}" }
+                        ) { index, item ->
+                            val focus = Modifier
+                                .then(if (index == 0) Modifier.focusRequester(firstPosterFocus)
+                                    .focusProperties {
+                                        if (!filtersExpanded) up = filterFocus
+                                    } else Modifier)
+                                .then(if (selectedPoster[type] == item.id) {
                                     Modifier.focusRequester(posterFocus)
-                                } else Modifier,
+                                } else Modifier)
+                            ExtrasPosterCard(item,
+                                modifier = focus,
                                 onClick = { openFromResults(item) })
                         }
                         if (state.hasMore && state.results.isNotEmpty()) {
