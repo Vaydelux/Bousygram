@@ -141,6 +141,11 @@ jobs:
           unified phone navigation, and theme-aware Telegram/LibVLC progress.
           Extras details QA: responsive backdrop/poster hierarchy, readable expandable
           reviews, compact cast cards, related-media D-pad focus and TV spacing.
+          Android-only cleanup: GitHub Pages/PWA/Wasm assets and web workflow removed.
+          Extras catalog QA: search/Filters separation, 56dp filter controls,
+          compact fonts, measured portrait/landscape/TV poster density and grouped
+          search → filter → grid / season / recommendations D-pad traversal.
+          Android UI visual evidence and focus tests: PR #214.
           Physical Android TV verification is still required. Emulator testing
           is tracked separately in the normal smoke workflows.
           EOF
