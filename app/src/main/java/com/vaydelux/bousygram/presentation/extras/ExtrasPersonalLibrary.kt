@@ -17,6 +17,10 @@ import org.json.JSONObject
  * this protects the user's library from accidental destruction after an
  * interrupted write or a future schema change.
  */
+internal class ExtrasLibraryFullException : IOException(
+    "Your saved library is full. Remove a title before adding another."
+)
+
 internal class ExtrasPersonalLibrary(
     context: Context,
     preferencesName: String = "extras_personal_library_v1"
@@ -31,7 +35,14 @@ internal class ExtrasPersonalLibrary(
     }
 
     suspend fun toggleSaved(item: ExtrasItem): ExtrasLibrarySnapshot =
-        update { ExtrasPersonalLibraryPolicy.toggleSaved(it, item.asLibraryEntry()) }
+        update { current ->
+            if (!ExtrasPersonalLibraryPolicy.containsSaved(current, item.type.name, item.id) &&
+                current.saved.size >= ExtrasPersonalLibraryPolicy.MAX_SAVED
+            ) {
+                throw ExtrasLibraryFullException()
+            }
+            ExtrasPersonalLibraryPolicy.toggleSaved(current, item.asLibraryEntry())
+        }
 
     suspend fun removeSaved(item: ExtrasItem): ExtrasLibrarySnapshot =
         update { ExtrasPersonalLibraryPolicy.removeSaved(it, item.type.name, item.id) }
