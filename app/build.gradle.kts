@@ -83,7 +83,7 @@ tasks.register("verifyReleaseVersionPolicy") {
 android {
     namespace = "com.vaydelux.bousygram"
     compileSdk {
-        version = release(37)
+        version = release(36)
     }
 
     val devAbi = project.findProperty("devAbi") as? String
@@ -113,7 +113,7 @@ android {
     defaultConfig {
         applicationId = "com.vaydelux.bousygram"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = releaseVersionCode
         versionName = releaseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
