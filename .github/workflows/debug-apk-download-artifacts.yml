@@ -3,6 +3,8 @@ name: Build and Publish Bousygram QA Debug APKs
 # Source-pinned, debug-signed QA APKs. Runs on manual dispatch or when this
 # workflow is changed on main. Publishes an immutable prerelease (not production).
 # Does not bypass protected production release gates or overwrite existing tags.
+# Requested after Telegram TMDB correction QA: publish only when all exact-SHA
+# Enterprise, responsive UI and Cast/media emulator checks are successful.
 on:
   workflow_dispatch:
   push:
@@ -12,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: bousygram-downloadable-debug
@@ -100,6 +103,36 @@ jobs:
           [[ "$(find ci-artifacts/debug-preview -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 3 ]]
 
 
+      - name: Require exact-source Android CI qualification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for workflow in android-enterprise.yml android-explorer-ui-smoke.yml android-emulator-smoke.yml; do
+            passed=false
+            for attempt in $(seq 1 150); do
+              outcome="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$RELEASE_SHA&event=push&per_page=10" \
+                --jq '.workflow_runs | sort_by(.run_number) | reverse | first | if . == null then "missing" else (.conclusion // .status) end')"
+              case "$outcome" in
+                success) passed=true; break ;;
+                failure|cancelled|timed_out|action_required|skipped|stale)
+                  echo "::error::Exact-source $workflow is not qualified: $outcome"
+                  exit 1 ;;
+                missing|queued|in_progress|requested|waiting|pending)
+                  sleep 10 ;;
+                *)
+                  echo "::error::Unknown verification state for $workflow: $outcome"
+                  exit 1 ;;
+              esac
+            done
+            if [[ "$passed" != "true" ]]; then
+              echo "::error::No confirmed successful exact-source $workflow run for $RELEASE_SHA"
+              exit 1
+            fi
+            echo "Verified exact-source CI: $workflow"
+          done
+
       - name: Publish immutable QA debug prerelease on GitHub Releases
         shell: bash
         env:
@@ -137,6 +170,11 @@ jobs:
           bindings, APK signing, native ABI matrix and SHA-256 hashes.
 
           This is a **debug-signed QA prerelease**, not a production release.
+          Telegram metadata QA: per-account TMDB search opt-in, manual movie/TV
+          correction picker, private per-message saved selections, stop-matching
+          and restore controls, and unchanged Telegram playback identities.
+          Publication requires exact-commit Enterprise, Cast/media and responsive
+          emulator workflows to pass.
           Visual QA: startup Appearance Studio, Extras compact landscape, Favorites
           unified phone navigation, and theme-aware Telegram/LibVLC progress.
           Extras details QA: responsive backdrop/poster hierarchy, readable expandable
