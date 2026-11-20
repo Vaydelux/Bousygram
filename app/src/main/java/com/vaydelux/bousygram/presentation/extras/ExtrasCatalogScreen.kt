@@ -235,6 +235,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // Tab switches keep independent queries but dismiss the former tab's popup.
     var showSuggestions by remember(type) { mutableStateOf(false) }
     var filtersExpanded by rememberSaveable(type.name) { mutableStateOf(false) }
+    var spotlightIndex by remember(type, state.query, state.filters) {
+        mutableIntStateOf(0)
+    }
     fun update(new: TabState) {
         when (type) {
             ExtrasType.MOVIES -> movies = new
@@ -333,10 +336,10 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         when {
             showCredits -> showCredits = false
             detailItem != null -> goBackFromDetails()
+            showPersonalLibrary -> showPersonalLibrary = false
             showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty() ->
                 showSuggestions = false
             filtersExpanded -> filtersExpanded = false
-            showPersonalLibrary -> showPersonalLibrary = false
             else -> onExit()
         }
     }
@@ -891,6 +894,31 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             update(state.copy(loading = true, error = null))
                         },
                         minimumHeightDp = layout.minControlHeightDp
+                    )
+                }
+                // A real interactive hero is reserved for large windows; a
+                // 960x540dp short TV and landscape phone retain the full
+                // catalog viewport rather than a second oversized banner.
+                val showSpotlight = state.results.isNotEmpty() &&
+                    state.query.isBlank() && state.filters == ExtrasFilters() &&
+                    !metrics.isShortWindow &&
+                    ((isAndroidTv && metrics.heightDp >= 680.dp &&
+                        metrics.fontScale < 1.5f) ||
+                    (!isAndroidTv && metrics.widthDp >= 800.dp &&
+                        metrics.heightDp >= 760.dp))
+                if (showSpotlight) {
+                    val featured = state.results[spotlightIndex % state.results.size]
+                    ExtrasSpotlightCard(
+                        item = featured,
+                        position = spotlightIndex % state.results.size,
+                        total = state.results.size,
+                        isTv = isAndroidTv,
+                        onOpen = { openFromResults(featured) },
+                        onNext = {
+                            if (state.results.size > 1) {
+                                spotlightIndex = (spotlightIndex + 1) % state.results.size
+                            }
+                        }
                     )
                 }
                 if (state.results.isEmpty() && state.loading) {
