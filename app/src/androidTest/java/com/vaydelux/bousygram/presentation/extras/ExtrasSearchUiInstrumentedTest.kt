@@ -330,4 +330,29 @@ class ExtrasSearchUiInstrumentedTest {
     }
 
 
+    @Test fun actualSearchHintStaysInsideFieldWithoutFloatingLabel() {
+        rule.setContent {
+            BousygramTheme {
+                Column(Modifier.width(320.dp)) {
+                    ExtrasSearchInput(
+                        type = ExtrasType.MOVIES,
+                        query = "",
+                        onQueryChanged = {},
+                        onSearch = {},
+                        onClear = {},
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+        val field = rule.onNodeWithTag("extras-search-field")
+            .fetchSemanticsNode().boundsInRoot
+        val hint = rule.onNodeWithText("Search Movies · TMDB", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("Search hint floats above outlined field", hint.top >= field.top - 1f)
+        assertTrue("Search hint clips below outlined field", hint.bottom <= field.bottom + 1f)
+        rule.onNodeWithText("Title or keyword", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+
 }

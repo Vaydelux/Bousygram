@@ -9,7 +9,8 @@ name: Build and Publish Bousygram QA Debug APKs
 # Local series parser tests no longer depend on removed Telegram TMDB code.
 # Enterprise, responsive UI and Cast/media checks must pass before publishing.
 # Extras landscape QA (2026-11-20): source-pinned update for compact tabs,
-# single-line search, accessible filter dialog, and reclaimed poster viewport.
+# single-line search, accessible filter dialog, reclaimed poster viewport,
+# and an exact-source 320dp placeholder/outline regression test.
 on:
   workflow_dispatch:
   push:
@@ -23,7 +24,7 @@ permissions:
 
 concurrency:
   group: bousygram-downloadable-debug
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-debug-apks:
@@ -192,7 +193,11 @@ jobs:
           Extras details QA: responsive backdrop/poster hierarchy, readable expandable
           reviews, compact cast cards, related-media D-pad focus and TV spacing.
           Android-only cleanup: GitHub Pages/PWA/Wasm assets and web workflow removed.
-          Extras catalog QA: search/Filters separation, 56dp filter controls,
+          Extras viewport repair QA: compact landscape tabs+search toolbar, modal
+          vertically scrollable filters, no floating search label or double focus
+          border, compressed 124dp landscape posters with 8dp spacing, and
+          refresh/status in the header of wider landscape phones.
+          Extras catalog QA: search/Filters separation, 48-56dp filter controls,
           compact fonts, measured portrait/landscape/TV poster density and grouped
           search → filter → grid / season / recommendations D-pad traversal.
           Android UI visual evidence and focus tests: PR #214.
