@@ -1419,7 +1419,7 @@ private fun ExtrasDetailContent(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
                 ) {
-                    items(info.cast.take(24), key = { "${it.name}:${it.role}" }) { person ->
+                    items(info.cast.take(24)) { person ->
                         Column(Modifier.width(if (compact) 96.dp else 116.dp)) {
                             AsyncImage(model = person.portrait, contentDescription = person.name,
                                 modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
