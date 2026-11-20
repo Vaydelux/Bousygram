@@ -14,6 +14,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -161,6 +166,21 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
             compose.onNodeWithTag("telegram-library-tab-$section").assertIsSelected()
         }
         compose.onNodeWithTag("telegram-library-tab-favorites").assertIsDisplayed()
+    }
+
+    @Test fun tvRemoteCenterKeySelectsEveryTelegramSource() {
+        compose.setContent {
+            Box(Modifier.width(960.dp)) {
+                HeaderFixture(960.dp, 540.dp, television = true)
+            }
+        }
+        for (section in listOf("channels", "groups", "saved")) {
+            val tab = compose.onNodeWithTag("telegram-library-tab-$section")
+            tab.assertIsDisplayed()
+            tab.performSemanticsAction(SemanticsActions.RequestFocus)
+            tab.performKeyInput { pressKey(Key.DirectionCenter) }
+            compose.onNodeWithTag("telegram-library-tab-$section").assertIsSelected()
+        }
     }
 
     @Test fun retryButtonAppearsOnlyOnForumErrors() {
