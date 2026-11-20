@@ -55,9 +55,9 @@ data class MediaItem(
     val performer: String? = null,
     /** Extracted document / archive format (e.g. APK, PDF, ZIP, FLAC). */
     val docType: String? = null,
-    /** Release Year parsed from filename/caption or matched from TMDB. */
+    /** Release year parsed locally from the original Telegram filename/caption. */
     val releaseYear: Int? = null,
-    /** Local cached path or remote URL for TMDB poster artwork. */
+    /** Legacy optional field retained only for MediaItem serialization compatibility. */
     val tmdbPosterPath: String? = null,
     /** Local cached path or remote URL for TMDB backdrop artwork. */
     val tmdbBackdropPath: String? = null,
@@ -157,8 +157,7 @@ data class MediaUiState(
                     item.title.contains(cleanQuery, ignoreCase = true) ||
                         (item.fileName?.contains(cleanQuery, ignoreCase = true) == true) ||
                         (item.seriesTitle?.contains(cleanQuery, ignoreCase = true) == true) ||
-                        (item.topicName?.contains(cleanQuery, ignoreCase = true) == true) ||
-                        (item.tmdbTitle?.contains(cleanQuery, ignoreCase = true) == true)
+                        (item.topicName?.contains(cleanQuery, ignoreCase = true) == true)
                 }
             }
             if (filterYear != null) {
@@ -223,9 +222,7 @@ fun groupMediaIntoSeries(
         .filter { it.type == MediaType.Video || it.fileId != null }
         .mapNotNull { item ->
             val hasEpisodeInfo = item.seasonNumber != null || item.episodeNumber != null
-            val isKnownSeries = hasEpisodeInfo || !item.seriesTitle.isNullOrBlank()
-            val parsedTitle = (if (isKnownSeries) item.tmdbTitle?.trim()?.takeIf { it.isNotBlank() } else null)
-                ?: item.seriesTitle?.trim()?.takeIf { it.isNotBlank() }
+            val parsedTitle = item.seriesTitle?.trim()?.takeIf { it.isNotBlank() }
             val series = when {
                 parsedTitle != null -> parsedTitle
                 hasEpisodeInfo -> {

@@ -1,3 +1,5 @@
+> **Historical / superseded for Telegram Media (2026-11-20):** The user requested removing Telegram TMDB enrichment, metadata correction, settings opt-in and downloaded poster usage. These components have been removed. Telegram retains its existing local filename/season/episode parsing, original thumbnails and player. The independent Extras TMDB/AniList catalog and Cast security work remain unchanged. All earlier Telegram TMDB implementation plans below are historical, not active features. See [Telegram metadata removal and debug QA](TELEGRAM_METADATA_REMOVAL_AND_DEBUG_QA.md).
+
 # Bousygram — Safe Metadata Discovery and Cross-Device Casting
 
 **Audit / implementation checkpoint:** 2026-11-20

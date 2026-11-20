@@ -128,7 +128,6 @@ fun BrowseScreen(
     var hideWatched by remember { mutableStateOf(EnterprisePreferences.hideWatched()) }
     var pinnedChats by remember { mutableStateOf(EnterprisePreferences.pinnedChatIds()) }
     var showAllChatsPicker by remember { mutableStateOf(false) }
-    var correctionItem by remember { mutableStateOf<MediaItem?>(null) }
     // Keep the sidebar viewport across incremental Telegram chat catalog updates.
     val sourceSidebarListState = rememberLazyListState()
     val lastPlayed = EnterprisePreferences.lastPlayed()
@@ -301,17 +300,6 @@ fun BrowseScreen(
     // Keep the phone status/navigation bars clear. TV builds remain edge-to-edge
     // within the leanback viewport, while the fullscreen player owns its own insets.
     // Home/Library is not wrapped by the Material3 adaptive shell.
-    correctionItem?.let { item ->
-        TelegramMetadataCorrectionDialog(
-            item = item,
-            onDismiss = { correctionItem = null },
-            onChanged = {
-                viewModel.onMetadataCorrectionChanged(item)
-                correctionItem = null
-            }
-        )
-    }
-
     Box(
         modifier = modifier.fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -351,7 +339,6 @@ fun BrowseScreen(
                 },
                 onGoUp = { viewModel.explorerBack() },
                 onPlay = { openVideo(it) },
-                onCorrectMetadata = { item -> correctionItem = item },
                 onFocusMedia = { item ->
                     viewModel.recordBrowseFocus(item)
                     viewModel.onItemFocused(item)

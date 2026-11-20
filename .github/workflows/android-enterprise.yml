@@ -32,6 +32,10 @@ jobs:
         shell: bash
         run: bash tools/ci/verify_brand_identity.sh
 
+      - name: Ensure Telegram Media uses only original local metadata
+        shell: bash
+        run: bash tools/ci/verify_telegram_local_only.sh
+
       - name: Install workflow lint tools
         shell: bash
         run: |

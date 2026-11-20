@@ -4133,7 +4133,6 @@ private fun PlaybackCacheState.playerLabel(): String =
 private fun displayTitle(item: com.vaydelux.bousygram.domain.model.MediaItem): String {
     val directTitle = item.title.takeIf { it.isNotBlank() }
         ?: item.fileName?.takeIf { it.isNotBlank() }
-        ?: item.tmdbTitle?.takeIf { it.isNotBlank() }
         ?: "Untitled media"
     return displayTitle(directTitle)
 }

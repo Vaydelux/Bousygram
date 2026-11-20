@@ -3,8 +3,9 @@ name: Build and Publish Bousygram QA Debug APKs
 # Source-pinned, debug-signed QA APKs. Runs on manual dispatch or when this
 # workflow is changed on main. Publishes an immutable prerelease (not production).
 # Does not bypass protected production release gates or overwrite existing tags.
-# Requested after Telegram TMDB correction QA: publish only when all exact-SHA
-# Enterprise, responsive UI and Cast/media emulator checks are successful.
+# Telegram Media now uses original TDLib thumbnails and local filename parsing.
+# Extras' independent TMDB/AniList catalog is unchanged. All exact-SHA
+# Enterprise, responsive UI and Cast/media checks must pass before publishing.
 on:
   workflow_dispatch:
   push:
@@ -64,7 +65,7 @@ jobs:
         shell: bash
         run: bash tools/ci/setup_android_sdk.sh
 
-      - name: Configure trusted debug TMDB credentials
+      - name: Configure trusted debug TMDB credentials for Extras
         shell: bash
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
@@ -76,6 +77,10 @@ jobs:
           }
           printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
           chmod 600 .env
+
+      - name: Assert Telegram metadata integration is absent
+        shell: bash
+        run: bash tools/ci/verify_telegram_local_only.sh
 
       - name: Verify Kotlin, unit tests and lint before packaging
         shell: bash
@@ -172,9 +177,10 @@ jobs:
           bindings, APK signing, native ABI matrix and SHA-256 hashes.
 
           This is a **debug-signed QA prerelease**, not a production release.
-          Telegram metadata QA: per-account TMDB search opt-in, manual movie/TV
-          correction picker, private per-message saved selections, stop-matching
-          and restore controls, and unchanged Telegram playback identities.
+          Telegram Media: external TMDB identification and manual corrections
+          removed. The original TDLib thumbnail, local filename/episode parsing
+          and Telegram playback identities are unchanged.
+          Extras: TMDB/AniList discovery, artwork and playback remain separate.
           Publication requires exact-commit Enterprise, Cast/media and responsive
           emulator workflows to pass.
           Visual QA: startup Appearance Studio, Extras compact landscape, Favorites

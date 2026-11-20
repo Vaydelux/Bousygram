@@ -1086,8 +1086,7 @@ fun MediaPosterCard(
     onFocusChanged: (Boolean) -> Unit = {},
     playbackFocusRequester: FocusRequester? = null,
     showActions: Boolean = true,
-    onSaveFavorite: ((MediaItem, (Result<Unit>) -> Unit) -> Unit)? = null,
-    onCorrectMetadata: ((MediaItem) -> Unit)? = null
+    onSaveFavorite: ((MediaItem, (Result<Unit>) -> Unit) -> Unit)? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     // Screens restoring focus after pagination may supply their own requester.
@@ -1105,7 +1104,7 @@ fun MediaPosterCard(
     )
     // TDLib thumbnail paths can become stale after native cache cleanup.
     // Treat missing local files as absent rather than permanently showing a blank Coil error.
-    val preferredThumbnail = (media.tmdbPosterPath ?: media.thumbnailPath)?.takeIf { path ->
+    val preferredThumbnail = media.thumbnailPath?.takeIf { path ->
         path.startsWith("http://") || path.startsWith("https://") ||
             path.startsWith("content://") || File(path).isFile
     }
@@ -1367,7 +1366,6 @@ fun MediaPosterCard(
             media = media, privacyMode = privacyMode, onActionFocus = onFocusChanged,
             actionFocusRequester = actionsFocus, playbackFocusRequester = playbackFocus,
             saveHandler = onSaveFavorite,
-            onCorrectMetadata = onCorrectMetadata,
             modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
         )
     }
@@ -1393,7 +1391,7 @@ fun SeriesPosterCard(
             if (privacyMode) null else it.miniThumbnailBytes
         )
     }
-    val preferredThumbnail = firstEpisode?.tmdbPosterPath ?: firstEpisode?.tmdbBackdropPath ?: firstEpisode?.thumbnailPath
+    val preferredThumbnail = firstEpisode?.thumbnailPath
     val imageData = if (privacyMode) null else preferredThumbnail?.let { path ->
         if (path.startsWith("http")) path else File(path)
     } ?: miniThumbnail
