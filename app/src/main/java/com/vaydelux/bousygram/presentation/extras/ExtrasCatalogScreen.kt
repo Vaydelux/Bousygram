@@ -846,7 +846,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(layout.filterResultsGapDp.dp))
-                if (state.error != null) {
+                if (state.error != null && state.results.isNotEmpty()) {
                     BousygramInlineStatus(
                         message = state.error.orEmpty(),
                         tone = BousygramStatusTone.ERROR,
@@ -881,12 +881,37 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         }
                     )
                 }
+                if (state.results.isNotEmpty()) {
+                    ExtrasBrowseActivityRow(
+                        resultCount = state.results.size,
+                        currentPage = state.page,
+                        updating = state.loading,
+                        onRefresh = {
+                            showSuggestions = false
+                            update(state.copy(loading = true, error = null))
+                        },
+                        minimumHeightDp = layout.minControlHeightDp
+                    )
+                }
                 if (state.results.isEmpty() && state.loading) {
                     ExtrasCatalogViewport {
                         ExtrasCatalogLoadingSkeleton(
                             isTv = isAndroidTv,
                             compact = metrics.isCompact,
                             shortViewport = metrics.heightDp < 650.dp
+                        )
+                    }
+                } else if (state.results.isEmpty() && !state.loading && state.error != null) {
+                    ExtrasCatalogViewport {
+                        ExtrasFailureScreen(
+                            message = state.error.orEmpty(),
+                            isTv = isAndroidTv,
+                            onRetry = {
+                                update(state.copy(loading = true, error = null))
+                            },
+                            onBrowseAnime = if (type != ExtrasType.ANIME) {
+                                { selectedTab = ExtrasType.ANIME.ordinal }
+                            } else null
                         )
                     }
                 } else if (state.results.isEmpty() && !state.loading && state.error == null) {
