@@ -19,6 +19,19 @@ class ExtrasLayoutOrientationTest {
         assertTrue(layout.compactHeader)
     }
 
+    @Test fun minimumPhoneWidthRetainsReadableGridAndGutters() {
+        val layout = ExtrasLayoutPolicy.resolve(320f, 568f, false)
+        assertFalse(layout.landscapeToolbar)
+        assertEquals(12, layout.horizontalGutterDp)
+        assertTrue(layout.gridCardMinWidthDp <= 144)
+    }
+
+    @Test fun compactPhoneLandscapeDoesNotUseWideToolbar() {
+        val layout = ExtrasLayoutPolicy.resolve(640f, 360f, false)
+        assertFalse(layout.landscapeToolbar)
+        assertTrue(layout.compactHeader)
+    }
+
     @Test fun wideLandscapeAtLargeFontScaleCanFitToolbar() {
         val layout = ExtrasLayoutPolicy.resolve(960f, 480f, false, 1.5f)
         assertTrue(layout.landscapeToolbar)
