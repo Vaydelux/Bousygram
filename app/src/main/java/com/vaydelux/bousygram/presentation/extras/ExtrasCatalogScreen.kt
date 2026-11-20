@@ -905,8 +905,8 @@ internal fun ExtrasFilterDisclosure(
 @Composable
 internal fun ExtrasCatalogTabs(
     selectedTab: Int,
-    onSelect: (Int) -> Unit,
-    entryFocusRequester: FocusRequester? = null
+    entryFocusRequester: FocusRequester? = null,
+    onSelect: (Int) -> Unit
 ) {
     val metrics = rememberAdaptiveMetrics()
     // Three catalog destinations must remain visible at once on phone widths.
