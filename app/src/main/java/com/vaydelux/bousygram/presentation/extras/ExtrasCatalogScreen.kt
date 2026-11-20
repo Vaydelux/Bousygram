@@ -583,21 +583,23 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     ExtrasDetailLoadingSkeleton(metrics.isCompact)
                 }
             } else if (detailError != null) {
-                Column(
-                    Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)
-                        .testTag("extras-detail-error"),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    BousygramCenteredStatus(
-                        title = "Details unavailable",
+                detailItem?.let { selected ->
+                    ExtrasDetailRecoveryPanel(
+                        item = selected,
                         message = detailError.orEmpty(),
-                        tone = BousygramStatusTone.ERROR
+                        isTv = isAndroidTv,
+                        isSaved = ExtrasPersonalLibraryPolicy.containsSaved(
+                            personalLibrary, selected.type.name, selected.id
+                        ),
+                        libraryReady = personalLibraryReady && personalLibraryError == null,
+                        libraryBusy = personalLibraryBusy,
+                        onRetry = { detailRetry += 1 },
+                        onBack = { goBackFromDetails() },
+                        onToggleSaved = {
+                            changePersonalLibrary { libraryStore.toggleSaved(selected) }
+                        },
+                        modifier = Modifier.padding(padding)
                     )
-                    Button(
-                        onClick = { detailRetry += 1 },
-                        modifier = Modifier.extrasFocusOutline().testTag("extras-detail-retry")
-                    ) { Text("Retry") }
                 }
             } else detail?.let { info ->
                 ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
