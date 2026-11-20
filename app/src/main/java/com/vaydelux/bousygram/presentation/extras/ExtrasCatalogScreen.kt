@@ -1726,6 +1726,9 @@ internal fun ExtrasDetailContent(
                 var expanded by rememberSaveable(info.item.id, review.author, review.content) {
                     mutableStateOf(false)
                 }
+                var reviewOverflows by remember(info.item.id, review.author, review.content) {
+                    mutableStateOf(false)
+                }
                 Surface(
                     modifier = Modifier.fillMaxWidth().testTag("extras-review-card"),
                     shape = RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner),
@@ -1746,12 +1749,16 @@ internal fun ExtrasDetailContent(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = if (expanded) Int.MAX_VALUE else 4,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { result ->
+                                if (!expanded) reviewOverflows = result.hasVisualOverflow
+                            }
                         )
-                        if (review.content.length > 220) {
+                        if (reviewOverflows) {
                             TextButton(
                                 onClick = { expanded = !expanded },
-                                modifier = Modifier.extrasFocusOutline()
+                                modifier = Modifier.heightIn(min = spec.controlHeightDp.dp)
+                                    .extrasFocusOutline()
                                     .testTag("extras-review-toggle")
                             ) {
                                 Text(if (expanded) "Show less" else "Read full review")
