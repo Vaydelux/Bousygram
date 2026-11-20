@@ -1325,8 +1325,22 @@ internal fun ExtrasDetailContent(
     isAndroidTv: Boolean
 ) {
     val context = LocalContext.current
+    val metrics = rememberAdaptiveMetrics()
+    val spec = remember(metrics.widthDp, metrics.heightDp, metrics.fontScale, isAndroidTv) {
+        ExtrasDetailLayoutPolicy.resolve(
+            widthDp = metrics.widthDp.value,
+            heightDp = metrics.heightDp.value,
+            isTv = isAndroidTv,
+            fontScale = metrics.fontScale
+        )
+    }
     val detailList = rememberLazyListState()
     val primaryFocus = remember(info.item.type, info.item.id) { FocusRequester() }
+    // Chunk per viewport without nesting an unbounded LazyVerticalGrid inside
+    // a vertical scroller. Compose still virtualizes whole episode rows.
+    val episodeRows = remember(episodes, spec.episodeColumns) {
+        episodes.chunked(spec.episodeColumns)
+    }
 
     // Movies/anime enter directly on Play. TV titles enter on the first
     // season, now positioned above trailers/provider metadata. We scroll
@@ -1343,36 +1357,32 @@ internal fun ExtrasDetailContent(
     // The phone screenshots exposed excessive blank space from a full-size
     // backdrop plus a duplicate 2:3 poster. Keep a single hero on compact
     // devices; tablets and TVs retain the poster alongside the synopsis.
-    val compactHero = compact || shortViewport
     LazyColumn(
         state = detailList,
         modifier = modifier.fillMaxSize().testTag("extras-detail-scroll"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = if (compact) 14.dp else 28.dp,
-            vertical = if (shortViewport) 8.dp else 16.dp
+            horizontal = spec.horizontalGutterDp.dp,
+            vertical = if (spec.compactChrome) 8.dp else 16.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(if (compactHero) 12.dp else 20.dp)
+        verticalArrangement = Arrangement.spacedBy(spec.sectionGapDp.dp)
     ) {
         if (!info.backdrop.isNullOrBlank()) {
             item(key = "backdrop:${info.item.type}:${info.item.id}") {
                 ExtrasDetailBackdrop(
-                    info = info, compact = compact, shortViewport = shortViewport
+                    info = info, compact = compact, shortViewport = shortViewport,
+                    heightDp = spec.backdropHeightDp
                 )
             }
         }
         item {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 // React to the measured detail pane, not just phone-vs-TV.
-                val stacked = compact || maxWidth < 520.dp
-                val posterWidth = when {
-                    shortViewport -> 116.dp
-                    stacked -> 155.dp
-                    else -> 185.dp
-                }
+                val stacked = !spec.sideBySideProfile || maxWidth < 520.dp
+                val posterWidth = spec.posterWidthDp.dp
                 // Width follows the responsive pane; height is always the
                 // poster's full 2:3 aspect ratio, never an arbitrary crop.
                 if (stacked) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(spec.sectionGapDp.dp)) {
                         // The backdrop already identifies the title on phones.
                         // Avoid a second oversized poster that pushes Play and
                         // other primary actions several screens down.
@@ -1383,16 +1393,16 @@ internal fun ExtrasDetailContent(
                                     .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
                             )
                         }
-                        DetailText(info)
+                        ExtrasDetailSummary(info, spec)
                     }
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(if (isAndroidTv) 24.dp else 18.dp)) {
                         ExtrasPosterArtwork(
                             url = info.item.poster, contentDescription = info.item.title,
                             modifier = Modifier.width(posterWidth)
                                 .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
                         )
-                        Column(Modifier.weight(1f)) { DetailText(info) }
+                        Column(Modifier.weight(1f)) { ExtrasDetailSummary(info, spec) }
                     }
                 }
             }
@@ -1402,7 +1412,10 @@ internal fun ExtrasDetailContent(
                 Button(
                     onClick = onPlayMovie,
                     shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    modifier = Modifier
+                        .then(if (isAndroidTv) Modifier.widthIn(min = 220.dp, max = 420.dp)
+                            else Modifier.fillMaxWidth())
+                        .heightIn(min = spec.controlHeightDp.dp)
                         .focusRequester(primaryFocus).extrasFocusOutline().testTag("extras-play-movie")
                 ) {
                     Row(
@@ -1449,7 +1462,10 @@ internal fun ExtrasDetailContent(
                     Button(
                         onClick = { onPlayAnime(episodeNumber) },
                         shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        modifier = Modifier
+                            .then(if (isAndroidTv) Modifier.widthIn(min = 220.dp, max = 420.dp)
+                                else Modifier.fillMaxWidth())
+                            .heightIn(min = spec.controlHeightDp.dp)
                             .focusRequester(primaryFocus).extrasFocusOutline().testTag("extras-play-anime")
                     ) {
                         Row(
@@ -1489,7 +1505,7 @@ internal fun ExtrasDetailContent(
                                 .then(if (season == info.seasons.first()) Modifier.focusRequester(primaryFocus)
                                     else Modifier)
                                 .extrasFocusOutline()
-                                .heightIn(min = 48.dp)
+                                .heightIn(min = spec.controlHeightDp.dp)
                                 .testTag("extras-season-${season.number}"),
                             label = { Text("${season.name} (${season.episodeCount})") })
                     }
@@ -1531,40 +1547,26 @@ internal fun ExtrasDetailContent(
                     )
                 }
             }
-            items(episodes, key = { it.number }) { episode ->
-                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                    val narrow = maxWidth < 480.dp
-                    val canPlay = selectedSeason != null && episode.number > 0
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(model = episode.still, contentDescription = null,
-                                modifier = Modifier.size(
-                                    width = if (narrow) 90.dp else 110.dp, height = 70.dp
-                                ),
-                                contentScale = ContentScale.Fit)
-                            Column(Modifier.weight(1f)) {
-                                Text("${episode.number}. ${episode.title}",
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(episode.overview, maxLines = if (narrow) 2 else 3,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                            if (canPlay && !narrow) {
-                                OutlinedButton(
-                                    onClick = { onPlayEpisode(episode.number) },
-                                    modifier = Modifier.extrasFocusOutline().testTag("extras-play-episode")
-                                ) { Text("Play") }
-                            }
-                        }
-                        if (canPlay && narrow) {
-                            OutlinedButton(
-                                onClick = { onPlayEpisode(episode.number) },
-                                modifier = Modifier.fillMaxWidth().extrasFocusOutline().testTag("extras-play-episode")
-                            ) { Text("Play episode ${episode.number}") }
-                        }
+            items(
+                episodeRows,
+                key = { row -> "season:${selectedSeason}:episode:${row.first().number}" }
+            ) { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    row.forEach { episode ->
+                        ExtrasEpisodeTile(
+                            episode = episode,
+                            canPlay = selectedSeason != null && episode.number > 0,
+                            onPlay = { onPlayEpisode(episode.number) },
+                            isTv = isAndroidTv,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (row.size < spec.episodeColumns) {
+                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -1670,7 +1672,7 @@ internal fun ExtrasDetailContent(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
                 ) {
                     items(info.cast.take(24)) { person ->
-                        Column(Modifier.width(if (compact) 96.dp else 116.dp)) {
+                        Column(Modifier.width(spec.castWidthDp.dp)) {
                             AsyncImage(model = person.portrait, contentDescription = person.name,
                                 modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                                 contentScale = ContentScale.Fit)
@@ -1751,12 +1753,40 @@ internal fun ExtrasDetailContent(
     }
 }
 
+/**
+ * Zoku's title / metadata / synopsis hierarchy, rebuilt with native
+ * typography, bounded line length, and a remote-focusable full synopsis.
+ * The title appears once (the image banner is intentionally title-free).
+ */
 @Composable
-private fun DetailText(info: ExtrasDetail) {
+internal fun ExtrasDetailSummary(info: ExtrasDetail, spec: ExtrasDetailLayoutSpec) {
     val halo = LocalBousygramHaloColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(info.item.title, style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+    var synopsisExpanded by rememberSaveable(info.item.type.name, info.item.id) {
+        mutableStateOf(false)
+    }
+    val synopsis = info.description.ifBlank { "No description is available for this title." }
+    var synopsisOverflows by remember(info.item.type, info.item.id, synopsis) {
+        mutableStateOf(false)
+    }
+    Column(
+        modifier = Modifier.widthIn(max = 760.dp),
+        verticalArrangement = Arrangement.spacedBy(if (spec.compactChrome) 7.dp else 10.dp)
+    ) {
+        Text(
+            "${info.item.type.label} · ${info.item.type.provider}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.testTag("extras-detail-category")
+        )
+        Text(
+            info.item.title,
+            style = if (spec.compactChrome) MaterialTheme.typography.titleLarge
+                else MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.testTag("extras-detail-title")
+        )
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1786,14 +1816,50 @@ private fun DetailText(info: ExtrasDetail) {
                 )
             }
         }
-        if (info.genres.isNotEmpty()) Text(info.genres.joinToString(" · "),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (info.facts.isNotEmpty()) Text(info.facts.joinToString(" · "),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(info.description.ifBlank { "No description is available for this title." },
+        if (info.genres.isNotEmpty()) {
+            Text(
+                info.genres.joinToString(" · "),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (info.facts.isNotEmpty()) {
+            Text(
+                info.facts.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            "Overview",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            synopsis,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface)
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = if (synopsisExpanded) Int.MAX_VALUE else spec.synopsisCollapsedLines,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = { result ->
+                if (!synopsisExpanded) synopsisOverflows = result.hasVisualOverflow
+            },
+            modifier = Modifier.testTag("extras-detail-overview")
+        )
+        if (synopsisOverflows) {
+            TextButton(
+                onClick = { synopsisExpanded = !synopsisExpanded },
+                modifier = Modifier.heightIn(min = spec.controlHeightDp.dp)
+                    .extrasFocusOutline()
+                    .testTag("extras-description-toggle")
+            ) {
+                Text(if (synopsisExpanded) "Show less" else "Read full description")
+            }
+        }
     }
 }
