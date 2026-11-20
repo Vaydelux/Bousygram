@@ -40,6 +40,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed as listItemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -1650,7 +1651,7 @@ internal fun ExtrasDetailContent(
         }
         if (info.reviews.isNotEmpty()) {
             item { Text("Community Reviews", style = MaterialTheme.typography.titleMedium) }
-            androidx.compose.foundation.lazy.itemsIndexed(
+            listItemsIndexed(
                 info.reviews.take(8),
                 key = { index, _ -> "${info.item.type}:${info.item.id}:review:$index" }
             ) { _, review ->
