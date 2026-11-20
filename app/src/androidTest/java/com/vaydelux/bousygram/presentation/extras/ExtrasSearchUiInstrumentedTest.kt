@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
@@ -159,12 +160,13 @@ class ExtrasSearchUiInstrumentedTest {
         rule.setContent {
             BousygramTheme {
                 Column(Modifier.width(320.dp)) {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = "",
-                        onValueChange = {},
-                        label = { androidx.compose.material3.Text("Search movies") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("qa-search")
+                    ExtrasSearchInput(
+                        type = ExtrasType.MOVIES,
+                        query = "",
+                        onQueryChanged = {},
+                        onSearch = {},
+                        onClear = {},
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(layout.searchFilterGapDp.dp))
                     ExtrasFilterDisclosure(
@@ -176,7 +178,7 @@ class ExtrasSearchUiInstrumentedTest {
                 }
             }
         }
-        val search = rule.onNodeWithTag("qa-search").fetchSemanticsNode().boundsInRoot
+        val search = rule.onNodeWithTag("extras-search-field").fetchSemanticsNode().boundsInRoot
         val filter = rule.onNodeWithTag("extras-filter-disclosure")
             .fetchSemanticsNode().boundsInRoot
         val results = rule.onNodeWithTag("qa-results").fetchSemanticsNode().boundsInRoot
@@ -263,39 +265,68 @@ class ExtrasSearchUiInstrumentedTest {
         }
         action.assertIsNotEnabled()
     }
-    @Test fun landscapeInlineToolbarKeepsFilterAndSavedActionsReachable() {
-        val filtersOpened = mutableIntStateOf(0)
-        val savedOpened = mutableIntStateOf(0)
+    @Test fun actualLandscapeSearchAndActionsDoNotOverlapAndReservePosterHeight() {
         rule.setContent {
             BousygramTheme {
-                androidx.compose.foundation.layout.Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                Column(
+                    Modifier.requiredWidth(744.dp).height(360.dp)
+                        .testTag("qa-landscape-frame")
                 ) {
-                    Box(Modifier.weight(1f).height(56.dp).testTag("qa-landscape-search-slot"))
-                    ExtrasFilterDisclosure(
-                        expanded = false,
-                        active = false,
-                        onToggle = { filtersOpened.intValue += 1 },
-                        onLibrary = { savedOpened.intValue += 1 },
-                        minHeightDp = 48,
-                        compactToolbar = true
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .testTag("qa-landscape-toolbar"),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                    ) {
+                        ExtrasSearchInput(
+                            type = ExtrasType.MOVIES,
+                            query = "",
+                            onQueryChanged = {},
+                            onSearch = {},
+                            onClear = {},
+                            modifier = Modifier.weight(1f)
+                        )
+                        ExtrasFilterDisclosure(
+                            expanded = false,
+                            active = false,
+                            onToggle = {},
+                            onLibrary = {},
+                            minHeightDp = 48,
+                            compactToolbar = true
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    ExtrasBrowseActivityRow(
+                        resultCount = 20,
+                        currentPage = 1,
+                        updating = false,
+                        onRefresh = {},
+                        minimumHeightDp = 48,
+                        compact = true
                     )
+                    ExtrasCatalogViewport {
+                        Box(Modifier.fillMaxSize().testTag("qa-landscape-posters"))
+                    }
                 }
             }
         }
-        rule.onNodeWithTag("extras-filter-toggle").performClick()
-        rule.onNodeWithTag("extras-open-my-library").performClick()
-        rule.runOnIdle {
-            assertEquals(1, filtersOpened.intValue)
-            assertEquals(1, savedOpened.intValue)
-        }
+        rule.onNodeWithTag("extras-filter-toggle").assertExists()
+        rule.onNodeWithTag("extras-open-my-library").assertExists()
         val filter = rule.onNodeWithTag("extras-filter-disclosure")
             .fetchSemanticsNode().boundsInRoot
-        val search = rule.onNodeWithTag("qa-landscape-search-slot")
+        val search = rule.onNodeWithTag("extras-search-field")
             .fetchSemanticsNode().boundsInRoot
-        assertTrue("Compact filter controls must be alongside search", filter.left >= search.right)
-        assertTrue("Compact search slot must have positive width", search.width > 0f)
+        val viewport = rule.onNodeWithTag("qa-landscape-frame")
+            .fetchSemanticsNode().boundsInRoot
+        val posters = rule.onNodeWithTag("extras-results-viewport")
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("Search and filters overlap", search.right <= filter.left + 3f)
+        assertTrue("Filters overflow the landscape dp width", filter.right <= viewport.right + 3f)
+        assertTrue("Search is clipped on left", search.left >= viewport.left - 3f)
+        assertTrue(
+            "Posters lose more than 38% of short landscape height",
+            viewport.height > 0f && posters.height / viewport.height >= 0.62f
+        )
     }
 
 

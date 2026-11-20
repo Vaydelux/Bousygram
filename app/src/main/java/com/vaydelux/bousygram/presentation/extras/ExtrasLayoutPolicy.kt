@@ -32,7 +32,7 @@ internal object ExtrasLayoutPolicy {
         val height = (heightDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f) /
             if (isTv) 1f else scale
         val compactHeader = !isTv && height < 520f
-        val landscapeToolbar = compactHeader && width >= 520f && width > height * 1.15f
+        val landscapeToolbar = compactHeader && width >= 620f && width > height * 1.15f
         val narrow = width < 600f
         return ExtrasLayoutSpec(
             horizontalGutterDp = when {

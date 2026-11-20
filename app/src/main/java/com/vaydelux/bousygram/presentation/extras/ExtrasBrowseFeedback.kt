@@ -57,7 +57,7 @@ internal fun ExtrasBrowseActivityRow(
         } else {
             OutlinedButton(
                 onClick = onRefresh,
-                modifier = Modifier.heightIn(min = (if (compact) 40 else minimumHeightDp).dp)
+                modifier = Modifier.heightIn(min = (if (compact) 48 else minimumHeightDp).dp)
                     .extrasFocusOutline().testTag("extras-refresh-titles")
             ) {
                 BousygramIcon(

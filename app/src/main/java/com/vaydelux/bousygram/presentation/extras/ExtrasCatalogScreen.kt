@@ -702,66 +702,43 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 // The TextField already renders its focused outline.
                 // No duplicate focus border or floating label to overlap tabs.
                 val searchInput: @Composable (Modifier) -> Unit = { inputModifier ->
-                    OutlinedTextField(
-                    value = state.query,
-                    onValueChange = { text ->
-                        val nextQuery = text.take(120)
-                        showSuggestions = nextQuery.isNotBlank()
-                        update(state.copy(query = nextQuery, page = 1, results = emptyList(),
-                            loading = true, hasMore = true, error = null))
-                    },
-                    shape = RoundedCornerShape(LocalBousygramStyleSpec.current.inputCorner),
-                    leadingIcon = {
-                        BousygramIcon(
-                            icon = BousygramIcons.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            size = 18.dp
-                        )
-                    },
-                    placeholder = { Text("Search ${type.label} · ${type.provider}") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = {
-                        showSuggestions = false
-                        keyboardController?.hide()
-                    }),
-                    trailingIcon = {
-                        if (state.query.isNotEmpty()) {
-                            TextButton(
-                                modifier = Modifier.extrasFocusOutline().testTag("extras-search-clear"),
-                                onClick = {
-                                    showSuggestions = false
-                                    update(state.copy(
-                                        query = "", page = 1, results = emptyList(),
-                                        loading = true, hasMore = true, error = null
-                                    ))
-                                }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    BousygramIcon(
-                                        icon = BousygramIcons.Close,
-                                        contentDescription = null,
-                                        size = 15.dp
-                                    )
-                                    Text("Clear")
+                    ExtrasSearchInput(
+                        type = type,
+                        query = state.query,
+                        onQueryChanged = { text ->
+                            val nextQuery = text.take(120)
+                            showSuggestions = nextQuery.isNotBlank()
+                            update(state.copy(
+                                query = nextQuery, page = 1, results = emptyList(),
+                                loading = true, hasMore = true, error = null
+                            ))
+                        },
+                        onSearch = {
+                            showSuggestions = false
+                            keyboardController?.hide()
+                        },
+                        onClear = {
+                            showSuggestions = false
+                            update(state.copy(
+                                query = "", page = 1, results = emptyList(),
+                                loading = true, hasMore = true, error = null
+                            ))
+                        },
+                        modifier = inputModifier
+                            .focusRequester(searchFocus)
+                            .focusProperties {
+                                if (landscapeToolbar && state.results.isNotEmpty()) {
+                                    down = firstPosterFocus
+                                } else if (!showSuggestions || state.query.isBlank()) {
+                                    down = filterFocus
                                 }
                             }
-                        }
-                    },
-                    modifier = inputModifier
-                        .focusRequester(searchFocus)
-                        .focusProperties {
-                            if (!showSuggestions || state.query.isBlank()) down = filterFocus
-                        }
-                        .testTag("extras-search-field")
-                        .onFocusChanged {
-                            if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
-                        }
-                )
+                            .onFocusChanged {
+                                if (it.hasFocus && state.query.isNotBlank()) {
+                                    showSuggestions = true
+                                }
+                            }
+                    )
                 }
                 val filterActions: @Composable (Boolean) -> Unit = { inline ->
                     ExtrasFilterDisclosure(
@@ -1546,17 +1523,20 @@ private fun ExtrasDropdown(
     onSelect: (Int) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val viewport = rememberAdaptiveMetrics()
+    val minHeight = if (viewport.isTv) 56.dp else 48.dp
+    val menuMaxHeight = if (viewport.isShortWindow) 200.dp else 320.dp
     Box(if (fullWidth) Modifier.fillMaxWidth() else Modifier) {
         OutlinedButton(
             onClick = { expanded = true },
             modifier = (if (fullWidth) Modifier.fillMaxWidth() else Modifier)
-                .heightIn(min = 48.dp)
+                .heightIn(min = minHeight)
                 .extrasFocusOutline().testTag("extras-filter-dropdown")
         ) { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         androidx.compose.material3.DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.heightIn(max = 320.dp).widthIn(max = 340.dp)
+            modifier = Modifier.heightIn(max = menuMaxHeight).widthIn(max = 340.dp)
         ) {
             options.forEachIndexed { index, option ->
                 DropdownMenuItem(

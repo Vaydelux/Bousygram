@@ -85,6 +85,10 @@ class ExtrasLayoutPolicyTest {
         assertFalse(ExtrasLayoutPolicy.resolve(960f, 540f, true).landscapeToolbar)
         assertFalse(ExtrasLayoutPolicy.resolve(1024f, 768f, false).landscapeToolbar)
         assertFalse(ExtrasLayoutPolicy.resolve(320f, 568f, false).landscapeToolbar)
+        assertFalse(ExtrasLayoutPolicy.resolve(520f, 330f, false).landscapeToolbar)
+        assertFalse(ExtrasLayoutPolicy.resolve(600f, 350f, false).landscapeToolbar)
+        assertFalse(ExtrasLayoutPolicy.resolve(844f, 390f, false, 1.6f).landscapeToolbar)
+        assertTrue(ExtrasLayoutPolicy.resolve(844f, 390f, false).landscapeToolbar)
     }
 
     @Test fun largeFontLandscapeKeepsSearchUsable() {

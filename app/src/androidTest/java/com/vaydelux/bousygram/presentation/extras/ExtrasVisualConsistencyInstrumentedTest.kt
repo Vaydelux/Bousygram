@@ -69,12 +69,13 @@ class ExtrasVisualConsistencyInstrumentedTest {
                             .padding(horizontal = layout.horizontalGutterDp.dp),
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        androidx.compose.material3.OutlinedTextField(
-                            value = "",
-                            onValueChange = {},
-                            label = { Text("Search Movies") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth().testTag("qa-search")
+                        ExtrasSearchInput(
+                            type = ExtrasType.MOVIES,
+                            query = "",
+                            onQueryChanged = {},
+                            onSearch = {},
+                            onClear = {},
+                            modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(Modifier.height(layout.searchFilterGapDp.dp))
                         ExtrasFilterDisclosure(
@@ -92,7 +93,7 @@ class ExtrasVisualConsistencyInstrumentedTest {
                 }
             }
         }
-        compose.onNodeWithTag("qa-search").assertIsDisplayed()
+        compose.onNodeWithTag("extras-search-field").assertIsDisplayed()
         compose.onNodeWithTag("extras-filter-toggle").assertIsDisplayed()
         compose.onNodeWithTag("qa-results-heading").assertIsDisplayed()
         writeUiEvidence(compose, "extras-toolbar-320dp-midnight")
