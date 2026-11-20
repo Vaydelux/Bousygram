@@ -662,7 +662,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         } else if (type != ExtrasType.ANIME && !ExtrasCatalogApi.hasTmdbCredentials) {
             ExtrasTmdbPendingSetup(
                 modifier = Modifier.fillMaxSize().padding(padding),
-                onBrowseAnime = { selectedTab = ExtrasType.ANIME.ordinal }
+                onBrowseAnime = { selectedTab = ExtrasType.ANIME.ordinal },
+                onOpenLibrary = { showPersonalLibrary = true }
             )
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
@@ -1296,7 +1297,8 @@ internal fun ExtrasSearchSuggestions(
 @Composable
 internal fun ExtrasTmdbPendingSetup(
     modifier: Modifier = Modifier,
-    onBrowseAnime: () -> Unit
+    onBrowseAnime: () -> Unit,
+    onOpenLibrary: (() -> Unit)? = null
 ) {
     Box(modifier.testTag("extras-tmdb-pending"), contentAlignment = Alignment.Center) {
         Column(
@@ -1312,6 +1314,13 @@ internal fun ExtrasTmdbPendingSetup(
                 modifier = Modifier.extrasFocusOutline().testTag("extras-go-anime").activateOnTvDpad(onBrowseAnime),
                 onClick = onBrowseAnime
             ) { Text("Browse Anime") }
+            if (onOpenLibrary != null) {
+                OutlinedButton(
+                    modifier = Modifier.heightIn(min = 48.dp).extrasFocusOutline()
+                        .testTag("extras-go-personal-library"),
+                    onClick = onOpenLibrary
+                ) { Text("My Extras · Saved titles") }
+            }
         }
     }
 }
