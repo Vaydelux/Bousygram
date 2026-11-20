@@ -52,6 +52,25 @@ jobs:
             git diff --check "$GITHUB_SHA^" "$GITHUB_SHA"
           fi
 
+      - name: Verify cross-browser PWA theme, controls and offline shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/player.js
+          node --check web/theme.mjs
+          node --check web/sw.js
+          node --test web/tests/*.test.mjs
+          python3 -m json.tool web/manifest.webmanifest >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          files = ["index.html", "styles.css", "theme.mjs", "player.js",
+                   "sw.js", "qr.svg", "icon.png", "manifest.webmanifest"]
+          assert all((Path("web") / path).is_file() for path in files)
+          html = Path("web/index.html").read_text()
+          assert html.count('<option value=') == 16
+          assert 'type="range"' in html and 'type="file"' in html
+          PY
+
       - name: Validate Windows device and playback profiling tool syntax
         shell: pwsh
         run: |

@@ -63,6 +63,7 @@ import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.tabular
 import com.vaydelux.bousygram.presentation.theme.playerHudSurfaceOpacity
+import com.vaydelux.bousygram.presentation.theme.rememberBousygramPlaybackPalette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -647,7 +648,8 @@ internal fun ExtrasLibVlcPlayer(
         val compact = maxWidth < 620.dp
         val halo = LocalBousygramHaloColors.current
         val colors = MaterialTheme.colorScheme
-        val cinemaAccent = colors.primary
+        val playbackPalette = rememberBousygramPlaybackPalette()
+        val cinemaAccent = playbackPalette.played
         val cinemaErrorText = colors.error
         val cinemaPanelBg = colors.surfaceContainer.copy(alpha = playerHudSurfaceOpacity(colors.background))
         val cinemaPanelBorder = if (halo.isHighContrast) colors.primary else colors.outlineVariant
@@ -890,7 +892,7 @@ internal fun ExtrasLibVlcPlayer(
                     colors = SliderDefaults.colors(
                         thumbColor = cinemaAccent,
                         activeTrackColor = cinemaAccent,
-                        inactiveTrackColor = colors.outlineVariant
+                        inactiveTrackColor = playbackPalette.unplayed
                     ),
                     onValueChange = { scrubFraction = it },
                     onValueChangeFinished = {

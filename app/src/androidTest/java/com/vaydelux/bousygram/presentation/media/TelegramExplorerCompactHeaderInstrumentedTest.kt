@@ -2,6 +2,8 @@ package com.vaydelux.bousygram.presentation.media
 
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
@@ -10,10 +12,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -123,6 +129,67 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
             .assertIsDisplayed().performClick()
         compose.onNodeWithTag("telegram-library-source-tabs").assertExists()
         compose.runOnIdle { assertEquals(1, favoritesOpens) }
+    }
+
+    @Test fun savedChannelsGroupsAndFavoritesAreAllReachableOnCompactPhones() {
+        var favoritesOpens = 0
+        compose.setContent {
+            Box(Modifier.width(320.dp)) {
+                HeaderFixture(320.dp, 660.dp, television = false,
+                    onFavorites = { favoritesOpens++ })
+            }
+        }
+        compose.onNodeWithTag("telegram-library-tab-favorites").assertIsDisplayed()
+        compose.onNodeWithTag("telegram-library-tab-saved").assertIsDisplayed()
+        compose.onNodeWithTag("telegram-library-tab-channels").assertIsDisplayed()
+        compose.onNodeWithTag("telegram-library-tab-groups").assertIsDisplayed()
+
+        compose.onNodeWithTag("telegram-library-tab-channels").performClick()
+        compose.onNodeWithTag("telegram-library-tab-channels").assertIsSelected()
+        compose.onNodeWithTag("telegram-library-tab-groups").performClick()
+        compose.onNodeWithTag("telegram-library-tab-groups").assertIsSelected()
+        compose.onNodeWithTag("telegram-library-tab-saved").performClick()
+        compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
+        compose.onNodeWithTag("telegram-library-tab-favorites").performClick()
+        compose.runOnIdle { assertEquals(1, favoritesOpens) }
+        compose.onNodeWithTag("telegram-library-tab-saved").assertIsSelected()
+    }
+
+    @Test fun allSourceSectionsRemainReachableOnTv() {
+        compose.setContent {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                HeaderFixture(maxWidth, 540.dp, television = true)
+            }
+        }
+        for (section in listOf("saved", "channels", "groups")) {
+            val tab = compose.onNodeWithTag("telegram-library-tab-$section")
+            // TV source tabs are allowed to scroll horizontally at a narrow
+            // actual emulator viewport; check navigability, not simultaneity.
+            tab.performScrollTo()
+            tab.assertIsDisplayed().performClick()
+            compose.onNodeWithTag("telegram-library-tab-$section").assertIsSelected()
+        }
+        compose.onNodeWithTag("telegram-library-tab-favorites").assertIsDisplayed()
+    }
+
+    @Test fun tvSourceTabsExposeAccessibleSelectionActions() {
+        compose.setContent {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                HeaderFixture(maxWidth, 540.dp, television = true)
+            }
+        }
+        for (section in listOf("channels", "groups", "saved")) {
+            val tab = compose.onNodeWithTag("telegram-library-tab-$section")
+            tab.performScrollTo()
+            tab.assertIsDisplayed()
+            // An isolated Compose fixture does not own the emulator's
+            // physical TV window focus. Verify each Material3 button exposes
+            // the activation action that remote Center dispatches, rather
+            // than fabricating a focused node after RequestFocus fails.
+            tab.assertHasClickAction()
+            tab.performSemanticsAction(SemanticsActions.OnClick)
+            compose.onNodeWithTag("telegram-library-tab-$section").assertIsSelected()
+        }
     }
 
     @Test fun retryButtonAppearsOnlyOnForumErrors() {

@@ -95,6 +95,10 @@ internal fun TelegramExplorerCompactHeader(
     // text labels in the scrollable source row (zero abbreviations or cut-offs).
     val ultraCompactTabs = !isTv && effectiveWidth < 380.dp
     val compactTabs = !isTv && effectiveWidth < 520.dp
+    // At larger accessibility fonts, three text tabs do not fit on 320dp.
+    // Keep every source reachable with a visible focusable icon + tooltip.
+    val iconOnlySourceTabs = !isTv && compactTabs &&
+        fontScale >= 1.35f && effectiveWidth < 420.dp
     val showCounts = isTv || effectiveWidth >= 600.dp
     val minControl = if (isTv) BousygramUiTokens.tvControlHeight
         else BousygramUiTokens.compactControlHeight
@@ -414,9 +418,9 @@ internal fun TelegramExplorerCompactHeader(
                         label = displayLabel,
                         active = isSelected,
                         compact = compactTabs,
-                        icon = if (compactTabs) null else tabIcon,
+                        icon = if (iconOnlySourceTabs || !compactTabs) tabIcon else null,
                         badgeCount = if (showCounts) count else null,
-                        iconOnly = false,
+                        iconOnly = iconOnlySourceTabs,
                         accessibilityLabel = fullName,
                         tooltip = fullName,
                         tooltipDetail = count?.let { "$it joined" } ?: "Personal library",

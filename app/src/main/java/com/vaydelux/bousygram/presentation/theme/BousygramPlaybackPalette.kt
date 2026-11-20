@@ -38,11 +38,14 @@ fun rememberBousygramPlaybackPalette(): BousygramPlaybackPalette {
         BousygramPlaybackPalette(
             played = played,
             playedEnd = playedEnd,
-            buffered = Color.White.copy(alpha = if (halo.isHighContrast) 0.70f else 0.48f),
-            unplayed = Color.White.copy(alpha = if (halo.isHighContrast) 0.38f else 0.24f),
-            focusRing = if (halo.isLight) lerp(scheme.primary, Color.White, 0.50f)
-                else halo.focusRing,
-            thumb = Color.White
+            // Light schemes place the transport on a pale surface container;
+            // white tracks disappear there. Use on-surface ink in that case.
+            buffered = if (halo.isLight) scheme.primary.copy(alpha = 0.52f)
+                else Color.White.copy(alpha = if (halo.isHighContrast) 0.70f else 0.48f),
+            unplayed = if (halo.isLight) scheme.onSurface.copy(alpha = 0.38f)
+                else Color.White.copy(alpha = if (halo.isHighContrast) 0.38f else 0.24f),
+            focusRing = if (halo.isLight) scheme.primary else halo.focusRing,
+            thumb = if (halo.isLight) scheme.primary else Color.White
         )
     }
 }

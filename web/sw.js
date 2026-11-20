@@ -1,11 +1,11 @@
 const scope = self.registration.scope;
 const cachePrefix = `bousygram-preview:${new URL(scope).pathname}:`;
-const cacheName = `${cachePrefix}v1`;
-const shell = ["./", "./index.html", "./styles.css", "./player.js", "./icon.png", "./manifest.webmanifest"]
+const cacheName = `${cachePrefix}v2`;
+const shell = ["./", "./index.html", "./styles.css", "./theme.mjs", "./player.js", "./icon.png", "./qr.svg", "./manifest.webmanifest"]
   .map(path => new URL(path, scope).href);
 
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(cacheName).then(cache => cache.addAll(shell)));
+  event.waitUntil(caches.open(cacheName).then(cache => cache.addAll(shell)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", event => {
