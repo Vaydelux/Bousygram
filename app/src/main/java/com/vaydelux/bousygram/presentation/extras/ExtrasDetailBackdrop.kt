@@ -43,7 +43,8 @@ internal fun ExtrasDetailBackdrop(
     info: ExtrasDetail,
     compact: Boolean,
     shortViewport: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    heightDp: Int? = null
 ) {
     val url = info.backdrop?.takeIf { it.isNotBlank() } ?: return
     val context = LocalContext.current
@@ -64,7 +65,7 @@ internal fun ExtrasDetailBackdrop(
     val shape = RoundedCornerShape(BousygramUiTokens.panelCorner)
     Box(
         modifier = modifier.fillMaxWidth()
-            .height(if (shortViewport) 118.dp else if (compact) 164.dp else 218.dp)
+            .height((heightDp ?: if (shortViewport) 118 else if (compact) 164 else 218).dp)
             .clip(shape)
             .background(colors.surfaceContainerLow)
             .border(1.dp, halo.glassBorder, shape)
@@ -97,19 +98,12 @@ internal fun ExtrasDetailBackdrop(
             Text(
                 info.item.type.label + "  ·  " + info.item.type.provider,
                 style = MaterialTheme.typography.labelMedium,
-                color = halo.haloStart,
+                color = colors.onBackground.copy(alpha = 0.9f),
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
-            Text(
-                info.item.title,
-                style = if (shortViewport) MaterialTheme.typography.titleMedium
-                    else MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = colors.onBackground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            // Title and synopsis belong to the profile block below this hero,
+            // not on top of the artwork: no duplicated headings on small TVs.
         }
     }
 }
