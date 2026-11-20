@@ -31,8 +31,14 @@ internal object ExtrasLayoutPolicy {
             if (isTv) 1f else scale
         val height = (heightDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f) /
             if (isTv) 1f else scale
-        val compactHeader = !isTv && height < 520f
-        val landscapeToolbar = compactHeader && width >= 620f && width > height * 1.15f
+        // Use the *actual* available window dimensions for orientation detection.
+        // Dividing dimensions by font scale can make a landscape phone appear
+        // portrait and can force unnecessary one-column poster grids.
+        val rawWidth = widthDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
+        val rawHeight = heightDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
+        val isLandscape = rawWidth > rawHeight * 1.15f
+        val compactHeader = !isTv && (rawHeight < 520f || (isLandscape && rawHeight < 600f))
+        val landscapeToolbar = !isTv && isLandscape && rawWidth >= 600f && rawHeight < 600f
         val narrow = width < 600f
         return ExtrasLayoutSpec(
             horizontalGutterDp = when {
@@ -48,7 +54,7 @@ internal object ExtrasLayoutPolicy {
             filterChipGapDp = if (narrow) 8 else 12,
             gridCardMinWidthDp = when {
                 isTv -> if (width < 900f) 152 else 176
-                landscapeToolbar -> 124
+                landscapeToolbar -> if (rawHeight < 390f) 112 else 132
                 scale >= 1.45f && width < 430f -> 176
                 width < 360f -> 128
                 width < 600f -> 144
@@ -57,7 +63,7 @@ internal object ExtrasLayoutPolicy {
             },
             gridGapDp = if (landscapeToolbar) 8
                 else if (width < 600f) 10 else if (isTv) 16 else 14,
-            minControlHeightDp = if (compactHeader) 48 else 56,
+            minControlHeightDp = if (isTv) 56 else 48,
             compactHeader = compactHeader,
             landscapeToolbar = landscapeToolbar
         )
