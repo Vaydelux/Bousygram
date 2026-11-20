@@ -182,7 +182,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
 
     fun changePersonalLibrary(operation: suspend () -> ExtrasLibrarySnapshot) {
-        if (!personalLibraryReady || personalLibraryBusy || personalLibraryError != null) return
+        if (!personalLibraryReady || personalLibraryBusy) return
         personalLibraryBusy = true
         libraryScope.launch {
             try {
@@ -191,8 +191,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Exception) {
-                personalLibraryError =
+                personalLibraryError = if (error is ExtrasLibraryFullException) {
+                    "Your library is full (150 saved titles). Remove a title to make space."
+                } else {
                     "Unable to save changes on this device. Your previous library has been preserved."
+                }
             } finally {
                 personalLibraryBusy = false
             }
@@ -316,7 +319,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
 
     // Restore the poster *and* grid position after leaving the details route.
-    LaunchedEffect(restorePosterFocus, detailItem, activeTabIndex, state.results.size) {
+    LaunchedEffect(restorePosterFocus, detailItem, activeTabIndex, state.results.size, showPersonalLibrary) {
         if (restorePosterFocus <= restoredPosterFocus || detailItem != null || showPersonalLibrary) return@LaunchedEffect
         // A bounded page or provider refresh can evict the selected poster.
         // Restore the original card when present; otherwise focus the first
@@ -437,7 +440,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // History records successful metadata exploration, NOT playback progress.
     LaunchedEffect(detail?.item?.type, detail?.item?.id, personalLibraryReady) {
         val opened = detail?.item ?: return@LaunchedEffect
-        if (!personalLibraryReady || personalLibraryError != null) return@LaunchedEffect
+        if (!personalLibraryReady) return@LaunchedEffect
         try {
             personalLibrary = libraryStore.markOpened(opened)
         } catch (cancel: CancellationException) {
@@ -591,7 +594,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         isSaved = ExtrasPersonalLibraryPolicy.containsSaved(
                             personalLibrary, selected.type.name, selected.id
                         ),
-                        libraryReady = personalLibraryReady && personalLibraryError == null,
+                        libraryReady = personalLibraryReady,
                         libraryBusy = personalLibraryBusy,
                         onRetry = { detailRetry += 1 },
                         onBack = { goBackFromDetails() },
@@ -632,7 +635,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     isSaved = ExtrasPersonalLibraryPolicy.containsSaved(
                         personalLibrary, info.item.type.name, info.item.id
                     ),
-                    libraryReady = personalLibraryReady && personalLibraryError == null,
+                    libraryReady = personalLibraryReady,
                     libraryBusy = personalLibraryBusy,
                     onSaveToggle = {
                         changePersonalLibrary { libraryStore.toggleSaved(info.item) }
