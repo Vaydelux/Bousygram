@@ -87,7 +87,7 @@ tasks.register("verifyReleaseVersionPolicy") {
 android {
     namespace = "com.vaydelux.bousygram"
     compileSdk {
-        version = release(36)
+        version = release(37)
     }
 
     val devAbi = project.findProperty("devAbi") as? String
