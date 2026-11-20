@@ -66,6 +66,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -121,6 +122,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 
 @Composable
 fun ExtrasCatalogScreen(onExit: () -> Unit) {
@@ -154,6 +156,48 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var movies by remember { mutableStateOf(TabState()) }
     var tv by remember { mutableStateOf(TabState()) }
     var anime by remember { mutableStateOf(TabState()) }
+
+    // Isolated from Telegram favorites, auth and streaming sources.
+    val libraryStore = remember(context) { ExtrasPersonalLibrary(context.applicationContext) }
+    val libraryScope = rememberCoroutineScope()
+    var personalLibrary by remember { mutableStateOf(ExtrasLibrarySnapshot()) }
+    var personalLibraryReady by remember { mutableStateOf(false) }
+    var personalLibraryBusy by remember { mutableStateOf(false) }
+    var personalLibraryError by remember { mutableStateOf<String?>(null) }
+    var personalLibraryReload by remember { mutableIntStateOf(0) }
+    var showPersonalLibrary by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(personalLibraryReload) {
+        personalLibraryReady = false
+        personalLibraryError = null
+        try {
+            personalLibrary = libraryStore.read()
+            personalLibraryReady = true
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            personalLibraryError =
+                "Your local Extras library could not be opened. Existing data has not been erased."
+        }
+    }
+
+    fun changePersonalLibrary(operation: suspend () -> ExtrasLibrarySnapshot) {
+        if (!personalLibraryReady || personalLibraryBusy || personalLibraryError != null) return
+        personalLibraryBusy = true
+        libraryScope.launch {
+            try {
+                personalLibrary = operation()
+                personalLibraryError = null
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                personalLibraryError =
+                    "Unable to save changes on this device. Your previous library has been preserved."
+            } finally {
+                personalLibraryBusy = false
+            }
+        }
+    }
 
     // A 32-bit/low-RAM TV should not keep three full catalog windows alive
     // throughout a long browsing session. Only the current tab retains
@@ -292,6 +336,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty() ->
                 showSuggestions = false
             filtersExpanded -> filtersExpanded = false
+            showPersonalLibrary -> showPersonalLibrary = false
             else -> onExit()
         }
     }
@@ -359,7 +404,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             throw cancel
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
-            update(request.copy(loading = false, error = e.message ?: "Catalog unavailable"))
+            update(request.copy(loading = false, error = ExtrasFailurePolicy.message(e)))
         }
     }
     LaunchedEffect(type) {
@@ -381,11 +426,25 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             throw cancel
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
-            detailError = e.message ?: "Unable to load details"
+            detailError = ExtrasFailurePolicy.message(e)
         } finally {
             if (detailItem == selected && detailRetry == retry) detailLoading = false
         }
     }
+    // History records successful metadata exploration, NOT playback progress.
+    LaunchedEffect(detail?.item?.type, detail?.item?.id, personalLibraryReady) {
+        val opened = detail?.item ?: return@LaunchedEffect
+        if (!personalLibraryReady || personalLibraryError != null) return@LaunchedEffect
+        try {
+            personalLibrary = libraryStore.markOpened(opened)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            personalLibraryError =
+                "Recent title history could not be saved. Other Extras features still work."
+        }
+    }
+
     LaunchedEffect(detail?.item?.id, selectedSeason, seasonRetry) {
         val current = detail ?: return@LaunchedEffect
         val season = selectedSeason ?: return@LaunchedEffect
@@ -401,7 +460,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             throw cancel
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
-            episodeError = e.message ?: "Unable to load episodes"
+            episodeError = ExtrasFailurePolicy.message(e)
         } finally {
             if (selectedSeason == season && detail?.item?.id == current.item.id) {
                 seasonLoading = false
@@ -442,14 +501,18 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             contentDescription = "Back",
                             tooltip = "Back to previous screen",
                             onClick = {
-                                if (detailItem != null) goBackFromDetails() else onExit()
+                                if (detailItem != null) goBackFromDetails()
+                                else if (showPersonalLibrary) showPersonalLibrary = false
+                                else onExit()
                             }
                         )
                     } else {
                         BousygramButton(
                             text = "Back",
                             onClick = {
-                                if (detailItem != null) goBackFromDetails() else onExit()
+                                if (detailItem != null) goBackFromDetails()
+                                else if (showPersonalLibrary) showPersonalLibrary = false
+                                else onExit()
                             },
                             leadingIcon = BousygramIcons.Back,
                             tooltip = if (detailItem != null) "Back to catalog" else "Back to mode selection"
@@ -462,7 +525,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text(
-                            if (detailItem == null) "Explore Extras" else "Title details",
+                            if (detailItem != null) "Title details"
+                            else if (showPersonalLibrary) "My Extras"
+                            else "Explore Extras",
                             style = if (metrics.isTv) MaterialTheme.typography.titleLarge
                                 else MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -472,8 +537,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         )
                         if (!compactPhoneWindow) {
                             Text(
-                                if (detailItem == null) "Movies · TV shows · Anime"
-                                    else "${detailItem?.type?.label} · ${detailItem?.type?.provider}",
+                                if (detailItem != null)
+                                    "${detailItem?.type?.label} · ${detailItem?.type?.provider}"
+                                else if (showPersonalLibrary)
+                                    "Saved titles · Recent discoveries"
+                                else "Movies · TV shows · Anime",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1
@@ -496,7 +564,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         )
                     }
                 }
-                if (detailItem == null) {
+                if (detailItem == null && !showPersonalLibrary) {
                     ExtrasCatalogTabs(
                         activeTabIndex,
                         onSelect = { selectedTab = it },
