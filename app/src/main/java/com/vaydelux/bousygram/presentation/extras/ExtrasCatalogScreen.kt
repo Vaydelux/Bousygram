@@ -1200,10 +1200,18 @@ private fun ExtrasDetailContent(
     isAndroidTv: Boolean
 ) {
     val context = LocalContext.current
-    LazyColumn(modifier = modifier.fillMaxSize(),
+    // The phone screenshots exposed excessive blank space from a full-size
+    // backdrop plus a duplicate 2:3 poster. Keep a single hero on compact
+    // devices; tablets and TVs retain the poster alongside the synopsis.
+    val compactHero = compact || shortViewport
+    LazyColumn(
+        modifier = modifier.fillMaxSize().testTag("extras-detail-scroll"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = if (compact) 14.dp else 28.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            horizontal = if (compact) 14.dp else 28.dp,
+            vertical = if (shortViewport) 8.dp else 16.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(if (compactHero) 12.dp else 20.dp)
+    ) {
         if (!info.backdrop.isNullOrBlank()) {
             item(key = "backdrop:${info.item.type}:${info.item.id}") {
                 ExtrasDetailBackdrop(
@@ -1224,11 +1232,16 @@ private fun ExtrasDetailContent(
                 // poster's full 2:3 aspect ratio, never an arbitrary crop.
                 if (stacked) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ExtrasPosterArtwork(
-                            url = info.item.poster, contentDescription = info.item.title,
-                            modifier = Modifier.width(posterWidth)
-                                .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
-                        )
+                        // The backdrop already identifies the title on phones.
+                        // Avoid a second oversized poster that pushes Play and
+                        // other primary actions several screens down.
+                        if (info.backdrop.isNullOrBlank()) {
+                            ExtrasPosterArtwork(
+                                url = info.item.poster, contentDescription = info.item.title,
+                                modifier = Modifier.width(posterWidth)
+                                    .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
+                            )
+                        }
                         DetailText(info)
                     }
                 } else {
@@ -1510,12 +1523,42 @@ private fun ExtrasDetailContent(
         }
         if (info.reviews.isNotEmpty()) {
             item { Text("Community Reviews", style = MaterialTheme.typography.titleMedium) }
-            items(info.reviews) { review ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(review.author + if (review.score.isNotBlank()) " · ${review.score}" else "",
-                        fontWeight = FontWeight.SemiBold)
-                    Text(review.content, style = MaterialTheme.typography.bodyMedium, maxLines = 8,
-                        overflow = TextOverflow.Ellipsis)
+            items(info.reviews.take(8)) { review ->
+                var expanded by rememberSaveable(info.item.id, review.author, review.content) {
+                    mutableStateOf(false)
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth().testTag("extras-review-card"),
+                    shape = RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            review.author + if (review.score.isNotBlank()) " · ${review.score}" else "",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            review.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = if (expanded) Int.MAX_VALUE else 4,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (review.content.length > 220) {
+                            TextButton(
+                                onClick = { expanded = !expanded },
+                                modifier = Modifier.extrasFocusOutline()
+                                    .testTag("extras-review-toggle")
+                            ) {
+                                Text(if (expanded) "Show less" else "Read full review")
+                            }
+                        }
+                    }
                 }
             }
         }
