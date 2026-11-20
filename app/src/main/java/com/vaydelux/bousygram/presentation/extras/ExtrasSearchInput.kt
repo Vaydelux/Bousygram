@@ -52,7 +52,7 @@ internal fun ExtrasSearchInput(
         },
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = onSearch),
+        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
         trailingIcon = {
             if (query.isNotEmpty()) {
                 IconButton(
