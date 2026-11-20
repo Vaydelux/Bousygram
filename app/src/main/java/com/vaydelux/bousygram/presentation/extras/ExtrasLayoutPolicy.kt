@@ -40,7 +40,7 @@ internal object ExtrasLayoutPolicy {
         // At 200% text scale a 600dp row cannot accommodate three
         // categories plus navigation. Fall back to stacked tabs.
         val landscapeToolbar = !isTv && isLandscape &&
-            rawWidth >= (if (scale >= 1.3f) 840f else 600f) &&
+            rawWidth >= (if (scale >= 1.3f) 900f else 760f) &&
             rawHeight < 600f
         val narrow = width < 600f
         return ExtrasLayoutSpec(
