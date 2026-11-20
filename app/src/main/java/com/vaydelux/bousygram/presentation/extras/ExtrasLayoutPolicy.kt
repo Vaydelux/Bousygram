@@ -25,9 +25,11 @@ internal object ExtrasLayoutPolicy {
         isTv: Boolean,
         fontScale: Float = 1f
     ): ExtrasLayoutSpec {
-        val width = widthDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
-        val height = heightDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
         val scale = fontScale.takeIf(Float::isFinite)?.coerceIn(1f, 2f) ?: 1f
+        val width = (widthDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f) /
+            if (isTv) 1f else scale
+        val height = (heightDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f) /
+            if (isTv) 1f else scale
         val compactHeader = !isTv && height < 520f
         val narrow = width < 600f
         return ExtrasLayoutSpec(
