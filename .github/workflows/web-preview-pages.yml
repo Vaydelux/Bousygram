@@ -2,6 +2,11 @@ name: Publish Bousygram web preview
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-preview-pages.yml'
 
 concurrency:
   group: bousygram-web-pages
@@ -23,8 +28,20 @@ jobs:
       - name: Check browser scripts
         run: |
           node --check web/player.js
+          node --check web/theme.mjs
           node --check web/sw.js
+          node --test web/tests/*.test.mjs
           python3 -m json.tool web/manifest.webmanifest > /dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("web")
+          for asset in ["index.html", "icon.png", "styles.css", "player.js",
+                        "theme.mjs", "qr.svg", "manifest.webmanifest", "sw.js"]:
+              assert (root / asset).is_file(), f"Missing offline shell asset: {asset}"
+          html = (root / "index.html").read_text()
+          assert html.count('<option value=') == 16, "Theme selector must match Android presets"
+          assert 'type="file"' in html and 'type="range"' in html
+          PY
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - name: Package the web preview
