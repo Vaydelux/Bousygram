@@ -45,6 +45,16 @@ object CastLanStreamingServer {
 
     val isRunning: Boolean get() = server != null
 
+    /** Prevent a sender from loading any URL except the currently authorized
+     * session-specific LAN stream. This is not a substitute for LAN TLS. */
+    @Synchronized
+    internal fun canServeCurrentUrl(url: String): Boolean {
+        if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED || server == null) return false
+        if (!CastHandoffUrlPolicy.permits(url, publicUrl)) return false
+        val current = capability ?: return false
+        return CastAccessRegistry.authorize(current.resourceId, current.token) == current.fileId
+    }
+
     @Synchronized
     fun start(context: Context, fileId: Int, size: Long, mimeType: String): String? {
         stop()

@@ -89,7 +89,10 @@ object CastSessionController {
 
     fun loadMedia(url: String, title: String, contentType: String, durationMs: Long, positionMs: Long = 0L): Boolean {
         if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) return false
-        require(url.startsWith("http://") || url.startsWith("https://")) { "Cast media URL must be network reachable" }
+        // Only the short-lived Ktor capability for the active private media
+        // session is valid. Never hand a WebView embed, public URL or stale
+        // token to a receiver by mistake.
+        if (!CastLanStreamingServer.canServeCurrentUrl(url)) return false
         val client = remoteClient() ?: return false
         val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
             putString(MediaMetadata.KEY_TITLE, title.take(256))
