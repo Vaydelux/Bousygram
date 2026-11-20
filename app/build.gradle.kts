@@ -1,4 +1,8 @@
 import java.io.File
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
@@ -842,9 +846,9 @@ tasks.register("exportDatedDebugApk") {
         check(source.isFile && source.length() > 0L) {
             "Expected nonempty debug APK at ${source.absolutePath}"
         }
-        val date = java.time.LocalDate.now(java.time.ZoneOffset.UTC)
-            .format(java.time.format.DateTimeFormatter.ofPattern(
-                "MMM,dd,yyyy", java.util.Locale.ENGLISH
+        val date = LocalDate.now(ZoneOffset.UTC)
+            .format(DateTimeFormatter.ofPattern(
+                "MMM,dd,yyyy", Locale.ENGLISH
             ))
         val target = outputDirectory.get().file("Bousygram-debug-${date}.apk").asFile
         target.parentFile.mkdirs()
