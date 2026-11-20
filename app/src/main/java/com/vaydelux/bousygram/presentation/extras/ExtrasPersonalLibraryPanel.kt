@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as rowItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -98,7 +99,7 @@ internal fun ExtrasPersonalLibraryPanel(
 
     Column(
         modifier = modifier.fillMaxSize().testTag("extras-personal-library"),
-        verticalArrangement = Arrangement.spacedBy(if (isAndroidTv) 14.dp else 9.dp)
+        verticalArrangement = Arrangement.spacedBy(if (isAndroidTv) 8.dp else 9.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -146,30 +147,37 @@ internal fun ExtrasPersonalLibraryPanel(
                 }
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().focusGroup()
+                .testTag("extras-library-sections"),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            FilterChip(
-                selected = section == 0,
-                onClick = { section = 0 },
-                modifier = Modifier.heightIn(min = controlHeight).extrasFocusOutline()
-                    .testTag("extras-library-saved-tab"),
-                label = { Text("Saved (${snapshot.saved.size})") }
-            )
-            FilterChip(
-                selected = section == 1,
-                onClick = { section = 1 },
-                modifier = Modifier.heightIn(min = controlHeight).extrasFocusOutline()
-                    .testTag("extras-library-recent-tab"),
-                label = { Text("Recent (${snapshot.recent.size})") }
-            )
-            if (busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.padding(start = 8.dp),
-                    color = MaterialTheme.colorScheme.primary
+            item {
+                FilterChip(
+                    selected = section == 0,
+                    onClick = { section = 0 },
+                    modifier = Modifier.heightIn(min = controlHeight).extrasFocusOutline()
+                        .testTag("extras-library-saved-tab"),
+                    label = { Text("Saved (${snapshot.saved.size})") }
                 )
+            }
+            item {
+                FilterChip(
+                    selected = section == 1,
+                    onClick = { section = 1 },
+                    modifier = Modifier.heightIn(min = controlHeight).extrasFocusOutline()
+                        .testTag("extras-library-recent-tab"),
+                    label = { Text("Recent (${snapshot.recent.size})") }
+                )
+            }
+            if (busy) {
+                item {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(start = 8.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
         if (section == 1 && snapshot.recent.isNotEmpty()) {
@@ -198,7 +206,7 @@ internal fun ExtrasPersonalLibraryPanel(
         ) {
             val options = listOf("ALL" to "All", "MOVIES" to "Movies",
                 "TV" to "TV shows", "ANIME" to "Anime")
-            items(options.size) { index ->
+            rowItems(options.size) { index ->
                 val option = options[index]
                 FilterChip(
                     selected = type == option.first,
@@ -210,7 +218,7 @@ internal fun ExtrasPersonalLibraryPanel(
             }
         }
         if (!ready) {
-            Box(Modifier.fillMaxSize().testTag("extras-library-loading"), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).fillMaxWidth().testTag("extras-library-loading"), contentAlignment = Alignment.Center) {
                 BousygramCenteredStatus(
                     title = if (error != null) "Library unavailable" else "Opening your library",
                     message = if (error != null) "Existing data has been preserved."
@@ -218,7 +226,7 @@ internal fun ExtrasPersonalLibraryPanel(
                 )
             }
         } else if (visible.isEmpty()) {
-            Box(Modifier.fillMaxSize().testTag("extras-library-empty"), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).fillMaxWidth().testTag("extras-library-empty"), contentAlignment = Alignment.Center) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -241,7 +249,8 @@ internal fun ExtrasPersonalLibraryPanel(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(if (isAndroidTv) 180.dp else 142.dp),
-                modifier = Modifier.fillMaxSize().focusGroup().testTag("extras-library-grid"),
+                modifier = Modifier.weight(1f).fillMaxWidth().focusGroup()
+                    .testTag("extras-library-grid"),
                 horizontalArrangement = Arrangement.spacedBy(if (isAndroidTv) 18.dp else 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
