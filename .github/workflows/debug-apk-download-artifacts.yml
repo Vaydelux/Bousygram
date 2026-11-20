@@ -8,6 +8,8 @@ name: Build and Publish Bousygram QA Debug APKs
 # QA debug metadata-removal prerelease must pass full CI before publication.
 # Local series parser tests no longer depend on removed Telegram TMDB code.
 # Enterprise, responsive UI and Cast/media checks must pass before publishing.
+# Extras landscape QA (2026-11-20): source-pinned update for compact tabs,
+# single-line search, accessible filter dialog, and reclaimed poster viewport.
 on:
   workflow_dispatch:
   push:
