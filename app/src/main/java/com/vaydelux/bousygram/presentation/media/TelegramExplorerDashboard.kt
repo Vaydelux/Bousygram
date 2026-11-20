@@ -105,6 +105,7 @@ fun TelegramExplorerDashboard(
     onGoUp: () -> Unit,
     onPlay: (MediaItem) -> Unit,
     onFocusMedia: (MediaItem) -> Unit,
+    onCorrectMetadata: (MediaItem) -> Unit = {},
     restoreFocusedMediaKey: String?,
     restoreFocusRequester: FocusRequester,
     onLoadMore: () -> Unit,
@@ -380,7 +381,8 @@ fun TelegramExplorerDashboard(
                                     } else Modifier
                                 ),
                             onClick = { onPlay(item) },
-                            onFocusChanged = { focused -> if (focused) onFocusMedia(item) }
+                            onFocusChanged = { focused -> if (focused) onFocusMedia(item) },
+                            onCorrectMetadata = onCorrectMetadata
                         )
                     }
                     if (discardedMediaCount > 0) {

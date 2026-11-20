@@ -1025,9 +1025,9 @@ class MediaViewModel(
     }
 
     /**
-     * Local-only title metadata parsing. Do not transmit private Telegram message
-     * titles or filenames to TMDB automatically just because a BuildConfig API
-     * key exists. Future Extras metadata access requires explicit user approval.
+     * Local title parsing with user corrections loaded from account-scoped
+     * private storage. No TMDB network requests occur during list rendering,
+     * focus movement, or automatic pagination; external search is explicit.
      */
     private fun enrichMediaItemsAsync(items: List<MediaItem>) {
         val owner = AccountSession.current() ?: return
@@ -1053,7 +1053,15 @@ class MediaViewModel(
                         episodeNumber = item.episodeNumber ?: info.episodeNumber,
                         seriesTitle = item.seriesTitle ?: info.seriesTitle.takeIf { info.isSeries }
                     )
-                    ("${item.chatId}:${item.messageId}") to enriched
+                    val restored = try {
+                        com.vaydelux.bousygram.data.repository.TelegramMetadataCorrections.apply(
+                            com.vaydelux.bousygram.app.BousygramApp.instance, enriched
+                        )
+                    } catch (_: Exception) {
+                        // Corrupted metadata must not interrupt Telegram browsing.
+                        enriched
+                    }
+                    ("${item.chatId}:${item.messageId}") to restored
                 }
                 _uiState.update { current ->
                     if (!AccountSession.isCurrent(owner)) return@update current
@@ -1063,6 +1071,35 @@ class MediaViewModel(
                         }
                     )
                 }
+            }
+        }
+    }
+
+    /** Refresh the active card only; no reload of Telegram media bytes and no
+     * change to the original playback fileId or message source. */
+    fun onMetadataCorrectionChanged(selected: MediaItem) {
+        val owner = AccountSession.current() ?: return
+        viewModelScope.launch(Dispatchers.Default) {
+            if (!AccountSession.isCurrent(owner)) return@launch
+            _uiState.update { state ->
+                if (!AccountSession.isCurrent(owner)) return@update state
+                state.copy(items = state.items.map { item ->
+                    if (item.chatId != selected.chatId || item.messageId != selected.messageId) item
+                    else {
+                        val originalYear = com.vaydelux.bousygram.core.media.SeriesMetadataParser
+                            .parse(title = item.title, fileName = item.fileName).year
+                        val base = item.copy(
+                            tmdbTitle = null, tmdbOverview = null, tmdbRating = null,
+                            tmdbPosterPath = null, tmdbBackdropPath = null, episodeTitle = null,
+                            releaseYear = originalYear
+                        )
+                        try {
+                            com.vaydelux.bousygram.data.repository.TelegramMetadataCorrections.apply(
+                                com.vaydelux.bousygram.app.BousygramApp.instance, base
+                            )
+                        } catch (_: Exception) { base }
+                    }
+                })
             }
         }
     }

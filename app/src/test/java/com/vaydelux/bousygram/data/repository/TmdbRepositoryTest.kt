@@ -211,4 +211,33 @@ class TmdbRepositoryTest {
         assertNull(TmdbRepository.readDiskCache("../../escape", null))
         assertFalse(File(cacheDir, "escape.json").exists())
     }
+    @Test
+    fun correctionCandidatesKeepAmbiguousMoviesForHumanSelection() {
+        val json = """{"results":[
+            {"id":1,"title":"Dune","release_date":"1984-12-01","poster_path":"/abcdefgh1234.jpg","vote_average":7.1},
+            {"id":2,"title":"Dune","release_date":"2021-10-01","poster_path":"/abcdefgh5678.jpg","vote_average":7.9},
+            {"id":2,"title":"Dune","release_date":"2021-10-01"},
+            {"id":0,"title":"Unusable"}
+        ]}""".trimIndent()
+        val matches = TmdbRepository.parseCorrectionCandidates(json, false)
+        assertEquals(listOf(1, 2), matches.map { it.id })
+        assertEquals(listOf(1984, 2021), matches.map { it.year })
+        assertEquals("/abcdefgh1234.jpg", matches[0].posterPath)
+        assertTrue(matches.none { it.isSeries })
+        // Automatic strict matching must refuse the same ambiguous title.
+        assertNull(TmdbRepository.selectMatchingResult(json, "Dune", null, false))
+    }
+
+    @Test
+    fun correctionCandidatesValidatePosterAndBoundResultCount() {
+        val json = """{"results":[""" +
+            (1..80).joinToString(",") { index ->
+                """{"id":$index,"name":"Show $index","first_air_date":"2020-01-01","poster_path":"https://evil.example/a.jpg"}"""
+            } + """]}"""
+        val list = TmdbRepository.parseCorrectionCandidates(json, true)
+        assertEquals(12, list.size)
+        assertTrue(list.all { it.posterPath == null && it.isSeries })
+        assertEquals("Show 1", list.first().title)
+    }
+
 }

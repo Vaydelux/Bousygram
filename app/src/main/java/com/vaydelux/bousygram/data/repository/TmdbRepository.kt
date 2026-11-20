@@ -48,6 +48,25 @@ data class TmdbMetadata(
 )
 
 /**
+ * Human-reviewed TMDB match. No Telegram file ID, caption, chat ID, or
+ * authentication token is included in external search or this response.
+ */
+data class TmdbCorrectionCandidate(
+    val id: Int,
+    val isSeries: Boolean,
+    val title: String,
+    val year: Int?,
+    val overview: String?,
+    val posterPath: String?,
+    val rating: Float?
+)
+
+data class TmdbCorrectionSearch(
+    val candidates: List<TmdbCorrectionCandidate> = emptyList(),
+    val message: String? = null
+)
+
+/**
  * Handles matching video titles against TMDB, caching JSON metadata and downloaded images on disk.
  * Adheres to zero-blocking principle: all network calls occur asynchronously on Dispatchers.IO.
  */
@@ -78,9 +97,135 @@ object TmdbRepository {
     // Provider/network failures never become a cached "no match". A 429,
     // timeout, TLS failure or malformed response must not hide a title for
     // the negative-cache TTL. Do not include the requested URL in errors.
-    private class ProviderUnavailable : IOException()
+    private class ProviderUnavailable(val status: Int = 0) : IOException()
 
     private val imageTrimLock = Any()
+
+    /**
+     * Explicit, user-initiated correction lookup. Unlike automatic matching,
+     * ambiguous titles are returned for a human choice, never attached by
+     * popularity rank. Limit requests and payload sizes to protect low-RAM TVs.
+     */
+    private val correctionRequestLock = Any()
+    private var correctionLastRequestAtMs = 0L
+    private var correctionRateLimitUntilMs = 0L
+    private const val CORRECTION_MIN_INTERVAL_MS = 650L
+
+    suspend fun searchCorrectionCandidates(
+        title: String,
+        year: Int?,
+        isSeries: Boolean
+    ): TmdbCorrectionSearch = withContext(Dispatchers.IO) {
+        val owner = AccountSession.current()
+            ?: return@withContext TmdbCorrectionSearch(message = "Telegram account unavailable.")
+        if (!EnterprisePreferences.tmdbExternalDiscoveryEnabled()) {
+            return@withContext TmdbCorrectionSearch(
+                message = "Enable TMDB discovery in Settings → Advanced first."
+            )
+        }
+        val query = TmdbQueryPolicy.forNetwork(true, title, year)
+            ?: return@withContext TmdbCorrectionSearch(message = "Enter a valid movie or series title.")
+        val key = BuildConfig.TMDB_API_KEY
+        if (key.isBlank() || key == "TMDB_API_KEY_DEFAULT_VALUE") {
+            return@withContext TmdbCorrectionSearch(message = "TMDB is not configured in this build.")
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val allowed = synchronized(correctionRequestLock) {
+            if (now < correctionRateLimitUntilMs ||
+                (correctionLastRequestAtMs != 0L &&
+                    now - correctionLastRequestAtMs < CORRECTION_MIN_INTERVAL_MS)) {
+                false
+            } else {
+                correctionLastRequestAtMs = now
+                true
+            }
+        }
+        if (!allowed) return@withContext TmdbCorrectionSearch(
+            message = "Please wait briefly before searching again."
+        )
+        val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
+        val category = if (isSeries) "tv" else "movie"
+        val url = buildString {
+            append("$TMDB_BASE_URL/search/").append(category)
+            append("?api_key=").append(key)
+            append("&query=").append(encoded)
+            append("&include_adult=false")
+            if (year != null) {
+                append(if (isSeries) "&first_air_date_year=" else "&year=")
+                append(year)
+            }
+        }
+        try {
+            val body = executeGet(url) ?: return@withContext TmdbCorrectionSearch(
+                message = "TMDB returned no results."
+            )
+            ensureCurrent(owner)
+            val found = parseCorrectionCandidates(body, isSeries)
+            TmdbCorrectionSearch(found, if (found.isEmpty()) "No matching titles found." else null)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: ProviderUnavailable) {
+            if (error.status == 429) synchronized(correctionRequestLock) {
+                correctionRateLimitUntilMs = android.os.SystemClock.elapsedRealtime() + 60_000L
+            }
+            TmdbCorrectionSearch(message = when (error.status) {
+                429 -> "TMDB is limiting requests. Try again in about a minute."
+                401, 403 -> "TMDB credentials were rejected."
+                else -> "TMDB could not be reached. You can retry later."
+            })
+        } catch (_: Exception) {
+            TmdbCorrectionSearch(message = "Unable to search TMDB right now.")
+        }
+    }
+
+    /** Pure parser for deterministic candidate-ranking/ambiguity regression tests. */
+    internal fun parseCorrectionCandidates(json: String, isSeries: Boolean): List<TmdbCorrectionCandidate> {
+        if (json.length > MAX_METADATA_BYTES) return emptyList()
+        val rows = JSONObject(json).optJSONArray("results") ?: return emptyList()
+        return (0 until minOf(rows.length(), 20)).mapNotNull { index ->
+                val row = rows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optInt("id", 0)
+                if (id <= 0) return@mapNotNull null
+                val name = row.optString(if (isSeries) "name" else "title").take(150).trim()
+                if (name.isBlank()) return@mapNotNull null
+                val release = row.optString(if (isSeries) "first_air_date" else "release_date")
+                    .take(4).toIntOrNull()?.takeIf { it in 1900..2099 }
+                val poster = row.optString("poster_path").takeIf {
+                    it.matches(Regex("""^/[A-Za-z0-9_-]{8,100}\.(?:jpg|png|webp)$"""))
+                }
+                TmdbCorrectionCandidate(
+                    id = id, isSeries = isSeries, title = name, year = release,
+                    overview = row.optString("overview").take(500).takeIf { it.isNotBlank() },
+                    posterPath = poster,
+                    rating = row.optDouble("vote_average", 0.0).toFloat()
+                        .takeIf { it.isFinite() && it > 0f && it <= 10f }
+                )
+            }.distinctBy { it.id }.take(12)
+    }
+
+    /** Apply user-selected TMDB metadata only after selecting one result. */
+    suspend fun resolveCorrectionCandidate(candidate: TmdbCorrectionCandidate): TmdbMetadata? =
+        withContext(Dispatchers.IO) {
+            val owner = AccountSession.current() ?: return@withContext null
+            if (!EnterprisePreferences.tmdbExternalDiscoveryEnabled()) return@withContext null
+            val key = BuildConfig.TMDB_API_KEY
+            if (key.isBlank() || key == "TMDB_API_KEY_DEFAULT_VALUE" || candidate.id <= 0) {
+                return@withContext null
+            }
+            try {
+                val kind = if (candidate.isSeries) "tv" else "movie"
+                val body = executeGet("$TMDB_BASE_URL/$kind/${candidate.id}?api_key=$key")
+                    ?: return@withContext null
+                ensureCurrent(owner)
+                val parsed = if (candidate.isSeries) parseTvDetailsResponse(body)
+                    else parseMovieDetailsResponse(body)
+                parsed?.takeIf { it.matched && it.tmdbId == candidate.id }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                null
+            }
+        }
 
     // In-memory cache to avoid disk reads during fast TV list scrolling
     private val memoryCache = LruCache<String, TmdbMetadata>(200)
@@ -493,7 +638,7 @@ object TmdbRepository {
                 connection.inputStream.use { String(readBounded(it, MAX_METADATA_BYTES), StandardCharsets.UTF_8) }
             } else {
                 Log.d(TAG, "TMDB provider returned non-OK status")
-                throw ProviderUnavailable()
+                throw ProviderUnavailable(responseCode)
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e

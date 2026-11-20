@@ -30,7 +30,8 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
     onActionFocus: (Boolean) -> Unit = {},
     actionFocusRequester: FocusRequester? = null,
     playbackFocusRequester: FocusRequester? = null,
-    saveHandler: ((MediaItem, (Result<Unit>) -> Unit) -> Unit)? = null) {
+    saveHandler: ((MediaItem, (Result<Unit>) -> Unit) -> Unit)? = null,
+    onCorrectMetadata: ((MediaItem) -> Unit)? = null) {
     val account by AccountSession.state.collectAsStateWithLifecycle()
     if (account == null) return
     val pendingKeys by TelegramCloudFavorites.savingKeys.collectAsStateWithLifecycle()
@@ -98,6 +99,23 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = ::dismiss) {
+            if (onCorrectMetadata != null) {
+                DropdownMenuItem(
+                    text = { Text("Identify / correct metadata") },
+                    leadingIcon = {
+                        BousygramIcon(
+                            icon = BousygramIcons.Film,
+                            contentDescription = null,
+                            size = 18.dp
+                        )
+                    },
+                    modifier = Modifier.heightIn(min = minimum),
+                    onClick = {
+                        dismiss()
+                        onCorrectMetadata(media)
+                    }
+                )
+            }
             DropdownMenuItem(
                 leadingIcon = {
                     BousygramIcon(

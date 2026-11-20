@@ -1086,7 +1086,8 @@ fun MediaPosterCard(
     onFocusChanged: (Boolean) -> Unit = {},
     playbackFocusRequester: FocusRequester? = null,
     showActions: Boolean = true,
-    onSaveFavorite: ((MediaItem, (Result<Unit>) -> Unit) -> Unit)? = null
+    onSaveFavorite: ((MediaItem, (Result<Unit>) -> Unit) -> Unit)? = null,
+    onCorrectMetadata: ((MediaItem) -> Unit)? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     // Screens restoring focus after pagination may supply their own requester.
@@ -1366,6 +1367,7 @@ fun MediaPosterCard(
             media = media, privacyMode = privacyMode, onActionFocus = onFocusChanged,
             actionFocusRequester = actionsFocus, playbackFocusRequester = playbackFocus,
             saveHandler = onSaveFavorite,
+            onCorrectMetadata = onCorrectMetadata,
             modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
         )
     }
