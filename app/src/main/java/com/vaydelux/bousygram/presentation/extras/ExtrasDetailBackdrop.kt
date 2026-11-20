@@ -98,7 +98,7 @@ internal fun ExtrasDetailBackdrop(
             Text(
                 info.item.type.label + "  ·  " + info.item.type.provider,
                 style = MaterialTheme.typography.labelMedium,
-                color = halo.haloStart,
+                color = colors.onBackground.copy(alpha = 0.9f),
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
