@@ -145,8 +145,11 @@ internal fun CinematicScrubber(
     val active = duration > 0L
     val halo = LocalBousygramHaloColors.current
     val colors = MaterialTheme.colorScheme
-    val cinemaAccent = colors.primary
-    val cinemaAccentEnd = colors.secondary
+    // Use the same theme-aware video palette as passive progress, Extras
+    // native seekbars and player chrome. Do not substitute default cyan.
+    val playback = rememberBousygramPlaybackPalette()
+    val cinemaAccent = playback.played
+    val cinemaAccentEnd = playback.playedEnd
     val latestDuration by rememberUpdatedState(duration)
     val latestPosition by rememberUpdatedState(position)
     val latestSeek by rememberUpdatedState(onSeek)
@@ -277,14 +280,16 @@ internal fun CinematicScrubber(
             val radius = CornerRadius(h / 2f, h / 2f)
             // Unplayed track
             drawRoundRect(
-                color = colors.onSurface.copy(alpha = if (isFocused || halo.isHighContrast) 0.42f else 0.26f),
+                color = playback.unplayed.copy(
+                    alpha = if (isFocused || halo.isHighContrast) 0.42f else playback.unplayed.alpha
+                ),
                 size = Size(size.width, h),
                 cornerRadius = radius
             )
             // Buffered range
             if (bufferedFraction > 0f) {
                 drawRoundRect(
-                    color = colors.onSurface.copy(alpha = if (halo.isHighContrast) 0.72f else 0.50f),
+                    color = playback.buffered,
                     size = Size(size.width * bufferedFraction, h),
                     cornerRadius = radius
                 )
@@ -302,7 +307,7 @@ internal fun CinematicScrubber(
             if (dragging) {
                 val center = Offset(fillWidth, h / 2f)
                 drawCircle(cinemaAccent.copy(alpha = 0.34f), 11.dp.toPx(), center)
-                drawCircle(colors.surface, 6.dp.toPx(), center)
+                drawCircle(playback.thumb, 6.dp.toPx(), center)
                 drawCircle(cinemaAccentEnd, 4.dp.toPx(), center)
             }
         }
