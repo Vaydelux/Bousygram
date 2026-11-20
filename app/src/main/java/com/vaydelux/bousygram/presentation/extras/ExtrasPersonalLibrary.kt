@@ -17,9 +17,12 @@ import org.json.JSONObject
  * this protects the user's library from accidental destruction after an
  * interrupted write or a future schema change.
  */
-internal class ExtrasPersonalLibrary(context: Context) {
+internal class ExtrasPersonalLibrary(
+    context: Context,
+    preferencesName: String = "extras_personal_library_v1"
+) {
     private val prefs = context.applicationContext.getSharedPreferences(
-        "extras_personal_library_v1", Context.MODE_PRIVATE
+        preferencesName, Context.MODE_PRIVATE
     )
     private val mutex = Mutex()
 
