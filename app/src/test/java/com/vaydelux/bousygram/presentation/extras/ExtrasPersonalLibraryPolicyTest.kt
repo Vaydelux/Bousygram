@@ -41,6 +41,12 @@ class ExtrasPersonalLibraryPolicyTest {
         assertEquals(ExtrasPersonalLibraryPolicy.MAX_SAVED, state.saved.size)
         assertEquals("ANIME:150", state.saved.first().key)
         assertEquals("ANIME:1", state.saved.last().key)
+        // Saving another title must never evict a deliberate user bookmark.
+        assertEquals(state, ExtrasPersonalLibraryPolicy.toggleSaved(state, item("ANIME", 500)))
+        val afterRemoval = ExtrasPersonalLibraryPolicy.removeSaved(state, "ANIME", 1)
+        val withSpace = ExtrasPersonalLibraryPolicy.toggleSaved(afterRemoval, item("ANIME", 500))
+        assertEquals(ExtrasPersonalLibraryPolicy.MAX_SAVED, withSpace.saved.size)
+        assertEquals("ANIME:500", withSpace.saved.first().key)
         val visited = (1..90).fold(state) { acc, i ->
             ExtrasPersonalLibraryPolicy.markOpened(acc, item("TV", i))
         }
