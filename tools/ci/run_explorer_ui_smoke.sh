@@ -6,12 +6,14 @@ set -Eeuo pipefail
 adb install -r ci-artifacts/debug/Bousygram-debug.apk
 adb install -r ci-artifacts/debug/Bousygram-debug-androidTest.apk
 
+# Include the real Extras saved-library and responsive detail tests; merely
+# compiling androidTest sources is not enough to qualify the new UI.
 # Both ADB and the instrumentation test runner must report success.
-classes='com.vaydelux.bousygram.data.database.FavoritesInstrumentedTest,com.vaydelux.bousygram.presentation.components.MediaActionsDropdownInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramExplorerCompactHeaderInstrumentedTest,com.vaydelux.bousygram.presentation.media.PlaybackThemeParityInstrumentedTest,com.vaydelux.bousygram.presentation.media.PlayerLoadingBannerInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramLibraryDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.UniformPremiumDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramThemeGalleryInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramStatusComponentsInstrumentedTest,com.vaydelux.bousygram.presentation.design.StreamingDesignGalleryInstrumentedTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasSearchUiInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasDetailNavigationInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasVisualConsistencyInstrumentedTest'
+classes='com.vaydelux.bousygram.data.database.FavoritesInstrumentedTest,com.vaydelux.bousygram.presentation.components.MediaActionsDropdownInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramExplorerCompactHeaderInstrumentedTest,com.vaydelux.bousygram.presentation.media.PlaybackThemeParityInstrumentedTest,com.vaydelux.bousygram.presentation.media.PlayerLoadingBannerInstrumentedTest,com.vaydelux.bousygram.presentation.media.TelegramLibraryDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.UniformPremiumDesignInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramThemeGalleryInstrumentedTest,com.vaydelux.bousygram.presentation.components.BousygramStatusComponentsInstrumentedTest,com.vaydelux.bousygram.presentation.design.StreamingDesignGalleryInstrumentedTest,com.vaydelux.bousygram.app.DashboardPreviewNavigationTest,com.vaydelux.bousygram.presentation.shell.ModeSelectionInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasSearchUiInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasDetailNavigationInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasVisualConsistencyInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasPersonalLibraryUiInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasPersonalLibraryPersistenceInstrumentedTest,com.vaydelux.bousygram.presentation.extras.ExtrasZokuNativeDetailInstrumentedTest'
 runner='com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner'
 
 set +e
-timeout 240s adb shell am instrument -w -r -e class "$classes" "$runner" | tee explorer-ui-smoke-results.txt
+timeout 330s adb shell am instrument -w -r -e class "$classes" "$runner" | tee explorer-ui-smoke-results.txt
 result=${PIPESTATUS[0]}
 set -e
 
