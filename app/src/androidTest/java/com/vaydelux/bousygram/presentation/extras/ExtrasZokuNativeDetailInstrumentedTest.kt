@@ -1,6 +1,8 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
@@ -11,6 +13,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
@@ -47,7 +50,7 @@ class ExtrasZokuNativeDetailInstrumentedTest {
         }
         rule.setContent {
             BousygramTheme {
-                Column(Modifier.width(300.dp)) {
+                Column(Modifier.width(300.dp).verticalScroll(rememberScrollState())) {
                     ExtrasDetailSummary(fixture(longDescription), spec)
                 }
             }
@@ -55,9 +58,10 @@ class ExtrasZokuNativeDetailInstrumentedTest {
         rule.waitForIdle()
         rule.onNodeWithTag("extras-detail-title").assertIsDisplayed()
         rule.onNodeWithTag("extras-detail-overview").assertIsDisplayed()
-        rule.onNodeWithTag("extras-description-toggle").assertExists().performClick()
+        rule.onNodeWithTag("extras-description-toggle").assertExists().performScrollTo().performClick()
         rule.onNodeWithText("Show less").assertExists()
-        rule.onNodeWithTag("extras-description-toggle").performClick()
+        rule.onNodeWithTag("extras-description-toggle").performScrollTo().performClick()
+        rule.waitForIdle()
         rule.onNodeWithText("Read full description").assertExists()
         assertEquals(1, rule.onAllNodesWithTag("extras-detail-title").fetchSemanticsNodes().size)
     }

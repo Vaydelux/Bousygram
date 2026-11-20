@@ -1942,7 +1942,7 @@ internal fun ExtrasDetailContent(
                             maxLines = if (expanded) Int.MAX_VALUE else 4,
                             overflow = TextOverflow.Ellipsis,
                             onTextLayout = { result ->
-                                if (!expanded) reviewOverflows = result.hasVisualOverflow
+                                if (!expanded && result.hasVisualOverflow) reviewOverflows = true
                             }
                         )
                         if (reviewOverflows) {
@@ -2084,7 +2084,7 @@ internal fun ExtrasDetailSummary(
             maxLines = if (synopsisExpanded) Int.MAX_VALUE else spec.synopsisCollapsedLines,
             overflow = TextOverflow.Ellipsis,
             onTextLayout = { result ->
-                if (!synopsisExpanded) synopsisOverflows = result.hasVisualOverflow
+                if (!synopsisExpanded && result.hasVisualOverflow) synopsisOverflows = true
             },
             modifier = Modifier.testTag("extras-detail-overview")
         )
