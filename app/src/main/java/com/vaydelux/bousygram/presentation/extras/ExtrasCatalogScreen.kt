@@ -147,7 +147,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val landscapeToolbar = layout.landscapeToolbar
     // Wide landscape phones cannot afford a separate results/refresh row;
     // put those actions into the header so the first posters stay visible.
-    val compactResultsInHeader = landscapeToolbar && metrics.effectiveWidthDp >= 700.dp
+    // A refresh action next to Back, title, three tabs and Credits can
+    // squeeze the tab labels on medium landscape phones, especially at
+    // larger font scales. Reserve the inline action for genuinely wide
+    // canvases; the normal results row remains accessible otherwise.
+    val compactResultsInHeader = landscapeToolbar &&
+        metrics.effectiveWidthDp >= 900.dp && metrics.fontScale < 1.3f
     val lowMemoryDevice = remember(context) {
         PlayerBufferConfig.isLowRamDevice(context) || !android.os.Process.is64Bit()
     }
