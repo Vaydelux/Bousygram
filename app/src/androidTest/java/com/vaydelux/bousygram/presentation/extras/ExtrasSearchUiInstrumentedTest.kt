@@ -1,6 +1,9 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -146,6 +149,40 @@ class ExtrasSearchUiInstrumentedTest {
             .getInstrumentation().targetContext.resources.displayMetrics.density
         assertTrue("Compact loading poster too tall: ${poster / density}dp",
             poster > 0f && poster / density < 210f)
+    }
+
+    @Test fun filterToolbarUsesMeasuredDpSpacingAndAlignedControls() {
+        val layout = ExtrasLayoutPolicy.resolve(320f, 720f, isTv = false)
+        rule.setContent {
+            BousygramTheme {
+                Column(Modifier.width(320.dp)) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = "",
+                        onValueChange = {},
+                        label = { androidx.compose.material3.Text("Search movies") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("qa-search")
+                    )
+                    Spacer(Modifier.height(layout.searchFilterGapDp.dp))
+                    ExtrasFilterDisclosure(
+                        expanded = false, active = false, onToggle = {},
+                        minHeightDp = layout.minControlHeightDp
+                    )
+                    Spacer(Modifier.height(layout.filterResultsGapDp.dp))
+                    Box(Modifier.fillMaxWidth().height(64.dp).testTag("qa-results"))
+                }
+            }
+        }
+        val search = rule.onNodeWithTag("qa-search").fetchSemanticsNode().boundsInRoot
+        val filter = rule.onNodeWithTag("extras-filter-disclosure")
+            .fetchSemanticsNode().boundsInRoot
+        val results = rule.onNodeWithTag("qa-results").fetchSemanticsNode().boundsInRoot
+        val density = androidx.test.platform.app.InstrumentationRegistry
+            .getInstrumentation().targetContext.resources.displayMetrics.density
+        assertTrue("Filters overlap search", filter.top - search.bottom >= 11f * density)
+        assertTrue("Results overlap filters", results.top - filter.bottom >= 11f * density)
+        assertTrue("Filter control must be remote/touch accessible",
+            filter.height / density >= 48f)
     }
 
     @Test fun optionalFiltersPreserveGridSpaceUntilExplicitlyExpanded() {

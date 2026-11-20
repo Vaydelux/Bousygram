@@ -29,6 +29,29 @@ import org.junit.runner.RunWith
 class ExtrasDpadFocusInstrumentedTest {
     @get:Rule val rule = createComposeRule()
 
+    @Test fun filterToggleOpensAndClosesWithRemoteCenterKey() {
+        rule.setContent {
+            BousygramTheme {
+                var expanded by remember { mutableStateOf(false) }
+                Column {
+                    ExtrasFilterDisclosure(
+                        expanded = expanded,
+                        active = false,
+                        onToggle = { expanded = !expanded }
+                    )
+                    if (expanded) Text("Expanded filter controls")
+                }
+            }
+        }
+        val filter = rule.onNodeWithTag("extras-filter-toggle")
+        filter.assertExists()
+        filter.performSemanticsAction(SemanticsActions.RequestFocus)
+        filter.performKeyInput { pressKey(Key.DirectionCenter) }
+        rule.onNodeWithText("Expanded filter controls").assertExists()
+        filter.performKeyInput { pressKey(Key.DirectionCenter) }
+        rule.onNodeWithText("Expanded filter controls").assertDoesNotExist()
+    }
+
     @Test fun centerKeyActivatesFocusedTvTab() {
         rule.setContent {
             BousygramTheme {

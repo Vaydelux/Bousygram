@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,11 +30,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -77,10 +82,12 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -113,11 +120,8 @@ import kotlinx.coroutines.ensureActive
 @Composable
 fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val metrics = rememberAdaptiveMetrics()
-    // This is a phone in landscape, not a tablet or a 10-foot TV.
-    // Keep posters above the fold by reserving only one compact header row.
-    val compactPhoneWindow = !metrics.isTv &&
-        (metrics.isShortWindow || metrics.effectiveHeightDp < 520.dp)
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     // Some Android TV boxes advertise Leanback even when UiModeManager does not.
     // Keep all such devices on the native YouTube TV route, never the WebView.
     val supportsLeanback = remember(context) {
@@ -125,6 +129,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
     }
     val isAndroidTv = metrics.isTv || supportsLeanback
+    val layout = remember(metrics.widthDp, metrics.heightDp, metrics.fontScale, isAndroidTv) {
+        ExtrasLayoutPolicy.resolve(
+            metrics.widthDp.value, metrics.heightDp.value,
+            isAndroidTv, metrics.fontScale
+        )
+    }
+    val compactPhoneWindow = layout.compactHeader
     val lowMemoryDevice = remember(context) {
         PlayerBufferConfig.isLowRamDevice(context) || !android.os.Process.is64Bit()
     }
@@ -174,6 +185,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // Only show autocomplete while the user is deliberately editing a query.
     // Tab switches keep independent queries but dismiss the former tab's popup.
     var showSuggestions by remember(type) { mutableStateOf(false) }
+    var filtersExpanded by rememberSaveable(type.name) { mutableStateOf(false) }
     fun update(new: TabState) {
         when (type) {
             ExtrasType.MOVIES -> movies = new
@@ -208,6 +220,17 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     val moviePosterFocus = remember { FocusRequester() }
     val tvPosterFocus = remember { FocusRequester() }
     val animePosterFocus = remember { FocusRequester() }
+    val searchFocus = remember { FocusRequester() }
+    val filterFocus = remember { FocusRequester() }
+    val firstPosterFocus = remember { FocusRequester() }
+    val entryTabFocus = remember { FocusRequester() }
+    // Set initial TV focus once; category switches retain user-controlled focus.
+    LaunchedEffect(isAndroidTv) {
+        if (isAndroidTv) {
+            withFrameNanos { }
+            runCatching { entryTabFocus.requestFocus() }
+        }
+    }
     val posterFocus = when (type) {
         ExtrasType.MOVIES -> moviePosterFocus
         ExtrasType.TV -> tvPosterFocus
@@ -258,6 +281,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             detailItem != null -> goBackFromDetails()
             showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty() ->
                 showSuggestions = false
+            filtersExpanded -> filtersExpanded = false
             else -> onExit()
         }
     }
@@ -393,7 +417,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         topBar = {
             Column(
                 Modifier.fillMaxWidth().statusBarsPadding().padding(
-                    horizontal = if (compactPhoneWindow) 12.dp else if (metrics.isCompact) 16.dp else 32.dp,
+                    horizontal = layout.horizontalGutterDp.dp,
                     vertical = if (compactPhoneWindow) 2.dp else if (metrics.isTv || metrics.heightDp < 660.dp) 6.dp else 10.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -462,7 +486,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                 }
                 if (detailItem == null) {
-                    ExtrasCatalogTabs(activeTabIndex, onSelect = { selectedTab = it })
+                    ExtrasCatalogTabs(
+                        activeTabIndex,
+                        onSelect = { selectedTab = it },
+                        entryFocusRequester = entryTabFocus
+                    )
                 }
             }
         }
@@ -521,7 +549,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
             )
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
-                .padding(horizontal = if (compactPhoneWindow) 12.dp else if (metrics.isCompact) 16.dp else 32.dp)) {
+                .padding(horizontal = layout.horizontalGutterDp.dp)) {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = { text ->
@@ -542,6 +570,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     label = { Text("Search ${type.label} · ${type.provider}") },
                     placeholder = { Text("Title or keyword") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        showSuggestions = false
+                        keyboardController?.hide()
+                    }),
                     trailingIcon = {
                         if (state.query.isNotEmpty()) {
                             TextButton(
@@ -568,9 +601,16 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().extrasFocusOutline().onFocusChanged {
-                        if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
-                    }
+                    modifier = Modifier.fillMaxWidth()
+                        .focusRequester(searchFocus)
+                        .focusProperties {
+                            if (!showSuggestions || state.query.isBlank()) down = filterFocus
+                        }
+                        .testTag("extras-search-field")
+                        .extrasFocusOutline()
+                        .onFocusChanged {
+                            if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
+                        }
                 )
                 if (showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty()) {
                     ExtrasSearchSuggestions(
@@ -580,17 +620,23 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         onDismiss = { showSuggestions = false }
                     )
                 }
-                var filtersExpanded by rememberSaveable(type.name) { mutableStateOf(false) }
+                Spacer(Modifier.height(layout.searchFilterGapDp.dp))
                 ExtrasFilterDisclosure(
                     expanded = filtersExpanded,
                     active = state.filters != ExtrasFilters(),
-                    onToggle = { filtersExpanded = !filtersExpanded }
+                    onToggle = { filtersExpanded = !filtersExpanded },
+                    minHeightDp = layout.minControlHeightDp,
+                    modifier = Modifier.focusRequester(filterFocus).focusProperties {
+                        up = searchFocus
+                        if (!filtersExpanded && state.results.isNotEmpty()) down = firstPosterFocus
+                    }
                 )
                 if (filtersExpanded) {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(8.dp))
                     LazyRow(
-                        modifier = Modifier.testTag("extras-filter-row"),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-filter-row"),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(layout.filterChipGapDp.dp)
                     ) {
                     item {
                         ExtrasDropdown("Sort: ${state.filters.sort.label}",
@@ -668,14 +714,19 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         }
                     }
                     item {
-                        TextButton(onClick = {
-                            update(state.copy(filters = ExtrasFilters(), page = 1, results = emptyList(),
-                                loading = true, hasMore = true))
-                        }) { Text("Reset filters") }
+                        TextButton(
+                            onClick = {
+                                update(state.copy(filters = ExtrasFilters(), page = 1, results = emptyList(),
+                                    loading = true, hasMore = true))
+                            },
+                            modifier = Modifier.extrasFocusOutline().heightIn(
+                                min = layout.minControlHeightDp.dp
+                            ).testTag("extras-reset-filters")
+                        ) { Text("Reset filters") }
                     }
                     }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(layout.filterResultsGapDp.dp))
                 if (state.error != null) {
                     BousygramInlineStatus(
                         message = state.error.orEmpty(),
@@ -746,28 +797,33 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                     }
                 } else {
-                    val minWidth = when {
-                        metrics.isTv -> 160.dp
-                        metrics.isCompact -> 132.dp
-                        else -> 155.dp
-                    }
+                    val minWidth = layout.gridCardMinWidthDp.dp
                     ExtrasCatalogViewport {
                     LazyVerticalGrid(columns = GridCells.Adaptive(minWidth), state = activeGrid,
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        items(state.results, key = { "${it.type}:${it.id}" }) { item ->
-                            ExtrasPosterCard(item,
-                                modifier = if (selectedPoster[type] == item.id) {
+                        modifier = Modifier.fillMaxSize().focusGroup().testTag("extras-poster-grid"),
+                        horizontalArrangement = Arrangement.spacedBy(layout.gridGapDp.dp),
+                        verticalArrangement = Arrangement.spacedBy(layout.gridGapDp.dp + 2.dp)) {
+                        itemsIndexed(
+                            state.results, key = { _, item -> "${item.type}:${item.id}" }
+                        ) { index, item ->
+                            val focus = Modifier
+                                .then(if (index == 0) Modifier.focusRequester(firstPosterFocus)
+                                    .focusProperties {
+                                        if (!filtersExpanded) up = filterFocus
+                                    } else Modifier)
+                                .then(if (selectedPoster[type] == item.id) {
                                     Modifier.focusRequester(posterFocus)
-                                } else Modifier,
+                                } else Modifier)
+                            ExtrasPosterCard(item,
+                                modifier = focus,
                                 onClick = { openFromResults(item) })
                         }
                         if (state.hasMore && state.results.isNotEmpty()) {
                             item {
                                 Button(onClick = {
                                     if (!state.loading) update(state.copy(page = state.page + 1, loading = true, error = null))
-                                }, modifier = Modifier.extrasFocusOutline(), enabled = !state.loading) {
+                                }, modifier = Modifier.extrasFocusOutline().heightIn(min = 48.dp)
+                                    .testTag("extras-more-titles"), enabled = !state.loading) {
                                     Text(if (state.loading) "Loading…" else "More titles")
                                 }
                             }
@@ -810,13 +866,19 @@ internal fun ColumnScope.ExtrasCatalogViewport(
 internal fun ExtrasFilterDisclosure(
     expanded: Boolean,
     active: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    minHeightDp: Int = 56
 ) {
-    val compactWindow = rememberAdaptiveMetrics().isShortWindow
+    val metrics = rememberAdaptiveMetrics()
+    val compactWindow = metrics.isShortWindow || metrics.effectiveWidthDp < 480.dp
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth()
+            .heightIn(min = minHeightDp.dp)
+            .focusGroup()
+            .testTag("extras-filter-disclosure"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         BousygramButton(
             text = if (expanded) "Hide filters" else "Filters",
@@ -824,7 +886,8 @@ internal fun ExtrasFilterDisclosure(
             selected = active || expanded,
             leadingIcon = BousygramIcons.Options,
             tooltip = if (expanded) "Hide sort and filter controls" else "Sort, genre, year, and rating filters",
-            modifier = Modifier.testTag("extras-filter-toggle")
+            modifier = modifier.heightIn(min = minHeightDp.dp)
+                .testTag("extras-filter-toggle")
         )
         if (!compactWindow) {
             Text(
@@ -840,15 +903,21 @@ internal fun ExtrasFilterDisclosure(
 }
 
 @Composable
-internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
+internal fun ExtrasCatalogTabs(
+    selectedTab: Int,
+    entryFocusRequester: FocusRequester? = null,
+    onSelect: (Int) -> Unit
+) {
     val metrics = rememberAdaptiveMetrics()
     // Three catalog destinations must remain visible at once on phone widths.
     // A lazy horizontal row could hide Anime until the user guessed to scroll.
     val compact = metrics.isCompact || metrics.isShortWindow ||
         (!metrics.isTv && metrics.effectiveHeightDp < 520.dp) ||
         metrics.effectiveWidthDp < 600.dp
+    val iconOnlyCompact = !metrics.isTv &&
+        metrics.fontScale >= 1.35f && metrics.effectiveWidthDp < 440.dp
     Row(
-        modifier = Modifier.fillMaxWidth().testTag("extras-catalog-tabs"),
+        modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-catalog-tabs"),
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
     ) {
         ExtrasType.entries.forEach { tab ->
@@ -868,12 +937,18 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
                 isTv = metrics.isTv,
                 compact = compact,
                 accessibilityLabel = tab.label,
-                icon = if (compact && !metrics.isTv) null else tabIcon,
+                icon = if (iconOnlyCompact || !compact || metrics.isTv) tabIcon else null,
+                iconOnly = iconOnlyCompact,
                 tooltip = tab.label,
                 tooltipDetail = tabDetail,
                 onClick = { onSelect(tab.ordinal) },
                 modifier = (if (compact) Modifier.weight(1f)
                     else Modifier.widthIn(min = 136.dp, max = 196.dp))
+                    .then(
+                        if (tab.ordinal == selectedTab && entryFocusRequester != null) {
+                            Modifier.focusRequester(entryFocusRequester)
+                        } else Modifier
+                    )
                     .testTag("extras-tab-${tab.name.lowercase()}")
             )
         }
@@ -946,7 +1021,7 @@ internal fun ExtrasSearchSuggestions(
         tonalElevation = 4.dp,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().heightIn(max = 210.dp)
-            .testTag("extras-search-suggestions")
+            .focusGroup().testTag("extras-search-suggestions")
     ) {
         Column {
             Row(
@@ -964,7 +1039,7 @@ internal fun ExtrasSearchSuggestions(
                     onClick = onDismiss
                 ) { Text("Dismiss") }
             }
-            LazyColumn(modifier = Modifier.heightIn(max = 154.dp)) {
+            LazyColumn(modifier = Modifier.heightIn(max = 154.dp).focusGroup()) {
                 items(visible, key = { "${it.type}:${it.id}" }) { item ->
                     var focused by remember(item.type, item.id) { mutableStateOf(false) }
                     Row(
@@ -979,6 +1054,7 @@ internal fun ExtrasSearchSuggestions(
                             )
                             .activateOnTvDpad { onOpen(item) }
                             .clickable { onOpen(item) }
+                            .heightIn(min = 64.dp)
                             .padding(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1169,10 +1245,21 @@ internal fun ExtrasPosterCard(
 private fun ExtrasDropdown(label: String, options: List<String>, onSelect: (Int) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.extrasFocusOutline()) { Text(label, maxLines = 1) }
-        androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.heightIn(min = 48.dp)
+                .extrasFocusOutline().testTag("extras-filter-dropdown")
+        ) { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        androidx.compose.material3.DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 320.dp).widthIn(max = 340.dp)
+        ) {
             options.forEachIndexed { index, option ->
-                DropdownMenuItem(text = { Text(option) }, modifier = Modifier.extrasFocusOutline(), onClick = {
+                DropdownMenuItem(
+                    text = { Text(option, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    modifier = Modifier.extrasFocusOutline().heightIn(min = 48.dp),
+                    onClick = {
                     expanded = false
                     onSelect(index)
                 })
@@ -1415,7 +1502,7 @@ private fun ExtrasDetailContent(
                 style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(
-                    modifier = Modifier.testTag("extras-cast-row"),
+                    modifier = Modifier.fillMaxWidth().testTag("extras-cast-row"),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
                 ) {
@@ -1436,7 +1523,11 @@ private fun ExtrasDetailContent(
         if (info.seasons.isNotEmpty()) {
             item { Text("Seasons & Episodes", style = MaterialTheme.typography.titleMedium) }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-seasons-row"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
+                ) {
                     items(info.seasons, key = { it.number }) { season ->
                         FilterChip(selected = selectedSeason == season.number,
                             onClick = { onSeason(season.number) },
@@ -1570,7 +1661,7 @@ private fun ExtrasDetailContent(
             item { Text("Related & recommended", style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(
-                    modifier = Modifier.testTag("extras-related-row"),
+                    modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-related-row"),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
                 ) {

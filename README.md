@@ -52,42 +52,6 @@ The app is **local-first**: ordinary playback does not require a Bousygram cloud
 
 > Debug prereleases are for testing. Production release signing, physical-device evidence, and approvals have their own gates. **Do not treat a green CI badge as certification of uninterrupted playback.**
 
-## Free iPhone / Android web playback preview
-
-The **static HTML/CSS/JS PWA** in [`web/`](web/) works in supported modern
-browsers. It is **not** a Kotlin/Wasm build or a full Telegram streaming client.
-It supports 16 theme IDs mirroring Android's palette, native browser playback
-of local video files, themed seek controls, WebVTT subtitle selection, fullscreen,
-offline UI shell and an installable Home Screen experience. The chosen theme is
-stored only in that browser; it is not synced with the Android app.
-
-**Local preview:**
-
-```bash
-python3 -m http.server 8765 --directory web
-# Open http://localhost:8765/
-```
-
-**Public QR preview:** In repository Settings → Pages, set Source to
-**GitHub Actions** once. Pushing changes under `web/` to `main` runs the
-[Publish Bousygram web preview](.github/workflows/web-preview-pages.yml)
-workflow, which tests the browser scripts before deployment. The fixed
-[`web/qr.svg`](web/qr.svg) points to
-`https://vaydelux.github.io/Bousygram/`. Check the Pages deployment
-actually succeeded before distributing the QR. On iPhone open it in Safari,
-then Share → Add to Home Screen; on Android use Chrome → Install app.
-
-**Security:** Local media and subtitle files never leave the browser. Only
-the application shell is cached; private videos are not uploaded, cached or
-synced. Unsupported codecs (including some MKV/TS media) remain browser
-limitations. Telegram sign-in, Saved/Groups/Channels library browsing, native
-LibVLC and Extras catalog are **not present in this web preview**.
-
-For realistic options and milestones toward shared Kotlin logic, browser
-authentication and Compose Multiplatform/Wasm, see
-[Web/Wasm architecture and adoption gates](docs/architecture/WEB_WASM_ROADMAP.md).
-Avoid putting Telegram credentials or privileged TMDB keys into static Pages.
-
 ## Playback & TV controls
 
 | Control | Behavior |
