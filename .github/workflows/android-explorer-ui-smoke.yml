@@ -1,4 +1,5 @@
 name: Android Explorer Responsive UI Smoke
+# Include exact-source Telegram metadata corrections in QA-debug qualification.
 
 on:
   push:

@@ -1,4 +1,5 @@
 name: Android Emulator Cast Smoke
+# Require exact-source media/Cast instrumentation for Telegram metadata QA debug APKs.
 
 on:
   # Every mainline debug prerelease must have an exact-commit emulator check.
