@@ -864,13 +864,18 @@ internal fun ColumnScope.ExtrasCatalogViewport(
 internal fun ExtrasFilterDisclosure(
     expanded: Boolean,
     active: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    minHeightDp: Int = 56
 ) {
     val compactWindow = rememberAdaptiveMetrics().isShortWindow
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth()
+            .heightIn(min = minHeightDp.dp)
+            .focusGroup()
+            .testTag("extras-filter-disclosure"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         BousygramButton(
             text = if (expanded) "Hide filters" else "Filters",
@@ -878,7 +883,8 @@ internal fun ExtrasFilterDisclosure(
             selected = active || expanded,
             leadingIcon = BousygramIcons.Options,
             tooltip = if (expanded) "Hide sort and filter controls" else "Sort, genre, year, and rating filters",
-            modifier = Modifier.testTag("extras-filter-toggle")
+            modifier = modifier.heightIn(min = minHeightDp.dp)
+                .testTag("extras-filter-toggle")
         )
         if (!compactWindow) {
             Text(
@@ -894,7 +900,11 @@ internal fun ExtrasFilterDisclosure(
 }
 
 @Composable
-internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
+internal fun ExtrasCatalogTabs(
+    selectedTab: Int,
+    onSelect: (Int) -> Unit,
+    entryFocusRequester: FocusRequester? = null
+) {
     val metrics = rememberAdaptiveMetrics()
     // Three catalog destinations must remain visible at once on phone widths.
     // A lazy horizontal row could hide Anime until the user guessed to scroll.
@@ -902,7 +912,7 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
         (!metrics.isTv && metrics.effectiveHeightDp < 520.dp) ||
         metrics.effectiveWidthDp < 600.dp
     Row(
-        modifier = Modifier.fillMaxWidth().testTag("extras-catalog-tabs"),
+        modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-catalog-tabs"),
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
     ) {
         ExtrasType.entries.forEach { tab ->
@@ -928,6 +938,11 @@ internal fun ExtrasCatalogTabs(selectedTab: Int, onSelect: (Int) -> Unit) {
                 onClick = { onSelect(tab.ordinal) },
                 modifier = (if (compact) Modifier.weight(1f)
                     else Modifier.widthIn(min = 136.dp, max = 196.dp))
+                    .then(
+                        if (tab.ordinal == selectedTab && entryFocusRequester != null) {
+                            Modifier.focusRequester(entryFocusRequester)
+                        } else Modifier
+                    )
                     .testTag("extras-tab-${tab.name.lowercase()}")
             )
         }
@@ -1223,10 +1238,21 @@ internal fun ExtrasPosterCard(
 private fun ExtrasDropdown(label: String, options: List<String>, onSelect: (Int) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.extrasFocusOutline()) { Text(label, maxLines = 1) }
-        androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.heightIn(min = 48.dp)
+                .extrasFocusOutline().testTag("extras-filter-dropdown")
+        ) { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        androidx.compose.material3.DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 320.dp).widthIn(max = 340.dp)
+        ) {
             options.forEachIndexed { index, option ->
-                DropdownMenuItem(text = { Text(option) }, modifier = Modifier.extrasFocusOutline(), onClick = {
+                DropdownMenuItem(
+                    text = { Text(option, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    modifier = Modifier.extrasFocusOutline().heightIn(min = 48.dp),
+                    onClick = {
                     expanded = false
                     onSelect(index)
                 })
