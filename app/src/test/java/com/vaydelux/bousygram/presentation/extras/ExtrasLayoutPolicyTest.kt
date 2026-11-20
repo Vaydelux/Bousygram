@@ -19,7 +19,7 @@ class ExtrasLayoutPolicyTest {
                 assertTrue("Filter-to-results gap at $width x $height", spec.filterResultsGapDp >= 6)
                 assertTrue("Minimum controls at $width x $height", spec.minControlHeightDp >= 48)
                 assertTrue("Side gutter at $width x $height", spec.horizontalGutterDp >= 12)
-                assertTrue("Card gap at $width x $height", spec.gridGapDp >= 10)
+                assertTrue("Card gap at $width x $height", spec.gridGapDp >= 8)
             }
         }
     }
@@ -80,6 +80,8 @@ class ExtrasLayoutPolicyTest {
             assertEquals(48, layout.minControlHeightDp)
             assertEquals(16, layout.horizontalGutterDp)
             assertEquals(6, layout.filterResultsGapDp)
+            assertEquals(124, layout.gridCardMinWidthDp)
+            assertEquals(8, layout.gridGapDp)
         }
         assertFalse(ExtrasLayoutPolicy.resolve(390f, 844f, false).landscapeToolbar)
         assertFalse(ExtrasLayoutPolicy.resolve(960f, 540f, true).landscapeToolbar)

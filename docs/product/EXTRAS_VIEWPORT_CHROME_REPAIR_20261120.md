@@ -36,12 +36,16 @@ actual combined-screen failure.
    and full-width controls. Filter options are not a horizontal, partially
    hidden row, and expansion does not reduce poster grid height. The dialog
    uses native Back/dismiss and Done. Long dropdowns are scrollable.
-5. The browse status row uses an icon-only refresh action in compact
-   landscape, preserving its semantics and 48dp-class control target.
-6. Compact landscape gutters become 16dp, filter-to-results spacing 6dp,
+5. Wider short-landscape phones (effective width >=700dp) move the result
+   count and icon-only Refresh action into the one-line header, removing
+   another control row ahead of posters. Smaller windows retain the status
+   row, and controls remain at least 48dp touch targets.
+6. Compact landscape poster cards use a 124dp minimum width and 8dp gaps;
+   portrait phones/tablets and TVs retain their existing media grid sizing.
+7. Compact landscape gutters become 16dp, filter-to-results spacing 6dp,
    and control minimum 48dp. TV retains its higher minimum control height,
    density/overscan treatment and D-pad focus behavior.
-7. Existing grid state, TMDB/AniList fetching, posters, search debounce,
+8. Existing grid state, TMDB/AniList fetching, posters, search debounce,
    user Saved library, loading/error fallbacks and playback source are
    deliberately unchanged.
 

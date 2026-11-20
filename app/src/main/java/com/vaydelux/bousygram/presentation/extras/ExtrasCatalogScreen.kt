@@ -145,6 +145,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
     val compactPhoneWindow = layout.compactHeader
     val landscapeToolbar = layout.landscapeToolbar
+    // Wide landscape phones cannot afford a separate results/refresh row;
+    // put those actions into the header so the first posters stay visible.
+    val compactResultsInHeader = landscapeToolbar && metrics.effectiveWidthDp >= 700.dp
     val lowMemoryDevice = remember(context) {
         PlayerBufferConfig.isLowRamDevice(context) || !android.os.Process.is64Bit()
     }
@@ -533,7 +536,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                     if (landscapeToolbar && detailItem == null && !showPersonalLibrary) {
                         Text(
-                            "Extras",
+                            if (compactResultsInHeader && state.results.isNotEmpty())
+                                "Extras · ${state.results.size}" else "Extras",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -575,6 +579,23 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             )
                         }
                     }
+                    }
+                    if (compactResultsInHeader && detailItem == null &&
+                        !showPersonalLibrary && state.results.isNotEmpty()) {
+                        if (state.loading) {
+                            CircularProgressIndicator(Modifier.size(20.dp))
+                        } else {
+                            BousygramIconButton(
+                                icon = BousygramIcons.Refresh,
+                                contentDescription = "Refresh Extras titles",
+                                tooltip = "Refresh ${state.results.size} titles · page ${state.page}",
+                                onClick = {
+                                    showSuggestions = false
+                                    keyboardController?.hide()
+                                    update(state.copy(loading = true, error = null))
+                                }
+                            )
+                        }
                     }
                     if (compactPhoneWindow || metrics.widthDp < 430.dp) {
                         BousygramIconButton(
@@ -758,7 +779,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         minHeightDp = layout.minControlHeightDp,
                         compactToolbar = inline,
                         modifier = Modifier.focusRequester(filterFocus).focusProperties {
-                            up = searchFocus
+                            if (inline) left = searchFocus else up = searchFocus
                             if (state.results.isNotEmpty()) down = firstPosterFocus
                         }
                     )
@@ -938,7 +959,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         }
                     )
                 }
-                if (state.results.isNotEmpty()) {
+                if (state.results.isNotEmpty() && !compactResultsInHeader) {
                     ExtrasBrowseActivityRow(
                         resultCount = state.results.size,
                         currentPage = state.page,
@@ -1136,6 +1157,7 @@ internal fun ExtrasFilterDisclosure(
             ) {
                 BousygramIcon(icon = BousygramIcons.Saved,
                     contentDescription = null, size = 18.dp)
+                Spacer(Modifier.width(6.dp))
                 Text(if (compactWindow) "Saved" else "My Extras (${libraryCount})",
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

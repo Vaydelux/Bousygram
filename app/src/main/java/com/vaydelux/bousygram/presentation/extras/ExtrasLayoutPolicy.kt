@@ -48,13 +48,15 @@ internal object ExtrasLayoutPolicy {
             filterChipGapDp = if (narrow) 8 else 12,
             gridCardMinWidthDp = when {
                 isTv -> if (width < 900f) 152 else 176
+                landscapeToolbar -> 124
                 scale >= 1.45f && width < 430f -> 176
                 width < 360f -> 128
                 width < 600f -> 144
                 width < 900f -> 160
                 else -> 178
             },
-            gridGapDp = if (width < 600f) 10 else if (isTv) 16 else 14,
+            gridGapDp = if (landscapeToolbar) 8
+                else if (width < 600f) 10 else if (isTv) 16 else 14,
             minControlHeightDp = if (compactHeader) 48 else 56,
             compactHeader = compactHeader,
             landscapeToolbar = landscapeToolbar
