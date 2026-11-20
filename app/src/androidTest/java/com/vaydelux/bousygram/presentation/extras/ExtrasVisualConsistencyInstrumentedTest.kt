@@ -8,6 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,6 +53,55 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ExtrasVisualConsistencyInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun captureAlignedSearchFiltersAndResultsAcrossPhoneThemes() {
+        val activeTheme = mutableStateOf(BousygramThemePreset.DARK)
+        val activeWidth = mutableStateOf(320.dp)
+        compose.setContent {
+            BousygramTheme(preset = activeTheme.value) {
+                PremiumGridBackdrop {
+                    val layout = ExtrasLayoutPolicy.resolve(
+                        widthDp = activeWidth.value.value, heightDp = 720f, isTv = false
+                    )
+                    Column(
+                        Modifier.width(activeWidth.value)
+                            .padding(horizontal = layout.horizontalGutterDp.dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = "",
+                            onValueChange = {},
+                            label = { Text("Search Movies") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("qa-search")
+                        )
+                        Spacer(Modifier.height(layout.searchFilterGapDp.dp))
+                        ExtrasFilterDisclosure(
+                            expanded = false, active = true, onToggle = {},
+                            minHeightDp = layout.minControlHeightDp
+                        )
+                        Spacer(Modifier.height(layout.filterResultsGapDp.dp))
+                        Text(
+                            "Trending titles",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.testTag("qa-results-heading")
+                        )
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("qa-search").assertIsDisplayed()
+        compose.onNodeWithTag("extras-filter-toggle").assertIsDisplayed()
+        compose.onNodeWithTag("qa-results-heading").assertIsDisplayed()
+        writeUiEvidence(compose, "extras-toolbar-320dp-midnight")
+
+        compose.runOnIdle {
+            activeTheme.value = BousygramThemePreset.LIGHT
+            activeWidth.value = 360.dp
+        }
+        writeUiEvidence(compose, "extras-toolbar-360dp-daylight")
+    }
 
     @Test fun catalogTabsFitInCompactWidthAndArtworkKeepsItsPortraitRatio() {
         val art = makePosterFixture("extras-qa-poster.png")
