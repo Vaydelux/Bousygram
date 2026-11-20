@@ -39,8 +39,8 @@ class ExtrasPersonalLibraryPolicyTest {
             ExtrasPersonalLibraryPolicy.toggleSaved(acc, item("ANIME", i))
         }
         assertEquals(ExtrasPersonalLibraryPolicy.MAX_SAVED, state.saved.size)
-        assertEquals("ANIME:420", state.saved.first().key)
-        assertEquals("ANIME:271", state.saved.last().key)
+        assertEquals("ANIME:150", state.saved.first().key)
+        assertEquals("ANIME:1", state.saved.last().key)
         val visited = (1..90).fold(state) { acc, i ->
             ExtrasPersonalLibraryPolicy.markOpened(acc, item("TV", i))
         }
