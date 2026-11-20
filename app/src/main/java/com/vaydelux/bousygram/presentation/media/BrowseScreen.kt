@@ -51,6 +51,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.media.ExternalPlayerLauncher
 import com.vaydelux.bousygram.core.tdlib.cache.OfflineCacheManager
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
@@ -114,6 +115,7 @@ fun BrowseScreen(
     viewModel: MediaViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val connection by TdLibClient.connectionState.collectAsState()
     val explorerPosition by viewModel.explorerPosition.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
     // Saved Messages has its own permanent entry. Never list the same chat again.
@@ -305,6 +307,7 @@ fun BrowseScreen(
     ) {
             TelegramExplorerDashboard(
                 position = explorerPosition,
+                connection = connection,
                 sources = state.videoChats,
                 topics = state.availableTopics,
                 selectedChatTitle = state.selectedChatTitle,

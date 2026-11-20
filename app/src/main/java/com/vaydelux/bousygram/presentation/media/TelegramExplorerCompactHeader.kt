@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.vaydelux.bousygram.core.tdlib.client.TelegramConnectionState
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
@@ -81,7 +82,9 @@ internal fun TelegramExplorerCompactHeader(
     onSearch: () -> Unit,
     onFavorites: () -> Unit,
     onSettings: () -> Unit,
-    onNavigate: () -> Unit
+    onNavigate: () -> Unit,
+    connection: TelegramConnectionState? = null,
+    hasSourceError: Boolean = false
 ) {
     val density = explorerHeaderDensity(isTv, widthDp, heightDp)
     val fontScale = LocalDensity.current.fontScale
@@ -164,6 +167,24 @@ internal fun TelegramExplorerCompactHeader(
                             else MaterialTheme.typography.labelSmall).tabular(),
                         color = colors.onSurfaceVariant
                     )
+                    if (connection != null) {
+                        Text(
+                            text = when (connection) {
+                                TelegramConnectionState.ONLINE -> "Online"
+                                TelegramConnectionState.OFFLINE -> "Offline"
+                                TelegramConnectionState.SYNCING -> "Syncing"
+                                TelegramConnectionState.CONNECTING -> "Connecting"
+                            },
+                            modifier = Modifier.testTag("telegram-connection-status"),
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when (connection) {
+                                TelegramConnectionState.ONLINE -> colors.primary
+                                TelegramConnectionState.OFFLINE -> colors.error
+                                else -> colors.onSurfaceVariant
+                            }
+                        )
+                    }
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(12.dp),
@@ -309,13 +330,14 @@ internal fun TelegramExplorerCompactHeader(
                         leadingIcon = { BousygramIcon(BousygramIcons.Refresh, null, size = 18.dp) },
                         text = {
                             Text(when {
-                                showSources -> "Refresh channels and groups"
+                                showSources -> if (isLoading || hasSourceError) "Retry channels and groups"
+                                    else "Refresh channels and groups"
                                 showTopics -> if (hasTopicError) "Retry forum topics"
                                     else "Refresh forum topics"
                                 else -> "Refresh media"
                             })
                         },
-                        enabled = !isLoading,
+                        enabled = showSources || !isLoading,
                         onClick = {
                             menuExpanded = false
                             when {
@@ -431,7 +453,7 @@ internal fun TelegramExplorerCompactHeader(
                     BousygramButton(
                         text = if (isLoading) "Retrying…" else "Retry topics",
                         leadingIcon = BousygramIcons.Refresh,
-                        enabled = !isLoading,
+                        enabled = showSources || !isLoading,
                         selected = true,
                         onClick = onRefreshTopics,
                         modifier = Modifier.weight(1f).heightIn(min = minControl)

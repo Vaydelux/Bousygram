@@ -408,6 +408,22 @@ fun TvVideoSearchScreen(
                         }
                         val videos = filteredResults.map { it.media }
                         Column(modifier = Modifier.fillMaxSize()) {
+                            state.error?.let { error ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(error, modifier = Modifier.weight(1f))
+                                    BousygramButton(
+                                        text = "Retry",
+                                        onClick = {
+                                            if (state.canRetryPage) viewModel.loadNextPage()
+                                            else executeSearch(state.query)
+                                        }
+                                    )
+                                }
+                            }
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier

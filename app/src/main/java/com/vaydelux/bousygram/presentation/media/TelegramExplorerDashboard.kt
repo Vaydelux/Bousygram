@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.vaydelux.bousygram.core.tdlib.client.TelegramConnectionState
 import com.vaydelux.bousygram.domain.model.ForumTopicChannel
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.VideoChatItem
@@ -117,7 +118,8 @@ fun TelegramExplorerDashboard(
     hasResume: Boolean,
     onResume: () -> Unit,
     libraryMode: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    connection: TelegramConnectionState? = null
 ) {
     val adaptive = rememberAdaptiveMetrics()
     val design = bousygramResponsiveTokens(adaptive)
@@ -162,7 +164,7 @@ fun TelegramExplorerDashboard(
         }
     }
 
-    // An async GetChat batch changes directory.size repeatedly. Restore focus once
+    // As pages arrive, directory.size changes. Restore focus once
     // per directory visit, not on every batch (which steals D-pad focus mid-navigation).
     var restoredDirectoryFocus by remember(position.section) { mutableStateOf(false) }
     LaunchedEffect(showSources) {
@@ -224,7 +226,8 @@ fun TelegramExplorerDashboard(
             else -> selectedChatTitle.ifBlank { "Media" }
         }
         val collectionStatus = when {
-            showSources -> explorerDirectoryStatus(position.section, directory.size, isLoadingSources)
+            showSources -> explorerDirectoryStatus(position.section, directory.size, isLoadingSources) +
+                if (sourceErrorMessage != null && directory.isNotEmpty()) " · Sync incomplete" else ""
             showTopics -> if (isLoadingTopics) "${topics.size} topics · Syncing"
                 else "${topics.size} topics"
             isLoading -> "${videos.size} files · Loading"
@@ -236,6 +239,8 @@ fun TelegramExplorerDashboard(
             navigationLabel = if (libraryMode) "Home" else "Library",
             folderTitle = folderTitle,
             collectionStatus = collectionStatus,
+            connection = connection,
+            hasSourceError = sourceErrorMessage != null,
             widthDp = adaptive.widthDp,
             heightDp = adaptive.heightDp,
             isTv = adaptive.isTv,
@@ -266,12 +271,19 @@ fun TelegramExplorerDashboard(
             when {
                 showSources -> {
                     if (directory.isEmpty()) {
-                        if (isLoadingSources) ExplorerLoadingGrid("Loading source directory…", cardMin)
-                        else ExplorerMessage(
-                            message = sourceErrorMessage ?: "No joined sources in this section",
-                            onRetry = onRefreshSources,
-                            actionLabel = if (sourceErrorMessage == null) "Refresh" else "Retry"
-                        )
+                        when {
+                            connection == TelegramConnectionState.OFFLINE -> ExplorerMessage(
+                                message = "Telegram is offline. Waiting for a connection.",
+                                onRetry = onRefreshSources,
+                                actionLabel = "Retry"
+                            )
+                            isLoadingSources -> ExplorerLoadingGrid("Loading source directory…", cardMin)
+                            else -> ExplorerMessage(
+                                message = sourceErrorMessage ?: "No joined sources in this section",
+                                onRetry = onRefreshSources,
+                                actionLabel = if (sourceErrorMessage == null) "Refresh" else "Retry"
+                            )
+                        }
                     } else LazyVerticalGrid(
                         state = folderGrid, columns = GridCells.Adaptive(cardMin),
                         horizontalArrangement = Arrangement.spacedBy(gap),

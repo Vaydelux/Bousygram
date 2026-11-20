@@ -94,6 +94,7 @@ import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
+import com.vaydelux.bousygram.presentation.theme.playerHudSurfaceOpacity
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramPlaybackPalette
 import com.vaydelux.bousygram.presentation.theme.tabular
@@ -143,9 +144,9 @@ internal fun CinematicScrubber(
     var isFocused by remember(mediaKey) { mutableStateOf(false) }
     val active = duration > 0L
     val halo = LocalBousygramHaloColors.current
-    val playback = rememberBousygramPlaybackPalette()
-    val cinemaAccent = playback.played
-    val cinemaAccentEnd = playback.playedEnd
+    val colors = MaterialTheme.colorScheme
+    val cinemaAccent = colors.primary
+    val cinemaAccentEnd = colors.secondary
     val latestDuration by rememberUpdatedState(duration)
     val latestPosition by rememberUpdatedState(position)
     val latestSeek by rememberUpdatedState(onSeek)
@@ -276,19 +277,19 @@ internal fun CinematicScrubber(
             val radius = CornerRadius(h / 2f, h / 2f)
             // Unplayed track
             drawRoundRect(
-                color = playback.unplayed.copy(alpha = if (isFocused) 0.40f else playback.unplayed.alpha),
+                color = colors.onSurface.copy(alpha = if (isFocused || halo.isHighContrast) 0.42f else 0.26f),
                 size = Size(size.width, h),
                 cornerRadius = radius
             )
             // Buffered range
             if (bufferedFraction > 0f) {
                 drawRoundRect(
-                    color = playback.buffered,
+                    color = colors.onSurface.copy(alpha = if (halo.isHighContrast) 0.72f else 0.50f),
                     size = Size(size.width * bufferedFraction, h),
                     cornerRadius = radius
                 )
             }
-            // Active played gradient (high-contrast over dark video in all 10 presets)
+            // The active timeline sits on the themed transport surface.
             val fillWidth = (size.width * shownFraction).coerceAtLeast(0f)
             if (fillWidth > 0f) {
                 drawRoundRect(
@@ -301,7 +302,7 @@ internal fun CinematicScrubber(
             if (dragging) {
                 val center = Offset(fillWidth, h / 2f)
                 drawCircle(cinemaAccent.copy(alpha = 0.34f), 11.dp.toPx(), center)
-                drawCircle(playback.thumb, 6.dp.toPx(), center)
+                drawCircle(colors.surface, 6.dp.toPx(), center)
                 drawCircle(cinemaAccentEnd, 4.dp.toPx(), center)
             }
         }
@@ -325,14 +326,13 @@ private fun CinemaHudButton(
     isTv: Boolean = false,
     tooltipPlacement: BousygramTooltipPlacement = BousygramTooltipPlacement.AUTO_ABOVE
 ) {
-    val halo = LocalBousygramHaloColors.current
+    val colors = MaterialTheme.colorScheme
     val spec = LocalBousygramDisplaySpec.current
     val styleSpec = LocalBousygramStyleSpec.current
     val motion = rememberBousygramMotionPolicy()
     val tooltipState = rememberBousygramTooltipState()
     var focused by remember { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
-    val cinemaAccent = rememberBousygramPlaybackPalette().played
 
     val minTarget: Dp = when {
         hero -> spec.playerHeroButtonSize
@@ -358,25 +358,24 @@ private fun CinemaHudButton(
     )
     val bgColor by animateColorAsState(
         targetValue = when {
-            hero && focused -> cinemaAccent
-            hero -> Color.White.copy(alpha = 0.22f)
-            selected -> cinemaAccent.copy(alpha = 0.30f)
-            focused -> Color.White.copy(alpha = 0.24f)
-            else -> Color.Black.copy(alpha = 0.26f)
+            hero && focused -> colors.primary
+            hero -> colors.primaryContainer
+            selected || focused -> colors.secondaryContainer
+            else -> colors.surfaceContainerHigh
         },
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "cinemaBtnBg"
     )
     val borderColor = when {
-        focused -> if (hero) Color.White else cinemaAccent
-        selected -> cinemaAccent.copy(alpha = 0.80f)
-        hero -> Color.White.copy(alpha = 0.42f)
-        else -> Color.White.copy(alpha = 0.14f)
+        focused && hero -> colors.onPrimary
+        focused || selected -> colors.primary
+        else -> colors.outlineVariant
     }
     val fgColor = when {
-        hero && focused -> Color(0xFF041724)
-        selected -> cinemaAccent
-        else -> Color.White
+        hero && focused -> colors.onPrimary
+        hero -> colors.onPrimaryContainer
+        selected || focused -> colors.onSecondaryContainer
+        else -> colors.onSurface
     }
 
     Box(
@@ -400,7 +399,7 @@ private fun CinemaHudButton(
             }
             .clickable(
                 interactionSource = interaction,
-                indication = ripple(color = Color.White),
+                indication = ripple(color = fgColor),
                 role = Role.Button,
                 onClick = {
                     if (!isTv && label == null) tooltipState.flashSelection()
@@ -452,19 +451,15 @@ private fun CinemaMetaBadge(
     text: String,
     accent: Boolean = false
 ) {
-    val halo = LocalBousygramHaloColors.current
-    val cinemaAccent = rememberBousygramPlaybackPalette().played
+    val colors = MaterialTheme.colorScheme
     Surface(
         shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
-        color = if (accent) cinemaAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.14f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (accent) cinemaAccent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.22f)
-        )
+        color = if (accent) colors.secondaryContainer else colors.surfaceContainerHigh,
+        border = BorderStroke(1.dp, colors.outlineVariant)
     ) {
         Text(
             text = text,
-            color = Color.White,
+            color = if (accent) colors.onSecondaryContainer else colors.onSurface,
             style = MaterialTheme.typography.labelSmall.tabular(),
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
@@ -512,7 +507,8 @@ internal fun CinematicPlayerChrome(
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
     val styleSpec = LocalBousygramStyleSpec.current
-    val cinemaAccent = rememberBousygramPlaybackPalette().played
+    val colors = MaterialTheme.colorScheme
+    val hudSurface = colors.surfaceContainer.copy(alpha = playerHudSurfaceOpacity(colors.background))
     val density = LocalDensity.current
     val windowWidth = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
@@ -552,7 +548,9 @@ internal fun CinematicPlayerChrome(
                     Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = horizontalPad, vertical = if (isTv) 14.dp else 10.dp),
+                        .padding(horizontal = horizontalPad, vertical = if (isTv) 14.dp else 10.dp)
+                        .background(hudSurface, RoundedCornerShape(styleSpec.panelCorner))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -570,7 +568,7 @@ internal fun CinematicPlayerChrome(
                     ) {
                         Text(
                             text = state.title,
-                            color = Color.White,
+                            color = colors.onSurface,
                             style = if (isTv) MaterialTheme.typography.titleLarge
                                 else MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -596,7 +594,7 @@ internal fun CinematicPlayerChrome(
                                 ?.let { cacheLabel ->
                                     Text(
                                         text = cacheLabel,
-                                        color = Color.White.copy(alpha = 0.72f),
+                                        color = colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelSmall,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -637,8 +635,11 @@ internal fun CinematicPlayerChrome(
                             )
                         )
                 )
-                val dockCapsuleShape = RoundedCornerShape(styleSpec.panelCorner)
-                val useFloatingDock = styleSpec.playerDockFloatingCapsule && !halo.isHighContrast
+                val dockShape = if (styleSpec.playerDockFloatingCapsule && !halo.isHighContrast) {
+                    RoundedCornerShape(styleSpec.panelCorner)
+                } else {
+                    RoundedCornerShape(topStart = styleSpec.panelCorner, topEnd = styleSpec.panelCorner)
+                }
                 Column(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -649,25 +650,9 @@ internal fun CinematicPlayerChrome(
                             end = horizontalPad,
                             bottom = if (isTv) 16.dp else 10.dp
                         )
-                        .then(
-                            if (useFloatingDock) {
-                                val dockBg = when (styleSpec.style) {
-                                    BousygramDesignStyle.IPHONE_GLASS -> Color(0xCC0D111A)
-                                    BousygramDesignStyle.COZY_KAWAII -> Color(0xD4141022)
-                                    else -> Color(0xD60C121D)
-                                }
-                                val dockBorder = when (styleSpec.style) {
-                                    BousygramDesignStyle.IPHONE_GLASS -> Color.White.copy(alpha = 0.22f)
-                                    BousygramDesignStyle.COZY_KAWAII -> cinemaAccent.copy(alpha = 0.42f)
-                                    else -> Color.White.copy(alpha = 0.14f)
-                                }
-                                Modifier
-                                    .clip(dockCapsuleShape)
-                                    .background(dockBg)
-                                    .border(1.dp, dockBorder, dockCapsuleShape)
-                                    .padding(horizontal = if (isTv) 18.dp else 12.dp, vertical = 10.dp)
-                            } else Modifier
-                        ),
+                        .background(hudSurface, dockShape)
+                        .border(1.dp, colors.outlineVariant, dockShape)
+                        .padding(horizontal = if (isTv) 18.dp else 10.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     // Timeline Scrubber
@@ -689,7 +674,7 @@ internal fun CinematicPlayerChrome(
                     ) {
                         Text(
                             text = formatCinematicTime(state.positionMs),
-                            color = Color.White,
+                            color = colors.onSurface,
                             style = MaterialTheme.typography.labelMedium.tabular(),
                             fontWeight = FontWeight.SemiBold
                         )
@@ -701,7 +686,7 @@ internal fun CinematicPlayerChrome(
                         }
                         Text(
                             text = remainingText,
-                            color = Color.White.copy(alpha = 0.78f),
+                            color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium.tabular()
                         )
                     }

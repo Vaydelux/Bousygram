@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
@@ -203,7 +204,8 @@ object TelegramCloudFavorites {
             channelId = channel,
             items = media,
             nextBeforeId = next,
-            hasMore = messages.size >= PAGE_SIZE && next != null
+            // TDLib can return fewer messages than requested before the end of history.
+            hasMore = next != null
         )
     }
 
@@ -509,7 +511,11 @@ object TelegramCloudFavorites {
     }
 
     private suspend fun request(owner: AccountSnapshot, query: TdApi.Function<*>): TdApi.Object? =
-        TdLibClient.awaitAccountResponse(query, owner, timeoutMs = 20_000L)
+        try {
+            TdLibClient.awaitAccountResponse(query, owner, timeoutMs = 20_000L)
+        } catch (_: TimeoutCancellationException) {
+            error("Telegram Favorites took too long to respond. Try again.")
+        }
 
     private suspend inline fun <reified T : TdApi.Object> expect(
         owner: AccountSnapshot, query: TdApi.Function<*>

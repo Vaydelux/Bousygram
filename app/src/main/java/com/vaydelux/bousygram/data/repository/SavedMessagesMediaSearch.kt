@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.data.repository
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 import org.drinkless.tdlib.TdApi
+import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -57,7 +58,10 @@ internal fun SavedMessagesRepository.searchMediaProgressiveInternal(
         // TDLib's message search index may be temporarily incomplete after login or sync.
         // Fall back to a bounded chat-history scan only when all indexed filters returned no
         // playable videos; normal results never wait for history scanning.
-        loadMediaFromHistoryInternal(chatId, fromMessageId, pageLimit, topicId) { historyItems ->
+        loadMediaFromHistoryInternal(chatId, fromMessageId, pageLimit, topicId, onProgress = { items ->
+            val sequence = synchronized(lock) { ++updateSequence }
+            publish(sequence, items, 0L, null, false)
+        }) { historyItems, historyError ->
             val finalItems = historyItems
                 .filter { it.chatId == chatId && it.type == MediaType.Video && it.fileId != null }
                 .dedupeAndSort()
@@ -67,7 +71,7 @@ internal fun SavedMessagesRepository.searchMediaProgressiveInternal(
                 sequence,
                 finalItems,
                 finalItems.minOfOrNull { it.messageId } ?: 0L,
-                error.takeIf { finalItems.isEmpty() },
+                (historyError ?: error).takeIf { finalItems.isEmpty() },
                 true
             )
         }
@@ -154,32 +158,40 @@ private fun SavedMessagesRepository.loadMediaFromHistoryInternal(
     fromMessageId: Long?,
     limit: Int,
     topicId: Int? = null,
-    onResult: (List<MediaItem>) -> Unit
+    onProgress: (List<MediaItem>) -> Unit,
+    onResult: (List<MediaItem>, String?) -> Unit
 ) {
     val collected = mutableListOf<MediaItem>()
-    val isSpecificTopic = topicId != null && topicId != 0
+    val deadline = SystemClock.elapsedRealtime() + HISTORY_TIMEOUT_MS
+    fun finish(error: String? = null) = onResult(collected.dedupeAndSort().take(limit), error)
 
     fun requestPage(anchorMessageId: Long, page: Int) {
         if (collected.size >= limit || page >= HISTORY_MAX_PAGES) {
-            onResult(collected.dedupeAndSort().take(limit))
+            finish()
             return
         }
 
-        val offset = if (anchorMessageId == 0L) 0 else 1
-        val isSpecificTopic = topicId != null && topicId != 0
+        val remaining = deadline - SystemClock.elapsedRealtime()
+        if (remaining <= 0) {
+            finish("Telegram history took too long to respond. Try again.")
+            return
+        }
+        val pageSize = if (page == 0) limit.coerceIn(1, HISTORY_PAGE_SIZE) else HISTORY_PAGE_SIZE
         val request: TdApi.Function<TdApi.Messages> = if (topicId != null && topicId != 0) {
-            TdApi.GetForumTopicHistory(chatId, topicId, anchorMessageId, offset, HISTORY_PAGE_SIZE)
+            TdApi.GetForumTopicHistory(chatId, topicId, anchorMessageId, 0, pageSize)
         } else {
-            TdApi.GetChatHistory(chatId, anchorMessageId, offset, HISTORY_PAGE_SIZE, false)
+            TdApi.GetChatHistory(chatId, anchorMessageId, 0, pageSize, false)
         }
 
-        client.send(request) { histResult ->
+        sendCatalogRequest(request, timeoutMs = remaining) { histResult ->
             when (histResult) {
                 is TdApi.Messages -> {
+                    // Offset zero can include the anchor itself.
                     val messages = histResult.messages.orEmpty()
+                        .filter { anchorMessageId == 0L || it.id < anchorMessageId }
                     if (messages.isEmpty()) {
-                        onResult(collected.dedupeAndSort().take(limit))
-                        return@send
+                        finish()
+                        return@sendCatalogRequest
                     }
 
                     val pageItems = messages
@@ -193,13 +205,15 @@ private fun SavedMessagesRepository.loadMediaFromHistoryInternal(
                     collected += pageItems
 
                     val nextAnchor = messages.lastOrNull()?.id ?: 0L
-                    if (nextAnchor == 0L || messages.size < HISTORY_PAGE_SIZE) {
-                        onResult(collected.dedupeAndSort().take(limit))
+                    if (nextAnchor == 0L || collected.size >= limit || page + 1 >= HISTORY_MAX_PAGES) {
+                        finish()
                     } else {
+                        if (pageItems.isNotEmpty()) onProgress(collected.dedupeAndSort().take(limit))
                         requestPage(nextAnchor, page + 1)
                     }
                 }
-                else -> onResult(collected.dedupeAndSort().take(limit))
+                is TdApi.Error -> finish(histResult.message)
+                else -> finish("Couldn't load Telegram history. Try again.")
             }
         }
     }
@@ -227,7 +241,7 @@ internal fun SavedMessagesRepository.searchWithFilterInternal(
         limit.coerceIn(1, 100),
         filter
     )
-    client.send(query) { result ->
+    sendCatalogRequest(query) { result ->
         when (result) {
             is TdApi.FoundChatMessages -> {
                 val items = result.messages?.mapNotNull {
@@ -243,3 +257,5 @@ internal fun SavedMessagesRepository.searchWithFilterInternal(
 
 private const val HISTORY_PAGE_SIZE = 100
 private const val HISTORY_MAX_PAGES = 12
+
+private const val HISTORY_TIMEOUT_MS = 8_000L

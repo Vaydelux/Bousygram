@@ -6,12 +6,16 @@ import org.drinkless.tdlib.TdApi
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
+
+enum class TelegramConnectionState { CONNECTING, SYNCING, ONLINE, OFFLINE }
 
 object TdLibClient {
     private const val TAG = "TdLibClient"
@@ -47,6 +51,8 @@ object TdLibClient {
     private var instance: Client? = null
     private val clientGeneration = AtomicLong(0L)
     private val pendingResponses = PendingTdRequests()
+    private val _connectionState = MutableStateFlow(TelegramConnectionState.CONNECTING)
+    val connectionState = _connectionState.asStateFlow()
 
     init {
         // AccountSession has already marked the old identity invalid when invoking handlers.
@@ -65,7 +71,7 @@ object TdLibClient {
         }
     }
 
-    fun accountClient(): AccountClient = AccountClient(AccountSession.current())
+    fun accountClient(owner: AccountSnapshot? = AccountSession.current()): AccountClient = AccountClient(owner)
 
     /** Authentication requests are also rejected when their native client has been replaced. */
     fun sendCurrent(query: TdApi.Function<*>, handler: (TdApi.Object?) -> Unit) {
@@ -156,10 +162,19 @@ object TdLibClient {
 
     private fun createNewClient(): Client {
         val generation = clientGeneration.incrementAndGet()
+        _connectionState.value = TelegramConnectionState.CONNECTING
         return Client.create(
             { update ->
                 if (clientGeneration.get() != generation) return@create
                 try {
+                    if (update is TdApi.UpdateConnectionState) {
+                        _connectionState.value = when (update.state) {
+                            is TdApi.ConnectionStateReady -> TelegramConnectionState.ONLINE
+                            is TdApi.ConnectionStateUpdating -> TelegramConnectionState.SYNCING
+                            is TdApi.ConnectionStateWaitingForNetwork -> TelegramConnectionState.OFFLINE
+                            else -> TelegramConnectionState.CONNECTING
+                        }
+                    }
                     updateHandlers.dispatch(update)
                     when (update) {
                         is TdApi.UpdateNewMessage -> newMessageHandlers.dispatch(update)

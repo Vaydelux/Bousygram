@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.data.repository
 
 import com.vaydelux.bousygram.domain.model.ForumTopicChannel
+import kotlinx.coroutines.Job
 import org.drinkless.tdlib.TdApi
 
 /** Delivers progressive real topic pages; clients can cancel stale requests. */
@@ -9,9 +10,15 @@ internal fun SavedMessagesRepository.loadForumTopicsInternal(
     query: String = "",
     onUpdate: (List<ForumTopicChannel>, String?, Boolean) -> Unit
 ): () -> Unit {
-    val loader = ForumTopicLoader(chatId, query, { request, callback -> client.send(request, callback) }, onUpdate)
+    var pageRequest: Job? = null
+    val loader = ForumTopicLoader(chatId, query, { request, callback ->
+        pageRequest = sendCatalogRequest(request, onResult = callback)
+    }, onUpdate)
     loader.load()
-    return loader::cancel
+    return {
+        loader.cancel()
+        pageRequest?.cancel()
+    }
 }
 
 internal class ForumTopicLoader(

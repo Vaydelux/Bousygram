@@ -7,6 +7,8 @@ import com.vaydelux.bousygram.core.memory.MediaMemoryPressure
 import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
 import com.vaydelux.bousygram.core.memory.offscreenCatalogBudget
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
+import com.vaydelux.bousygram.core.tdlib.client.TelegramConnectionState
+import com.vaydelux.bousygram.data.repository.loadVideoChats
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
 import com.vaydelux.bousygram.data.repository.searchChatVideos
@@ -18,9 +20,12 @@ import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.domain.model.MediaUiState
 import com.vaydelux.bousygram.domain.model.SAVED_MESSAGES_TITLE
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
@@ -50,7 +55,7 @@ data class ExplorerPosition(
 )
 
 class MediaViewModel(
-    private val repository: SavedMessagesRepository = SavedMessagesRepository()
+    private var repository: SavedMessagesRepository = SavedMessagesRepository()
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(MediaUiState())
     private val _explorerPosition = MutableStateFlow(ExplorerPosition())
@@ -144,9 +149,10 @@ class MediaViewModel(
         TelegramMediaWindow.itemLimit(lowMemory)
     }
     private var isInitialized = false
-    private var hasLoadedVideoChats = false
+    private var sourceLoadLimit = 0
+    private var completedSourceLimit = 0
+    private var sourceLoadJob: Job? = null
     private var mediaRequestGeneration = 0L
-    private var sourceRequestGeneration = 0L
     private var topicRequestGeneration = 0L
     private var topicLoadingTimeoutJob: Job? = null
     private var cancelForumTopicRequest: (() -> Unit)? = null
@@ -320,19 +326,26 @@ class MediaViewModel(
     private val enrichedMediaKeys = LinkedHashSet<String>()
 
 
-    private val chatUpdateHandler: (TdApi.Object?) -> Unit = { update ->
+    private val chatUpdateHandler: (TdApi.Object?) -> Unit = handler@{ update ->
         when (update) {
             is TdApi.UpdateMessageContent -> {
                 invalidateCatalogForChat(update.chatId)
             }
-            is TdApi.UpdateNewChat,
             is TdApi.UpdateChatAddedToList,
-            is TdApi.UpdateChatRemovedFromList,
-            is TdApi.UpdateChatPosition -> {
-                chatUpdateJob?.cancel()
-                chatUpdateJob = viewModelScope.launch {
-                    delay(500)
-                    loadVideoChats(force = true)
+            is TdApi.UpdateChatRemovedFromList -> {
+                if (_uiState.value.isSidebarLoading) return@handler
+                val owner = AccountSession.current() ?: return@handler
+                viewModelScope.launch {
+                    // LoadChats itself emits membership updates. The active scan reads them
+                    // in its next page; refreshing on every update repeats the whole scan.
+                    if (sourceLoadLimit == 0 || sourceLoadJob?.isActive == true) return@launch
+                    chatUpdateJob?.cancel()
+                    chatUpdateJob = viewModelScope.launch {
+                        delay(500)
+                        if (AccountSession.isCurrent(owner) && sourceLoadJob?.isActive != true) {
+                            loadChatSources(sourceLoadLimit)
+                        }
+                    }
                 }
             }
         }
@@ -368,7 +381,7 @@ class MediaViewModel(
                     // The Activity-scoped ViewModel outlives the auth screen.
                     // Clear media, source directories and focus when an account logs out.
                     ++mediaRequestGeneration
-                    ++sourceRequestGeneration
+                    resetChatSourceLoad()
                     ++topicRequestGeneration
                     cancelForumTopicLoading()
                     chatUpdateJob?.cancel()
@@ -383,12 +396,21 @@ class MediaViewModel(
                         catalogSnapshots.clear()
                         topicSnapshots.clear()
                     }
-                    hasLoadedVideoChats = false
                     requestedThumbnailFileIds.clear()
                     synchronized(enrichedMediaKeys) { enrichedMediaKeys.clear() }
                     initializedAccount = null
                     repository.shutdown() // Never reuse the previous Telegram account's self-chat ID.
                     isInitialized = false
+                }
+            }
+        }
+        viewModelScope.launch {
+            TdLibClient.connectionState.collect { connection ->
+                if (connection == TelegramConnectionState.ONLINE &&
+                    sourceLoadLimit > 0 && _uiState.value.sidebarError != null &&
+                    sourceLoadJob?.isActive != true
+                ) {
+                    loadChatSources(sourceLoadLimit)
                 }
             }
         }
@@ -403,7 +425,7 @@ class MediaViewModel(
             // The Activity ViewModel outlives the auth route. Never publish another
             // Telegram identity's cached catalog, UI focus or selected folder.
             ++mediaRequestGeneration
-            ++sourceRequestGeneration
+            resetChatSourceLoad()
             ++topicRequestGeneration
             cancelForumTopicLoading()
             chatUpdateJob?.cancel()
@@ -422,9 +444,11 @@ class MediaViewModel(
                 catalogSnapshots.clear()
                 topicSnapshots.clear()
             }
-            hasLoadedVideoChats = false
             isInitialized = false
-            repository.shutdown() // Re-resolve Saved Messages for this account.
+            if (repository.owner != current) {
+                repository.shutdown()
+                repository = SavedMessagesRepository()
+            }
             initializedAccount = current
         }
         if (isInitialized) return
@@ -581,6 +605,7 @@ class MediaViewModel(
 
     override fun onCleared() {
         cancelForumTopicLoading()
+        resetChatSourceLoad()
         chatUpdateJob?.cancel()
         chatUpdateJob = null
         deferredChatSourceLoadJob?.cancel()
@@ -1108,10 +1133,10 @@ class MediaViewModel(
     /**
      * Source-picker metadata is useful, but loading thousands of chats can compete with media
      * search in TDLib. Let the first media queries start and settle briefly before the source
-     * catalog begins; it still loads all main/archive chat types afterwards.
+     * preview begins. Opening Channels or Groups expands the directory immediately.
      */
     private fun scheduleChatSourceLoad() {
-        if (hasLoadedVideoChats || _uiState.value.isSidebarLoading || deferredChatSourceLoadJob?.isActive == true) return
+        if (sourceLoadLimit > 0 || deferredChatSourceLoadJob?.isActive == true) return
         deferredChatSourceLoadJob = viewModelScope.launch {
             delay(CHAT_SOURCE_LOAD_DELAY_MS)
             // Keep media discovery ahead of the much broader chat-catalog scan. On large
@@ -1125,38 +1150,67 @@ class MediaViewModel(
                 priorityWaitRemaining -= waitSlice
             }
             deferredChatSourceLoadJob = null
-            loadVideoChatsIfNeeded()
+            if (sourceLoadLimit == 0) loadChatSources(CHAT_SOURCE_PREVIEW_LIMIT)
         }
     }
 
-    fun loadVideoChatsIfNeeded() {
-        if (_uiState.value.isSidebarLoading || hasLoadedVideoChats) return
-        loadVideoChats()
+    private fun loadVideoChatsIfNeeded() {
+        if (completedSourceLimit >= CHAT_SOURCE_DIRECTORY_LIMIT ||
+            (sourceLoadLimit == CHAT_SOURCE_DIRECTORY_LIMIT && sourceLoadJob?.isActive == true)
+        ) return
+        loadChatSources(CHAT_SOURCE_DIRECTORY_LIMIT)
     }
 
     fun refreshVideoChats() {
-        loadVideoChats(force = true)
+        loadChatSources(CHAT_SOURCE_DIRECTORY_LIMIT)
     }
 
-    private fun loadVideoChats(force: Boolean = false) {
-        if (_uiState.value.isSidebarLoading || (!force && hasLoadedVideoChats)) return
+    private fun resetChatSourceLoad() {
+        sourceLoadJob?.cancel()
+        sourceLoadJob = null
+        sourceLoadLimit = 0
+        completedSourceLimit = 0
+    }
+
+    private fun loadChatSources(limit: Int) {
         val owner = AccountSession.current() ?: return
-        val sourceGeneration = ++sourceRequestGeneration
-        val selectedId = if (_uiState.value.isSavedMessagesSelected) repository.cachedSavedMessagesChatId else _uiState.value.selectedChatId
+        sourceLoadJob?.cancel()
+        sourceLoadLimit = limit
+        completedSourceLimit = 0
         _uiState.update { it.copy(isSidebarLoading = true, sidebarError = null) }
-        repository.loadVideoChats(10_000, selectedId) { chats, error, isFinal ->
-            // Callback batches arrive on TDLib threads. Ignore outdated account requests.
-            if (!AccountSession.isCurrent(owner) || sourceGeneration != sourceRequestGeneration) return@loadVideoChats
-            hasLoadedVideoChats = isFinal && error == null
-            _uiState.update { current ->
-                current.copy(
-                    // An early Saved-only snapshot must not clear channels already displayed
-                    // during a manual refresh. A finished scan is authoritative.
-                    videoChats = stableChatCatalog(current.videoChats, chats, retainMissing = !isFinal),
-                    isSidebarLoading = !isFinal,
-                    sidebarError = if (isFinal) error else null
-                )
+        sourceLoadJob = viewModelScope.launch {
+            var latest = emptyList<VideoChatItem>()
+            fun publish(chats: List<VideoChatItem>, retainMissing: Boolean, loading: Boolean, error: String?) {
+                AccountSession.runIfCurrent(owner) {
+                    _uiState.update { current ->
+                        current.copy(
+                            videoChats = stableChatCatalog(current.videoChats, chats, retainMissing).map { chat ->
+                                chat.copy(isSelected = if (current.isSavedMessagesSelected) chat.isSavedMessages
+                                    else chat.chatId == current.selectedChatId)
+                            },
+                            isSidebarLoading = loading,
+                            sidebarError = error
+                        )
+                    }
+                }
             }
+
+            val error = try {
+                loadVideoChats(owner, limit) { chats ->
+                    latest = chats
+                    publish(chats, retainMissing = true, loading = true, error = null)
+                }
+            } catch (cancelled: CancellationException) {
+                // A native restart can abandon the response while the UI job is still active.
+                if (!currentCoroutineContext().isActive || !AccountSession.isCurrent(owner)) throw cancelled
+                "Telegram connection changed. Try again."
+            } catch (failure: Exception) {
+                android.util.Log.w("MediaViewModel", "Could not sync Telegram chat sources", failure)
+                "Could not load Telegram chats. Try again."
+            }
+            if (!AccountSession.isCurrent(owner)) return@launch
+            if (error == null) completedSourceLimit = limit
+            publish(latest, retainMissing = error != null, loading = false, error = error)
         }
     }
 
@@ -1403,6 +1457,8 @@ class MediaViewModel(
 
 }
 
+private const val CHAT_SOURCE_PREVIEW_LIMIT = 50
+private const val CHAT_SOURCE_DIRECTORY_LIMIT = 10_000
 private const val CHAT_SOURCE_LOAD_DELAY_MS = 300L
 private const val MAX_INITIAL_THUMBNAIL_REQUESTS = 12
 private const val THUMBNAIL_RETRY_DELAY_MS = 60_000L

@@ -52,6 +52,21 @@ The app is **local-first**: ordinary playback does not require a Bousygram cloud
 
 > Debug prereleases are for testing. Production release signing, physical-device evidence, and approvals have their own gates. **Do not treat a green CI badge as certification of uninterrupted playback.**
 
+## iPhone web preview
+
+The static app in [`web/`](web/) plays video files selected on the device and saves the selected theme in the browser. Telegram sign-in and library access are part of the next milestone.
+
+Run the preview locally with `python -m http.server 8765 --directory web`, then open `http://localhost:8765/`. For an HTTPS tester URL, set the repository's Pages source to **GitHub Actions** and run the [Publish Bousygram web preview workflow](.github/workflows/web-preview-pages.yml). The workflow publishes the `web/` directory. GitHub Pages is available on the Free plan for public repositories. [GitHub Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
+
+Use the deployment URL as the QR code payload. On iPhone, scan it with the Camera app and open the URL in Safari. Choose **Share**, **Add to Home Screen**, and **Open as Web App** if offered. [Apple's Home Screen instructions](https://support.apple.com/guide/iphone/iphea86e5236/ios)
+
+### Telegram browser port
+
+1. Build and validate Telegram's browser TDLib worker. Test phone sign-in and two-step verification on a single iPhone. Validate account isolation and sign-out in browser storage. Telegram's sign-in QR is a separate flow that can be used when the sign-in screen is on another device. [TDLib web build](https://github.com/tdlib/td/tree/master/example/web) ? [Telegram QR login](https://core.telegram.org/api/qr-login)
+2. Implement Saved Messages and paged main and archived sources. Verify the first results appear while later pages load. Exercise retry, offline startup and reconnection on a test account.
+3. Feed Telegram media ranges into the Safari player and verify first frame, seeking, pause/resume and Home Screen relaunch on a physical iPhone. Publish the tester URL and QR once that flow works end to end.
+4. Evaluate a shared Compose Multiplatform UI after the browser transport and player work. The current Android app uses Jetpack Compose, native TDLib and Android playback engines. Kotlin/Wasm needs Safari 18.2 or newer. A Kotlin/JS fallback is an option if the target audience includes older Safari versions. [Kotlin/Wasm browser requirements](https://kotlinlang.org/docs/wasm-configuration.html) ? [Compose web compatibility builds](https://kotlinlang.org/docs/multiplatform/whats-new-compose-190.html)
+
 ## Playback & TV controls
 
 | Control | Behavior |

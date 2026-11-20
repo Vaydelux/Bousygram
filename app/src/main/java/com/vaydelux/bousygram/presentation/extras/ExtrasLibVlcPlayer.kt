@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -63,7 +62,7 @@ import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.tabular
-import com.vaydelux.bousygram.presentation.theme.rememberBousygramPlaybackPalette
+import com.vaydelux.bousygram.presentation.theme.playerHudSurfaceOpacity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -647,16 +646,14 @@ internal fun ExtrasLibVlcPlayer(
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val compact = maxWidth < 620.dp
         val halo = LocalBousygramHaloColors.current
-        // Dark-video overlay tokens remain high-contrast on Color.Black across
-        // all 10 presets, including Daylight (LIGHT) and Ivory.
-        val playbackPalette = rememberBousygramPlaybackPalette()
-        val cinemaAccent = playbackPalette.played
-        val cinemaErrorText = Color(0xFFFFB4AB)
-        val cinemaPanelBg = if (halo.isHighContrast) Color(0xF5000000) else Color(0xE80A121E)
-        val cinemaPanelBorder = if (halo.isHighContrast) halo.focusRing else cinemaAccent.copy(alpha = 0.34f)
+        val colors = MaterialTheme.colorScheme
+        val cinemaAccent = colors.primary
+        val cinemaErrorText = colors.error
+        val cinemaPanelBg = colors.surfaceContainer.copy(alpha = playerHudSurfaceOpacity(colors.background))
+        val cinemaPanelBorder = if (halo.isHighContrast) colors.primary else colors.outlineVariant
         if (session == null) {
             Column(
-                Modifier.fillMaxSize().padding(if (isTv) 24.dp else 12.dp),
+                Modifier.fillMaxSize().background(cinemaPanelBg).padding(if (isTv) 24.dp else 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 ExtrasVlcAction(
@@ -666,10 +663,10 @@ internal fun ExtrasLibVlcPlayer(
                     tooltipPlacement = BousygramTooltipPlacement.AUTO_BELOW,
                     onClick = onBack
                 )
-                Text(title, color = Color.White, fontSize = if (isTv) 22.sp else 18.sp, fontWeight = FontWeight.Bold)
+                Text(title, color = colors.onSurface, fontSize = if (isTv) 22.sp else 18.sp, fontWeight = FontWeight.Bold)
                 if (initError == null && source == null) {
                     CircularProgressIndicator(Modifier.padding(16.dp), color = cinemaAccent)
-                    Text("Preparing guarded playback…", color = Color.White)
+                    Text("Preparing guarded playback…", color = colors.onSurface)
                 } else {
                     Text(
                         initError ?: "LibVLC is unavailable on this device. Use Media3.",
@@ -810,11 +807,7 @@ internal fun ExtrasLibVlcPlayer(
             Row(
                 Modifier.align(Alignment.TopCenter).fillMaxWidth()
                     .onFocusChanged { headerFocused = it.hasFocus }
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.88f), Color.Transparent)
-                        )
-                    )
+                    .background(cinemaPanelBg)
                     .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -828,7 +821,7 @@ internal fun ExtrasLibVlcPlayer(
                 )
                 Text(
                     title,
-                    color = Color.White,
+                    color = colors.onSurface,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
@@ -838,7 +831,7 @@ internal fun ExtrasLibVlcPlayer(
                 )
                 Surface(
                     shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
-                    color = Color.Black.copy(alpha = 0.56f),
+                    color = colors.surfaceContainerHigh,
                     border = BorderStroke(1.dp, cinemaAccent.copy(alpha = 0.55f))
                 ) {
                     Text(
@@ -864,15 +857,7 @@ internal fun ExtrasLibVlcPlayer(
             Column(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .onFocusChanged { footerFocused = it.hasFocus }
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.78f),
-                                Color.Black.copy(alpha = 0.94f)
-                            )
-                        )
-                    )
+                    .background(cinemaPanelBg)
                     .padding(horizontal = if (isTv) 24.dp else 12.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)
             ) {
@@ -888,7 +873,7 @@ internal fun ExtrasLibVlcPlayer(
                     }
                     Text(
                         status,
-                        color = if (controls.failed) cinemaErrorText else Color.White,
+                        color = if (controls.failed) cinemaErrorText else colors.onSurface,
                         fontSize = if (isTv) 18.sp else 14.sp,
                         maxLines = 2,
                         modifier = Modifier.testTag("extras-libvlc-playback-status")
@@ -905,7 +890,7 @@ internal fun ExtrasLibVlcPlayer(
                     colors = SliderDefaults.colors(
                         thumbColor = cinemaAccent,
                         activeTrackColor = cinemaAccent,
-                        inactiveTrackColor = playbackPalette.unplayed
+                        inactiveTrackColor = colors.outlineVariant
                     ),
                     onValueChange = { scrubFraction = it },
                     onValueChangeFinished = {
@@ -931,13 +916,13 @@ internal fun ExtrasLibVlcPlayer(
                     } else controls.positionMs
                     Text(
                         extrasVlcTimeLabel(displayedPosition),
-                        color = Color.White,
+                        color = colors.onSurface,
                         style = MaterialTheme.typography.labelLarge.tabular(),
                         fontSize = if (isTv) 17.sp else 14.sp
                     )
                     Text(
                         if (validDuration) extrasVlcTimeLabel(controls.durationMs) else "Time unavailable",
-                        color = Color.White.copy(alpha = 0.78f),
+                        color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.labelLarge.tabular(),
                         fontSize = if (isTv) 17.sp else 14.sp
                     )
@@ -1089,13 +1074,13 @@ internal fun ExtrasLibVlcPlayer(
                                 " · superseded: ${timing.seekSupersededCount}" +
                                 " · timed out: ${timing.seekTimeouts}" +
                                 " · unchanged: ${timing.seekNoChangeCount}",
-                            color = Color.White, fontSize = 14.sp,
+                            color = colors.onSurface, fontSize = 14.sp,
                             style = MaterialTheme.typography.bodySmall.tabular()
                         )
                         Text(
                             "Mean acknowledged seek: ${timing.averageSeekPositionMs?.let { "${it} ms" } ?: "no sample"}" +
                                 " · longest: ${timing.longestSeekPositionMs?.let { "${it} ms" } ?: "no sample"}",
-                            color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp,
+                            color = colors.onSurfaceVariant, fontSize = 14.sp,
                             style = MaterialTheme.typography.bodySmall.tabular()
                         )
                         Text(
@@ -1103,7 +1088,7 @@ internal fun ExtrasLibVlcPlayer(
                             else "HTTP windows: ${range.httpRequests} · failed/canceled: ${range.failedRequests}" +
                                 " · cache hits: ${range.cacheHits} (${range.cacheHitPercent}%)" +
                                 " · downloaded: ${range.downloadedBytes / 1024L} KiB",
-                            color = Color.White, fontSize = 14.sp,
+                            color = colors.onSurface, fontSize = 14.sp,
                             style = MaterialTheme.typography.bodySmall.tabular()
                         )
                         Text(
@@ -1111,12 +1096,12 @@ internal fun ExtrasLibVlcPlayer(
                             else "Window cache: ${range.retainedCacheBytes / 1024} KiB" +
                                 " · longest HTTP fetch: ${range.longestFetchMillis} ms" +
                                 " · process PSS snapshot: $pssLabel",
-                            color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp,
+                            color = colors.onSurfaceVariant, fontSize = 14.sp,
                             style = MaterialTheme.typography.bodySmall.tabular()
                         )
                         Text(
                             "PSS covers the whole app. Seek metric reflects native position, not rendered frames.",
-                            color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp
+                            color = colors.onSurfaceVariant, fontSize = 12.sp
                         )
                         ExtrasVlcAction(
                             label = "Sample PSS",
@@ -1132,7 +1117,7 @@ internal fun ExtrasLibVlcPlayer(
                 if (isTv) {
                     Text(
                         "D-pad: select a control, or focus video and press Left/Right to seek 10 seconds",
-                        color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp,
+                        color = colors.onSurfaceVariant, fontSize = 13.sp,
                         maxLines = 2
                     )
                 }
@@ -1155,14 +1140,9 @@ private fun ExtrasVlcAction(
     tooltipPlacement: BousygramTooltipPlacement = BousygramTooltipPlacement.AUTO_ABOVE
 ) {
     var focused by remember { mutableStateOf(false) }
-    val halo = LocalBousygramHaloColors.current
+    val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(LocalBousygramStyleSpec.current.cardCorner)
-    val playbackPalette = rememberBousygramPlaybackPalette()
-    val cinemaAccent = playbackPalette.played
-    val cinemaFocusRing = playbackPalette.focusRing
-    val focusColor = if (focused) cinemaFocusRing else Color.Transparent
-    val accentBg = cinemaAccent
-    val accentFg = Color(0xFF041724)
+    val focusColor = if (focused) colors.primary else Color.Transparent
 
     val surface = modifier
         .onFocusChanged { focused = it.isFocused }
@@ -1173,10 +1153,10 @@ private fun ExtrasVlcAction(
             onClick = onClick, enabled = enabled, modifier = surface,
             shape = shape,
             colors = ButtonDefaults.buttonColors(
-                containerColor = accentBg,
-                contentColor = accentFg,
-                disabledContainerColor = Color.White.copy(alpha = 0.22f),
-                disabledContentColor = Color.White.copy(alpha = 0.56f)
+                containerColor = colors.primary,
+                contentColor = colors.onPrimary,
+                disabledContainerColor = colors.surfaceVariant,
+                disabledContentColor = colors.onSurfaceVariant.copy(alpha = 0.6f)
             )
         ) {
             BousygramTooltipBox(
@@ -1193,7 +1173,7 @@ private fun ExtrasVlcAction(
                         BousygramIcon(
                             icon = icon,
                             contentDescription = null,
-                            tint = if (enabled) accentFg else Color.White.copy(alpha = 0.56f),
+                            tint = if (enabled) colors.onPrimary else colors.onSurfaceVariant.copy(alpha = 0.6f),
                             size = 17.dp
                         )
                     }
@@ -1205,11 +1185,11 @@ private fun ExtrasVlcAction(
         OutlinedButton(
             onClick = onClick, enabled = enabled, modifier = surface,
             shape = shape,
-            border = BorderStroke(1.dp, if (focused) cinemaFocusRing else Color.White.copy(alpha = 0.32f)),
+            border = BorderStroke(1.dp, if (focused) colors.primary else colors.outlineVariant),
             colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = Color.Black.copy(alpha = 0.42f),
-                contentColor = Color.White,
-                disabledContentColor = Color.White.copy(alpha = 0.48f)
+                containerColor = if (focused) colors.secondaryContainer else colors.surfaceContainerHigh,
+                contentColor = if (focused) colors.onSecondaryContainer else colors.onSurface,
+                disabledContentColor = colors.onSurfaceVariant.copy(alpha = 0.6f)
             )
         ) {
             BousygramTooltipBox(
@@ -1226,7 +1206,7 @@ private fun ExtrasVlcAction(
                         BousygramIcon(
                             icon = icon,
                             contentDescription = null,
-                            tint = if (enabled) (if (focused) cinemaAccent else Color.White) else Color.White.copy(alpha = 0.48f),
+                            tint = if (enabled) (if (focused) colors.onSecondaryContainer else colors.onSurface) else colors.onSurfaceVariant.copy(alpha = 0.6f),
                             size = 16.dp
                         )
                     }

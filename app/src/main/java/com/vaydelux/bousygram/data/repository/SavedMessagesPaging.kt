@@ -1,6 +1,5 @@
 package com.vaydelux.bousygram.data.repository
 
-import android.util.Log
 import com.vaydelux.bousygram.domain.model.MediaItem
 import org.drinkless.tdlib.TdApi
 
@@ -11,27 +10,7 @@ internal fun SavedMessagesRepository.loadLatestMediaInternal(
     limit: Int,
     onResult: (List<MediaItem>, String?) -> Unit
 ) {
-    val cached = cachedMeId
-    if (cached != null) {
-        loadSavedMessagesChatInternal(cached, limit, onResult)
-        return
-    }
-    client.send(TdApi.GetMe()) { meResult ->
-        when (meResult) {
-            is TdApi.User -> {
-                cachedMeId = meResult.id
-                loadSavedMessagesChatInternal(meResult.id, limit, onResult)
-            }
-            is TdApi.Error -> {
-                Log.e(SavedMessagesRepository.TAG, "Failed to get user: ${meResult.message}")
-                onResult(emptyList(), meResult.message)
-            }
-            else -> {
-                Log.e(SavedMessagesRepository.TAG, "Unexpected response from GetMe")
-                onResult(emptyList(), "Unexpected response from TDLib")
-            }
-        }
-    }
+    loadLatestMediaPagedInternal(limit, null) { items, _, error -> onResult(items, error) }
 }
 
 internal fun SavedMessagesRepository.loadLatestMediaPagedInternal(

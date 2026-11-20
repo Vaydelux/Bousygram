@@ -1,8 +1,13 @@
 package com.vaydelux.bousygram.data.repository
 
+import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 import org.drinkless.tdlib.TdApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class GlobalSearchResult(
     val items: List<MediaItem>,
@@ -20,7 +25,7 @@ fun SavedMessagesRepository.searchGlobalVideos(
         onResult(GlobalSearchResult(emptyList(), "", emptyMap()), null)
         return
     }
-    client.send(
+    sendCatalogRequest(
         TdApi.SearchMessages(
             null,
             query,
@@ -39,7 +44,7 @@ fun SavedMessagesRepository.searchGlobalVideos(
                     ?.filter { it.type == MediaType.Video && it.fileId != null }
                     ?: emptyList()
                 val chatIds = items.map { it.chatId }.distinct()
-                resolveChatTitles(chatIds, emptyMap()) { titles ->
+                resolveChatTitles(chatIds) { titles ->
                     onResult(
                         GlobalSearchResult(
                             items = items,
@@ -67,7 +72,7 @@ fun SavedMessagesRepository.searchChatVideos(
         onResult(emptyList(), 0L, null)
         return
     }
-    client.send(
+    sendCatalogRequest(
         TdApi.SearchChatMessages(
             chatId,
             null,
@@ -95,24 +100,21 @@ fun SavedMessagesRepository.searchChatVideos(
 
 private fun SavedMessagesRepository.resolveChatTitles(
     chatIds: List<Long>,
-    accumulated: Map<Long, String>,
     onDone: (Map<Long, String>) -> Unit
 ) {
-    if (chatIds.isEmpty()) {
-        onDone(accumulated)
-        return
-    }
-    val chatId = chatIds.first()
-    val remaining = chatIds.drop(1)
-    if (accumulated.containsKey(chatId)) {
-        resolveChatTitles(remaining, accumulated, onDone)
-        return
-    }
-    client.send(TdApi.GetChat(chatId)) { result ->
-        val title = when (result) {
-            is TdApi.Chat -> result.title
-            else -> "Chat"
+    catalogScope.launch {
+        val titles = mutableMapOf<Long, String>()
+        // Labels are optional. Bound the entire enrichment pass so a stale chat
+        // does not delay an otherwise usable page of search results.
+        withTimeoutOrNull(1_200L) {
+            for (batch in chatIds.chunked(8)) {
+                batch.map { id ->
+                    async { id to (requestCatalog(TdApi.GetChat(id)) as? TdApi.Chat)?.title }
+                }.awaitAll().forEach { (id, title) ->
+                    if (!title.isNullOrBlank()) titles[id] = title
+                }
+            }
         }
-        resolveChatTitles(remaining, accumulated + (chatId to title), onDone)
+        if (owner?.let(AccountSession::isCurrent) == true) onDone(titles)
     }
 }

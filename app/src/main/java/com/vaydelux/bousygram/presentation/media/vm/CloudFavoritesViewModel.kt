@@ -80,6 +80,12 @@ class CloudFavoritesViewModel : ViewModel() {
             try {
                 val page = TelegramCloudFavorites.refresh(cursor)
                 if (token != generation || !AccountSession.isCurrent(owner)) return@launch
+                if (index > pageIndex && page.nextBeforeId == null) {
+                    nextBeforeId = null
+                    hasMore = false
+                    _uiState.value = _uiState.value.copy(isLoading = false, isRefreshing = false, hasMore = false)
+                    return@launch
+                }
                 pageIndex = index
                 nextBeforeId = page.nextBeforeId
                 hasMore = page.hasMore && page.nextBeforeId != cursor

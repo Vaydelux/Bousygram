@@ -31,7 +31,9 @@ sealed class SearchUiState {
     data class Success(
         val query: String,
         val results: List<SearchResultRow>,
-        val hasMore: Boolean
+        val hasMore: Boolean,
+        val error: String? = null,
+        val canRetryPage: Boolean = false
     ) : SearchUiState()
 }
 
@@ -56,6 +58,7 @@ class SearchViewModel(
     private var nextOffset: String = ""
     private var nextFromMessageId: Long = 0L
     private var isLoadingMore = false
+    private var searchGeneration = 0L
     private val accumulated = mutableListOf<SearchResultRow>()
     private var chatTitles = mutableMapOf<Long, String>()
 
@@ -74,6 +77,8 @@ class SearchViewModel(
     }
 
     fun clearQuery() {
+        ++searchGeneration
+        isLoadingMore = false
         currentQuery = ""
         nextOffset = ""
         nextFromMessageId = 0L
@@ -94,7 +99,10 @@ class SearchViewModel(
     }
 
     fun executeGlobalSearch(query: String) {
-        currentQuery = query.trim()
+        val requestedQuery = query.trim()
+        val generation = ++searchGeneration
+        isLoadingMore = false
+        currentQuery = requestedQuery
         nextOffset = ""
         nextFromMessageId = 0L
         accumulated.clear()
@@ -108,18 +116,17 @@ class SearchViewModel(
             val scopedChatId = if (searchMode == SearchMode.InChat) inChatId else null
             val scopedChatTitle = if (searchMode == SearchMode.InChat) inChatTitle else ""
             RecentSearchRepository.recordSearchQuery(
-                query = currentQuery,
+                query = requestedQuery,
                 chatId = scopedChatId,
                 chatTitle = scopedChatTitle,
                 resultCount = 0
             )
             val cachedItems = withContext(Dispatchers.IO) {
-                if (searchMode == SearchMode.InChat) {
-                    com.vaydelux.bousygram.data.database.VideoIndexRepository.searchIndexedVideos(currentQuery, inChatId, limit = 50)
-                } else {
-                    com.vaydelux.bousygram.data.database.VideoIndexRepository.searchIndexedVideos(currentQuery, null, limit = 50)
-                }
+                com.vaydelux.bousygram.data.database.VideoIndexRepository.searchIndexedVideos(
+                    requestedQuery, scopedChatId, limit = 50
+                )
             }
+            if (generation != searchGeneration) return@launch
             if (cachedItems.isNotEmpty() && _uiState.value is SearchUiState.Loading) {
                 val cachedRows = cachedItems.map {
                     SearchResultRow(
@@ -136,29 +143,28 @@ class SearchViewModel(
             }
 
             when (searchMode) {
-                SearchMode.Global -> runGlobalSearch(isAppend = false)
-                SearchMode.InChat -> runInChatSearch(isAppend = false)
+                SearchMode.Global -> runGlobalSearch(isAppend = false, generation = generation)
+                SearchMode.InChat -> runInChatSearch(isAppend = false, generation = generation)
             }
         }
     }
 
     fun loadNextPage() {
         val state = _uiState.value
-        if (state !is SearchUiState.Success || !state.hasMore || isLoadingMore) return
+        if (state !is SearchUiState.Success || (!state.hasMore && !state.canRetryPage) || isLoadingMore) return
         isLoadingMore = true
-        viewModelScope.launch {
-            when (searchMode) {
-                SearchMode.Global -> runGlobalSearch(isAppend = true)
-                SearchMode.InChat -> runInChatSearch(isAppend = true)
-            }
-            isLoadingMore = false
+        when (searchMode) {
+            SearchMode.Global -> runGlobalSearch(isAppend = true, generation = searchGeneration)
+            SearchMode.InChat -> runInChatSearch(isAppend = true, generation = searchGeneration)
         }
     }
 
-    private fun runGlobalSearch(isAppend: Boolean) {
+    private fun runGlobalSearch(isAppend: Boolean, generation: Long) {
         repository.searchGlobalVideos(currentQuery, nextOffset) { result, error ->
+            if (generation != searchGeneration) return@searchGlobalVideos
+            isLoadingMore = false
             if (error != null) {
-                _uiState.value = SearchUiState.Error(error)
+                publishSearchError(error, isAppend)
                 return@searchGlobalVideos
             }
             val data = result ?: return@searchGlobalVideos
@@ -183,15 +189,18 @@ class SearchViewModel(
         }
     }
 
-    private fun runInChatSearch(isAppend: Boolean) {
+    private fun runInChatSearch(isAppend: Boolean, generation: Long) {
         val chatId = inChatId ?: run {
+            isLoadingMore = false
             _uiState.value = SearchUiState.Error("No chat selected")
             return
         }
         val fromId = if (isAppend) nextFromMessageId else 0L
         repository.searchChatVideos(chatId, currentQuery, fromId) { items, nextId, error ->
+            if (generation != searchGeneration) return@searchChatVideos
+            isLoadingMore = false
             if (error != null) {
-                _uiState.value = SearchUiState.Error(error)
+                publishSearchError(error, isAppend)
                 return@searchChatVideos
             }
             val rows = items.map { SearchResultRow(it, inChatTitle) }
@@ -206,6 +215,15 @@ class SearchViewModel(
             }
             nextFromMessageId = nextId
             publishSuccess(items.isNotEmpty() && nextId != 0L)
+        }
+    }
+
+    private fun publishSearchError(error: String, isAppend: Boolean) {
+        val current = _uiState.value
+        _uiState.value = if (current is SearchUiState.Success && current.results.isNotEmpty()) {
+            current.copy(hasMore = false, error = error, canRetryPage = isAppend)
+        } else {
+            SearchUiState.Error(error)
         }
     }
 
@@ -226,6 +244,11 @@ class SearchViewModel(
             results = resultsList,
             hasMore = hasMore
         )
+    }
+
+    override fun onCleared() {
+        repository.shutdown()
+        super.onCleared()
     }
 
     fun requestPlay(

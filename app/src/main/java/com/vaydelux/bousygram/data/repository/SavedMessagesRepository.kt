@@ -1,26 +1,59 @@
 package com.vaydelux.bousygram.data.repository
 
+import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.domain.model.MediaItem
-import com.vaydelux.bousygram.domain.model.VideoChatItem
 import org.drinkless.tdlib.TdApi
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class SavedMessagesRepository {
     companion object {
         const val TAG = "SavedMessagesRepo"
     }
 
-    internal val client = TdLibClient.accountClient()
-    @Volatile internal var cachedMeId: Long? = null
+    internal val owner = AccountSession.current()
+    internal val client = TdLibClient.accountClient(owner)
+    internal val catalogScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     @Volatile internal var cachedSavedMessagesChatId: Long? = null
 
     fun shutdown() {
-        cachedMeId = null
+        catalogScope.coroutineContext.cancelChildren()
         cachedSavedMessagesChatId = null
     }
+
+    internal suspend fun requestCatalog(query: TdApi.Function<*>, timeoutMs: Long = 8_000L): TdApi.Object? {
+        val account = owner ?: return TdApi.Error(401, "Sign in to Telegram to load media.")
+        return try {
+            withTimeoutOrNull(timeoutMs) { TdLibClient.awaitAccountResponse(query, account) }
+        } catch (cancelled: CancellationException) {
+            if (!currentCoroutineContext().isActive || !AccountSession.isCurrent(account)) throw cancelled
+            TdApi.Error(503, "Telegram connection changed. Try again.")
+        } catch (_: Exception) {
+            TdApi.Error(500, "Couldn't load data from Telegram. Try again.")
+        }
+    }
+
+    internal fun sendCatalogRequest(
+        query: TdApi.Function<*>,
+        timeoutMs: Long = 8_000L,
+        onResult: (TdApi.Object?) -> Unit
+    ): Job =
+        catalogScope.launch {
+            val result = requestCatalog(query, timeoutMs)
+                ?: TdApi.Error(408, "Telegram took too long to respond. Try again.")
+            if (owner == null || AccountSession.isCurrent(owner)) onResult(result)
+        }
 
     fun loadLatestMedia(limit: Int, onResult: (List<MediaItem>, String?) -> Unit) =
         loadLatestMediaInternal(limit, onResult)
@@ -69,13 +102,6 @@ class SavedMessagesRepository {
         topicId: Int? = null,
         onUpdate: (List<MediaItem>, Long, String?, Boolean) -> Unit
     ) = loadChatMediaPagedProgressiveInternal(chatId, limit, fromMessageId, topicId, onUpdate)
-
-    /** Emits incremental source pages and exactly one terminal completion update. */
-    fun loadVideoChats(
-        limit: Int,
-        selectedChatId: Long?,
-        onUpdate: (List<VideoChatItem>, String?, Boolean) -> Unit
-    ) = loadVideoChatsInternal(limit, selectedChatId, onUpdate)
 
     /** Returns a cancellation handle so stale topic pages cannot outlive navigation. */
     fun loadForumTopics(

@@ -26,7 +26,7 @@ class ChatSourcePickerRevisionTests(unittest.TestCase):
         self.assertIn("TdApi.ChatListMain()", chats)
         self.assertIn("TdApi.ChatListArchive()", chats)
         self.assertIn("TdApi.LoadChats(chatList, CHAT_PICKER_LOAD_BATCH)", chats)
-        self.assertIn("TdApi.GetChats(chatList, maxVisibleChats)", chats)
+        self.assertIn("TdApi.GetChats(chatList, queryLimit)", chats)
         self.assertIn("CHAT_PICKER_DETAIL_BATCH", chats)
 
     def test_all_common_telegram_chat_types_are_included(self):
