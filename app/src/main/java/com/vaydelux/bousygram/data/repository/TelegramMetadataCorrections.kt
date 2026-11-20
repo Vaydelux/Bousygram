@@ -1,5 +1,6 @@
 package com.vaydelux.bousygram.data.repository
 
+import android.annotation.SuppressLint
 import android.content.Context
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSnapshot
@@ -83,6 +84,10 @@ object TelegramMetadataCorrections {
         value.backdropPath?.let { put("backdrop", it) }
     }.toString()
 
+    // A correction is an explicit user action, not background telemetry.
+    // Callers use Dispatchers.IO; commit() must confirm persistence before
+    // the UI claims the selection was saved. apply() cannot report failure.
+    @SuppressLint("ApplySharedPref")
     private fun write(context: Context, item: MediaItem, value: Correction?): Boolean {
         val owner = AccountSession.current() ?: return false
         val id = key(item) ?: return false
