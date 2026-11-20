@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +37,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -68,7 +70,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusGroup
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -802,7 +803,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         modifier = Modifier.fillMaxSize().focusGroup().testTag("extras-poster-grid"),
                         horizontalArrangement = Arrangement.spacedBy(layout.gridGapDp.dp),
                         verticalArrangement = Arrangement.spacedBy(layout.gridGapDp.dp + 2.dp)) {
-                        androidx.compose.foundation.lazy.grid.itemsIndexed(
+                        itemsIndexed(
                             state.results, key = { _, item -> "${item.type}:${item.id}" }
                         ) { index, item ->
                             val focus = Modifier
