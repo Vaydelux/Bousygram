@@ -47,6 +47,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LocalContentColor
@@ -143,6 +144,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         )
     }
     val compactPhoneWindow = layout.compactHeader
+    val landscapeToolbar = layout.landscapeToolbar
     val lowMemoryDevice = remember(context) {
         PlayerBufferConfig.isLowRamDevice(context) || !android.os.Process.is64Bit()
     }
@@ -529,6 +531,25 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     if (!compactPhoneWindow && metrics.effectiveWidthDp >= 380.dp) {
                         BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp, showHalo = true)
                     }
+                    if (landscapeToolbar && detailItem == null && !showPersonalLibrary) {
+                        Text(
+                            "Extras",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        ExtrasCatalogTabs(
+                            activeTabIndex,
+                            entryFocusRequester = entryTabFocus,
+                            modifier = Modifier.weight(1f),
+                            onSelect = {
+                                showSuggestions = false
+                                keyboardController?.hide()
+                                selectedTab = it
+                            }
+                        )
+                    } else {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text(
                             if (detailItem != null) "Title details"
@@ -554,6 +575,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             )
                         }
                     }
+                    }
                     if (compactPhoneWindow || metrics.widthDp < 430.dp) {
                         BousygramIconButton(
                             icon = BousygramIcons.Info,
@@ -570,10 +592,14 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         )
                     }
                 }
-                if (detailItem == null && !showPersonalLibrary) {
+                if (detailItem == null && !showPersonalLibrary && !landscapeToolbar) {
                     ExtrasCatalogTabs(
                         activeTabIndex,
-                        onSelect = { selectedTab = it },
+                        onSelect = {
+                                showSuggestions = false
+                                keyboardController?.hide()
+                                selectedTab = it
+                            },
                         entryFocusRequester = entryTabFocus
                     )
                 }
@@ -673,7 +699,10 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         } else {
             Column(Modifier.fillMaxSize().padding(padding)
                 .padding(horizontal = layout.horizontalGutterDp.dp)) {
-                OutlinedTextField(
+                // The TextField already renders its focused outline.
+                // No duplicate focus border or floating label to overlap tabs.
+                val searchInput: @Composable (Modifier) -> Unit = { inputModifier ->
+                    OutlinedTextField(
                     value = state.query,
                     onValueChange = { text ->
                         val nextQuery = text.take(120)
@@ -690,8 +719,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             size = 18.dp
                         )
                     },
-                    label = { Text("Search ${type.label} · ${type.provider}") },
-                    placeholder = { Text("Title or keyword") },
+                    placeholder = { Text("Search ${type.label} · ${type.provider}") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = {
@@ -724,17 +752,54 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = inputModifier
                         .focusRequester(searchFocus)
                         .focusProperties {
                             if (!showSuggestions || state.query.isBlank()) down = filterFocus
                         }
                         .testTag("extras-search-field")
-                        .extrasFocusOutline()
                         .onFocusChanged {
                             if (it.hasFocus && state.query.isNotBlank()) showSuggestions = true
                         }
                 )
+                }
+                val filterActions: @Composable (Boolean) -> Unit = { inline ->
+                    ExtrasFilterDisclosure(
+                        expanded = filtersExpanded,
+                        active = state.filters != ExtrasFilters(),
+                        onToggle = {
+                            showSuggestions = false
+                            keyboardController?.hide()
+                            filtersExpanded = !filtersExpanded
+                        },
+                        onLibrary = {
+                            showSuggestions = false
+                            keyboardController?.hide()
+                            showPersonalLibrary = true
+                        },
+                        libraryCount = personalLibrary.saved.size,
+                        minHeightDp = layout.minControlHeightDp,
+                        compactToolbar = inline,
+                        modifier = Modifier.focusRequester(filterFocus).focusProperties {
+                            up = searchFocus
+                            if (state.results.isNotEmpty()) down = firstPosterFocus
+                        }
+                    )
+                }
+                if (landscapeToolbar) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().testTag("extras-compact-search-toolbar"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        searchInput(Modifier.weight(1f))
+                        filterActions(true)
+                    }
+                } else {
+                    searchInput(Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(layout.searchFilterGapDp.dp))
+                    filterActions(false)
+                }
                 if (showSuggestions && state.query.isNotBlank() && state.results.isNotEmpty()) {
                     ExtrasSearchSuggestions(
                         type = type,
@@ -743,46 +808,49 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         onDismiss = { showSuggestions = false }
                     )
                 }
-                Spacer(Modifier.height(layout.searchFilterGapDp.dp))
-                ExtrasFilterDisclosure(
-                    expanded = filtersExpanded,
-                    active = state.filters != ExtrasFilters(),
-                    onToggle = { filtersExpanded = !filtersExpanded },
-                    onLibrary = {
-                        showSuggestions = false
-                        showPersonalLibrary = true
-                    },
-                    libraryCount = personalLibrary.saved.size,
-                    minHeightDp = layout.minControlHeightDp,
-                    modifier = Modifier.focusRequester(filterFocus).focusProperties {
-                        up = searchFocus
-                        if (!filtersExpanded && state.results.isNotEmpty()) down = firstPosterFocus
-                    }
-                )
                 if (filtersExpanded) {
-                    Spacer(Modifier.height(8.dp))
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-filter-row"),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(layout.filterChipGapDp.dp)
-                    ) {
+                    Dialog(onDismissRequest = { filtersExpanded = false }) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp)
+                                .heightIn(max = metrics.heightDp * 0.88f)
+                                .testTag("extras-filters-dialog"),
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 6.dp
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Refine ${type.label}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.weight(1f))
+                                    TextButton(onClick = { filtersExpanded = false }) { Text("Done") }
+                                }
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxWidth()
+                                        .heightIn(max = metrics.heightDp * 0.64f)
+                                        .focusGroup().testTag("extras-filter-row"),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                     item {
                         ExtrasDropdown("Sort: ${state.filters.sort.label}",
-                            ExtrasSort.entries.map { it.label }) { index ->
+                            ExtrasSort.entries.map { it.label }, fullWidth = true) { index ->
                             update(state.copy(filters = state.filters.copy(sort = ExtrasSort.entries[index]),
                                 page = 1, results = emptyList(), loading = true, hasMore = true))
                         }
                     }
                     item {
                         val genres = ExtrasProviderPolicy.genres(type)
-                        ExtrasDropdown("Genre: ${state.filters.genre}", genres.map { it.first }) { index ->
+                        ExtrasDropdown("Genre: ${state.filters.genre}", genres.map { it.first }, fullWidth = true) { index ->
                             update(state.copy(filters = state.filters.copy(genre = genres[index].first),
                                 page = 1, results = emptyList(), loading = true, hasMore = true))
                         }
                     }
                     item {
                         val years = listOf("Any year") + (java.time.Year.now().value downTo 1980).map(Int::toString)
-                        ExtrasDropdown("Year: ${state.filters.year ?: "Any"}", years) { index ->
+                        ExtrasDropdown("Year: ${state.filters.year ?: "Any"}", years, fullWidth = true) { index ->
                             update(state.copy(filters = state.filters.copy(year = years[index].toIntOrNull()),
                                 page = 1, results = emptyList(), loading = true, hasMore = true))
                         }
@@ -790,7 +858,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     item {
                         val options = listOf(0, 5, 7, 8, 9)
                         ExtrasDropdown("Rating: ${if (state.filters.minimumRating == 0) "Any" else "${state.filters.minimumRating}+"}",
-                            options.map { if (it == 0) "Any rating" else "$it+" }) { index ->
+                            options.map { if (it == 0) "Any rating" else "$it+" }, fullWidth = true) { index ->
                             update(state.copy(filters = state.filters.copy(minimumRating = options[index]),
                                 page = 1, results = emptyList(), loading = true, hasMore = true))
                         }
@@ -802,7 +870,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                 it.second == state.filters.tmdbOriginalLanguage
                             }?.first ?: "Any language"
                             ExtrasDropdown("Original language: $selected",
-                                languages.map { it.first }) { index ->
+                                languages.map { it.first }, fullWidth = true) { index ->
                                 update(state.copy(
                                     filters = state.filters.copy(
                                         tmdbOriginalLanguage = languages[index].second
@@ -819,7 +887,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             val selected = formats.firstOrNull {
                                 it.second == state.filters.animeFormat
                             }?.first ?: "Any format"
-                            ExtrasDropdown("Format: $selected", formats.map { it.first }) { index ->
+                            ExtrasDropdown("Format: $selected", formats.map { it.first }, fullWidth = true) { index ->
                                 update(state.copy(
                                     filters = state.filters.copy(animeFormat = formats[index].second),
                                     page = 1, results = emptyList(), loading = true,
@@ -832,7 +900,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             val selected = statuses.firstOrNull {
                                 it.second == state.filters.animeStatus
                             }?.first ?: "Any status"
-                            ExtrasDropdown("Status: $selected", statuses.map { it.first }) { index ->
+                            ExtrasDropdown("Status: $selected", statuses.map { it.first }, fullWidth = true) { index ->
                                 update(state.copy(
                                     filters = state.filters.copy(animeStatus = statuses[index].second),
                                     page = 1, results = emptyList(), loading = true,
@@ -847,11 +915,14 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                 update(state.copy(filters = ExtrasFilters(), page = 1, results = emptyList(),
                                     loading = true, hasMore = true))
                             },
-                            modifier = Modifier.extrasFocusOutline().heightIn(
+                            modifier = Modifier.fillMaxWidth().extrasFocusOutline().heightIn(
                                 min = layout.minControlHeightDp.dp
                             ).testTag("extras-reset-filters")
                         ) { Text("Reset filters") }
                     }
+                                }
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(layout.filterResultsGapDp.dp))
@@ -899,7 +970,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             showSuggestions = false
                             update(state.copy(loading = true, error = null))
                         },
-                        minimumHeightDp = layout.minControlHeightDp
+                        minimumHeightDp = layout.minControlHeightDp,
+                        compact = landscapeToolbar
                     )
                 }
                 // A real interactive hero is reserved for large windows; a
@@ -1056,20 +1128,22 @@ internal fun ExtrasFilterDisclosure(
     modifier: Modifier = Modifier,
     minHeightDp: Int = 56,
     onLibrary: (() -> Unit)? = null,
-    libraryCount: Int = 0
+    libraryCount: Int = 0,
+    compactToolbar: Boolean = false
 ) {
     val metrics = rememberAdaptiveMetrics()
     val compactWindow = metrics.isShortWindow || metrics.effectiveWidthDp < 480.dp
     Row(
-        modifier = Modifier.fillMaxWidth()
+        modifier = (if (compactToolbar) Modifier else Modifier.fillMaxWidth())
             .heightIn(min = minHeightDp.dp)
             .focusGroup()
             .testTag("extras-filter-disclosure"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(if (compactToolbar) 8.dp else 12.dp)
     ) {
         BousygramButton(
-            text = if (expanded) "Hide filters" else "Filters",
+            text = if (compactToolbar) "Filters"
+                else if (expanded) "Hide filters" else "Filters",
             onClick = onToggle,
             selected = active || expanded,
             leadingIcon = BousygramIcons.Options,
@@ -1106,6 +1180,7 @@ internal fun ExtrasFilterDisclosure(
 internal fun ExtrasCatalogTabs(
     selectedTab: Int,
     entryFocusRequester: FocusRequester? = null,
+    modifier: Modifier = Modifier,
     onSelect: (Int) -> Unit
 ) {
     val metrics = rememberAdaptiveMetrics()
@@ -1117,7 +1192,7 @@ internal fun ExtrasCatalogTabs(
     val iconOnlyCompact = !metrics.isTv &&
         metrics.fontScale >= 1.35f && metrics.effectiveWidthDp < 440.dp
     Row(
-        modifier = Modifier.fillMaxWidth().focusGroup().testTag("extras-catalog-tabs"),
+        modifier = modifier.fillMaxWidth().focusGroup().testTag("extras-catalog-tabs"),
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
     ) {
         ExtrasType.entries.forEach { tab ->
@@ -1466,12 +1541,16 @@ internal fun ExtrasPosterCard(
 }
 
 @Composable
-private fun ExtrasDropdown(label: String, options: List<String>, onSelect: (Int) -> Unit) {
+private fun ExtrasDropdown(
+    label: String, options: List<String>, fullWidth: Boolean = false,
+    onSelect: (Int) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
+    Box(if (fullWidth) Modifier.fillMaxWidth() else Modifier) {
         OutlinedButton(
             onClick = { expanded = true },
-            modifier = Modifier.heightIn(min = 48.dp)
+            modifier = (if (fullWidth) Modifier.fillMaxWidth() else Modifier)
+                .heightIn(min = 48.dp)
                 .extrasFocusOutline().testTag("extras-filter-dropdown")
         ) { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         androidx.compose.material3.DropdownMenu(

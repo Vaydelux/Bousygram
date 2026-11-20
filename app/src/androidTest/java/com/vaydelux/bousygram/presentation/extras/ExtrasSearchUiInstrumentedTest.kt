@@ -263,4 +263,40 @@ class ExtrasSearchUiInstrumentedTest {
         }
         action.assertIsNotEnabled()
     }
+    @Test fun landscapeInlineToolbarKeepsFilterAndSavedActionsReachable() {
+        val filtersOpened = mutableIntStateOf(0)
+        val savedOpened = mutableIntStateOf(0)
+        rule.setContent {
+            BousygramTheme {
+                androidx.compose.foundation.layout.Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Box(Modifier.weight(1f).height(56.dp).testTag("qa-landscape-search-slot"))
+                    ExtrasFilterDisclosure(
+                        expanded = false,
+                        active = false,
+                        onToggle = { filtersOpened.intValue += 1 },
+                        onLibrary = { savedOpened.intValue += 1 },
+                        minHeightDp = 48,
+                        compactToolbar = true
+                    )
+                }
+            }
+        }
+        rule.onNodeWithTag("extras-filter-toggle").performClick()
+        rule.onNodeWithTag("extras-open-my-library").performClick()
+        rule.runOnIdle {
+            assertEquals(1, filtersOpened.intValue)
+            assertEquals(1, savedOpened.intValue)
+        }
+        val filter = rule.onNodeWithTag("extras-filter-disclosure")
+            .fetchSemanticsNode().boundsInRoot
+        val search = rule.onNodeWithTag("qa-landscape-search-slot")
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("Compact filter controls must be alongside search", filter.left >= search.right)
+        assertTrue("Compact search slot must have positive width", search.width > 0f)
+    }
+
+
 }

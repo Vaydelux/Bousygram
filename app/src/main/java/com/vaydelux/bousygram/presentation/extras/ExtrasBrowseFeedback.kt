@@ -34,7 +34,8 @@ internal fun ExtrasBrowseActivityRow(
     currentPage: Int,
     updating: Boolean,
     onRefresh: () -> Unit,
-    minimumHeightDp: Int
+    minimumHeightDp: Int,
+    compact: Boolean = false
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().testTag("extras-browse-activity"),
@@ -56,13 +57,15 @@ internal fun ExtrasBrowseActivityRow(
         } else {
             OutlinedButton(
                 onClick = onRefresh,
-                modifier = Modifier.heightIn(min = minimumHeightDp.dp)
+                modifier = Modifier.heightIn(min = (if (compact) 40 else minimumHeightDp).dp)
                     .extrasFocusOutline().testTag("extras-refresh-titles")
             ) {
                 BousygramIcon(
-                    icon = BousygramIcons.Refresh, contentDescription = null, size = 16.dp
+                    icon = BousygramIcons.Refresh,
+                    contentDescription = if (compact) "Refresh titles" else null,
+                    size = 16.dp
                 )
-                Text("Refresh")
+                if (!compact) Text("Refresh")
             }
         }
     }

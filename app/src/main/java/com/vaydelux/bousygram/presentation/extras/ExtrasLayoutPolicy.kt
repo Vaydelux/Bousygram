@@ -15,7 +15,8 @@ internal data class ExtrasLayoutSpec(
     val gridCardMinWidthDp: Int,
     val gridGapDp: Int,
     val minControlHeightDp: Int,
-    val compactHeader: Boolean
+    val compactHeader: Boolean,
+    val landscapeToolbar: Boolean
 )
 
 internal object ExtrasLayoutPolicy {
@@ -31,17 +32,19 @@ internal object ExtrasLayoutPolicy {
         val height = (heightDp.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f) /
             if (isTv) 1f else scale
         val compactHeader = !isTv && height < 520f
+        val landscapeToolbar = compactHeader && width >= 520f && width > height * 1.15f
         val narrow = width < 600f
         return ExtrasLayoutSpec(
             horizontalGutterDp = when {
                 isTv -> 32
+                landscapeToolbar -> 16
                 width < 360f -> 12
                 narrow -> 16
                 width < 900f -> 24
                 else -> 32
             },
-            searchFilterGapDp = if (compactHeader) 12 else 16,
-            filterResultsGapDp = if (compactHeader) 12 else 18,
+            searchFilterGapDp = if (compactHeader) 8 else 16,
+            filterResultsGapDp = if (landscapeToolbar) 6 else if (compactHeader) 10 else 18,
             filterChipGapDp = if (narrow) 8 else 12,
             gridCardMinWidthDp = when {
                 isTv -> if (width < 900f) 152 else 176
@@ -52,8 +55,9 @@ internal object ExtrasLayoutPolicy {
                 else -> 178
             },
             gridGapDp = if (width < 600f) 10 else if (isTv) 16 else 14,
-            minControlHeightDp = 56,
-            compactHeader = compactHeader
+            minControlHeightDp = if (compactHeader) 48 else 56,
+            compactHeader = compactHeader,
+            landscapeToolbar = landscapeToolbar
         )
     }
 

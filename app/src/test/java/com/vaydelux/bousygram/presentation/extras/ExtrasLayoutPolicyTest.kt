@@ -15,8 +15,8 @@ class ExtrasLayoutPolicyTest {
         for ((width, height) in viewports) {
             for (isTv in listOf(false, true)) {
                 val spec = ExtrasLayoutPolicy.resolve(width, height, isTv)
-                assertTrue("Search-to-filter gap at $width x $height", spec.searchFilterGapDp >= 12)
-                assertTrue("Filter-to-results gap at $width x $height", spec.filterResultsGapDp >= 12)
+                assertTrue("Search-to-filter gap at $width x $height", spec.searchFilterGapDp >= 8)
+                assertTrue("Filter-to-results gap at $width x $height", spec.filterResultsGapDp >= 6)
                 assertTrue("Minimum controls at $width x $height", spec.minControlHeightDp >= 48)
                 assertTrue("Side gutter at $width x $height", spec.horizontalGutterDp >= 12)
                 assertTrue("Card gap at $width x $height", spec.gridGapDp >= 10)
@@ -71,5 +71,25 @@ class ExtrasLayoutPolicyTest {
             isTv = false, isShortWindow = false, effectiveHeightDp = Float.NaN))
         assertFalse(ExtrasLayoutPolicy.compactDetailViewport(
             isTv = true, isShortWindow = true, effectiveHeightDp = Float.POSITIVE_INFINITY))
+    }
+
+    @Test fun shortLandscapePhoneUsesSingleRowChrome() {
+        for ((width, height) in listOf(740f to 360f, 844f to 390f, 640f to 360f)) {
+            val layout = ExtrasLayoutPolicy.resolve(width, height, false)
+            assertTrue("Landscape toolbar at $width x $height", layout.landscapeToolbar)
+            assertEquals(48, layout.minControlHeightDp)
+            assertEquals(16, layout.horizontalGutterDp)
+            assertEquals(6, layout.filterResultsGapDp)
+        }
+        assertFalse(ExtrasLayoutPolicy.resolve(390f, 844f, false).landscapeToolbar)
+        assertFalse(ExtrasLayoutPolicy.resolve(960f, 540f, true).landscapeToolbar)
+        assertFalse(ExtrasLayoutPolicy.resolve(1024f, 768f, false).landscapeToolbar)
+        assertFalse(ExtrasLayoutPolicy.resolve(320f, 568f, false).landscapeToolbar)
+    }
+
+    @Test fun largeFontLandscapeKeepsSearchUsable() {
+        val layout = ExtrasLayoutPolicy.resolve(640f, 360f, false, 1.6f)
+        assertFalse(layout.landscapeToolbar)
+        assertTrue(layout.compactHeader)
     }
 }
