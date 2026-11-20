@@ -1269,8 +1269,10 @@ private fun ExtrasDropdown(label: String, options: List<String>, onSelect: (Int)
     }
 }
 
+/** Visible to the offline UI suite so first-entry TV focus and Play routing
+ * can be qualified without TMDB, AniList, Telegram, or a network connection. */
 @Composable
-private fun ExtrasDetailContent(
+internal fun ExtrasDetailContent(
     info: ExtrasDetail,
     episodes: List<ExtrasEpisode>,
     selectedSeason: Int?,
@@ -1648,7 +1650,10 @@ private fun ExtrasDetailContent(
         }
         if (info.reviews.isNotEmpty()) {
             item { Text("Community Reviews", style = MaterialTheme.typography.titleMedium) }
-            items(info.reviews.take(8)) { review ->
+            androidx.compose.foundation.lazy.itemsIndexed(
+                info.reviews.take(8),
+                key = { index, _ -> "${info.item.type}:${info.item.id}:review:$index" }
+            ) { _, review ->
                 var expanded by rememberSaveable(info.item.id, review.author, review.content) {
                     mutableStateOf(false)
                 }
