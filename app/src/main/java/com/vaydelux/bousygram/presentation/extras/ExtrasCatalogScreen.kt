@@ -1414,9 +1414,13 @@ private fun ExtrasDetailContent(
             item { Text(if (info.item.type == ExtrasType.ANIME) "Characters, voice actors & staff" else "Cast",
                 style = MaterialTheme.typography.titleMedium) }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(info.cast) { person ->
-                        Column(Modifier.width(110.dp)) {
+                LazyRow(
+                    modifier = Modifier.testTag("extras-cast-row"),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
+                ) {
+                    items(info.cast.take(24), key = { "${it.name}:${it.role}" }) { person ->
+                        Column(Modifier.width(if (compact) 96.dp else 116.dp)) {
                             AsyncImage(model = person.portrait, contentDescription = person.name,
                                 modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                                 contentScale = ContentScale.Fit)
@@ -1565,9 +1569,15 @@ private fun ExtrasDetailContent(
         if (info.related.isNotEmpty()) {
             item { Text("Related & recommended", style = MaterialTheme.typography.titleMedium) }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(
+                    modifier = Modifier.testTag("extras-related-row"),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
+                ) {
                     items(info.related, key = { "${it.type}:${it.id}" }) { item ->
-                        Box(Modifier.width(148.dp)) { ExtrasPosterCard(item) { onOpenItem(item) } }
+                        Box(Modifier.width(if (compact) 128.dp else 160.dp)) {
+                            ExtrasPosterCard(item) { onOpenItem(item) }
+                        }
                     }
                 }
             }
