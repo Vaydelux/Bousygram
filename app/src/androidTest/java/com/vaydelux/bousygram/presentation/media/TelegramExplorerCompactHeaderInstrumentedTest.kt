@@ -2,6 +2,8 @@ package com.vaydelux.bousygram.presentation.media
 
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
@@ -10,6 +12,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -156,13 +160,16 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
 
     @Test fun allSourceSectionsRemainReachableOnTv() {
         compose.setContent {
-            Box(Modifier.width(960.dp)) {
-                HeaderFixture(960.dp, 540.dp, television = true)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                HeaderFixture(maxWidth, 540.dp, television = true)
             }
         }
         for (section in listOf("saved", "channels", "groups")) {
-            compose.onNodeWithTag("telegram-library-tab-$section").assertIsDisplayed()
-            compose.onNodeWithTag("telegram-library-tab-$section").performClick()
+            val tab = compose.onNodeWithTag("telegram-library-tab-$section")
+            // TV source tabs are allowed to scroll horizontally at a narrow
+            // actual emulator viewport; check navigability, not simultaneity.
+            tab.performScrollTo()
+            tab.assertIsDisplayed().performClick()
             compose.onNodeWithTag("telegram-library-tab-$section").assertIsSelected()
         }
         compose.onNodeWithTag("telegram-library-tab-favorites").assertIsDisplayed()
@@ -170,14 +177,17 @@ class TelegramExplorerCompactHeaderInstrumentedTest {
 
     @Test fun tvRemoteCenterKeySelectsEveryTelegramSource() {
         compose.setContent {
-            Box(Modifier.width(960.dp)) {
-                HeaderFixture(960.dp, 540.dp, television = true)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                HeaderFixture(maxWidth, 540.dp, television = true)
             }
         }
         for (section in listOf("channels", "groups", "saved")) {
             val tab = compose.onNodeWithTag("telegram-library-tab-$section")
+            tab.performScrollTo()
             tab.assertIsDisplayed()
             tab.performSemanticsAction(SemanticsActions.RequestFocus)
+            compose.waitForIdle()
+            tab.assertIsFocused()
             tab.performKeyInput { pressKey(Key.DirectionCenter) }
             compose.onNodeWithTag("telegram-library-tab-$section").assertIsSelected()
         }
