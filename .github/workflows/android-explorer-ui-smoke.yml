@@ -1,4 +1,5 @@
 name: Android Explorer Responsive UI Smoke
+# Exact-source Telegram-local-only restoration and no-identify UI regression gate.
 # Include exact-source Telegram metadata corrections in QA-debug qualification.
 
 on:

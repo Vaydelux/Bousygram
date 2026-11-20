@@ -658,7 +658,7 @@ tasks.register("verifySensitiveLogRedaction") {
         file("src/main/java/com/vaydelux/bousygram/presentation/media/PlayerScreen.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/media/MpvPlayerEngine.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/tdlib/utils/ThumbnailExtractor.kt"),
-        file("src/main/java/com/vaydelux/bousygram/data/repository/TmdbRepository.kt"),
+        file("src/main/java/com/vaydelux/bousygram/presentation/extras/ExtrasCatalogApi.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/observability/CrashReporter.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/observability/StructuredPlaybackLogger.kt"),
         file("src/main/java/com/vaydelux/bousygram/core/tdlib/server/TelegramLogWrapper.kt"),

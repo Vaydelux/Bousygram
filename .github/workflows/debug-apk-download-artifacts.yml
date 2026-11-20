@@ -5,6 +5,7 @@ name: Build and Publish Bousygram QA Debug APKs
 # Does not bypass protected production release gates or overwrite existing tags.
 # Telegram Media now uses original TDLib thumbnails and local filename parsing.
 # Extras' independent TMDB/AniList catalog is unchanged. All exact-SHA
+# QA debug metadata-removal prerelease must pass full CI before publication.
 # Enterprise, responsive UI and Cast/media checks must pass before publishing.
 on:
   workflow_dispatch:
