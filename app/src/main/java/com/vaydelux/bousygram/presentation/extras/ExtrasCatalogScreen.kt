@@ -993,7 +993,7 @@ private fun Modifier.activateOnTvDpad(onActivate: () -> Unit): Modifier =
         } else false
     }
 
-/** Remote-focusable single-page rewind without keeping every earlier page in memory. */
+/** Full-span pagination action with an explicit, non-duplicating remote activation. */
 @Composable
 internal fun ExtrasMoreTitlesAction(loading: Boolean, onNext: () -> Unit) {
     Button(
@@ -1009,6 +1009,7 @@ internal fun ExtrasMoreTitlesAction(loading: Boolean, onNext: () -> Unit) {
     }
 }
 
+/** Remote-focusable single-page rewind without retaining earlier pages. */
 @Composable
 internal fun ExtrasPreviousPageAction(onPrevious: () -> Unit) {
     TextButton(
