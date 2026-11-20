@@ -623,8 +623,39 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         isShortWindow = metrics.isShortWindow,
                         effectiveHeightDp = metrics.effectiveHeightDp.value
                     ),
-                    isAndroidTv = isAndroidTv)
+                    isAndroidTv = isAndroidTv,
+                    isSaved = ExtrasPersonalLibraryPolicy.containsSaved(
+                        personalLibrary, info.item.type.name, info.item.id
+                    ),
+                    libraryReady = personalLibraryReady && personalLibraryError == null,
+                    libraryBusy = personalLibraryBusy,
+                    onSaveToggle = {
+                        changePersonalLibrary { libraryStore.toggleSaved(info.item) }
+                    }
+                )
             }
+        } else if (showPersonalLibrary) {
+            ExtrasPersonalLibraryPanel(
+                snapshot = personalLibrary,
+                ready = personalLibraryReady,
+                busy = personalLibraryBusy,
+                error = personalLibraryError,
+                isAndroidTv = isAndroidTv,
+                onBrowse = { showPersonalLibrary = false },
+                onOpen = { opened ->
+                    detailHistory.clear()
+                    detailItem = opened
+                },
+                onRemove = { removed ->
+                    changePersonalLibrary { libraryStore.removeSaved(removed) }
+                },
+                onClearRecent = {
+                    changePersonalLibrary { libraryStore.clearRecent() }
+                },
+                onRetry = { personalLibraryReload += 1 },
+                modifier = Modifier.padding(padding)
+                    .padding(horizontal = layout.horizontalGutterDp.dp)
+            )
         } else if (type != ExtrasType.ANIME && !ExtrasCatalogApi.hasTmdbCredentials) {
             ExtrasTmdbPendingSetup(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -708,6 +739,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     expanded = filtersExpanded,
                     active = state.filters != ExtrasFilters(),
                     onToggle = { filtersExpanded = !filtersExpanded },
+                    onLibrary = {
+                        showSuggestions = false
+                        showPersonalLibrary = true
+                    },
+                    libraryCount = personalLibrary.saved.size,
                     minHeightDp = layout.minControlHeightDp,
                     modifier = Modifier.focusRequester(filterFocus).focusProperties {
                         up = searchFocus
@@ -959,7 +995,9 @@ internal fun ExtrasFilterDisclosure(
     active: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    minHeightDp: Int = 56
+    minHeightDp: Int = 56,
+    onLibrary: (() -> Unit)? = null,
+    libraryCount: Int = 0
 ) {
     val metrics = rememberAdaptiveMetrics()
     val compactWindow = metrics.isShortWindow || metrics.effectiveWidthDp < 480.dp
@@ -980,7 +1018,19 @@ internal fun ExtrasFilterDisclosure(
             modifier = modifier.heightIn(min = minHeightDp.dp)
                 .testTag("extras-filter-toggle")
         )
-        if (!compactWindow) {
+        if (onLibrary != null) {
+            OutlinedButton(
+                onClick = onLibrary,
+                modifier = Modifier.heightIn(min = minHeightDp.dp)
+                    .extrasFocusOutline().testTag("extras-open-my-library")
+            ) {
+                BousygramIcon(icon = BousygramIcons.Saved,
+                    contentDescription = null, size = 18.dp)
+                Text(if (compactWindow) "Saved" else "My Extras (${libraryCount})",
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (!compactWindow && onLibrary == null) {
             Text(
                 if (active) "Custom filters active" else "Sort, genre, year and more",
                 style = MaterialTheme.typography.labelSmall,
