@@ -23,8 +23,9 @@ Media3, LibVLC, WebView/source chooser, TMDB and AniList responsibilities.
 5. TV season/episode cards with 16:9 stills, metadata and separate Play
    buttons. Each virtualized LazyColumn row contains one or two cards.
 6. Secondary sections: YouTube trailer, regional watch availability, official
-   episode links, cast/characters (small circular portraits), reviews and
-   related media. No original video engines or network routing changes.
+   episode links, cast/characters (small circular portraits), reviews with
+   **measured overflow** and native Read full review controls, and related
+   media. No original video engines or network routing changes.
 
 ## dp-based layout matrix
 
