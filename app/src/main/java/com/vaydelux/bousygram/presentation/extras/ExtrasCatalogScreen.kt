@@ -317,7 +317,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
 
     // Restore the poster *and* grid position after leaving the details route.
     LaunchedEffect(restorePosterFocus, detailItem, activeTabIndex, state.results.size) {
-        if (restorePosterFocus <= restoredPosterFocus || detailItem != null) return@LaunchedEffect
+        if (restorePosterFocus <= restoredPosterFocus || detailItem != null || showPersonalLibrary) return@LaunchedEffect
         // A bounded page or provider refresh can evict the selected poster.
         // Restore the original card when present; otherwise focus the first
         // retained card instead of leaving a TV remote in a dead focus state.
