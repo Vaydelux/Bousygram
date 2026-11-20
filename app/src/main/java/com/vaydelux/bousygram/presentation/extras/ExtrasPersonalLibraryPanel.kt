@@ -264,7 +264,7 @@ internal fun ExtrasPersonalLibraryPanel(
                         if (section == 0) {
                             OutlinedButton(
                                 onClick = { onRemove(item) },
-                                enabled = !busy,
+                                enabled = ready && !busy && error == null,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = controlHeight)
                                     .extrasFocusOutline().testTag("extras-library-remove-${entry.key}")
                             ) { Text("Remove") }
