@@ -90,3 +90,26 @@ internal object ExtrasPagingWindow {
         return Merge(retained.values.toList(), evicted.size)
     }
 }
+
+/**
+ * Return from details after the visible bounded poster window may have changed.
+ * A missing selection falls back to a visible card; an empty/loading result
+ * defers focus until the grid is composed again.
+ */
+internal data class ExtrasPosterReturnTarget(
+    val index: Int,
+    val selectedPosterVisible: Boolean
+)
+
+internal object ExtrasPosterReturnPolicy {
+    fun resolve(selectedId: Int?, results: List<ExtrasItem>): ExtrasPosterReturnTarget? {
+        if (results.isEmpty()) return null
+        val selectedIndex = if (selectedId == null) -1
+            else results.indexOfFirst { it.id == selectedId }
+        return if (selectedIndex >= 0) {
+            ExtrasPosterReturnTarget(selectedIndex, selectedPosterVisible = true)
+        } else {
+            ExtrasPosterReturnTarget(index = 0, selectedPosterVisible = false)
+        }
+    }
+}

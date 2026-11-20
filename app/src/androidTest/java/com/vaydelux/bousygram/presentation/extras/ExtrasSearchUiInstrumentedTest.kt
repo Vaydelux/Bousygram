@@ -10,14 +10,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -239,5 +242,25 @@ class ExtrasSearchUiInstrumentedTest {
         }
         rule.onNodeWithTag("extras-detail-loading").assertExists()
         rule.onNodeWithText("Loading details…").assertExists()
+    }
+
+    @Test fun loadMoreFooterActivatesOnceByRemoteAndDisablesDuringRequest() {
+        val loading = mutableStateOf(false)
+        val calls = mutableIntStateOf(0)
+        rule.setContent {
+            BousygramTheme {
+                ExtrasMoreTitlesAction(loading = loading.value) {
+                    calls.intValue += 1
+                }
+            }
+        }
+        val action = rule.onNodeWithTag("extras-more-titles")
+        action.performSemanticsAction(SemanticsActions.RequestFocus)
+        action.performKeyInput { pressKey(Key.DirectionCenter) }
+        rule.runOnIdle {
+            assertEquals(1, calls.intValue)
+            loading.value = true
+        }
+        action.assertIsNotEnabled()
     }
 }

@@ -35,6 +35,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -268,12 +269,17 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     // Restore the poster *and* grid position after leaving the details route.
     LaunchedEffect(restorePosterFocus, detailItem, activeTabIndex, state.results.size) {
         if (restorePosterFocus <= restoredPosterFocus || detailItem != null) return@LaunchedEffect
-        val id = selectedPoster[type] ?: return@LaunchedEffect
-        val index = state.results.indexOfFirst { it.id == id }
-        if (index < 0) return@LaunchedEffect
-        activeGrid.scrollToItem(index)
+        // A bounded page or provider refresh can evict the selected poster.
+        // Restore the original card when present; otherwise focus the first
+        // retained card instead of leaving a TV remote in a dead focus state.
+        val target = ExtrasPosterReturnPolicy.resolve(selectedPoster[type], state.results)
+            ?: return@LaunchedEffect
+        activeGrid.scrollToItem(target.index)
         withFrameNanos { }
-        runCatching { posterFocus.requestFocus() }
+        runCatching {
+            if (target.selectedPosterVisible) posterFocus.requestFocus()
+            else firstPosterFocus.requestFocus()
+        }
         restoredPosterFocus = restorePosterFocus
     }
 
@@ -541,7 +547,11 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     },
                     modifier = Modifier.padding(padding),
                     compact = metrics.isCompact,
-                    shortViewport = metrics.isShortWindow || metrics.effectiveHeightDp < 600.dp,
+                    shortViewport = ExtrasLayoutPolicy.compactDetailViewport(
+                        isTv = isAndroidTv,
+                        isShortWindow = metrics.isShortWindow,
+                        effectiveHeightDp = metrics.effectiveHeightDp.value
+                    ),
                     isAndroidTv = isAndroidTv)
             }
         } else if (type != ExtrasType.ANIME && !ExtrasCatalogApi.hasTmdbCredentials) {
@@ -821,12 +831,20 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                 onClick = { openFromResults(item) })
                         }
                         if (state.hasMore && state.results.isNotEmpty()) {
-                            item {
-                                Button(onClick = {
-                                    if (!state.loading) update(state.copy(page = state.page + 1, loading = true, error = null))
-                                }, modifier = Modifier.extrasFocusOutline().heightIn(min = 48.dp)
-                                    .testTag("extras-more-titles"), enabled = !state.loading) {
-                                    Text(if (state.loading) "Loading…" else "More titles")
+                            // Full-span paging footer: never masquerade as a
+                            // poster or trap D-pad focus in a narrow grid cell.
+                            item(key = "extras-load-more", span = { GridItemSpan(maxLineSpan) }) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    ExtrasMoreTitlesAction(loading = state.loading) {
+                                        if (!state.loading) update(state.copy(
+                                            page = state.page + 1,
+                                            loading = true,
+                                            error = null
+                                        ))
+                                    }
                                 }
                             }
                         }
@@ -975,7 +993,23 @@ private fun Modifier.activateOnTvDpad(onActivate: () -> Unit): Modifier =
         } else false
     }
 
-/** Remote-focusable single-page rewind without keeping every earlier page in memory. */
+/** Full-span pagination action with an explicit, non-duplicating remote activation. */
+@Composable
+internal fun ExtrasMoreTitlesAction(loading: Boolean, onNext: () -> Unit) {
+    Button(
+        onClick = onNext,
+        enabled = !loading,
+        modifier = Modifier.widthIn(min = 196.dp, max = 320.dp)
+            .heightIn(min = 56.dp)
+            .extrasFocusOutline()
+            .activateOnTvDpad(onNext)
+            .testTag("extras-more-titles")
+    ) {
+        Text(if (loading) "Loading…" else "More titles")
+    }
+}
+
+/** Remote-focusable single-page rewind without retaining earlier pages. */
 @Composable
 internal fun ExtrasPreviousPageAction(onPrevious: () -> Unit) {
     TextButton(

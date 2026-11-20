@@ -56,4 +56,16 @@ internal object ExtrasLayoutPolicy {
             compactHeader = compactHeader
         )
     }
+
+    /**
+     * A short Android TV canvas is not a landscape phone. Keep the TV detail
+     * hero, readable poster and remote-target spacing even at 960×540dp.
+     * Only phones/tablets use the compressed short-viewport detail treatment.
+     */
+    fun compactDetailViewport(
+        isTv: Boolean,
+        isShortWindow: Boolean,
+        effectiveHeightDp: Float
+    ): Boolean = !isTv && (isShortWindow ||
+        (effectiveHeightDp.isFinite() && effectiveHeightDp < 600f))
 }
