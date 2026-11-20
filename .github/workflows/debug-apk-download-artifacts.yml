@@ -146,6 +146,9 @@ jobs:
           compact fonts, measured portrait/landscape/TV poster density and grouped
           search → filter → grid / season / recommendations D-pad traversal.
           Android UI visual evidence and focus tests: PR #214.
+          Extras detail TV focus QA: PR #215 prioritizes Movie/Anime Play and
+          TV seasons/episodes ahead of trailers, region and cast; verified with
+          offline detail callbacks and emulator D-pad regression suites.
           Physical Android TV verification is still required. Emulator testing
           is tracked separately in the normal smoke workflows.
           EOF
