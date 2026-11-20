@@ -63,8 +63,13 @@ internal object ExtrasPersonalLibraryPolicy {
     ): ExtrasLibrarySnapshot {
         val entry = normalize(item) ?: return snapshot
         val old = snapshot.saved
-        val updated = if (old.any { it.key == entry.key }) old.filterNot { it.key == entry.key }
-        else listOf(entry) + old
+        // A saved title is explicitly user-owned. Never evict older saves
+        // merely because a bounded storage limit has been reached.
+        val updated = when {
+            old.any { it.key == entry.key } -> old.filterNot { it.key == entry.key }
+            old.size >= MAX_SAVED -> return snapshot
+            else -> listOf(entry) + old
+        }
         return sanitize(snapshot.copy(saved = updated))
     }
 
