@@ -44,6 +44,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed as listItemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -90,6 +91,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -1672,14 +1674,36 @@ internal fun ExtrasDetailContent(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp)
                 ) {
                     items(info.cast.take(24)) { person ->
-                        Column(Modifier.width(spec.castWidthDp.dp)) {
-                            AsyncImage(model = person.portrait, contentDescription = person.name,
-                                modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
-                                contentScale = ContentScale.Fit)
-                            Text(person.name, style = MaterialTheme.typography.labelMedium,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(person.role, style = MaterialTheme.typography.labelSmall,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Column(
+                            modifier = Modifier.width(spec.castWidthDp.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AsyncImage(
+                                model = person.portrait,
+                                contentDescription = person.name,
+                                modifier = Modifier
+                                    .size(if (isAndroidTv) 88.dp else 76.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                contentScale = ContentScale.Crop
+                            )
+                            Text(
+                                person.name,
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                person.role,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
