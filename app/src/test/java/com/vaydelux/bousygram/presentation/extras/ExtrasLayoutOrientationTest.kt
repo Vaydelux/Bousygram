@@ -6,11 +6,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExtrasLayoutOrientationTest {
-    @Test fun landscapePhoneUsesCompactToolbarAtLargeFontScale() {
+    @Test fun landscapePhoneStacksTabsAtLargeFontScale() {
         val layout = ExtrasLayoutPolicy.resolve(780f, 360f, false, 2f)
-        assertTrue(layout.landscapeToolbar)
+        assertFalse(layout.landscapeToolbar)
         assertTrue(layout.compactHeader)
         assertEquals(48, layout.minControlHeightDp)
+    }
+
+    @Test fun wideLandscapeAtLargeFontScaleCanFitToolbar() {
+        val layout = ExtrasLayoutPolicy.resolve(960f, 480f, false, 1.5f)
+        assertTrue(layout.landscapeToolbar)
+        assertTrue(layout.gridCardMinWidthDp >= 160)
+    }
+
+    @Test fun fontScaleDoesNotShrinkAvailableGridWidth() {
+        val normal = ExtrasLayoutPolicy.resolve(400f, 800f, false, 1f)
+        val enlarged = ExtrasLayoutPolicy.resolve(400f, 800f, false, 2f)
+        assertTrue(enlarged.gridCardMinWidthDp >= normal.gridCardMinWidthDp)
+        assertEquals(normal.horizontalGutterDp, enlarged.horizontalGutterDp)
     }
 
     @Test fun portraitPhoneDoesNotUseLandscapeToolbar() {
