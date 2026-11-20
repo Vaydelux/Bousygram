@@ -1443,7 +1443,11 @@ internal fun ExtrasDetailContent(
     modifier: Modifier,
     compact: Boolean,
     shortViewport: Boolean,
-    isAndroidTv: Boolean
+    isAndroidTv: Boolean,
+    isSaved: Boolean = false,
+    libraryReady: Boolean = false,
+    libraryBusy: Boolean = false,
+    onSaveToggle: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val metrics = rememberAdaptiveMetrics()
@@ -1521,7 +1525,8 @@ internal fun ExtrasDetailContent(
                                     .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
                             )
                         }
-                        ExtrasDetailSummary(info, spec)
+                        ExtrasDetailSummary(info, spec,
+                            isSaved, libraryReady, libraryBusy, onSaveToggle)
                     }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(if (isAndroidTv) 24.dp else 18.dp)) {
@@ -1530,7 +1535,8 @@ internal fun ExtrasDetailContent(
                             modifier = Modifier.width(posterWidth)
                                 .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
                         )
-                        Column(Modifier.weight(1f)) { ExtrasDetailSummary(info, spec) }
+                        Column(Modifier.weight(1f)) { ExtrasDetailSummary(info, spec,
+                            isSaved, libraryReady, libraryBusy, onSaveToggle) }
                     }
                 }
             }
@@ -1916,7 +1922,14 @@ internal fun ExtrasDetailContent(
  * The title appears once (the image banner is intentionally title-free).
  */
 @Composable
-internal fun ExtrasDetailSummary(info: ExtrasDetail, spec: ExtrasDetailLayoutSpec) {
+internal fun ExtrasDetailSummary(
+    info: ExtrasDetail,
+    spec: ExtrasDetailLayoutSpec,
+    isSaved: Boolean = false,
+    libraryReady: Boolean = false,
+    libraryBusy: Boolean = false,
+    onSaveToggle: () -> Unit = {}
+) {
     val halo = LocalBousygramHaloColors.current
     var synopsisExpanded by rememberSaveable(info.item.type.name, info.item.id) {
         mutableStateOf(false)
@@ -2017,6 +2030,26 @@ internal fun ExtrasDetailSummary(info: ExtrasDetail, spec: ExtrasDetailLayoutSpe
             ) {
                 Text(if (synopsisExpanded) "Show less" else "Read full description")
             }
+        }
+        OutlinedButton(
+            onClick = onSaveToggle,
+            enabled = libraryReady && !libraryBusy,
+            modifier = Modifier.heightIn(min = spec.controlHeightDp.dp)
+                .extrasFocusOutline()
+                .testTag("extras-save-title")
+        ) {
+            BousygramIcon(
+                icon = if (isSaved) BousygramIcons.Check else BousygramIcons.Saved,
+                contentDescription = null, size = 18.dp
+            )
+            Text(
+                when {
+                    !libraryReady -> "Library unavailable"
+                    libraryBusy -> "Saving…"
+                    isSaved -> "Saved to My Extras"
+                    else -> "Save to My Extras"
+                }
+            )
         }
     }
 }
