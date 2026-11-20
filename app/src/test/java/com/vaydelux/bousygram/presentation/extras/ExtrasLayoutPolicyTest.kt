@@ -52,4 +52,24 @@ class ExtrasLayoutPolicyTest {
         assertTrue(bad.horizontalGutterDp >= 12)
         assertTrue(bad.minControlHeightDp >= 48)
     }
+
+    @Test fun shortTvDetailKeepsCinematicSizingRatherThanPhoneLandscapeChrome() {
+        assertFalse(ExtrasLayoutPolicy.compactDetailViewport(
+            isTv = true, isShortWindow = true, effectiveHeightDp = 540f))
+        assertFalse(ExtrasLayoutPolicy.compactDetailViewport(
+            isTv = true, isShortWindow = false, effectiveHeightDp = 400f))
+        assertTrue(ExtrasLayoutPolicy.compactDetailViewport(
+            isTv = false, isShortWindow = true, effectiveHeightDp = 390f))
+        assertTrue(ExtrasLayoutPolicy.compactDetailViewport(
+            isTv = false, isShortWindow = false, effectiveHeightDp = 599f))
+        assertFalse(ExtrasLayoutPolicy.compactDetailViewport(
+            isTv = false, isShortWindow = false, effectiveHeightDp = 600f))
+    }
+
+    @Test fun invalidDetailHeightDoesNotAccidentallyShrinkLayout() {
+        assertFalse(ExtrasLayoutPolicy.compactDetailViewport(
+            isTv = false, isShortWindow = false, effectiveHeightDp = Float.NaN))
+        assertFalse(ExtrasLayoutPolicy.compactDetailViewport(
+            isTv = true, isShortWindow = true, effectiveHeightDp = Float.POSITIVE_INFINITY))
+    }
 }

@@ -39,6 +39,14 @@ flowchart TB
   its previous index and selected poster focus are restored.
 - Dropdowns have a bounded 320dp menu height for short TV viewports; menu items
   retain 48dp minimum control height and keyboard focus.
+- Returning from details restores the selected poster when retained; if a
+  bounded page trim evicted it, focus falls back to the first visible poster
+  instead of pointing to a detached focus requester. Empty/loading grids
+  defer restoration until results return.
+- The "More titles" paging action occupies a full grid row, centers its
+  remote-focusable 56dp control and disables repeat requests while loading.
+- 960×540dp TV detail screens retain cinematic hero and poster sizing;
+  compact landscape detail treatment applies only to non-TV windows.
 - When details open on TV, the lazy list scrolls the primary action into
   composition, then requests focus: Play for Movies/Anime, or the first Season
   chip for TV. Seasons and episodes precede trailers, streaming availability

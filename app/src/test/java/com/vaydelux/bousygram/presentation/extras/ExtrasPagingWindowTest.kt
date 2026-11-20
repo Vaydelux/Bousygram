@@ -195,4 +195,33 @@ class ExtrasPagingWindowTest {
     fun invalidMaximumIsRejected() {
         ExtrasPagingWindow.merge(emptyList(), listOf(item(1)), 0)
     }
+
+    @Test fun returningFromDetailsPrefersTheOriginallySelectedPoster() {
+        val target = ExtrasPosterReturnPolicy.resolve(
+            selectedId = 8, results = listOf(item(4), item(8), item(9))
+        )
+        assertEquals(1, target?.index)
+        assertTrue(target?.selectedPosterVisible == true)
+    }
+
+    @Test fun boundedWindowEvictionFallsBackToTheFirstRetainedPoster() {
+        val retained = ExtrasPagingWindow.merge(
+            existing = (1..120).map(::item),
+            incoming = (121..140).map(::item),
+            maximumItems = 120
+        ).items
+        assertEquals(21, retained.first().id)
+        val target = ExtrasPosterReturnPolicy.resolve(selectedId = 1, results = retained)
+        assertEquals(0, target?.index)
+        assertFalse(target?.selectedPosterVisible ?: true)
+    }
+
+    @Test fun emptyLoadingWindowDefersFocusInsteadOfTargetingUnattachedRequester() {
+        assertEquals(null, ExtrasPosterReturnPolicy.resolve(42, emptyList()))
+        val fallback = ExtrasPosterReturnPolicy.resolve(
+            selectedId = null, results = listOf(item(9))
+        )
+        assertEquals(0, fallback?.index)
+        assertFalse(fallback?.selectedPosterVisible ?: true)
+    }
 }
