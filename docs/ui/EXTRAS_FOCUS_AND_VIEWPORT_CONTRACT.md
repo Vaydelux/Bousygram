@@ -17,9 +17,10 @@ flowchart TB
     C -->|Down / Right| C
     C -->|Back| F
     F -->|Down when collapsed| G["Poster grid: movie, TV or anime"]
-    G -->|Center| D["Details: title / synopsis / primary Play action"]
-    D --> X["Trailer · seasons / episodes"]
-    X --> R["Related titles · Reviews"]
+    G -->|Center| D["Details: title / synopsis"]
+    D --> P["Movie or Anime: Play · TV: Season selection"]
+    P --> X["Episodes · Trailer · Regional availability"]
+    X --> R["Cast · Related titles · Reviews"]
     R -->|Select related title| D
     D -->|Back| G
     G -->|Up from first result| F
@@ -38,6 +39,10 @@ flowchart TB
   its previous index and selected poster focus are restored.
 - Dropdowns have a bounded 320dp menu height for short TV viewports; menu items
   retain 48dp minimum control height and keyboard focus.
+- When details open on TV, the lazy list scrolls the primary action into
+  composition, then requests focus: Play for Movies/Anime, or the first Season
+  chip for TV. Seasons and episodes precede trailers, streaming availability
+  and cast so remote users do not navigate through secondary metadata first.
 - Season and related-title carousels form focus groups for horizontal traversal.
   Cast credits are informational and do not trap D-pad focus. Search clear,
   retry, filter reset, paging, episode play and review expansion remain reachable.
