@@ -25,7 +25,7 @@ fi
 # Screenshot files are produced by the Compose tests inside the debuggable
 # target app. Pull each into CI artifacts; a missing image fails visual QA.
 mkdir -p ci-artifacts/ui-evidence
-for name in telegram-library themes-midnight mode-selection media-favorites \
+for name in telegram-library telegram-home-overview themes-midnight mode-selection media-favorites \
   component-theme-dark component-theme-aurora component-theme-obsidian \
   component-theme-evergreen component-theme-ember component-theme-high-contrast component-theme-light \
   component-theme-ocean component-theme-plum component-theme-ivory \
