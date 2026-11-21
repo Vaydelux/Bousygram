@@ -1691,7 +1691,10 @@ internal fun ExtrasDetailContent(
     isSaved: Boolean = false,
     libraryReady: Boolean = false,
     libraryBusy: Boolean = false,
-    onSaveToggle: () -> Unit = {}
+    onSaveToggle: () -> Unit = {},
+    animeTmdbMatch: ExtrasAnimeTmdbMatch? = null,
+    animeMatchError: String? = null,
+    onManageAnimeMatch: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val metrics = rememberAdaptiveMetrics()
@@ -1812,6 +1815,28 @@ internal fun ExtrasDetailContent(
                 val total = info.episodeCount?.takeIf { it > 0 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Anime episodes", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (animeTmdbMatch == null)
+                            "AniList episode numbering · episode descriptions may be unavailable."
+                        else "AniList playback ID #${info.item.id} · Episode guide from TMDB: " +
+                            "${animeTmdbMatch.tmdbTitle} / Season ${animeTmdbMatch.tmdbSeason}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = onManageAnimeMatch,
+                        modifier = Modifier.extrasFocusOutline()
+                            .heightIn(min = spec.controlHeightDp.dp)
+                            .testTag("extras-anime-manage-episode-metadata")
+                    ) {
+                        Text(if (animeTmdbMatch == null) "Find TMDB episode descriptions"
+                            else "Review or remove TMDB episode match", maxLines = 2)
+                    }
+                    if (animeMatchError != null) {
+                        Text(animeMatchError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -1829,12 +1854,34 @@ internal fun ExtrasDetailContent(
                             style = MaterialTheme.typography.titleMedium.tabular()
                         )
                         OutlinedButton(
-                            onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: 9999) },
-                            enabled = episodeNumber < (total ?: 9999),
+                            onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: episodeNumber) },
+                            enabled = total != null && episodeNumber < total,
                             shape = RoundedCornerShape(LocalBousygramStyleSpec.current.tabCorner),
                             modifier = Modifier.extrasFocusOutline().testTag("extras-anime-next-episode")
                         ) {
                             BousygramIcon(icon = BousygramIcons.Plus, contentDescription = "Next episode", size = 16.dp)
+                        }
+                    }
+                    if (total != null && info.seasons.isEmpty()) {
+                        val page = (episodeNumber - 1) / 48
+                        val from = page * 48 + 1
+                        val through = (from + 47).coerceAtMost(total)
+                        Text("Choose an episode · $from–$through of $total",
+                            style = MaterialTheme.typography.labelMedium)
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth()
+                                .testTag("extras-anime-episode-list"),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items((from..through).toList(), key = { it }) { number ->
+                                FilterChip(
+                                    selected = number == episodeNumber,
+                                    onClick = { episodeNumber = number },
+                                    modifier = Modifier.extrasFocusOutline().heightIn(min = 48.dp)
+                                        .testTag("extras-anime-episode-${number}"),
+                                    label = { Text("E$number") }
+                                )
+                            }
                         }
                     }
                     Button(
@@ -1865,7 +1912,8 @@ internal fun ExtrasDetailContent(
         if (info.seasons.isNotEmpty()) {
             item {
                 Text(
-                    "Seasons & Episodes",
+                    if (info.item.type == ExtrasType.ANIME) "TMDB matched episode guide"
+                        else "Seasons & Episodes",
                     modifier = Modifier.testTag("extras-seasons-heading"),
                     style = MaterialTheme.typography.titleMedium
                 )
@@ -1950,7 +1998,7 @@ internal fun ExtrasDetailContent(
             }
         } else if (info.item.type == ExtrasType.ANIME) {
             item {
-                Text("AniList supplies episode counts, airing information and related series; it does not provide a complete per-episode guide for every anime.",
+                Text("AniList supplies episode counts, airing information and related series. TMDB enrichment is optional and must be matched to the correct entry and episode numbering.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
