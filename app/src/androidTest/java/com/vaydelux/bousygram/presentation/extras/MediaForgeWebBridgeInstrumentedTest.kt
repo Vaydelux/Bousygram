@@ -168,7 +168,7 @@ class MediaForgeWebBridgeInstrumentedTest {
             }
             view.webViewClient.onPageStarted(view, offlineEmbed, null)
             view.webViewClient.onReceivedHttpError(view, childRequest, response)
-            view.webChromeClient.onConsoleMessage(ConsoleMessage(
+            requireNotNull(view.webChromeClient).onConsoleMessage(ConsoleMessage(
                 "Refused to frame due to frame-ancestors at https://secret.example/token=private",
                 "https://secret.example", 8, ConsoleMessage.MessageLevel.ERROR
             ))
