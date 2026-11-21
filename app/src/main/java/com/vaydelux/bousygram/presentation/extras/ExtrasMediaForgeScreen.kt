@@ -238,7 +238,9 @@ internal fun extrasEmbedPanelLimits(
 internal fun ExtrasMediaForgeScreen(
     request: ExtrasEmbedRequest,
     onBack: () -> Unit,
-    isAndroidTv: Boolean
+    isAndroidTv: Boolean,
+    episodeGuide: ExtrasEpisodeGuide? = null,
+    onEpisodeSelected: (ExtrasEmbedRequest) -> Unit = {}
 ) {
     // Extras draws its own backgrounds. Never inherit Android's default
     // black content color on Midnight, Aurora, Evergreen or other themes.
@@ -289,7 +291,9 @@ internal fun ExtrasMediaForgeScreen(
                 onLegacyEmbedHeavenToggle = { useLegacyEmbedHeaven = it },
                 selectedAnimeServer = selectedAnimeServer,
                 onAnimeServerSelected = { selectedAnimeServer = it },
-                onChooseAnimeServer = { animeServerConfirmed = false }
+                onChooseAnimeServer = { animeServerConfirmed = false },
+                episodeGuide = episodeGuide,
+                onEpisodeSelected = onEpisodeSelected
             )
         }
     }
@@ -306,7 +310,9 @@ private fun ExtrasMediaForgePlayerScreen(
     onLegacyEmbedHeavenToggle: (Boolean) -> Unit,
     selectedAnimeServer: ExtrasAnimeEmbedServer,
     onAnimeServerSelected: (ExtrasAnimeEmbedServer) -> Unit,
-    onChooseAnimeServer: () -> Unit
+    onChooseAnimeServer: () -> Unit,
+    episodeGuide: ExtrasEpisodeGuide?,
+    onEpisodeSelected: (ExtrasEmbedRequest) -> Unit
 ) {
     // One SDK session owns each user's selected Extras embed.
     val sdk = remember { MediaForgeSdk() }
@@ -732,6 +738,16 @@ private fun ExtrasMediaForgePlayerScreen(
                     onCompatibility = { tryCompatibilityMode() },
                     onLegacy = { tryLegacyWebMode() }
                 )
+                // The same bounded, source-preserving navigator works in
+                // Anime and TV. Movies have no episode identity.
+                if (episodeGuide != null && request.episode != null) {
+                    ExtrasPlayerEpisodeControls(
+                        request = request,
+                        guide = episodeGuide,
+                        onSelect = onEpisodeSelected
+                    )
+                }
+
                 if (request.tmdbId > 0 && request.season == null &&
                     selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
                 ) {

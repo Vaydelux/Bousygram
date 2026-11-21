@@ -169,6 +169,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
 
     // Isolated from Telegram favorites, auth and streaming sources.
     val libraryStore = remember(context) { ExtrasPersonalLibrary(context.applicationContext) }
+    val animeMatchStore = remember(context) { ExtrasAnimeTmdbMatchStore(context.applicationContext) }
     val libraryScope = rememberCoroutineScope()
     var personalLibrary by remember { mutableStateOf(ExtrasLibrarySnapshot()) }
     var personalLibraryReady by remember { mutableStateOf(false) }
@@ -309,6 +310,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var detailError by remember { mutableStateOf<String?>(null) }
     var detailLoading by remember { mutableStateOf(false) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
+    var animeTmdbMatch by remember { mutableStateOf<ExtrasAnimeTmdbMatch?>(null) }
+    var showAnimeMatchDialog by remember { mutableStateOf(false) }
+    var animeMatchError by remember { mutableStateOf<String?>(null) }
     var episodes by remember { mutableStateOf<List<ExtrasEpisode>>(emptyList()) }
     var episodeError by remember { mutableStateOf<String?>(null) }
     var seasonLoading by remember { mutableStateOf(false) }
@@ -373,7 +377,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     Text("Movies and TV Shows: The Movie Database (TMDB).")
                     Text("Regional watch availability data supplied by JustWatch via TMDB.")
                     Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
-                    Text("Anime: AniList. Titles, artwork, community ratings and linked episodes come from AniList.")
+                    Text("Anime uses AniList for title and playback identity. A manually confirmed TMDB match may add season and episode descriptions, titles, and still images.")
                     Text("Extras web sources open in an isolated WebView; native playback is offered only for observed and validated accessible streams. Bousygram does not host those videos.")
                     Text("TMDB: themoviedb.org · AniList: anilist.co",
                         style = MaterialTheme.typography.labelSmall)
@@ -434,10 +438,20 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         detailLoading = true
         episodes = emptyList()
         selectedSeason = null
+        animeTmdbMatch = if (selected.type == ExtrasType.ANIME)
+            animeMatchStore.get(selected.id) else null
+        animeMatchError = null
+        showAnimeMatchDialog = false
         try {
             val loaded = ExtrasCatalogApi.details(selected)
             currentCoroutineContext().ensureActive()
             detail = loaded
+            if (selected.type == ExtrasType.ANIME && animeTmdbMatch != null) {
+                // AniList remains one playback title. An explicit TMDB season
+                // mapping is only for this entry's metadata, not navigation
+                // to a different AniList show.
+                selectedSeason = 1
+            }
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
@@ -461,34 +475,94 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         }
     }
 
-    LaunchedEffect(detail?.item?.id, selectedSeason, seasonRetry) {
+    LaunchedEffect(detail?.item?.id, detail?.item?.type, selectedSeason, seasonRetry, animeTmdbMatch) {
         val current = detail ?: return@LaunchedEffect
-        val season = selectedSeason ?: return@LaunchedEffect
-        if (current.item.type != ExtrasType.TV) return@LaunchedEffect
+        val selected = selectedSeason ?: return@LaunchedEffect
+        val match = animeTmdbMatch?.takeIf {
+            current.item.type == ExtrasType.ANIME && it.anilistId == current.item.id
+        }
+        if (current.item.type != ExtrasType.TV && match == null) return@LaunchedEffect
+        val tvId = match?.tmdbTvId ?: current.item.id
+        val tmdbSeason = match?.tmdbSeason ?: selected
         episodes = emptyList()
         episodeError = null
         seasonLoading = true
         try {
-            val loaded = ExtrasCatalogApi.season(current.item.id, season)
+            val loaded = ExtrasCatalogApi.season(tvId, tmdbSeason)
             currentCoroutineContext().ensureActive()
-            episodes = loaded
+            episodes = if (match == null) loaded else loaded.mapNotNull { episode ->
+                val n = match.anilistEpisode(episode.number)
+                    ?.takeIf { it <= (current.episodeCount ?: Int.MAX_VALUE) }
+                    ?: return@mapNotNull null
+                episode.copy(number = n)
+            }
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             episodeError = ExtrasFailurePolicy.message(e)
         } finally {
-            if (selectedSeason == season && detail?.item?.id == current.item.id) {
+            if (selectedSeason == selected && detail?.item?.id == current.item.id) {
                 seasonLoading = false
             }
         }
     }
 
+    if (showAnimeMatchDialog && activeEmbed == null && detail?.item?.type == ExtrasType.ANIME) {
+        val open = detail!!
+        ExtrasAnimeTmdbMatchDialog(
+            anime = open,
+            existing = animeTmdbMatch,
+            onDismiss = { showAnimeMatchDialog = false },
+            onConfirm = { match ->
+                if (animeMatchStore.save(match)) {
+                    animeTmdbMatch = match
+                    selectedSeason = 1
+                    seasonRetry += 1
+                    showAnimeMatchDialog = false
+                    animeMatchError = null
+                } else {
+                    animeMatchError = "The TMDB episode guide could not be saved to device storage."
+                }
+            },
+            onRemove = {
+                if (animeMatchStore.remove(open.item.id)) {
+                    animeTmdbMatch = null
+                    selectedSeason = null
+                    episodes = emptyList()
+                    showAnimeMatchDialog = false
+                    animeMatchError = null
+                } else {
+                    animeMatchError = "The local TMDB guide could not be removed."
+                }
+            }
+        )
+    }
+
     if (activeEmbed != null) {
+        val current = activeEmbed!!
+        // All playback requests stay bound to their original provider ID.
+        val activeDetail = detail?.takeIf { info ->
+            (current.anilistId > 0 && info.item.type == ExtrasType.ANIME &&
+                current.anilistId == info.item.id) ||
+                (current.tmdbId > 0 && info.item.type == ExtrasType.TV &&
+                    current.tmdbId == info.item.id)
+        }
+        val guide = activeDetail?.let { info ->
+            ExtrasEpisodeGuide(
+                catalogType = info.item.type,
+                titleId = info.item.id,
+                seasons = info.seasons,
+                animeEpisodeCount = info.episodeCount,
+                animeTmdbMatch = if (info.item.type == ExtrasType.ANIME) animeTmdbMatch else null
+            )
+        }
         ExtrasMediaForgeScreen(
-            request = activeEmbed!!,
+            request = current,
             isAndroidTv = isAndroidTv,
-            onBack = { activeEmbed = null }
+            onBack = { activeEmbed = null },
+            episodeGuide = guide,
+            onEpisodeSelected = { next -> activeEmbed = next }
         )
     } else {
     // Backdrop is draw-only, so give default Text a real themed foreground.
@@ -657,18 +731,35 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     )
                 }
             } else detail?.let { info ->
-                ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
+                // TMDB episode cards are a separate *metadata view* on an
+                // AniList anime entry; only the original AniList ID is used
+                // when Play is selected.
+                val displayInfo = if (info.item.type == ExtrasType.ANIME &&
+                    animeTmdbMatch?.anilistId == info.item.id
+                ) info.copy(seasons = listOf(ExtrasSeason(
+                    number = 1,
+                    name = "AniList entry · TMDB S${animeTmdbMatch!!.tmdbSeason}",
+                    episodeCount = info.episodeCount ?: 0
+                ))) else info
+                ExtrasDetailContent(displayInfo, episodes, selectedSeason, seasonLoading, episodeError,
                     onSeason = { selectedSeason = it },
                     onPlayMovie = { activeEmbed = ExtrasEmbedRequest.movie(info.item.id, info.item.title) },
                     onPlayAnime = { episodeNumber ->
                         activeEmbed = ExtrasEmbedRequest.anime(info.item.id, episodeNumber, info.item.title)
                     },
                     onPlayEpisode = { episodeNumber ->
-                        selectedSeason?.let { season ->
-                            activeEmbed = ExtrasEmbedRequest.episode(info.item.id, season, episodeNumber, info.item.title)
+                        if (info.item.type == ExtrasType.ANIME) {
+                            activeEmbed = ExtrasEmbedRequest.anime(info.item.id, episodeNumber, info.item.title)
+                        } else {
+                            selectedSeason?.let { season ->
+                                activeEmbed = ExtrasEmbedRequest.episode(info.item.id, season, episodeNumber, info.item.title)
+                            }
                         }
                     },
                     onSeasonRetry = { seasonRetry += 1 },
+                    animeTmdbMatch = animeTmdbMatch,
+                    animeMatchError = animeMatchError,
+                    onManageAnimeMatch = { showAnimeMatchDialog = true },
                     onOpenItem = { related ->
                         detailItem?.let {
                             if (detailHistory.size >= 20) detailHistory.removeAt(0)
@@ -1600,7 +1691,10 @@ internal fun ExtrasDetailContent(
     isSaved: Boolean = false,
     libraryReady: Boolean = false,
     libraryBusy: Boolean = false,
-    onSaveToggle: () -> Unit = {}
+    onSaveToggle: () -> Unit = {},
+    animeTmdbMatch: ExtrasAnimeTmdbMatch? = null,
+    animeMatchError: String? = null,
+    onManageAnimeMatch: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val metrics = rememberAdaptiveMetrics()
@@ -1721,6 +1815,28 @@ internal fun ExtrasDetailContent(
                 val total = info.episodeCount?.takeIf { it > 0 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Anime episodes", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (animeTmdbMatch == null)
+                            "AniList episode numbering · episode descriptions may be unavailable."
+                        else "AniList playback ID #${info.item.id} · Episode guide from TMDB: " +
+                            "${animeTmdbMatch.tmdbTitle} / Season ${animeTmdbMatch.tmdbSeason}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = onManageAnimeMatch,
+                        modifier = Modifier.extrasFocusOutline()
+                            .heightIn(min = spec.controlHeightDp.dp)
+                            .testTag("extras-anime-manage-episode-metadata")
+                    ) {
+                        Text(if (animeTmdbMatch == null) "Find TMDB episode descriptions"
+                            else "Review or remove TMDB episode match", maxLines = 2)
+                    }
+                    if (animeMatchError != null) {
+                        Text(animeMatchError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -1738,12 +1854,34 @@ internal fun ExtrasDetailContent(
                             style = MaterialTheme.typography.titleMedium.tabular()
                         )
                         OutlinedButton(
-                            onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: 9999) },
-                            enabled = episodeNumber < (total ?: 9999),
+                            onClick = { episodeNumber = (episodeNumber + 1).coerceAtMost(total ?: episodeNumber) },
+                            enabled = total != null && episodeNumber < total,
                             shape = RoundedCornerShape(LocalBousygramStyleSpec.current.tabCorner),
                             modifier = Modifier.extrasFocusOutline().testTag("extras-anime-next-episode")
                         ) {
                             BousygramIcon(icon = BousygramIcons.Plus, contentDescription = "Next episode", size = 16.dp)
+                        }
+                    }
+                    if (total != null && info.seasons.isEmpty()) {
+                        val page = (episodeNumber - 1) / 48
+                        val from = page * 48 + 1
+                        val through = (from + 47).coerceAtMost(total)
+                        Text("Choose an episode · $from–$through of $total",
+                            style = MaterialTheme.typography.labelMedium)
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth()
+                                .testTag("extras-anime-episode-list"),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items((from..through).toList(), key = { it }) { number ->
+                                FilterChip(
+                                    selected = number == episodeNumber,
+                                    onClick = { episodeNumber = number },
+                                    modifier = Modifier.extrasFocusOutline().heightIn(min = 48.dp)
+                                        .testTag("extras-anime-episode-${number}"),
+                                    label = { Text("E$number") }
+                                )
+                            }
                         }
                     }
                     Button(
@@ -1774,7 +1912,8 @@ internal fun ExtrasDetailContent(
         if (info.seasons.isNotEmpty()) {
             item {
                 Text(
-                    "Seasons & Episodes",
+                    if (info.item.type == ExtrasType.ANIME) "TMDB matched episode guide"
+                        else "Seasons & Episodes",
                     modifier = Modifier.testTag("extras-seasons-heading"),
                     style = MaterialTheme.typography.titleMedium
                 )
@@ -1859,7 +1998,7 @@ internal fun ExtrasDetailContent(
             }
         } else if (info.item.type == ExtrasType.ANIME) {
             item {
-                Text("AniList supplies episode counts, airing information and related series; it does not provide a complete per-episode guide for every anime.",
+                Text("AniList supplies episode counts, airing information and related series. TMDB enrichment is optional and must be matched to the correct entry and episode numbering.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -2062,7 +2201,10 @@ internal fun ExtrasDetailContent(
             }
         }
         item {
-            Text((if (info.item.type == ExtrasType.ANIME) "Anime metadata from AniList." else "This product uses the TMDB API but is not endorsed or certified by TMDB.") + " Catalog metadata does not provide streaming sources. Web embeds are third-party and may be unavailable.",
+            Text((if (info.item.type == ExtrasType.ANIME)
+                "Anime title and playback identity: AniList. Matched episode descriptions and stills, when selected: TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB."
+                else "This product uses the TMDB API but is not endorsed or certified by TMDB.") +
+                " Catalog metadata does not provide streaming sources. Web embeds are third-party and may be unavailable.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

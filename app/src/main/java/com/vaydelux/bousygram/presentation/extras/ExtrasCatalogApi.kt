@@ -249,6 +249,28 @@ object ExtrasCatalogApi {
         else tmdbDetails(item)
     }
 
+    /**
+     * Candidates only. Search cannot prove an AniList ↔ TMDB identity or
+     * episode numbering, so the user must explicitly review and confirm.
+     * Anime catalog and streaming continue to use the original AniList ID.
+     */
+    suspend fun animeTmdbCandidates(title: String): List<ExtrasItem> = withContext(Dispatchers.IO) {
+        require(title.isNotBlank())
+        val response = tmdbGet("/search/tv", mapOf(
+            "query" to title.take(120),
+            "language" to "en-US",
+            "page" to "1",
+            "include_adult" to "false"
+        ))
+        arrayObjects(response.optJSONArray("results"))
+            .asSequence()
+            .filterNot { it.optBoolean("adult", false) }
+            .mapNotNull { tmdbItem(ExtrasType.TV, it) }
+            .distinctBy { it.id }
+            .take(12)
+            .toList()
+    }
+
     suspend fun season(showId: Int, number: Int): List<ExtrasEpisode> = withContext(Dispatchers.IO) {
         require(showId > 0 && number >= 0)
         val body = tmdbGet("/tv/$showId/season/$number", emptyMap())
