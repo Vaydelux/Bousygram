@@ -42,6 +42,7 @@ import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.presentation.adaptive.BousygramDisplayTier
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.components.BousygramCompactPageTitle
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramIconButton
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
@@ -147,23 +148,10 @@ fun FavoritesScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(if (adaptive.isShortWindow) 6.dp else 12.dp)) {
                 if (adaptive.isShortWindow) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Favorites",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            if (state.isLoading) "Loading…" else "${state.items.size} saved",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    BousygramCompactPageTitle(
+                        title = "Favorites",
+                        status = if (state.isLoading) "Loading…" else "${state.items.size} saved"
+                    )
                 } else {
                     BousygramPageHeading(
                         eyebrow = "Telegram media  /  Your collection",
