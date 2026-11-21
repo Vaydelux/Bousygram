@@ -28,6 +28,8 @@ class TelegramHomeOverviewInstrumentedTest {
                     connection = null,
                     isTv = false,
                     privacyMode = false,
+                    hasResume = false,
+                    onResume = {},
                     onPlay = {},
                     onFocusedMedia = {},
                     onOpenLibrary = {},
