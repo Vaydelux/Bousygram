@@ -73,16 +73,36 @@ class ExtrasLayoutPolicyTest {
             isTv = true, isShortWindow = true, effectiveHeightDp = Float.POSITIVE_INFINITY))
     }
 
-    @Test fun shortLandscapePhoneUsesSingleRowChrome() {
-        for ((width, height) in listOf(740f to 360f, 844f to 390f, 640f to 360f)) {
+    @Test fun shortLandscapePhoneUsesStackedControlsWhenToolbarWouldCrowd() {
+        // 640/740dp landscape phones are too narrow for the inline tab/search/
+        // filter row. Keep 48dp touch targets and readable poster widths.
+        for ((width, height) in listOf(640f to 360f, 740f to 360f)) {
             val layout = ExtrasLayoutPolicy.resolve(width, height, false)
-            assertTrue("Landscape toolbar at $width x $height", layout.landscapeToolbar)
+            assertFalse("Toolbar should stack at $width x $height", layout.landscapeToolbar)
+            assertTrue(layout.compactHeader)
             assertEquals(48, layout.minControlHeightDp)
-            assertEquals(16, layout.horizontalGutterDp)
-            assertEquals(6, layout.filterResultsGapDp)
-            assertEquals(124, layout.gridCardMinWidthDp)
-            assertEquals(8, layout.gridGapDp)
+            assertTrue(layout.horizontalGutterDp >= 16)
+            assertTrue(layout.filterResultsGapDp >= 10)
+            assertTrue(layout.gridCardMinWidthDp >= 144)
         }
+    }
+
+    @Test fun sufficientlyWideShortLandscapeUsesCompactInlineToolbar() {
+        val narrowShort = ExtrasLayoutPolicy.resolve(760f, 360f, false)
+        assertTrue(narrowShort.landscapeToolbar)
+        assertEquals(48, narrowShort.minControlHeightDp)
+        assertEquals(16, narrowShort.horizontalGutterDp)
+        assertEquals(6, narrowShort.filterResultsGapDp)
+        assertEquals(112, narrowShort.gridCardMinWidthDp)
+        assertEquals(8, narrowShort.gridGapDp)
+
+        val wideShort = ExtrasLayoutPolicy.resolve(844f, 390f, false)
+        assertTrue(wideShort.landscapeToolbar)
+        assertEquals(132, wideShort.gridCardMinWidthDp)
+        assertEquals(16, wideShort.horizontalGutterDp)
+    }
+
+    @Test fun inlineLandscapeToolbarNeverLeaksToPortraitTvOrLargeFont() {
         assertFalse(ExtrasLayoutPolicy.resolve(390f, 844f, false).landscapeToolbar)
         assertFalse(ExtrasLayoutPolicy.resolve(960f, 540f, true).landscapeToolbar)
         assertFalse(ExtrasLayoutPolicy.resolve(1024f, 768f, false).landscapeToolbar)
