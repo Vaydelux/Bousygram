@@ -96,6 +96,73 @@ class MediaForgeWebBridgeInstrumentedTest {
         }
     }
 
+    @Test fun explicitlySelectedLegacyWindowModeRestoresOldBrowserRoutingSafely() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val bridge = MediaForgeWebBridge(onMediaResource = {})
+            val view = bridge.create(
+                instrumentation.targetContext, offlineEmbed,
+                compatibilityMode = true, legacyWindowRouting = true
+            )
+            try {
+                val settings = view.settings
+                assertFalse("Legacy mode uses the original single-window routing",
+                    settings.supportMultipleWindows())
+                assertFalse(settings.mediaPlaybackRequiresUserGesture)
+                assertTrue(CookieManager.getInstance().acceptThirdPartyCookies(view))
+                assertFalse(settings.javaScriptCanOpenWindowsAutomatically)
+                assertFalse(settings.allowFileAccess)
+                assertFalse(settings.allowContentAccess)
+                assertEquals(WebSettings.MIXED_CONTENT_NEVER_ALLOW, settings.mixedContentMode)
+                fun request(url: String) = object : WebResourceRequest {
+                    override fun getUrl(): Uri = Uri.parse(url)
+                    override fun isForMainFrame(): Boolean = true
+                    override fun isRedirect(): Boolean = false
+                    override fun hasGesture(): Boolean = true
+                    override fun getMethod(): String = "GET"
+                    override fun getRequestHeaders(): Map<String, String> = emptyMap()
+                }
+                // Even in legacy mode, an ad or a different movie cannot
+                // replace the selected source in the primary WebView.
+                assertTrue(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://advert.example.net/click")
+                ))
+                assertTrue(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("https://mediaforge.example.invalid/embed/movie/43")
+                ))
+                assertFalse(view.webViewClient.shouldOverrideUrlLoading(
+                    view, request("$offlineEmbed?server=2")
+                ))
+            } finally {
+                bridge.close()
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            }
+        }
+    }
+
+    @Test fun legacyWindowModeIsImpossibleWithoutExplicitCookieAutoplayConsent() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val bridge = MediaForgeWebBridge(onMediaResource = {})
+            try {
+                try {
+                    val unexpected = bridge.create(
+                        instrumentation.targetContext, offlineEmbed,
+                        compatibilityMode = false, legacyWindowRouting = true
+                    )
+                    unexpected.destroy()
+                    fail("Legacy window mode must require explicit compatibility consent")
+                } catch (_: IllegalArgumentException) {
+                    // Expected before WebView allocation and provider navigation.
+                }
+            } finally {
+                bridge.close()
+            }
+        }
+    }
+
     @Test fun successfulSelectedPageClearsPriorFailureButFailedPageCannot() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {

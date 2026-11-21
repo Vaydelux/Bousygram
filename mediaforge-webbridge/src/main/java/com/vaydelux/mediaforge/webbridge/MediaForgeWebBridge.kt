@@ -42,7 +42,8 @@ enum class MediaForgeWebIssue {
     VIDEO_UNSUPPORTED,
     SUBRESOURCE_HTTP,
     SUBRESOURCE_NETWORK,
-    SUBRESOURCE_TLS
+    SUBRESOURCE_TLS,
+    NAVIGATION_BLOCKED
 }
 
 /** Classify only recognisable browser failures; unknown messages are discarded. */
@@ -130,7 +131,15 @@ class MediaForgeWebBridge(
     fun rendererGone(view: WebView): Boolean = rendererGoneViews.contains(view)
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun create(context: Context, embedUrl: String, compatibilityMode: Boolean = false): WebView {
+    fun create(
+        context: Context,
+        embedUrl: String,
+        compatibilityMode: Boolean = false,
+        legacyWindowRouting: Boolean = false
+    ): WebView {
+        require(!legacyWindowRouting || compatibilityMode) {
+            "Legacy window routing requires explicit WebView compatibility mode"
+        }
         check(open.get()) { "A closed MediaForge WebBridge cannot create a new WebView" }
         val approved = MediaForgeUrlPolicy.safeHttpsUrl(embedUrl)
             ?: throw IllegalArgumentException("Invalid external embed URL")
@@ -144,12 +153,14 @@ class MediaForgeWebBridge(
             allowFileAccess = false
             allowContentAccess = false
             javaScriptCanOpenWindowsAutomatically = false
-            // Critical: with false, window.open/target=_blank can replace the
-            // player in the *main* frame, where our episode-identity policy
-            // correctly rejects it but may leave the embed blank. With true
-            // and no onCreateWindow handler, Chromium rejects the popup
-            // without navigating away from the selected episode.
-            setSupportMultipleWindows(true)
+            // Strict/default: isolate blocked ad popups in a separate window
+            // request (which this app never honors). Some providers formerly
+            // used single-window routing for their playback handoff; an
+            // explicitly user-selected legacy recovery mode restores that
+            // behavior while shouldOverrideUrlLoading still enforces HTTPS,
+            // the original host, selected title and episode identity.
+            // Never enable automatic JavaScript popups or child WebViews.
+            setSupportMultipleWindows(!legacyWindowRouting)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
         }
@@ -210,7 +221,10 @@ class MediaForgeWebBridge(
                 val allowed = MediaForgeEmbedNavigationPolicy.allows(
                     approved, request.url.toString()
                 )
-                if (!allowed) onNavigationBlocked?.invoke()
+                if (!allowed) {
+                    reportIssue(MediaForgeWebIssue.NAVIGATION_BLOCKED)
+                    onNavigationBlocked?.invoke()
+                }
                 return !allowed
             }
 

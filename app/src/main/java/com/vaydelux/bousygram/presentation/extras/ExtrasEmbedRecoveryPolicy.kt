@@ -12,6 +12,7 @@ internal fun preferredAnimeWebIssue(
         MediaForgeWebIssue.VIDEO_UNSUPPORTED -> 5
         MediaForgeWebIssue.AUTOPLAY_DENIED -> 4
         MediaForgeWebIssue.SUBRESOURCE_TLS -> 3
+        MediaForgeWebIssue.NAVIGATION_BLOCKED -> 2
         MediaForgeWebIssue.SUBRESOURCE_HTTP -> 2
         MediaForgeWebIssue.SUBRESOURCE_NETWORK -> 1
     }
@@ -36,6 +37,8 @@ internal fun animeWebIssueRecoveryMessage(issue: MediaForgeWebIssue?): String = 
         "A background provider request failed. Check the connection and try reloading or switching server."
     MediaForgeWebIssue.SUBRESOURCE_TLS ->
         "A provider resource failed TLS verification. For safety the connection was blocked; choose another server."
+    MediaForgeWebIssue.NAVIGATION_BLOCKED ->
+        "The provider tried to leave the selected video page. The app blocked it to prevent unwanted ads and title changes. If the player stays blank, try the optional legacy mode."
     null ->
         "This player may require a user tap or cross-site cookies. Try compatibility mode or another server."
 }
@@ -52,4 +55,14 @@ internal fun shouldOfferAnimeBlankPageHelp(
     immersive: Boolean,
     detectedVideo: Boolean,
     longLoad: Boolean
-): Boolean = isAnime && !loadFailed && !immersive && !detectedVideo && longLoad
+): Boolean = isAnime && shouldOfferExtrasBlankPageHelp(
+    loadFailed, immersive, detectedVideo, longLoad
+)
+
+/** Every Extras embed (TMDB movie, episode or AniList) shares the same WebView. */
+internal fun shouldOfferExtrasBlankPageHelp(
+    loadFailed: Boolean,
+    immersive: Boolean,
+    detectedVideo: Boolean,
+    longLoad: Boolean
+): Boolean = !loadFailed && !immersive && !detectedVideo && longLoad
