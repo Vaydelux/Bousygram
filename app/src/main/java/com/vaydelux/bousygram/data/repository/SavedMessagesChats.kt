@@ -50,6 +50,8 @@ internal suspend fun loadVideoChats(
         loadChatList(owner, TdApi.ChatListArchive(), limit, archivedSources, ::boundedRequest, ::publish)
     }
     val results = listOf(main, archive).awaitAll()
+    // Also publish on a cache hit where no new GetChat calls were needed.
+    publish()
     // Do not infer directory exhaustion from the number of visible groups:
     // private chats may occupy most of the scanned Telegram dialog list.
     onHasMore(results.any { it.hasMore })
@@ -76,7 +78,11 @@ private suspend fun loadChatList(
         val response = request(TdApi.GetChats(chatList, queryLimit))
         val ids = (response as? TdApi.Chats)?.chatIds
             ?: return ChatListLoadResult(directoryError(response), hasMore = true)
-        val removed = sources.keys.retainAll(ids.toSet())
+        // GetChats expands an accumulated prefix. Do not drop already resolved
+        // metadata when the first small prefix is returned during a later scan.
+        val removed = if (ids.size >= limit || (endOfList && ids.size < queryLimit)) {
+            sources.keys.retainAll(ids.toSet())
+        } else false
         val batches = ids.filterNot { it in sources }.chunked(CHAT_PICKER_DETAIL_BATCH)
 
         for ((index, batch) in batches.withIndex()) {
