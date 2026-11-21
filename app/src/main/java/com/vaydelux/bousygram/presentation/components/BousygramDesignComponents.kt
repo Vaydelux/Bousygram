@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -53,6 +54,16 @@ import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
+
+/**
+ * One line-height contract for navigation tabs and action buttons across
+ * Telegram Home/Library/Search/Favorites and Extras. Font scaling remains
+ * enabled; the baseline and vertical hit target are consistent on all routes.
+ */
+@Composable
+internal fun bousygramControlLabelStyle(isTv: Boolean) =
+    (if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge)
+        .copy(lineHeight = if (isTv) 22.sp else 20.sp)
 
 /** Shared information hierarchy for Telegram Library, Favorites and Extras. */
 @Composable
@@ -115,6 +126,39 @@ fun BousygramPageHeading(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = if (compact) 1 else 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/** Unified content-first title for short portrait/landscape routes and results. */
+@Composable
+fun BousygramCompactPageTitle(
+    title: String,
+    status: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleLarge.copy(lineHeight = 28.sp),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (status.isNotBlank()) {
+            Text(
+                text = status,
+                style = MaterialTheme.typography.labelMedium.copy(lineHeight = 18.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -316,7 +360,7 @@ fun BousygramSectionTab(
                 if (showLabel) {
                     Text(
                         text = label,
-                        style = if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge,
+                        style = bousygramControlLabelStyle(isTv),
                         fontWeight = if (active || focused) FontWeight.Bold else FontWeight.Medium,
                         color = contentColor,
                         maxLines = 1,

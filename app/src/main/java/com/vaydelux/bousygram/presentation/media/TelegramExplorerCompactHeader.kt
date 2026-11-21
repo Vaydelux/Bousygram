@@ -45,6 +45,10 @@ import com.vaydelux.bousygram.presentation.theme.tabular
  * the fold on 540dp-high Android TVs and short landscape phones while eliminating
  * text abbreviations ("Favs", "Chans") through Lucide iconography + tooltips.
  */
+/** Keep full source names accessible when a compact row cannot fit four labels. */
+internal fun explorerSourceTabsIconOnly(effectiveWidth: Dp, isTv: Boolean, fontScale: Float): Boolean =
+    !isTv && (effectiveWidth < 380.dp || (fontScale >= 1.35f && effectiveWidth < 420.dp))
+
 internal enum class ExplorerHeaderDensity { COMPACT, NORMAL }
 
 internal fun explorerHeaderDensity(isTv: Boolean, widthDp: Dp, heightDp: Dp): ExplorerHeaderDensity =
@@ -90,15 +94,16 @@ internal fun TelegramExplorerCompactHeader(
     val fontScale = LocalDensity.current.fontScale
     val effectiveWidth = widthDp / fontScale.coerceAtLeast(1f)
     val inlineActions = explorerHeaderShowInlineActions(effectiveWidth)
-    // On narrow phones (<380dp), collapse Favorites to a crisp 48dp Lucide heart
-    // pill with tooltip while preserving exact "Saved" / "Channels" / "Groups"
-    // text labels in the scrollable source row (zero abbreviations or cut-offs).
-    val ultraCompactTabs = !isTv && effectiveWidth < 380.dp
+    // At <520dp, four text tabs do not fit reliably: collapse Favorites
+    // to a labelled, accessible heart icon so Saved / Channels / Groups get
+    // the available width. At <380dp, all sources become icon-only below.
     val compactTabs = !isTv && effectiveWidth < 520.dp
-    // At larger accessibility fonts, three text tabs do not fit on 320dp.
-    // Keep every source reachable with a visible focusable icon + tooltip.
-    val iconOnlySourceTabs = !isTv && compactTabs &&
-        fontScale >= 1.35f && effectiveWidth < 420.dp
+    val favoritesIconOnly = compactTabs
+    // Four source actions do not fit as labels on 320-380dp phones (verified
+    // in the emulator: "Channels" was rendered as "Chan…"). Use equal-sized
+    // accessible icons with full labels in semantics/tooltips; also switch
+    // to icons at enlarged text scales before any label clips.
+    val iconOnlySourceTabs = explorerSourceTabsIconOnly(effectiveWidth, isTv, fontScale)
     val showCounts = isTv || effectiveWidth >= 600.dp
     val minControl = if (isTv) BousygramUiTokens.tvControlHeight
         else BousygramUiTokens.compactControlHeight
@@ -367,7 +372,7 @@ internal fun TelegramExplorerCompactHeader(
                 label = "Favorites",
                 accessibilityLabel = "Favorites",
                 icon = BousygramIcons.Favorites,
-                iconOnly = ultraCompactTabs,
+                iconOnly = favoritesIconOnly,
                 compact = compactTabs,
                 active = false,
                 isTv = isTv,
@@ -377,7 +382,7 @@ internal fun TelegramExplorerCompactHeader(
                 onClick = onFavorites,
                 modifier = Modifier
                     .then(
-                        if (ultraCompactTabs) Modifier
+                        if (favoritesIconOnly) Modifier
                         else Modifier.widthIn(min = if (isTv) 132.dp else if (compactTabs) 96.dp else 116.dp)
                     )
                     .testTag("telegram-library-tab-favorites")

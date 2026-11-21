@@ -144,6 +144,7 @@ fun BrowseScreen(
             playable
         }
     }
+    val homeSavedPreview = if (libraryMode) emptyList() else playableVideos(viewModel.homeSavedPreviewItems())
     val browseStateKey = viewModel.currentBrowseStateKey()
     val browseRestoration = remember(browseStateKey) { viewModel.browseRestoration(browseStateKey) }
     val libraryGridState = remember(browseStateKey) {
@@ -216,17 +217,8 @@ fun BrowseScreen(
         viewModel.selectTopic(null)
     }
 
-    // Home is a directory explorer, not a flat category carousel.
-    // One Back moves Media -> Topics/Source and Topics -> Sources before the
-    // Activity can return to the product mode picker.
-    BackHandler(
-        enabled = !libraryMode &&
-            state.quickSearchQuery.isBlank() &&
-            explorerPosition.section != com.vaydelux.bousygram.presentation.media.vm.ExplorerSection.SAVED &&
-            explorerPosition.level != com.vaydelux.bousygram.presentation.media.vm.ExplorerLevel.SOURCES
-    ) {
-        viewModel.explorerBack()
-    }
+    // Library owns folders/topics; Home is a distinct Saved Messages overview.
+    // Back from Home returns to the mode picker, not a hidden Library folder.
 
     val launcher = rememberMediaLauncher(
         screenKey = if (libraryMode) LAUNCH_SCREEN_LIBRARY else LAUNCH_SCREEN_HOME,
@@ -305,66 +297,91 @@ fun BrowseScreen(
             .background(MaterialTheme.colorScheme.background)
             .then(if (adaptive.isTv) Modifier else Modifier.safeDrawingPadding())
     ) {
-            TelegramExplorerDashboard(
-                position = explorerPosition,
-                connection = connection,
-                sources = state.videoChats,
-                topics = state.availableTopics,
-                selectedChatTitle = state.selectedChatTitle,
-                selectedChatId = state.selectedChatId,
-                selectedTopicId = state.selectedTopicId,
-                videos = videos,
-                isLoading = state.isLoading,
-                isLoadingSources = state.isSidebarLoading,
-                isLoadingTopics = state.isLoadingTopics,
-                errorMessage = state.error,
-                sourceErrorMessage = state.sidebarError,
-                isLoadingMore = state.isLoadingMore,
-                hasMore = state.hasMore,
-                discardedMediaCount = state.discardedMediaCount,
-                privacyMode = safeMode,
-                gridState = libraryGridState,
-                sourceFolderRestoration = viewModel.sourceFolderRestoration(explorerPosition.section),
-                onSourceFocused = { viewModel.rememberSourceFolderFocus(explorerPosition.section, it.chatId) },
-                onSourceViewport = { index, offset ->
-                    viewModel.rememberSourceFolderViewport(explorerPosition.section, index, offset)
-                },
-                onSelectTab = viewModel::selectExplorerSection,
-                onSelectSource = viewModel::enterExplorerSource,
-                onSelectTopic = viewModel::enterExplorerTopic,
-                onBrowseAllMedia = viewModel::enterExplorerAllMedia,
-                focusedTopicId = viewModel.focusedExplorerTopic(state.selectedChatId),
-                onTopicFocused = { topicId ->
-                    viewModel.rememberExplorerTopicFocus(state.selectedChatId, topicId)
-                },
-                onGoUp = { viewModel.explorerBack() },
-                onPlay = { openVideo(it) },
-                onFocusMedia = { item ->
-                    viewModel.recordBrowseFocus(item)
-                    viewModel.onItemFocused(item)
-                },
-                restoreFocusedMediaKey = restorationTargetKey,
-                restoreFocusRequester = restoreFocusRequester,
-                onLoadMore = viewModel::loadMoreIfNeeded,
-                onRefreshSources = viewModel::refreshVideoChats,
-                onRefreshTopics = { state.selectedChatId?.let(viewModel::refreshForumTopics) },
-                onRefreshMedia = viewModel::refreshCurrentMedia,
-                onSearch = {
-                    val chatId = viewModel.currentSearchChatId()
-                    if (state.isSavedMessagesSelected && chatId == null) {
-                        onStreamError("Saved Messages is still loading. Try searching again shortly.")
-                    } else {
-                        onOpenSearch(chatId, state.selectedChatTitle)
-                    }
-                },
-                onFavorites = onOpenFavorites,
-                onSettings = onOpenSettings,
-                onNavigate = if (libraryMode) onOpenHome else onOpenLibrary,
-                hasResume = hasSourceResume,
-                onResume = ::openLastPlayed,
-                libraryMode = libraryMode,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (libraryMode) {
+                TelegramExplorerDashboard(
+                    position = explorerPosition,
+                    connection = connection,
+                    sources = state.videoChats,
+                    topics = state.availableTopics,
+                    selectedChatTitle = state.selectedChatTitle,
+                    selectedChatId = state.selectedChatId,
+                    selectedTopicId = state.selectedTopicId,
+                    videos = videos,
+                    isLoading = state.isLoading,
+                    isLoadingSources = state.isSidebarLoading,
+                    hasMoreSources = state.hasMoreChatSources,
+                    isLoadingTopics = state.isLoadingTopics,
+                    errorMessage = state.error,
+                    sourceErrorMessage = state.sidebarError,
+                    isLoadingMore = state.isLoadingMore,
+                    hasMore = state.hasMore,
+                    discardedMediaCount = state.discardedMediaCount,
+                    privacyMode = safeMode,
+                    gridState = libraryGridState,
+                    sourceFolderRestoration = viewModel.sourceFolderRestoration(explorerPosition.section),
+                    onSourceFocused = { viewModel.rememberSourceFolderFocus(explorerPosition.section, it.chatId) },
+                    onSourceViewport = { index, offset ->
+                        viewModel.rememberSourceFolderViewport(explorerPosition.section, index, offset)
+                    },
+                    onSelectTab = viewModel::selectExplorerSection,
+                    onSelectSource = viewModel::enterExplorerSource,
+                    onSelectTopic = viewModel::enterExplorerTopic,
+                    onBrowseAllMedia = viewModel::enterExplorerAllMedia,
+                    focusedTopicId = viewModel.focusedExplorerTopic(state.selectedChatId),
+                    onTopicFocused = { topicId ->
+                        viewModel.rememberExplorerTopicFocus(state.selectedChatId, topicId)
+                    },
+                    onGoUp = { viewModel.explorerBack() },
+                    onPlay = { openVideo(it) },
+                    onFocusMedia = { item ->
+                        viewModel.recordBrowseFocus(item)
+                        viewModel.onItemFocused(item)
+                    },
+                    restoreFocusedMediaKey = restorationTargetKey,
+                    restoreFocusRequester = restoreFocusRequester,
+                    onLoadMore = viewModel::loadMoreIfNeeded,
+                    onLoadMoreSources = viewModel::loadNextChatSources,
+                    onRefreshSources = viewModel::refreshVideoChats,
+                    onRefreshTopics = { state.selectedChatId?.let(viewModel::refreshForumTopics) },
+                    onRefreshMedia = viewModel::refreshCurrentMedia,
+                    onSearch = {
+                        val chatId = viewModel.currentSearchChatId()
+                        if (state.isSavedMessagesSelected && chatId == null) {
+                            onStreamError("Saved Messages is still loading. Try searching again shortly.")
+                        } else {
+                            onOpenSearch(chatId, state.selectedChatTitle)
+                        }
+                    },
+                    onFavorites = onOpenFavorites,
+                    onSettings = onOpenSettings,
+                    onNavigate = if (libraryMode) onOpenHome else onOpenLibrary,
+                    hasResume = hasSourceResume,
+                    onResume = ::openLastPlayed,
+                    libraryMode = libraryMode,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                TelegramHomeOverview(
+                    recentSaved = homeSavedPreview,
+                    isLoadingSaved = state.isSavedMessagesSelected && state.isLoading,
+                    connection = connection,
+                    isTv = adaptive.isTv,
+                    privacyMode = safeMode,
+                    hasResume = hasSourceResume,
+                    onResume = ::openLastPlayed,
+                    onPlay = { item -> launcher.launch(item, homeSavedPreview, "home:saved") },
+                    onFocusedMedia = viewModel::onItemFocused,
+                    onOpenLibrary = onOpenLibrary,
+                    onOpenSection = { section ->
+                        viewModel.selectExplorerSection(section)
+                        onOpenLibrary()
+                    },
+                    onOpenSearch = { onOpenSearch(null, "") },
+                    onOpenFavorites = onOpenFavorites,
+                    onOpenSettings = onOpenSettings,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         LaunchOpeningIndicator(
             launcher = launcher,
             modifier = Modifier

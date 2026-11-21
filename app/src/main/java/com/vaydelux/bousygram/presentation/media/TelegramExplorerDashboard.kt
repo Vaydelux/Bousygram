@@ -85,6 +85,7 @@ fun TelegramExplorerDashboard(
     videos: List<MediaItem>,
     isLoading: Boolean,
     isLoadingSources: Boolean,
+    hasMoreSources: Boolean,
     isLoadingTopics: Boolean,
     errorMessage: String?,
     sourceErrorMessage: String?,
@@ -108,6 +109,7 @@ fun TelegramExplorerDashboard(
     restoreFocusedMediaKey: String?,
     restoreFocusRequester: FocusRequester,
     onLoadMore: () -> Unit,
+    onLoadMoreSources: () -> Unit,
     onRefreshSources: () -> Unit,
     onRefreshTopics: () -> Unit,
     onRefreshMedia: () -> Unit,
@@ -227,7 +229,8 @@ fun TelegramExplorerDashboard(
         }
         val collectionStatus = when {
             showSources -> explorerDirectoryStatus(position.section, directory.size, isLoadingSources) +
-                if (sourceErrorMessage != null && directory.isNotEmpty()) " · Sync incomplete" else ""
+                if (sourceErrorMessage != null && directory.isNotEmpty()) " · Sync incomplete"
+                else if (hasMoreSources && !isLoadingSources) " · More sources available" else ""
             showTopics -> if (isLoadingTopics) "${topics.size} topics · Syncing"
                 else "${topics.size} topics"
             isLoading -> "${videos.size} files · Loading"
@@ -314,6 +317,24 @@ fun TelegramExplorerDashboard(
                                     onSelectSource(source)
                                 }
                             )
+                        }
+                        if (hasMoreSources || sourceErrorMessage != null || isLoadingSources) {
+                            item(key = "more-chat-sources", span = { GridItemSpan(maxLineSpan) }) {
+                                BousygramButton(
+                                    text = when {
+                                        isLoadingSources -> "Loading source folders…"
+                                        sourceErrorMessage != null -> "Retry missing sources"
+                                        else -> "Load more channels and groups"
+                                    },
+                                    leadingIcon = if (sourceErrorMessage != null) BousygramIcons.Refresh
+                                        else BousygramIcons.ChevronDown,
+                                    enabled = !isLoadingSources,
+                                    onClick = if (sourceErrorMessage != null) onRefreshSources
+                                        else onLoadMoreSources,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                        .testTag("telegram-source-load-more")
+                                )
+                            }
                         }
                     }
                 }

@@ -7,6 +7,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TelegramExplorerCompactHeaderPolicyTest {
+    @Test fun narrowPhoneSwitchesToAccessibleIconsInsteadOfTruncatingChannels() {
+        assertTrue(explorerSourceTabsIconOnly(320.dp, isTv = false, fontScale = 1f))
+        assertTrue(explorerSourceTabsIconOnly(360.dp, isTv = false, fontScale = 1f))
+        assertFalse(explorerSourceTabsIconOnly(400.dp, isTv = false, fontScale = 1f))
+        assertTrue(explorerSourceTabsIconOnly(400.dp, isTv = false, fontScale = 1.6f))
+        assertFalse(explorerSourceTabsIconOnly(360.dp, isTv = true, fontScale = 1f))
+    }
+
     @Test fun tvKeepsCompactToolbar() {
         assertEquals(
             ExplorerHeaderDensity.COMPACT,
