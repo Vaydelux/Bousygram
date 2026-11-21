@@ -71,19 +71,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon --console=plain \
-            :app:verifyReleaseVersionPolicy \
-            :app:verifyTdlibAbiCoverage \
-            :app:verifyTvHardeningContract \
-            :app:verifyPrivateMediaCastReleaseGate \
-            :app:verifySensitiveLogRedaction \
-            :app:verifyTdlibBindingCompatibility \
-            :app:compileDebugKotlin \
-            :mediaforge-core:testDebugUnitTest \
-            :mediaforge-player-adapters:testDebugUnitTest \
-            :app:lintDebug \
-            :app:testDebugUnitTest \
+          # Keep all release gates. AGP lint model serialization can fail when
+          # a dependency resolution error is persisted to the Gradle config cache.
+          # A bounded retry is allowed only for the known transient Maven lookup.
+          gradle_tasks=(
+            :app:verifyReleaseVersionPolicy
+            :app:verifyTdlibAbiCoverage
+            :app:verifyTvHardeningContract
+            :app:verifyPrivateMediaCastReleaseGate
+            :app:verifySensitiveLogRedaction
+            :app:verifyTdlibBindingCompatibility
+            :app:compileDebugKotlin
+            :mediaforge-core:testDebugUnitTest
+            :mediaforge-player-adapters:testDebugUnitTest
+            :app:lintDebug
+            :app:testDebugUnitTest
             :app:assembleDebugAndroidTest
+          )
+          first_log="$(mktemp)"
+          trap 'rm -f "$first_log"' EXIT
+          if ! ./gradlew --no-daemon --no-configuration-cache --console=plain "${gradle_tasks[@]}" 2>&1 | tee "$first_log"; then
+            if ! grep -Fq 'Could not find org.json:json:20231013.' "$first_log"; then
+              echo "::error::Gradle verification failed for a reason other than the known transient dependency lookup."
+              exit 1
+            fi
+            echo "::warning::Maven resolution for org.json failed; refreshing dependencies once before failing closed."
+            sleep 8
+            ./gradlew --no-daemon --no-configuration-cache --refresh-dependencies --console=plain "${gradle_tasks[@]}"
+          fi
           python3 tools/ci/test_favorites_storage.py
 
       - name: Build and verify all three native ABI variants
