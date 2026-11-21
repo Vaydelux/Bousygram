@@ -45,6 +45,10 @@ import com.vaydelux.bousygram.presentation.theme.tabular
  * the fold on 540dp-high Android TVs and short landscape phones while eliminating
  * text abbreviations ("Favs", "Chans") through Lucide iconography + tooltips.
  */
+/** Keep full source names accessible when a compact row cannot fit four labels. */
+internal fun explorerSourceTabsIconOnly(effectiveWidth: Dp, isTv: Boolean, fontScale: Float): Boolean =
+    !isTv && (effectiveWidth < 380.dp || (fontScale >= 1.35f && effectiveWidth < 420.dp))
+
 internal enum class ExplorerHeaderDensity { COMPACT, NORMAL }
 
 internal fun explorerHeaderDensity(isTv: Boolean, widthDp: Dp, heightDp: Dp): ExplorerHeaderDensity =
@@ -95,10 +99,11 @@ internal fun TelegramExplorerCompactHeader(
     // text labels in the scrollable source row (zero abbreviations or cut-offs).
     val ultraCompactTabs = !isTv && effectiveWidth < 380.dp
     val compactTabs = !isTv && effectiveWidth < 520.dp
-    // At larger accessibility fonts, three text tabs do not fit on 320dp.
-    // Keep every source reachable with a visible focusable icon + tooltip.
-    val iconOnlySourceTabs = !isTv && compactTabs &&
-        fontScale >= 1.35f && effectiveWidth < 420.dp
+    // Four source actions do not fit as labels on 320-380dp phones (verified
+    // in the emulator: "Channels" was rendered as "Chan…"). Use equal-sized
+    // accessible icons with full labels in semantics/tooltips; also switch
+    // to icons at enlarged text scales before any label clips.
+    val iconOnlySourceTabs = explorerSourceTabsIconOnly(effectiveWidth, isTv, fontScale)
     val showCounts = isTv || effectiveWidth >= 600.dp
     val minControl = if (isTv) BousygramUiTokens.tvControlHeight
         else BousygramUiTokens.compactControlHeight
