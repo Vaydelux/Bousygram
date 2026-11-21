@@ -48,9 +48,9 @@ class AndroidTvNavigationSmokeTest {
         assertTrue("Dashboard heading should be visible", device.wait(Until.hasObject(By.text("Your library")), 5_000))
         // The compact browser intentionally combines the selected source and
         // file count in one line; the actual navigation controls are separate.
-        assertTrue("Saved section should be reachable", device.wait(Until.hasObject(By.text("Saved")), 5_000))
-        assertTrue("Channels section should be reachable", device.wait(Until.hasObject(By.text("Channels")), 5_000))
-        assertTrue("Groups section should be reachable", device.wait(Until.hasObject(By.text("Groups")), 5_000))
+        assertTrue("Saved section should be reachable", device.wait(Until.hasObject(By.descContains("Saved messages")), 5_000))
+        assertTrue("Channels section should be reachable", device.wait(Until.hasObject(By.descContains("Channels")), 5_000))
+        assertTrue("Groups section should be reachable", device.wait(Until.hasObject(By.descContains("Groups")), 5_000))
         assertTrue("Selected collection context should be visible",
             device.wait(Until.hasObject(By.textContains("Saved Messages")), 5_000))
 
