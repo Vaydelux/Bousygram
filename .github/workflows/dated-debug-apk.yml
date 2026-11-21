@@ -1,76 +1,156 @@
 name: Dated Debug APK
-
 on:
   workflow_dispatch:
 
 permissions:
   contents: write
 
-jobs:
-  build-debug:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: ''
-      - name: Install Android API 37 platform
-        run: |
-          set -euo pipefail
-          android sdk install "platforms;android-37" "build-tools;36.0.0"
-      - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v4
-      - name: Build universal and ABI-specific debug APKs
-        run: |
-          set -euo pipefail
-          date_stamp="$(date -u '+%b,%d,%Y')"
-          output_dir="app/build/outputs/dated-debug"
-          mkdir -p "$output_dir"
-          bash ./gradlew :app:exportDatedDebugApk --no-daemon
-          mv "$output_dir/Bousygram-debug-${date_stamp}.apk" "$output_dir/Bousygram-debug-${date_stamp}-universal.apk"
-          for abi in arm64-v8a armeabi-v7a; do
-            bash ./gradlew :app:assembleDebug -PdevAbi="$abi" --no-daemon --rerun-tasks
-            source_apk="app/build/outputs/apk/debug/app-debug.apk"
-            test -s "$source_apk"
-            cp "$source_apk" "$output_dir/Bousygram-debug-${date_stamp}-${abi}.apk"
-          done
-      - name: Verify APK
-        run: |
-          set -euo pipefail
-          for abi in universal arm64-v8a armeabi-v7a; do
-            apk="$(find app/build/outputs/dated-debug -maxdepth 1 -name "Bousygram-debug-*-${abi}.apk" -type f -print -quit)"
-            test -n "$apk" && test -s "$apk"
-            sha256sum "$apk"
-          done
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Bousygram-dated-debug
-          path: app/build/outputs/dated-debug/*.apk
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
+concurrency:
+  group: bousygram-dated-debug
+  cancel-in-progress: false
 
-      - name: Publish debug pre-release
+jobs:
+  qualify-and-publish:
+    name: Qualify and publish three dated debug APKs
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      RELEASE_SHA: ${{ github.sha }}
+      CI_VERIFICATION_RUN_ID: ${{ github.run_id }}
+      ANDROID_API: '37'
+      BUILD_TOOLS_VERSION: '35.0.0'
+    steps:
+      - name: Refuse stale main commit
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          apks=(app/build/outputs/dated-debug/Bousygram-debug-*.apk)
-          test "${#apks[@]}" -eq 3
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$RELEASE_SHA" ]] || { echo "::error::main moved; refusing stale release."; exit 1; }
+
+      - name: Check out verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install verified Android API 37 SDK
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+
+      - name: Configure trusted Extras metadata credential
+        shell: bash
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$TMDB_API_KEY" =~ ^[[:xdigit:]]{32}$ ]] || { echo "::error::Configured 32-character TMDB v3 API key required."; exit 1; }
+          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > .env
+          chmod 600 .env
+
+      - name: Verify approved brand and unchanged Telegram metadata contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/ci/verify_brand_identity.sh
+          bash tools/ci/verify_telegram_local_only.sh
+
+      - name: Run release-blocking JVM, lint and native compatibility gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain \
+            :app:verifyReleaseVersionPolicy \
+            :app:verifyTdlibAbiCoverage \
+            :app:verifyTvHardeningContract \
+            :app:verifyPrivateMediaCastReleaseGate \
+            :app:verifySensitiveLogRedaction \
+            :app:verifyTdlibBindingCompatibility \
+            :app:compileDebugKotlin \
+            :mediaforge-core:testDebugUnitTest \
+            :mediaforge-player-adapters:testDebugUnitTest \
+            :app:lintDebug \
+            :app:testDebugUnitTest \
+            :app:assembleDebugAndroidTest
+          python3 tools/ci/test_favorites_storage.py
+
+      - name: Build and verify all three native ABI variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/ci/build_debug_preview.sh ci-artifacts/debug-preview
+          bash tools/ci/verify_debug_preview_publication.sh \
+            ci-artifacts/debug-preview "$RELEASE_SHA" "$CI_VERIFICATION_RUN_ID"
+          ( cd ci-artifacts/debug-preview && sha256sum --check SHA256SUMS.txt )
+
+      - name: Prepare dated, byte-identical verified APKs
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="$(date -u '+%b,%d,%Y')"
+          version="$(sed -n 's/^version=//p' ci-artifacts/debug-preview/BUILD_INFO.txt)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          mkdir -p ci-artifacts/dated-debug
+          for abi in arm64-v8a armeabi-v7a universal; do
+            source="ci-artifacts/debug-preview/Bousygram-debug-v${version}-build.${CI_VERIFICATION_RUN_ID}-${abi}.apk"
+            destination="ci-artifacts/dated-debug/Bousygram-debug-${stamp}-${abi}.apk"
+            [[ -s "$source" ]] || exit 1
+            cp -- "$source" "$destination"
+            [[ "$(sha256sum "$source" | cut -d' ' -f1)" == "$(sha256sum "$destination" | cut -d' ' -f1)" ]] || exit 1
+          done
+          cp -- ci-artifacts/debug-preview/BUILD_INFO.txt ci-artifacts/dated-debug/BUILD_INFO.txt
+          ( cd ci-artifacts/dated-debug && sha256sum Bousygram-debug-*.apk > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt )
+          [[ "$(find ci-artifacts/dated-debug -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 3 ]]
+          echo "stamp=$stamp" >> "$GITHUB_OUTPUT"
+
+      - name: Publish immutable dated debug pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATE_STAMP: ${{ steps.stage.outputs.stamp }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]] || exit 1
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" == "$RELEASE_SHA" ]] || { echo "::error::main moved before publication."; exit 1; }
           tag="debug-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
-          gh release create "$tag" "${apks[@]}" \
-            --target "$GITHUB_SHA" \
-            --title "Bousygram Debug — $(date -u '+%b %d, %Y')" \
-            --notes "Debug APK for device testing. Built from commit ${GITHUB_SHA}. Not a production-signed release." \
-            --prerelease
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Existing release must not be overwritten."
+            exit 1
+          fi
+          cat > ci-artifacts/dated-debug/RELEASE_NOTES.md <<EOF
+          # Bousygram Debug — $DATE_STAMP
+
+          Source: \`$RELEASE_SHA\`
+          Verification: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          Debug-signed ARM32, ARM64 and universal APKs. Qualified in this job
+          with Kotlin/JVM tests, lint, TDLib checks, package identity,
+          signing verification, native ABI inventory, and SHA-256 checksums.
+
+          Not production signed. Physical TV layout, D-pad and playback
+          qualification is required before calling this a stable release.
+          EOF
+          (
+            cd ci-artifacts/dated-debug
+            sha256sum --check SHA256SUMS.txt
+            gh release create "$tag" \
+              --target "$RELEASE_SHA" --prerelease --latest=false \
+              --title "Bousygram Debug — $DATE_STAMP" \
+              --notes-file RELEASE_NOTES.md \
+              Bousygram-debug-*.apk SHA256SUMS.txt BUILD_INFO.txt
+          )
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
