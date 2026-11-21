@@ -8,6 +8,7 @@ import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
@@ -29,6 +30,42 @@ import java.io.ByteArrayInputStream
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * Non-sensitive signals only. Never expose provider console text, iframe URLs,
+ * signed stream URLs, cookies or JavaScript to the UI or app logs.
+ * A resource failure can be an advertisement, not necessarily the video.
+ */
+enum class MediaForgeWebIssue {
+    IFRAME_POLICY,
+    AUTOPLAY_DENIED,
+    VIDEO_UNSUPPORTED,
+    SUBRESOURCE_HTTP,
+    SUBRESOURCE_NETWORK,
+    SUBRESOURCE_TLS
+}
+
+/** Classify only recognisable browser failures; unknown messages are discarded. */
+object MediaForgeWebIssuePolicy {
+    fun classifyConsoleError(raw: String): MediaForgeWebIssue? {
+        val message = raw.lowercase(Locale.ROOT)
+        return when {
+            ("frame-ancestors" in message ||
+                "x-frame-options" in message ||
+                "refused to frame" in message ||
+                "refused to display" in message) -> MediaForgeWebIssue.IFRAME_POLICY
+            ("notallowederror" in message ||
+                ("play()" in message && ("user gesture" in message ||
+                    "user didn't interact" in message || "user interaction" in message))) ->
+                MediaForgeWebIssue.AUTOPLAY_DENIED
+            ("notsupportederror" in message ||
+                "media_err_src_not_supported" in message ||
+                "no supported source" in message ||
+                "no supported video format" in message) -> MediaForgeWebIssue.VIDEO_UNSUPPORTED
+            else -> null
+        }
+    }
+}
 
 /**
  * This is a URL-level defense for network subresources, not DNS pinning.
@@ -63,13 +100,23 @@ class MediaForgeWebBridge(
     private val onFullscreenEnded: (() -> Unit)? = null,
     private val onRendererGone: (() -> Unit)? = null,
     private val onPageLoadFailed: ((String) -> Unit)? = null,
-    private val onPageLoadSucceeded: (() -> Unit)? = null
+    private val onPageLoadSucceeded: (() -> Unit)? = null,
+    private val onWebIssue: ((MediaForgeWebIssue) -> Unit)? = null
 ) {
     private val open = AtomicBoolean(true)
     private val main = Handler(Looper.getMainLooper())
     // Resource callbacks may come from WebView IO threads in bursts.
     private val pendingObservations = AtomicInteger(0)
     private val maxPendingObservations = 32
+    // Cap duplicate diagnostics from ad-heavy pages. A newly loaded page gets
+    // a fresh set; strict and compatibility modes create separate bridge instances.
+    private val publishedIssues = mutableSetOf<MediaForgeWebIssue>()
+    private fun reportIssue(issue: MediaForgeWebIssue) {
+        if (!open.get()) return
+        main.post {
+            if (open.get() && publishedIssues.add(issue)) onWebIssue?.invoke(issue)
+        }
+    }
     private var fullscreenView: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
     // An earlier fatal error may have put a recovery panel over WebView.
@@ -97,7 +144,12 @@ class MediaForgeWebBridge(
             allowFileAccess = false
             allowContentAccess = false
             javaScriptCanOpenWindowsAutomatically = false
-            setSupportMultipleWindows(false)
+            // Critical: with false, window.open/target=_blank can replace the
+            // player in the *main* frame, where our episode-identity policy
+            // correctly rejects it but may leave the embed blank. With true
+            // and no onCreateWindow handler, Chromium rejects the popup
+            // without navigating away from the selected episode.
+            setSupportMultipleWindows(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
         }
@@ -107,6 +159,16 @@ class MediaForgeWebBridge(
         // local-network, file or content restrictions to make a provider play.
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, compatibilityMode)
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                // Third-party scripts can print credentials/URLs in console output.
+                // Classify on-device; do not store or log the raw string.
+                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                    MediaForgeWebIssuePolicy.classifyConsoleError(message.message())
+                        ?.let(::reportIssue)
+                }
+                return true
+            }
+
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
                 if (!open.get() || fullscreenView != null || onFullscreenRequested == null) {
                     callback.onCustomViewHidden()
@@ -128,6 +190,7 @@ class MediaForgeWebBridge(
                 ) {
                     mainFrameNavigating = true
                     mainFrameFailed = false
+                    publishedIssues.clear()
                 }
             }
 
@@ -188,6 +251,9 @@ class MediaForgeWebBridge(
                 request: WebResourceRequest,
                 error: WebResourceError
             ) {
+                if (open.get() && !request.isForMainFrame) {
+                    reportIssue(MediaForgeWebIssue.SUBRESOURCE_NETWORK)
+                }
                 if (open.get() && request.isForMainFrame) {
                     mainFrameFailed = true
                     // Do not display provider URLs, tokens, or raw Chromium error descriptions.
@@ -200,6 +266,9 @@ class MediaForgeWebBridge(
                 request: WebResourceRequest,
                 errorResponse: WebResourceResponse
             ) {
+                if (open.get() && !request.isForMainFrame && errorResponse.statusCode >= 400) {
+                    reportIssue(MediaForgeWebIssue.SUBRESOURCE_HTTP)
+                }
                 if (open.get() && request.isForMainFrame && errorResponse.statusCode >= 400) {
                     mainFrameFailed = true
                     onPageLoadFailed?.invoke("The selected web server is unavailable (HTTP ${errorResponse.statusCode}). Choose another server.")
@@ -208,6 +277,9 @@ class MediaForgeWebBridge(
 
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
                 handler.cancel() // Never bypass certificate errors.
+                if (open.get() && error.url?.let {
+                    !MediaForgeEmbedNavigationPolicy.allows(approved, it)
+                } == true) reportIssue(MediaForgeWebIssue.SUBRESOURCE_TLS)
                 // A failed unrelated iframe/subresource must not place a fatal
                 // black/opaque error overlay over a successfully loaded top page.
                 // Only errors for the selected top-level document are fatal UI.

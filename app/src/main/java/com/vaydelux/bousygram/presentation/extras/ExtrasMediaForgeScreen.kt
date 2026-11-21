@@ -101,6 +101,7 @@ import com.vaydelux.mediaforge.core.MediaForgeSessionRequest
 import com.vaydelux.mediaforge.players.MediaForgeMedia3
 import com.vaydelux.mediaforge.players.MediaForgeMedia3Controls
 import com.vaydelux.mediaforge.players.MediaForgeGuardedProgressiveSource
+import com.vaydelux.mediaforge.webbridge.MediaForgeWebIssue
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -349,6 +350,9 @@ private fun ExtrasMediaForgePlayerScreen(
         mutableStateOf("Loading the selected web player. If the picture stays blank, choose another server.")
     }
     var webLoadFailed by remember(request.url) { mutableStateOf(false) }
+    // Non-fatal, privacy-safe diagnostics from an embedded player. These must
+    // never suppress working video, only explain a persistently blank WebView.
+    var webIssue by remember(request.url, webGeneration) { mutableStateOf<MediaForgeWebIssue?>(null) }
     // A blank HTML document may return HTTP 200 and never trigger onReceivedError.
     // Offer native recovery without guessing that absent network observations
     // imply playback failure (DRM/MSE pages need not expose media URLs).
@@ -378,6 +382,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 status = message
                 webLoadFailed = true
             },
+            onWebIssue = { issue -> webIssue = preferredAnimeWebIssue(webIssue, issue) },
             onPageLoadSucceeded = {
                 // A previous main-frame failure may have covered a now-valid
                 // iframe. This is page success, NOT proof of video playback.
@@ -938,7 +943,7 @@ private fun ExtrasMediaForgePlayerScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            "Black screen? This web source may require cross-site cookies or autoplay.",
+                            animeWebIssueRecoveryMessage(webIssue),
                             color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 2
