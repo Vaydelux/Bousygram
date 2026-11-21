@@ -725,36 +725,13 @@ private fun ExtrasMediaForgePlayerScreen(
                         maxLines = 2
                     )
                 }
-                // All Extras video types share WebView. Movies/TV were
-                // missing the compatibility control despite using this path.
-                TextButton(
-                    onClick = {
-                        if (webCompatibilityMode) switchWebMode(false, false)
-                        else tryCompatibilityMode()
-                    },
-                    modifier = Modifier.testTag("extras-webview-compatibility")
-                ) {
-                    Text(
-                        if (webCompatibilityMode) "Use strict WebView mode"
-                        else "Black screen? Try compatibility (cookies + autoplay)",
-                        maxLines = 2
-                    )
-                }
-                if (webCompatibilityMode) {
-                    TextButton(
-                        onClick = {
-                            if (legacyWindowRouting) tryCompatibilityMode()
-                            else tryLegacyWebMode()
-                        },
-                        modifier = Modifier.testTag("extras-webview-legacy-navigation")
-                    ) {
-                        Text(
-                            if (legacyWindowRouting) "Use popup-isolated compatibility"
-                            else "Still black? Try legacy WebView navigation",
-                            maxLines = 2
-                        )
-                    }
-                }
+                ExtrasWebPlaybackModeControls(
+                    compatibility = webCompatibilityMode,
+                    legacyWindows = legacyWindowRouting,
+                    onStrict = { switchWebMode(false, false) },
+                    onCompatibility = { tryCompatibilityMode() },
+                    onLegacy = { tryLegacyWebMode() }
+                )
                 if (request.tmdbId > 0 && request.season == null &&
                     selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
                 ) {
@@ -969,6 +946,13 @@ private fun ExtrasMediaForgePlayerScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 2
+                        )
+                        Text(
+                            extrasWebViewRuntimeLabel(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 2,
+                            modifier = Modifier.testTag("extras-webview-runtime")
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (!legacyWindowRouting) {
