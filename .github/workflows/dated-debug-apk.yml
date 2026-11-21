@@ -28,14 +28,28 @@ jobs:
           android sdk install "platforms;android-37" "build-tools;36.0.0"
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
-      - name: Build dated debug APK
-        run: bash ./gradlew :app:exportDatedDebugApk --no-daemon
+      - name: Build universal and ABI-specific debug APKs
+        run: |
+          set -euo pipefail
+          date_stamp="$(date -u '+%b,%d,%Y')"
+          output_dir="app/build/outputs/dated-debug"
+          mkdir -p "$output_dir"
+          bash ./gradlew :app:exportDatedDebugApk --no-daemon
+          mv "$output_dir/Bousygram-debug-${date_stamp}.apk" "$output_dir/Bousygram-debug-${date_stamp}-universal.apk"
+          for abi in arm64-v8a armeabi-v7a; do
+            bash ./gradlew :app:assembleDebug -PdevAbi="$abi" --no-daemon --rerun-tasks
+            source_apk="app/build/outputs/apk/debug/app-debug.apk"
+            test -s "$source_apk"
+            cp "$source_apk" "$output_dir/Bousygram-debug-${date_stamp}-${abi}.apk"
+          done
       - name: Verify APK
         run: |
           set -euo pipefail
-          apk="$(find app/build/outputs/dated-debug -maxdepth 1 -name 'Bousygram-debug-*.apk' -type f -print -quit)"
-          test -n "$apk" && test -s "$apk"
-          sha256sum "$apk"
+          for abi in universal arm64-v8a armeabi-v7a; do
+            apk="$(find app/build/outputs/dated-debug -maxdepth 1 -name "Bousygram-debug-*-${abi}.apk" -type f -print -quit)"
+            test -n "$apk" && test -s "$apk"
+            sha256sum "$apk"
+          done
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -51,10 +65,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          apk="$(find app/build/outputs/dated-debug -maxdepth 1 -name 'Bousygram-debug-*.apk' -type f -print -quit)"
-          test -n "$apk" && test -s "$apk"
+          shopt -s nullglob
+          apks=(app/build/outputs/dated-debug/Bousygram-debug-*.apk)
+          test "${#apks[@]}" -eq 3
           tag="debug-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
-          gh release create "$tag" "$apk" \
+          gh release create "$tag" "${apks[@]}" \
             --target "$GITHUB_SHA" \
             --title "Bousygram Debug — $(date -u '+%b %d, %Y')" \
             --notes "Debug APK for device testing. Built from commit ${GITHUB_SHA}. Not a production-signed release." \
