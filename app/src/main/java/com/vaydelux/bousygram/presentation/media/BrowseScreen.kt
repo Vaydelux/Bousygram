@@ -367,6 +367,8 @@ fun BrowseScreen(
                     connection = connection,
                     isTv = adaptive.isTv,
                     privacyMode = safeMode,
+                    hasResume = hasSourceResume,
+                    onResume = ::openLastPlayed,
                     onPlay = { item -> launcher.launch(item, homeSavedPreview, "home:saved") },
                     onFocusedMedia = viewModel::onItemFocused,
                     onOpenLibrary = onOpenLibrary,
