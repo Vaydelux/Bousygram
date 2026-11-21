@@ -137,6 +137,19 @@ class MediaViewModel(
         }
     }
 
+    /**
+     * Home is a Saved Messages overview, not an alias for the Library's
+     * current group/channel folder. This only reuses account-scoped metadata;
+     * it never starts another TDLib scan or retains video bytes.
+     */
+    fun homeSavedPreviewItems(): List<MediaItem> {
+        val current = _uiState.value
+        val saved = if (current.isSavedMessagesSelected) current.items
+            else catalogSnapshot("saved:topic:0")?.items.orEmpty()
+        return savedMessagesOnly(saved, repository.cachedSavedMessagesChatId)
+            .take(HOME_PREVIEW_ITEMS)
+    }
+
     val uiState: StateFlow<MediaUiState> = _uiState
     val recentSearches: StateFlow<List<RecentSearchQuery>> = RecentSearchRepository.recentSearches
     private val pageSize = 30
@@ -1476,6 +1489,7 @@ class MediaViewModel(
 
 }
 
+private const val HOME_PREVIEW_ITEMS = 24
 private const val CHAT_SOURCE_PREVIEW_LIMIT = 50
 private const val CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT = 160
 private const val CHAT_SOURCE_DIRECTORY_STEP = 120
