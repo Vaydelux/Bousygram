@@ -94,11 +94,11 @@ internal fun TelegramExplorerCompactHeader(
     val fontScale = LocalDensity.current.fontScale
     val effectiveWidth = widthDp / fontScale.coerceAtLeast(1f)
     val inlineActions = explorerHeaderShowInlineActions(effectiveWidth)
-    // On narrow phones (<380dp), collapse Favorites to a crisp 48dp Lucide heart
-    // pill with tooltip while preserving exact "Saved" / "Channels" / "Groups"
-    // text labels in the scrollable source row (zero abbreviations or cut-offs).
-    val ultraCompactTabs = !isTv && effectiveWidth < 380.dp
+    // At <520dp, four text tabs do not fit reliably: collapse Favorites
+    // to a labelled, accessible heart icon so Saved / Channels / Groups get
+    // the available width. At <380dp, all sources become icon-only below.
     val compactTabs = !isTv && effectiveWidth < 520.dp
+    val favoritesIconOnly = compactTabs
     // Four source actions do not fit as labels on 320-380dp phones (verified
     // in the emulator: "Channels" was rendered as "Chan…"). Use equal-sized
     // accessible icons with full labels in semantics/tooltips; also switch
@@ -372,7 +372,7 @@ internal fun TelegramExplorerCompactHeader(
                 label = "Favorites",
                 accessibilityLabel = "Favorites",
                 icon = BousygramIcons.Favorites,
-                iconOnly = ultraCompactTabs,
+                iconOnly = favoritesIconOnly,
                 compact = compactTabs,
                 active = false,
                 isTv = isTv,
@@ -382,7 +382,7 @@ internal fun TelegramExplorerCompactHeader(
                 onClick = onFavorites,
                 modifier = Modifier
                     .then(
-                        if (ultraCompactTabs) Modifier
+                        if (favoritesIconOnly) Modifier
                         else Modifier.widthIn(min = if (isTv) 132.dp else if (compactTabs) 96.dp else 116.dp)
                     )
                     .testTag("telegram-library-tab-favorites")
