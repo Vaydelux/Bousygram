@@ -169,6 +169,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
 
     // Isolated from Telegram favorites, auth and streaming sources.
     val libraryStore = remember(context) { ExtrasPersonalLibrary(context.applicationContext) }
+    val animeMatchStore = remember(context) { ExtrasAnimeTmdbMatchStore(context.applicationContext) }
     val libraryScope = rememberCoroutineScope()
     var personalLibrary by remember { mutableStateOf(ExtrasLibrarySnapshot()) }
     var personalLibraryReady by remember { mutableStateOf(false) }
@@ -309,6 +310,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var detailError by remember { mutableStateOf<String?>(null) }
     var detailLoading by remember { mutableStateOf(false) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
+    var animeTmdbMatch by remember { mutableStateOf<ExtrasAnimeTmdbMatch?>(null) }
+    var showAnimeMatchDialog by remember { mutableStateOf(false) }
+    var animeMatchError by remember { mutableStateOf<String?>(null) }
     var episodes by remember { mutableStateOf<List<ExtrasEpisode>>(emptyList()) }
     var episodeError by remember { mutableStateOf<String?>(null) }
     var seasonLoading by remember { mutableStateOf(false) }
@@ -434,10 +438,20 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         detailLoading = true
         episodes = emptyList()
         selectedSeason = null
+        animeTmdbMatch = if (selected.type == ExtrasType.ANIME)
+            animeMatchStore.get(selected.id) else null
+        animeMatchError = null
+        showAnimeMatchDialog = false
         try {
             val loaded = ExtrasCatalogApi.details(selected)
             currentCoroutineContext().ensureActive()
             detail = loaded
+            if (selected.type == ExtrasType.ANIME && animeTmdbMatch != null) {
+                // AniList remains one playback title. An explicit TMDB season
+                // mapping is only for this entry's metadata, not navigation
+                // to a different AniList show.
+                selectedSeason = 1
+            }
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
@@ -461,24 +475,34 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         }
     }
 
-    LaunchedEffect(detail?.item?.id, selectedSeason, seasonRetry) {
+    LaunchedEffect(detail?.item?.id, detail?.item?.type, selectedSeason, seasonRetry, animeTmdbMatch) {
         val current = detail ?: return@LaunchedEffect
-        val season = selectedSeason ?: return@LaunchedEffect
-        if (current.item.type != ExtrasType.TV) return@LaunchedEffect
+        val selected = selectedSeason ?: return@LaunchedEffect
+        val match = animeTmdbMatch?.takeIf {
+            current.item.type == ExtrasType.ANIME && it.anilistId == current.item.id
+        }
+        if (current.item.type != ExtrasType.TV && match == null) return@LaunchedEffect
+        val tvId = match?.tmdbTvId ?: current.item.id
+        val tmdbSeason = match?.tmdbSeason ?: selected
         episodes = emptyList()
         episodeError = null
         seasonLoading = true
         try {
-            val loaded = ExtrasCatalogApi.season(current.item.id, season)
+            val loaded = ExtrasCatalogApi.season(tvId, tmdbSeason)
             currentCoroutineContext().ensureActive()
-            episodes = loaded
+            episodes = if (match == null) loaded else loaded.mapNotNull { episode ->
+                val n = match.anilistEpisode(episode.number)
+                    ?.takeIf { it <= (current.episodeCount ?: Int.MAX_VALUE) }
+                    ?: return@mapNotNull null
+                episode.copy(number = n)
+            }
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             episodeError = ExtrasFailurePolicy.message(e)
         } finally {
-            if (selectedSeason == season && detail?.item?.id == current.item.id) {
+            if (selectedSeason == selected && detail?.item?.id == current.item.id) {
                 seasonLoading = false
             }
         }
