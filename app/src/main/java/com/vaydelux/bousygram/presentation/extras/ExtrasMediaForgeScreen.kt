@@ -863,17 +863,22 @@ private fun ExtrasMediaForgePlayerScreen(
                             onClick = onChooseAnimeServer,
                             modifier = Modifier.testTag("extras-anime-recover-server")
                         ) { Text("Choose another server") }
-                        if (!webCompatibilityMode) {
-                            OutlinedButton(
-                                onClick = { tryCompatibilityMode() },
-                                modifier = Modifier.testTag("extras-anime-error-compatibility")
-                            ) { Text("Try compatibility (cookies + autoplay)", maxLines = 2) }
-                        }
-                        OutlinedButton(
-                            onClick = { openSelectedInBrowser() },
-                            modifier = Modifier.testTag("extras-anime-error-browser")
-                        ) { Text("Open in browser", maxLines = 2) }
                     }
+                    if (!webCompatibilityMode) {
+                        OutlinedButton(
+                            onClick = { tryCompatibilityMode() },
+                            modifier = Modifier.testTag("extras-anime-error-compatibility")
+                        ) { Text("Try compatibility (cookies + autoplay)", maxLines = 2) }
+                    } else if (!legacyWindowRouting) {
+                        OutlinedButton(
+                            onClick = { tryLegacyWebMode() },
+                            modifier = Modifier.testTag("extras-embed-error-legacy")
+                        ) { Text("Try legacy WebView navigation", maxLines = 2) }
+                    }
+                    OutlinedButton(
+                        onClick = { openSelectedInBrowser() },
+                        modifier = Modifier.testTag("extras-anime-error-browser")
+                    ) { Text("Open in browser", maxLines = 2) }
                     OutlinedButton(onClick = {
                         webLoadFailed = false
                         status = "Reloading embedded player…"
@@ -943,8 +948,7 @@ private fun ExtrasMediaForgePlayerScreen(
             // Delayed recovery must not cover an iframe that has actually
             // rendered video (DRM/MSE pages may not expose stream URLs).
             // Put it in the scrollable Extras footer, never above WebView.
-            if (shouldOfferAnimeBlankPageHelp(
-                    isAnime = request.anilistId > 0,
+            if (shouldOfferExtrasBlankPageHelp(
                     loadFailed = webLoadFailed,
                     immersive = immersiveWeb,
                     detectedVideo = snapshot.streams.isNotEmpty(),
@@ -967,23 +971,41 @@ private fun ExtrasMediaForgePlayerScreen(
                             maxLines = 2
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (!webCompatibilityMode) {
+                            if (!legacyWindowRouting) {
                                 OutlinedButton(
-                                    onClick = { tryCompatibilityMode() },
+                                    onClick = {
+                                        if (webCompatibilityMode) tryLegacyWebMode()
+                                        else tryCompatibilityMode()
+                                    },
                                     modifier = Modifier.weight(1f)
                                         .testTag("extras-anime-try-compatibility")
-                                ) { Text("Try compatibility", maxLines = 2) }
+                                ) {
+                                    Text(
+                                        if (webCompatibilityMode) "Try legacy mode"
+                                        else "Try compatibility",
+                                        maxLines = 2
+                                    )
+                                }
                             }
                             OutlinedButton(
-                                onClick = onChooseAnimeServer,
+                                onClick = if (request.anilistId > 0) onChooseAnimeServer
+                                    else ::openSelectedInBrowser,
                                 modifier = Modifier.weight(1f)
                                     .testTag("extras-anime-blank-recovery")
-                            ) { Text("Choose server", maxLines = 2) }
+                            ) {
+                                Text(
+                                    if (request.anilistId > 0) "Choose server"
+                                    else "Open in browser",
+                                    maxLines = 2
+                                )
+                            }
                         }
-                        TextButton(
-                            onClick = { openSelectedInBrowser() },
-                            modifier = Modifier.testTag("extras-anime-blank-browser")
-                        ) { Text("Open source in browser") }
+                        if (request.anilistId > 0) {
+                            TextButton(
+                                onClick = { openSelectedInBrowser() },
+                                modifier = Modifier.testTag("extras-anime-blank-browser")
+                            ) { Text("Open source in browser") }
+                        }
                     }
                 }
             }
