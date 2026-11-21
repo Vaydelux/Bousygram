@@ -54,6 +54,31 @@ class ExtrasEmbedRecoveryPolicyTest {
         ))
     }
 
+    @Test fun allExtrasVideoKindsOfferNonBlockingWebRecovery() {
+        assertTrue(shouldOfferExtrasBlankPageHelp(
+            loadFailed = false, immersive = false, detectedVideo = false, longLoad = true
+        ))
+        assertFalse(shouldOfferExtrasBlankPageHelp(
+            loadFailed = false, immersive = false, detectedVideo = true, longLoad = true
+        ))
+        assertFalse(shouldOfferExtrasBlankPageHelp(
+            loadFailed = true, immersive = false, detectedVideo = false, longLoad = true
+        ))
+        assertFalse(shouldOfferExtrasBlankPageHelp(
+            loadFailed = false, immersive = true, detectedVideo = false, longLoad = true
+        ))
+    }
+
+    @Test fun blockedMainFrameNavigationExplainsWebPlayerWithoutLeakingUrls() {
+        val issue = MediaForgeWebIssue.NAVIGATION_BLOCKED
+        val advice = animeWebIssueRecoveryMessage(issue)
+        assertTrue(advice.contains("legacy mode"))
+        assertFalse(advice.contains("https://"))
+        assertEquals(issue, preferredAnimeWebIssue(MediaForgeWebIssue.SUBRESOURCE_NETWORK, issue))
+        assertEquals(MediaForgeWebIssue.IFRAME_POLICY,
+            preferredAnimeWebIssue(MediaForgeWebIssue.IFRAME_POLICY, issue))
+    }
+
     @Test fun neverInterruptWorkingVideoOrMoviesAndTv() {
         for (isAnime in listOf(false, true)) {
             assertFalse(shouldOfferAnimeBlankPageHelp(
