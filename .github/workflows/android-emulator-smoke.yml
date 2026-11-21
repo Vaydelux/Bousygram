@@ -31,6 +31,7 @@ on:
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/settings/**'
       # Extras hosts the MediaForge SDK and has emulator D-pad/WebView tests.
       - 'app/src/main/java/com/vaydelux/bousygram/presentation/extras/**'
+      - 'app/src/test/java/com/vaydelux/bousygram/presentation/extras/**'
       - 'mediaforge-core/**'
       - 'mediaforge-webbridge/**'
       - 'mediaforge-player-adapters/**'

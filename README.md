@@ -112,7 +112,7 @@ sdk.dir=C:\\path\\to\\Android\\Sdk
 ```
 
 Rebuild the debug APK after changing `TMDB_API_KEY`; this is read as
-`BuildConfig.TMDB_API_KEY` for the Extras catalog and Telegram title metadata.
+`BuildConfig.TMDB_API_KEY` for the Extras catalog only; Telegram media metadata remains local.
 TMDB provides metadata, **not** video streams. API keys included in client APKs
 can be extracted; use a backend proxy for credentials that must remain private.
 
@@ -146,6 +146,12 @@ On macOS/Linux use `./gradlew` with the same task names.
 **Choose a player:** New installs select **LibVLC** by default; saved selections remain unchanged. Settings → Playback engine allows ExoPlayer, libmpv, LibVLC or Auto. The media player's engine control can cycle between the manual engines. **Auto** remains ExoPlayer/libmpv and does not silently enable LibVLC on low-memory TVs. Native MPEG-TS seeking still requires a usable index and verified byte-range behavior. See [LibVLC integration](docs/experiments/LIBVLC_DEBUG_COMPATIBILITY.md) and [third-party notices](docs/THIRD_PARTY_NOTICES.md).
 
 **Production signing:** use the protected GitHub environments and the [Release Signing Setup](RELEASE_SIGNING_SETUP.md). `assembleHardenedRelease` fails closed without production signing and certificate verification. Do not use debug APKs as proof of production signing.
+
+## Stabilization and feature freeze
+
+Bousygram is in a [feature freeze](docs/release/FEATURE_FREEZE_2026-11-21.md): no new features, providers or major UI redesigns. Only verified maintenance, accessibility, security, performance, tests and release hardening are in scope.
+
+For directly downloadable `MMM,dd,yyyy`-named ARM32, ARM64 and universal debug APKs, run [Dated Debug APK](https://github.com/Vaydelux/Bousygram/actions/workflows/dated-debug-apk.yml) on `main`. It reuses the same ABI/signature verification scripts as the established prerelease process, and publishes **debug-signed** assets to GitHub Releases. It is not the production-signing workflow.
 
 ## Release readiness
 

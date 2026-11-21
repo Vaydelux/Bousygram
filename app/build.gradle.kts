@@ -117,7 +117,7 @@ android {
     defaultConfig {
         applicationId = "com.vaydelux.bousygram"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = releaseVersionCode
         versionName = releaseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
