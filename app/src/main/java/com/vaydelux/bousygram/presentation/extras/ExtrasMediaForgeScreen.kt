@@ -327,6 +327,9 @@ private fun ExtrasMediaForgePlayerScreen(
     // A provider may need third-party cookies or scripted autoplay to render its
     // nested player. Neither is granted until the user explicitly opts in.
     var webCompatibilityMode by remember(request.url) { mutableStateOf(false) }
+    // Compatibility restores cookies/autoplay; legacy recovery additionally
+    // restores WebView's original single-window routing ONLY when user opts in.
+    var legacyWindowRouting by remember(request.url) { mutableStateOf(false) }
     var htmlFullscreenView by remember(request.url) { mutableStateOf<View?>(null) }
     // The previous bridge is permanently closed when native playback disposes WebView.
     // A new generation must create a new bridge when the user returns to WebView.
@@ -431,9 +434,11 @@ private fun ExtrasMediaForgePlayerScreen(
             }
     }
 
-    fun tryCompatibilityMode() {
-        if (webCompatibilityMode) return
-        webCompatibilityMode = true
+    fun switchWebMode(compatibility: Boolean, legacyWindows: Boolean) {
+        require(!legacyWindows || compatibility)
+        if (webCompatibilityMode == compatibility && legacyWindowRouting == legacyWindows) return
+        webCompatibilityMode = compatibility
+        legacyWindowRouting = legacyWindows
         inspectionGeneration += 1
         inspectionJob?.cancel()
         inspectionJob = null
@@ -443,11 +448,21 @@ private fun ExtrasMediaForgePlayerScreen(
         showSubtitlePicker = false
         session.clear()
         snapshot = session.snapshot()
-        status = "Compatibility mode enabled: third-party cookies and autoplay are allowed for this web player."
+        status = when {
+            legacyWindows ->
+                "Legacy WebView mode: single-window handling restored. Off-site and different-title redirects stay blocked."
+            compatibility ->
+                "Compatibility mode: third-party cookies and autoplay enabled. Unwanted pop-up windows remain blocked."
+            else -> "Strict WebView mode restored."
+        }
         webLoadFailed = false
-        // New bridge + new WebView apply browser settings before loading the URL.
+        // Every mode switch requires a NEW bridge and WebView: Android
+        // cookie and popup policies must apply before provider scripts run.
         webGeneration += 1
     }
+
+    fun tryCompatibilityMode() = switchWebMode(compatibility = true, legacyWindows = false)
+    fun tryLegacyWebMode() = switchWebMode(compatibility = true, legacyWindows = true)
 
     fun returnToWebView() {
         // Native handoff destroyed the old WebView and invalidated its observed
@@ -710,33 +725,32 @@ private fun ExtrasMediaForgePlayerScreen(
                         maxLines = 2
                     )
                 }
-                if (request.anilistId > 0) {
+                // All Extras video types share WebView. Movies/TV were
+                // missing the compatibility control despite using this path.
+                TextButton(
+                    onClick = {
+                        if (webCompatibilityMode) switchWebMode(false, false)
+                        else tryCompatibilityMode()
+                    },
+                    modifier = Modifier.testTag("extras-webview-compatibility")
+                ) {
+                    Text(
+                        if (webCompatibilityMode) "Use strict WebView mode"
+                        else "Black screen? Try compatibility (cookies + autoplay)",
+                        maxLines = 2
+                    )
+                }
+                if (webCompatibilityMode) {
                     TextButton(
                         onClick = {
-                            if (webCompatibilityMode) {
-                                // Restoring strict mode always creates a fresh WebView.
-                                webCompatibilityMode = false
-                                inspectionGeneration += 1
-                                inspectionJob?.cancel()
-                                inspectionJob = null
-                                busy = false
-                                approved = null
-                                selectedCaption = null
-                                showSubtitlePicker = false
-                                session.clear()
-                                snapshot = session.snapshot()
-                                status = "Strict WebView mode restored."
-                                webLoadFailed = false
-                                webGeneration += 1
-                            } else {
-                                tryCompatibilityMode()
-                            }
+                            if (legacyWindowRouting) tryCompatibilityMode()
+                            else tryLegacyWebMode()
                         },
-                        modifier = Modifier.testTag("extras-anime-web-compatibility")
+                        modifier = Modifier.testTag("extras-webview-legacy-navigation")
                     ) {
                         Text(
-                            if (webCompatibilityMode) "Use strict web mode"
-                            else "Black screen? Try compatibility (cookies + autoplay)",
+                            if (legacyWindowRouting) "Use popup-isolated compatibility"
+                            else "Still black? Try legacy WebView navigation",
                             maxLines = 2
                         )
                     }
@@ -809,7 +823,11 @@ private fun ExtrasMediaForgePlayerScreen(
                 AndroidView(
                     factory = { ctx ->
                         try {
-                            bridge.create(ctx, request.url, compatibilityMode = webCompatibilityMode).also { webView = it }
+                            bridge.create(
+                                ctx, request.url,
+                                compatibilityMode = webCompatibilityMode,
+                                legacyWindowRouting = legacyWindowRouting
+                            ).also { webView = it }
                         } catch (_: RuntimeException) {
                             status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
                             android.widget.TextView(ctx).apply {
