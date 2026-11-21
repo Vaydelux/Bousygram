@@ -992,7 +992,7 @@ fun BousygramButton(
                     Text(
                         text = text,
                         color = contentColor,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = bousygramControlLabelStyle(isTv),
                         fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
