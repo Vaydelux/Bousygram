@@ -131,6 +131,39 @@ fun BousygramPageHeading(
     }
 }
 
+/** Unified content-first title for short portrait/landscape routes and results. */
+@Composable
+fun BousygramCompactPageTitle(
+    title: String,
+    status: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleLarge.copy(lineHeight = 28.sp),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (status.isNotBlank()) {
+            Text(
+                text = status,
+                style = MaterialTheme.typography.labelMedium.copy(lineHeight = 18.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 /** Opaque status token that remains readable in dark, light and high-contrast. */
 @Composable
 fun BousygramStatusPill(
