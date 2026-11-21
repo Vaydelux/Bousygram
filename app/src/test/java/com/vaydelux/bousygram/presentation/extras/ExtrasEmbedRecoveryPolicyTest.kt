@@ -27,6 +27,14 @@ class ExtrasEmbedRecoveryPolicyTest {
         ))
     }
 
+    @Test fun playerFailuresTakePriorityOverNoisyAdAndNetworkErrors() {
+        var current: MediaForgeWebIssue? = null
+        current = preferredAnimeWebIssue(current, MediaForgeWebIssue.SUBRESOURCE_NETWORK)
+        current = preferredAnimeWebIssue(current, MediaForgeWebIssue.IFRAME_POLICY)
+        current = preferredAnimeWebIssue(current, MediaForgeWebIssue.SUBRESOURCE_HTTP)
+        assertEquals(MediaForgeWebIssue.IFRAME_POLICY, current)
+    }
+
     @Test fun recoveryAdviceNeverExposesUntrustedConsoleUrlsOrSecrets() {
         val hidden = "secret"
         for (issue in MediaForgeWebIssue.entries) {
