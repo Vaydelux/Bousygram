@@ -67,6 +67,10 @@ class ExtrasEmbedRecoveryPolicyTest {
         assertFalse(shouldOfferExtrasBlankPageHelp(
             loadFailed = false, immersive = true, detectedVideo = false, longLoad = true
         ))
+        assertFalse("Do not interrupt a loading player before the recovery delay",
+            shouldOfferExtrasBlankPageHelp(
+                loadFailed = false, immersive = false, detectedVideo = false, longLoad = false
+            ))
     }
 
     @Test fun blockedMainFrameNavigationExplainsWebPlayerWithoutLeakingUrls() {
