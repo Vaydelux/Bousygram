@@ -46,6 +46,13 @@ class MediaForgeWebBridgeInstrumentedTest {
                 assertFalse(settings.allowFileAccess)
                 assertFalse(settings.allowContentAccess)
                 assertFalse(settings.javaScriptCanOpenWindowsAutomatically)
+                assertTrue("Popup requests must not replace the selected main player", settings.supportMultipleWindows())
+                // We deliberately do not provide a child-WebView window handler.
+                assertFalse(
+                    requireNotNull(view.webChromeClient).onCreateWindow(
+                        view, false, true, android.os.Message.obtain()
+                    )
+                )
                 assertEquals(WebSettings.MIXED_CONTENT_NEVER_ALLOW, settings.mixedContentMode)
                 assertFalse(CookieManager.getInstance().acceptThirdPartyCookies(view))
             } finally {
@@ -70,6 +77,12 @@ class MediaForgeWebBridgeInstrumentedTest {
                 assertFalse(view.settings.allowFileAccess)
                 assertFalse(view.settings.allowContentAccess)
                 assertFalse(view.settings.javaScriptCanOpenWindowsAutomatically)
+                assertTrue(view.settings.supportMultipleWindows())
+                assertFalse(
+                    requireNotNull(view.webChromeClient).onCreateWindow(
+                        view, true, true, android.os.Message.obtain()
+                    )
+                )
                 assertEquals(WebSettings.MIXED_CONTENT_NEVER_ALLOW, view.settings.mixedContentMode)
                 assertTrue(MediaForgeWebRequestPolicy.blockNetworkSubresource(
                     "https://127.0.0.1/private"
