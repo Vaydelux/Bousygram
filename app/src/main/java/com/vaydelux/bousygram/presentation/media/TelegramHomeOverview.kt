@@ -44,6 +44,8 @@ internal fun TelegramHomeOverview(
     connection: TelegramConnectionState?,
     isTv: Boolean,
     privacyMode: Boolean,
+    hasResume: Boolean,
+    onResume: () -> Unit,
     onPlay: (MediaItem) -> Unit,
     onFocusedMedia: (MediaItem) -> Unit,
     onOpenLibrary: () -> Unit,
@@ -100,6 +102,15 @@ internal fun TelegramHomeOverview(
                     tooltip = "Search Telegram videos",
                     onClick = onOpenSearch
                 )
+                if (hasResume) {
+                    BousygramIconButton(
+                        icon = BousygramIcons.Continue,
+                        contentDescription = "Continue watching",
+                        tooltip = "Resume last playback",
+                        selected = true,
+                        onClick = onResume
+                    )
+                }
                 BousygramIconButton(
                     icon = BousygramIcons.Favorites,
                     contentDescription = "Favorites",
