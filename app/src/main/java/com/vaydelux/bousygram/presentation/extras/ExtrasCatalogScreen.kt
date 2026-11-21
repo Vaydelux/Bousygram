@@ -377,7 +377,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     Text("Movies and TV Shows: The Movie Database (TMDB).")
                     Text("Regional watch availability data supplied by JustWatch via TMDB.")
                     Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
-                    Text("Anime: AniList. Titles, artwork, community ratings and linked episodes come from AniList.")
+                    Text("Anime uses AniList for title and playback identity. A manually confirmed TMDB match may add season and episode descriptions, titles, and still images.")
                     Text("Extras web sources open in an isolated WebView; native playback is offered only for observed and validated accessible streams. Bousygram does not host those videos.")
                     Text("TMDB: themoviedb.org · AniList: anilist.co",
                         style = MaterialTheme.typography.labelSmall)
@@ -2201,7 +2201,10 @@ internal fun ExtrasDetailContent(
             }
         }
         item {
-            Text((if (info.item.type == ExtrasType.ANIME) "Anime metadata from AniList." else "This product uses the TMDB API but is not endorsed or certified by TMDB.") + " Catalog metadata does not provide streaming sources. Web embeds are third-party and may be unavailable.",
+            Text((if (info.item.type == ExtrasType.ANIME)
+                "Anime title and playback identity: AniList. Matched episode descriptions and stills, when selected: TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB."
+                else "This product uses the TMDB API but is not endorsed or certified by TMDB.") +
+                " Catalog metadata does not provide streaming sources. Web embeds are third-party and may be unavailable.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
