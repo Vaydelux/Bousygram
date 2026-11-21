@@ -1155,14 +1155,26 @@ class MediaViewModel(
     }
 
     private fun loadVideoChatsIfNeeded() {
-        if (completedSourceLimit >= CHAT_SOURCE_DIRECTORY_LIMIT ||
-            (sourceLoadLimit == CHAT_SOURCE_DIRECTORY_LIMIT && sourceLoadJob?.isActive == true)
+        // Do not enumerate 10,000 dialogs just because the user opened Groups.
+        // The first source window is enough to render, with manual continuation.
+        if (sourceLoadJob?.isActive == true ||
+            completedSourceLimit >= CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT
         ) return
-        loadChatSources(CHAT_SOURCE_DIRECTORY_LIMIT)
+        loadChatSources(CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT)
+    }
+
+    fun loadNextChatSources() {
+        if (_uiState.value.isSidebarLoading || !_uiState.value.hasMoreChatSources) return
+        if (sourceLoadJob?.isActive == true) return
+        val nextLimit = (maxOf(sourceLoadLimit, completedSourceLimit,
+            CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT) + CHAT_SOURCE_DIRECTORY_STEP)
+            .coerceAtMost(CHAT_SOURCE_DIRECTORY_LIMIT)
+        if (sourceLoadLimit >= CHAT_SOURCE_DIRECTORY_LIMIT) return
+        loadChatSources(nextLimit)
     }
 
     fun refreshVideoChats() {
-        loadChatSources(CHAT_SOURCE_DIRECTORY_LIMIT)
+        loadChatSources(CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT)
     }
 
     private fun resetChatSourceLoad() {
@@ -1177,9 +1189,11 @@ class MediaViewModel(
         sourceLoadJob?.cancel()
         sourceLoadLimit = limit
         completedSourceLimit = 0
+        val knownSources = _uiState.value.videoChats
         _uiState.update { it.copy(isSidebarLoading = true, sidebarError = null) }
         sourceLoadJob = viewModelScope.launch {
             var latest = emptyList<VideoChatItem>()
+            var hasMore = true
             fun publish(chats: List<VideoChatItem>, retainMissing: Boolean, loading: Boolean, error: String?) {
                 AccountSession.runIfCurrent(owner) {
                     _uiState.update { current ->
@@ -1196,7 +1210,11 @@ class MediaViewModel(
             }
 
             val error = try {
-                loadVideoChats(owner, limit) { chats ->
+                loadVideoChats(
+                    owner, limit,
+                    knownSources = knownSources,
+                    onHasMore = { hasMore = it }
+                ) { chats ->
                     latest = chats
                     publish(chats, retainMissing = true, loading = true, error = null)
                 }
@@ -1210,6 +1228,7 @@ class MediaViewModel(
             }
             if (!AccountSession.isCurrent(owner)) return@launch
             if (error == null) completedSourceLimit = limit
+            _uiState.update { it.copy(hasMoreChatSources = hasMore && limit < CHAT_SOURCE_DIRECTORY_LIMIT) }
             publish(latest, retainMissing = error != null, loading = false, error = error)
         }
     }
@@ -1458,6 +1477,8 @@ class MediaViewModel(
 }
 
 private const val CHAT_SOURCE_PREVIEW_LIMIT = 50
+private const val CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT = 160
+private const val CHAT_SOURCE_DIRECTORY_STEP = 120
 private const val CHAT_SOURCE_DIRECTORY_LIMIT = 10_000
 private const val CHAT_SOURCE_LOAD_DELAY_MS = 300L
 private const val MAX_INITIAL_THUMBNAIL_REQUESTS = 12
