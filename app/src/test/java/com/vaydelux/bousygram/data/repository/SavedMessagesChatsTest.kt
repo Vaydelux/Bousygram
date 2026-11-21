@@ -86,6 +86,54 @@ class SavedMessagesChatsTest {
         assertEquals(true, forum.isForum)
     }
 
+    @Test
+    fun oneFailedChatDetailKeepsValidGroupsVisibleAndAllowsRetry() = runTest {
+        val pages = mutableListOf<List<VideoChatItem>>()
+        var hasMore = false
+        val error = loadVideoChats(owner, 3, request = { query ->
+            when (query) {
+                is TdApi.GetChats -> if (query.chatList is TdApi.ChatListArchive)
+                    TdApi.Chats(0, longArrayOf())
+                else TdApi.Chats(3, longArrayOf(41, 42, 43))
+                is TdApi.GetChat -> if (query.chatId == 42L) TdApi.Error(500, "Temporary")
+                    else groupChat(query.chatId)
+                is TdApi.LoadChats -> TdApi.Error(404, "All chats loaded")
+                else -> error("Unexpected request")
+            }
+        }, onHasMore = { hasMore = it }, onPage = { pages += it })
+
+        assertEquals(listOf(41L, 43L), pages.last().map { it.chatId })
+        assertNotNull("Failed details should be retryable, not silently discarded", error)
+        assertEquals(true, hasMore)
+    }
+
+    @Test
+    fun reusesPreviouslyLoadedMetadataWhenExpandingSourceWindow() = runTest {
+        var chatRequests = 0
+        var hasMore = true
+        val cached = listOf(
+            VideoChatItem(chatId = 41, title = "Group 41", isSavedMessages = false, kind = ChatSourceKind.GROUP)
+        )
+        val pages = mutableListOf<List<VideoChatItem>>()
+        val failure = loadVideoChats(owner, 5, request = { query ->
+            when (query) {
+                is TdApi.GetChats -> if (query.chatList is TdApi.ChatListArchive)
+                    TdApi.Chats(0, longArrayOf()) else TdApi.Chats(2, longArrayOf(41, 43))
+                is TdApi.GetChat -> {
+                    chatRequests++
+                    groupChat(query.chatId)
+                }
+                is TdApi.LoadChats -> TdApi.Error(404, "All chats loaded")
+                else -> error("Unexpected request")
+            }
+        }, knownSources = cached, onHasMore = { hasMore = it }, onPage = { pages += it })
+
+        assertNull(failure)
+        assertEquals(listOf(41L, 43L), pages.last().map { it.chatId })
+        assertEquals(1, chatRequests)
+        assertFalse(hasMore)
+    }
+
     private fun groupChat(chatId: Long) = TdApi.Chat().apply {
         id = chatId
         title = "Group $chatId"
