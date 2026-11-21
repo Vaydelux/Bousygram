@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.view.MotionEvent
 import android.view.View
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -13,6 +14,7 @@ import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebBridge
+import com.vaydelux.mediaforge.webbridge.MediaForgeWebIssue
 import com.vaydelux.mediaforge.webbridge.MediaForgeWebRequestPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -128,6 +130,57 @@ class MediaForgeWebBridgeInstrumentedTest {
                     "https://mediaforge.example.invalid/embed/movie/43")
                 view.webViewClient.onPageFinished(view, "about:blank")
                 assertEquals(1, succeeded)
+            } finally {
+                bridge.close()
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            }
+        }
+    }
+
+    @Test fun nestedPlayerErrorsRemainNonFatalAndProduceSanitizedDiagnostics() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val received = mutableListOf<MediaForgeWebIssue>()
+        var pageSuccesses = 0
+        var pageFailures = 0
+        val bridge = MediaForgeWebBridge(
+            onMediaResource = {},
+            onWebIssue = { received += it },
+            onPageLoadSucceeded = { pageSuccesses++ },
+            onPageLoadFailed = { pageFailures++ }
+        )
+        lateinit var view: WebView
+        instrumentation.runOnMainSync {
+            view = bridge.create(instrumentation.targetContext, offlineEmbed)
+            view.stopLoading()
+            val childRequest = object : WebResourceRequest {
+                override fun getUrl(): Uri = Uri.parse("https://cdn.example.org/iframe")
+                override fun isForMainFrame(): Boolean = false
+                override fun isRedirect(): Boolean = false
+                override fun hasGesture(): Boolean = false
+                override fun getMethod(): String = "GET"
+                override fun getRequestHeaders(): Map<String, String> = emptyMap()
+            }
+            val response = WebResourceResponse("text/html", "utf-8",
+                ByteArrayInputStream(ByteArray(0))).apply {
+                setStatusCodeAndReasonPhrase(403, "Forbidden")
+            }
+            view.webViewClient.onPageStarted(view, offlineEmbed, null)
+            view.webViewClient.onReceivedHttpError(view, childRequest, response)
+            view.webChromeClient.onConsoleMessage(ConsoleMessage(
+                "Refused to frame due to frame-ancestors at https://secret.example/token=private",
+                "https://secret.example", 8, ConsoleMessage.MessageLevel.ERROR
+            ))
+            view.webViewClient.onPageFinished(view, offlineEmbed)
+        }
+        instrumentation.waitForIdleSync()
+        instrumentation.runOnMainSync {
+            try {
+                assertTrue(received.contains(MediaForgeWebIssue.SUBRESOURCE_HTTP))
+                assertTrue(received.contains(MediaForgeWebIssue.IFRAME_POLICY))
+                assertEquals(1, pageSuccesses)
+                assertEquals(0, pageFailures)
             } finally {
                 bridge.close()
                 view.stopLoading()
