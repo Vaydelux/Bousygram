@@ -508,11 +508,61 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         }
     }
 
+    if (showAnimeMatchDialog && activeEmbed == null && detail?.item?.type == ExtrasType.ANIME) {
+        val open = detail!!
+        ExtrasAnimeTmdbMatchDialog(
+            anime = open,
+            existing = animeTmdbMatch,
+            onDismiss = { showAnimeMatchDialog = false },
+            onConfirm = { match ->
+                if (animeMatchStore.save(match)) {
+                    animeTmdbMatch = match
+                    selectedSeason = 1
+                    seasonRetry += 1
+                    showAnimeMatchDialog = false
+                    animeMatchError = null
+                } else {
+                    animeMatchError = "The TMDB episode guide could not be saved to device storage."
+                }
+            },
+            onRemove = {
+                if (animeMatchStore.remove(open.item.id)) {
+                    animeTmdbMatch = null
+                    selectedSeason = null
+                    episodes = emptyList()
+                    showAnimeMatchDialog = false
+                    animeMatchError = null
+                } else {
+                    animeMatchError = "The local TMDB guide could not be removed."
+                }
+            }
+        )
+    }
+
     if (activeEmbed != null) {
+        val current = activeEmbed!!
+        // All playback requests stay bound to their original provider ID.
+        val activeDetail = detail?.takeIf { info ->
+            (current.anilistId > 0 && info.item.type == ExtrasType.ANIME &&
+                current.anilistId == info.item.id) ||
+                (current.tmdbId > 0 && info.item.type == ExtrasType.TV &&
+                    current.tmdbId == info.item.id)
+        }
+        val guide = activeDetail?.let { info ->
+            ExtrasEpisodeGuide(
+                catalogType = info.item.type,
+                titleId = info.item.id,
+                seasons = info.seasons,
+                animeEpisodeCount = info.episodeCount,
+                animeTmdbMatch = if (info.item.type == ExtrasType.ANIME) animeTmdbMatch else null
+            )
+        }
         ExtrasMediaForgeScreen(
-            request = activeEmbed!!,
+            request = current,
             isAndroidTv = isAndroidTv,
-            onBack = { activeEmbed = null }
+            onBack = { activeEmbed = null },
+            episodeGuide = guide,
+            onEpisodeSelected = { next -> activeEmbed = next }
         )
     } else {
     // Backdrop is draw-only, so give default Text a real themed foreground.
@@ -681,18 +731,35 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     )
                 }
             } else detail?.let { info ->
-                ExtrasDetailContent(info, episodes, selectedSeason, seasonLoading, episodeError,
+                // TMDB episode cards are a separate *metadata view* on an
+                // AniList anime entry; only the original AniList ID is used
+                // when Play is selected.
+                val displayInfo = if (info.item.type == ExtrasType.ANIME &&
+                    animeTmdbMatch?.anilistId == info.item.id
+                ) info.copy(seasons = listOf(ExtrasSeason(
+                    number = 1,
+                    name = "AniList entry · TMDB S${animeTmdbMatch!!.tmdbSeason}",
+                    episodeCount = info.episodeCount ?: 0
+                ))) else info
+                ExtrasDetailContent(displayInfo, episodes, selectedSeason, seasonLoading, episodeError,
                     onSeason = { selectedSeason = it },
                     onPlayMovie = { activeEmbed = ExtrasEmbedRequest.movie(info.item.id, info.item.title) },
                     onPlayAnime = { episodeNumber ->
                         activeEmbed = ExtrasEmbedRequest.anime(info.item.id, episodeNumber, info.item.title)
                     },
                     onPlayEpisode = { episodeNumber ->
-                        selectedSeason?.let { season ->
-                            activeEmbed = ExtrasEmbedRequest.episode(info.item.id, season, episodeNumber, info.item.title)
+                        if (info.item.type == ExtrasType.ANIME) {
+                            activeEmbed = ExtrasEmbedRequest.anime(info.item.id, episodeNumber, info.item.title)
+                        } else {
+                            selectedSeason?.let { season ->
+                                activeEmbed = ExtrasEmbedRequest.episode(info.item.id, season, episodeNumber, info.item.title)
+                            }
                         }
                     },
                     onSeasonRetry = { seasonRetry += 1 },
+                    animeTmdbMatch = animeTmdbMatch,
+                    animeMatchError = animeMatchError,
+                    onManageAnimeMatch = { showAnimeMatchDialog = true },
                     onOpenItem = { related ->
                         detailItem?.let {
                             if (detailHistory.size >= 20) detailHistory.removeAt(0)
