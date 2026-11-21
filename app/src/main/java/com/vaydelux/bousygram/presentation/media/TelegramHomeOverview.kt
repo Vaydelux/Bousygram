@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -59,6 +60,10 @@ internal fun TelegramHomeOverview(
     val spec = LocalBousygramDisplaySpec.current
     val shortWindow = adaptive.isShortWindow
     val narrow = adaptive.widthDp < 440.dp
+    val fontScale = LocalDensity.current.fontScale
+    val sourceIconsOnly = explorerSourceTabsIconOnly(
+        adaptive.widthDp / fontScale.coerceAtLeast(1f), isTv, fontScale
+    )
     val controlsGap = if (shortWindow) 6.dp else 10.dp
     val status = when {
         connection == TelegramConnectionState.OFFLINE -> "Offline"
@@ -90,7 +95,7 @@ internal fun TelegramHomeOverview(
                     BousygramPageHeading(
                         eyebrow = "Telegram media",
                         title = "Home",
-                        subtitle = "Recently loaded Saved Messages",
+                        subtitle = "Your latest saved videos",
                         compact = true,
                         icon = BousygramIcons.Home,
                         modifier = Modifier.weight(1f)
@@ -164,8 +169,8 @@ internal fun TelegramHomeOverview(
                     BousygramSectionTab(
                         label = label,
                         active = false,
-                        icon = icon,
-                        iconOnly = narrow,
+                        icon = if (sourceIconsOnly) icon else null,
+                        iconOnly = sourceIconsOnly,
                         compact = narrow,
                         tooltip = "Browse $label in Library",
                         isTv = isTv,
@@ -177,7 +182,7 @@ internal fun TelegramHomeOverview(
             }
 
             Text(
-                text = "Saved Messages · Recent",
+                text = "Recent videos",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -185,7 +190,7 @@ internal fun TelegramHomeOverview(
             if (recentSaved.isEmpty()) {
                 Text(
                     text = if (isLoadingSaved) "Loading your first Saved Messages page…"
-                    else "No Saved Messages preview yet. Open Saved in Library to browse.",
+                    else "No Saved Messages preview yet. Open Library to browse.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("telegram-home-preview-status")
