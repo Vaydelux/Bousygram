@@ -15,13 +15,20 @@ internal suspend fun loadVideoChats(
     owner: AccountSnapshot,
     limit: Int,
     request: suspend (TdApi.Function<*>) -> TdApi.Object? = { TdLibClient.awaitAccountResponse(it, owner) },
+    knownSources: List<VideoChatItem> = emptyList(),
     onHasMore: (Boolean) -> Unit = {},
     onPage: (List<VideoChatItem>) -> Unit
 ): String? = coroutineScope {
     // The caller owns publication on the main dispatcher. Each list advances independently,
     // so a slow archive never blocks the first main page.
-    val mainSources = linkedMapOf<Long, VideoChatItem>()
-    val archivedSources = linkedMapOf<Long, VideoChatItem>()
+    // Reuse current-account metadata when expanding the directory instead of
+    // reissuing GetChat/GetSupergroup for every already visible folder.
+    val mainSources = LinkedHashMap<Long, VideoChatItem>().apply {
+        knownSources.filterNot { it.isArchived }.forEach { put(it.chatId, it) }
+    }
+    val archivedSources = LinkedHashMap<Long, VideoChatItem>().apply {
+        knownSources.filter { it.isArchived }.forEach { put(it.chatId, it) }
+    }
 
     fun publish() {
         val saved = mainSources.values.firstOrNull { it.isSavedMessages }
