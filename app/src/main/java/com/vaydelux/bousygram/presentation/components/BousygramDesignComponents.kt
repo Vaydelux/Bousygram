@@ -54,6 +54,16 @@ import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
 
+/**
+ * One line-height contract for navigation tabs and action buttons across
+ * Telegram Home/Library/Search/Favorites and Extras. Font scaling remains
+ * enabled; the baseline and vertical hit target are consistent on all routes.
+ */
+@Composable
+internal fun bousygramControlLabelStyle(isTv: Boolean) =
+    (if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge)
+        .copy(lineHeight = if (isTv) 22.sp else 20.sp)
+
 /** Shared information hierarchy for Telegram Library, Favorites and Extras. */
 @Composable
 fun BousygramPageHeading(
@@ -316,7 +326,7 @@ fun BousygramSectionTab(
                 if (showLabel) {
                     Text(
                         text = label,
-                        style = if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge,
+                        style = bousygramControlLabelStyle(isTv),
                         fontWeight = if (active || focused) FontWeight.Bold else FontWeight.Medium,
                         color = contentColor,
                         maxLines = 1,
