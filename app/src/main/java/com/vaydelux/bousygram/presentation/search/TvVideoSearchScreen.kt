@@ -53,6 +53,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.components.BousygramCompactPageTitle
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramChip
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
@@ -206,6 +207,10 @@ fun TvVideoSearchScreen(
                     )
                     Spacer(Modifier.height(12.dp))
                 } else {
+                    BousygramCompactPageTitle(
+                        title = "Search",
+                        status = if (uiState is SearchUiState.Loading) "Searching…" else "Results"
+                    )
                     Spacer(Modifier.height(4.dp))
                 }
                 if (adaptive.isCompact) {
