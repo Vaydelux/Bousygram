@@ -382,7 +382,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 status = message
                 webLoadFailed = true
             },
-            onWebIssue = { issue -> webIssue = issue },
+            onWebIssue = { issue -> webIssue = preferredAnimeWebIssue(webIssue, issue) },
             onPageLoadSucceeded = {
                 // A previous main-frame failure may have covered a now-valid
                 // iframe. This is page success, NOT proof of video playback.
