@@ -122,6 +122,8 @@ data class MediaUiState(
     /** Earlier catalog rows released from the active memory window. */
     val discardedMediaCount: Int = 0,
     val videoChats: List<VideoChatItem> = emptyList(),
+    /** More chats may exist outside the current bounded Telegram directory window. */
+    val hasMoreChatSources: Boolean = true,
     val isSidebarLoading: Boolean = false,
     val sidebarError: String? = null,
     val sortOrder: SortOrder = SortOrder.DATE_DESC,
