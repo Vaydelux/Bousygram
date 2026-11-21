@@ -15,6 +15,7 @@ internal suspend fun loadVideoChats(
     owner: AccountSnapshot,
     limit: Int,
     request: suspend (TdApi.Function<*>) -> TdApi.Object? = { TdLibClient.awaitAccountResponse(it, owner) },
+    onHasMore: (Boolean) -> Unit = {},
     onPage: (List<VideoChatItem>) -> Unit
 ): String? = coroutineScope {
     // The caller owns publication on the main dispatcher. Each list advances independently,
@@ -41,8 +42,14 @@ internal suspend fun loadVideoChats(
     val archive = async {
         loadChatList(owner, TdApi.ChatListArchive(), limit, archivedSources, ::boundedRequest, ::publish)
     }
-    listOf(main, archive).awaitAll().filterNotNull().firstOrNull()
+    val results = listOf(main, archive).awaitAll()
+    // Do not infer directory exhaustion from the number of visible groups:
+    // private chats may occupy most of the scanned Telegram dialog list.
+    onHasMore(results.any { it.hasMore })
+    results.mapNotNull { it.error }.firstOrNull()
 }
+
+private data class ChatListLoadResult(val error: String? = null, val hasMore: Boolean = false)
 
 private suspend fun loadChatList(
     owner: AccountSnapshot,
@@ -51,14 +58,17 @@ private suspend fun loadChatList(
     sources: MutableMap<Long, VideoChatItem>,
     request: suspend (TdApi.Function<*>) -> TdApi.Object?,
     onPage: () -> Unit
-): String? {
+): ChatListLoadResult {
     val isArchived = chatList is TdApi.ChatListArchive
     var queryLimit = minOf(limit, CHAT_PICKER_FIRST_PAGE)
     var endOfList = false
     var publishedFirstBatch = false
+    var unavailableDetails = false
+    var mayHaveMore = false
     while (true) {
         val response = request(TdApi.GetChats(chatList, queryLimit))
-        val ids = (response as? TdApi.Chats)?.chatIds ?: return directoryError(response)
+        val ids = (response as? TdApi.Chats)?.chatIds
+            ?: return ChatListLoadResult(directoryError(response), hasMore = true)
         val removed = sources.keys.retainAll(ids.toSet())
         val batches = ids.filterNot { it in sources }.chunked(CHAT_PICKER_DETAIL_BATCH)
 
@@ -67,10 +77,9 @@ private suspend fun loadChatList(
                 batch.map { chatId -> async { loadChatSource(owner, chatId, isArchived, request) } }.awaitAll()
             }
             chats.filterNotNull().forEach { sources[it.chatId] = it }
-            if (chats.any { it == null }) {
-                onPage()
-                return "Some chats could not be loaded. Try refreshing."
-            }
+            // A single timed-out group/topic metadata request must not hide the
+            // other successfully loaded channels and groups.
+            if (chats.any { it == null }) unavailableDetails = true
             if (!publishedFirstBatch || index == batches.lastIndex) {
                 publishedFirstBatch = true
                 onPage()
@@ -78,7 +87,10 @@ private suspend fun loadChatList(
         }
         if (removed && batches.isEmpty()) onPage()
 
-        if (ids.size >= limit || (endOfList && ids.size < queryLimit)) break
+        if (ids.size >= limit || (endOfList && ids.size < queryLimit)) {
+            mayHaveMore = ids.size >= limit && !endOfList
+            break
+        }
         if (ids.size == queryLimit) {
             queryLimit = minOf(limit, queryLimit + CHAT_PICKER_LOAD_BATCH)
             continue
@@ -88,14 +100,17 @@ private suspend fun loadChatList(
         when (val result = request(TdApi.LoadChats(chatList, CHAT_PICKER_LOAD_BATCH))) {
             is TdApi.Ok -> Unit
             is TdApi.Error -> {
-                if (result.code != 404) return directoryError(result)
+                if (result.code != 404) return ChatListLoadResult(directoryError(result), hasMore = true)
                 // A prefetch may have filled the list between GetChats and LoadChats.
                 endOfList = true
             }
-            else -> return directoryError(result)
+            else -> return ChatListLoadResult(directoryError(result), hasMore = true)
         }
     }
-    return null
+    return ChatListLoadResult(
+        error = if (unavailableDetails) "Some Telegram chats could not be loaded. Retry to recover them." else null,
+        hasMore = mayHaveMore || unavailableDetails
+    )
 }
 
 private suspend fun loadChatSource(
