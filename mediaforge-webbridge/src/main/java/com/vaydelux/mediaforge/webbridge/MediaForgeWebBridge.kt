@@ -144,7 +144,12 @@ class MediaForgeWebBridge(
             allowFileAccess = false
             allowContentAccess = false
             javaScriptCanOpenWindowsAutomatically = false
-            setSupportMultipleWindows(false)
+            // Critical: with false, window.open/target=_blank can replace the
+            // player in the *main* frame, where our episode-identity policy
+            // correctly rejects it but may leave the embed blank. With true
+            // and no onCreateWindow handler, Chromium rejects the popup
+            // without navigating away from the selected episode.
+            setSupportMultipleWindows(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
         }
