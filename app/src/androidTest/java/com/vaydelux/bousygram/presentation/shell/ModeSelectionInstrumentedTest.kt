@@ -15,6 +15,7 @@ import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -61,6 +62,24 @@ class ModeSelectionInstrumentedTest {
         composeRule.onNodeWithText("Done").performClick()
         composeRule.onNodeWithTag("startup-appearance-studio").assertDoesNotExist()
         composeRule.onNodeWithTag("mode-extras").assertExists()
+    }
+
+    @Test fun startupModeCardsHaveMatchingHeightsAndAppearanceActionIsAccessible() {
+        composeRule.setContent {
+            BousygramTheme {
+                BousygramModeSelection(onTelegram = {}, onExtras = {})
+            }
+        }
+        val telegram = composeRule.onNodeWithTag("mode-telegram").fetchSemanticsNode().boundsInRoot
+        val extras = composeRule.onNodeWithTag("mode-extras").fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "Mode cards should have equal visual heights when one title wraps",
+            kotlin.math.abs(telegram.height - extras.height) < 2f
+        )
+        assertTrue("Cards must have a real gap", extras.top > telegram.bottom)
+        composeRule.onNodeWithTag("startup-change-appearance").assertExists()
+        composeRule.onNodeWithTag("startup-change-appearance").performClick()
+        composeRule.onNodeWithTag("startup-appearance-studio").assertExists()
     }
 
     @Test fun telegramChoiceIsSingleExplicitAction() {

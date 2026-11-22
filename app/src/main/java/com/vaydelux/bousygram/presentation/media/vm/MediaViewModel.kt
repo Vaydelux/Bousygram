@@ -165,6 +165,8 @@ class MediaViewModel(
     private var sourceLoadLimit = 0
     private var completedSourceLimit = 0
     private var sourceLoadJob: Job? = null
+    private var pendingDirectoryExpansion = false
+    private var sourceAutoRetryAttempted = false
     private var mediaRequestGeneration = 0L
     private var topicRequestGeneration = 0L
     private var topicLoadingTimeoutJob: Job? = null
@@ -1170,9 +1172,15 @@ class MediaViewModel(
     private fun loadVideoChatsIfNeeded() {
         // Do not enumerate 10,000 dialogs just because the user opened Groups.
         // The first source window is enough to render, with manual continuation.
-        if (sourceLoadJob?.isActive == true ||
-            completedSourceLimit >= CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT
-        ) return
+        if (completedSourceLimit >= CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT) return
+        if (sourceLoadJob?.isActive == true) {
+            // The 50-dialog Home preview may still be loading when the user
+            // enters Groups. Do not leave the directory stuck at 50 entries.
+            if (sourceLoadLimit < CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT) {
+                pendingDirectoryExpansion = true
+            }
+            return
+        }
         loadChatSources(CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT)
     }
 
@@ -1187,7 +1195,10 @@ class MediaViewModel(
     }
 
     fun refreshVideoChats() {
-        loadChatSources(CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT)
+        sourceAutoRetryAttempted = false
+        loadChatSources(maxOf(
+            CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT, completedSourceLimit, sourceLoadLimit
+        ).coerceAtMost(CHAT_SOURCE_DIRECTORY_LIMIT))
     }
 
     private fun resetChatSourceLoad() {
@@ -1195,6 +1206,8 @@ class MediaViewModel(
         sourceLoadJob = null
         sourceLoadLimit = 0
         completedSourceLimit = 0
+        pendingDirectoryExpansion = false
+        sourceAutoRetryAttempted = false
     }
 
     private fun loadChatSources(limit: Int) {
@@ -1243,6 +1256,26 @@ class MediaViewModel(
             if (error == null) completedSourceLimit = limit
             _uiState.update { it.copy(hasMoreChatSources = hasMore && limit < CHAT_SOURCE_DIRECTORY_LIMIT) }
             publish(latest, retainMissing = error != null, loading = false, error = error)
+
+            // Two account-scoped one-shot recoveries, never a polling loop:
+            // expand the requested folder after Home's small preview, then
+            // retry one failed scan if TDLib was still initializing after login.
+            val expand = pendingDirectoryExpansion &&
+                limit < CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT &&
+                _explorerPosition.value.level == ExplorerLevel.SOURCES
+            if (expand) pendingDirectoryExpansion = false
+            val retry = !expand && error != null && !sourceAutoRetryAttempted
+            if (retry) sourceAutoRetryAttempted = true
+            if (expand || retry) {
+                viewModelScope.launch {
+                    delay(if (expand) 120L else 1_000L)
+                    if (!AccountSession.isCurrent(owner) ||
+                        sourceLoadJob?.isActive == true) return@launch
+                    if (expand) loadChatSources(CHAT_SOURCE_INITIAL_DIRECTORY_LIMIT)
+                    else if (_uiState.value.sidebarError != null)
+                        loadChatSources(limit)
+                }
+            }
         }
     }
 
@@ -1507,4 +1540,5 @@ private const val MAX_BROWSE_RESTORATIONS = 48
 private const val MAX_TOPIC_FOCUS = 64
 private const val MAX_THUMBNAIL_FAILURES = 256
 private const val MAX_INFLIGHT_THUMBNAILS = 24
-private const val FORUM_TOPIC_PAGE_TIMEOUT_MS = 9_000L
+// Allows one bounded retry for a transient GetForumTopics failure.
+private const val FORUM_TOPIC_PAGE_TIMEOUT_MS = 18_000L

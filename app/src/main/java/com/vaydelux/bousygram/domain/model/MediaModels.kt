@@ -266,5 +266,7 @@ data class VideoChatItem(
     val kind: ChatSourceKind = if (isSavedMessages) ChatSourceKind.SAVED_MESSAGES else ChatSourceKind.OTHER,
     val isArchived: Boolean = false,
     val isForum: Boolean = false,
-    val topicsCount: Int = 0
+    val topicsCount: Int = 0,
+    /** Retry forum classification if TDLib could not yet resolve this supergroup. */
+    val forumMetadataResolved: Boolean = true
 )
