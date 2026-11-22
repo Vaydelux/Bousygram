@@ -80,9 +80,9 @@ internal class ForumTopicLoader(
     private val chatId: Long,
     private val query: String,
     private val send: (TdApi.GetForumTopics, (TdApi.Object?) -> Unit) -> Unit,
-    private val onUpdate: (List<ForumTopicChannel>, String?, Boolean) -> Unit,
     private val autoAdvance: Boolean = true,
-    private val onHasMore: (Boolean) -> Unit = {}
+    private val onHasMore: (Boolean) -> Unit = {},
+    private val onUpdate: (List<ForumTopicChannel>, String?, Boolean) -> Unit
 ) {
     private data class Cursor(val date: Int = 0, val messageId: Long = 0L, val topicId: Int = 0)
     private val topics = linkedMapOf<Int, TdApi.ForumTopic>()
