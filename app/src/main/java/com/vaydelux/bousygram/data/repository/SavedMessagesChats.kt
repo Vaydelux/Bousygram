@@ -74,6 +74,11 @@ private suspend fun loadChatList(
     var publishedFirstBatch = false
     var unavailableDetails = false
     var mayHaveMore = false
+    // A partial forum classification stays eligible on the *next scan*.
+    // Within this scan GetChats may expand/replay its prefix repeatedly;
+    // requesting the same unresolved group's metadata on every replay
+    // consumes retries and delays first visible content for large accounts.
+    val attemptedMetadata = hashSetOf<Long>()
     while (true) {
         val response = retryTransientTelegramCatalogRequest(
             TdApi.GetChats(chatList, queryLimit), request = request
@@ -86,10 +91,12 @@ private suspend fun loadChatList(
             sources.keys.retainAll(ids.toSet())
         } else false
         val batches = ids.filter { id ->
-            sources[id] == null || sources[id]?.forumMetadataResolved == false
+            (sources[id] == null || sources[id]?.forumMetadataResolved == false) &&
+                id !in attemptedMetadata
         }.chunked(CHAT_PICKER_DETAIL_BATCH)
 
         for ((index, batch) in batches.withIndex()) {
+            attemptedMetadata.addAll(batch)
             val chats = coroutineScope {
                 batch.map { chatId -> async { loadChatSource(owner, chatId, isArchived, request) } }.awaitAll()
             }
