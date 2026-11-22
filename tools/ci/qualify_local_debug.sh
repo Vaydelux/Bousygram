@@ -29,8 +29,10 @@ command -v zipinfo >/dev/null
 # Reuse the existing fail-closed packaging/verifier contracts locally.
 # Numeric ID 1 is a local packaging marker, NOT a CI attestation.
 export CI_VERIFICATION_RUN_ID=1
-export RELEASE_SHA="$(git rev-parse HEAD)"
-export GITHUB_OUTPUT="$(mktemp)"
+RELEASE_SHA="$(git rev-parse HEAD)"
+export RELEASE_SHA
+GITHUB_OUTPUT="$(mktemp)"
+export GITHUB_OUTPUT
 trap 'rm -f "$GITHUB_OUTPUT"' EXIT
 if [[ -z "${ANDROID_BUILD_TOOLS_DIR:-}" ]]; then
   sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
