@@ -75,7 +75,9 @@ private suspend fun loadChatList(
     var unavailableDetails = false
     var mayHaveMore = false
     while (true) {
-        val response = request(TdApi.GetChats(chatList, queryLimit))
+        val response = retryTransientTelegramCatalogRequest(
+            TdApi.GetChats(chatList, queryLimit), request = request
+        )
         val ids = (response as? TdApi.Chats)?.chatIds
             ?: return ChatListLoadResult(directoryError(response), hasMore = true)
         // GetChats expands an accumulated prefix. Do not drop already resolved
@@ -83,7 +85,9 @@ private suspend fun loadChatList(
         val removed = if (ids.size >= limit || (endOfList && ids.size < queryLimit)) {
             sources.keys.retainAll(ids.toSet())
         } else false
-        val batches = ids.filterNot { it in sources }.chunked(CHAT_PICKER_DETAIL_BATCH)
+        val batches = ids.filter { id ->
+            sources[id] == null || sources[id]?.forumMetadataResolved == false
+        }.chunked(CHAT_PICKER_DETAIL_BATCH)
 
         for ((index, batch) in batches.withIndex()) {
             val chats = coroutineScope {
@@ -92,7 +96,7 @@ private suspend fun loadChatList(
             chats.filterNotNull().forEach { sources[it.chatId] = it }
             // A single timed-out group/topic metadata request must not hide the
             // other successfully loaded channels and groups.
-            if (chats.any { it == null }) unavailableDetails = true
+            if (chats.any { it == null || !it.forumMetadataResolved }) unavailableDetails = true
             if (!publishedFirstBatch || index == batches.lastIndex) {
                 publishedFirstBatch = true
                 onPage()
@@ -110,7 +114,9 @@ private suspend fun loadChatList(
         }
 
         // TDLib can return a short page while more dialogs are still available.
-        when (val result = request(TdApi.LoadChats(chatList, CHAT_PICKER_LOAD_BATCH))) {
+        when (val result = retryTransientTelegramCatalogRequest(
+            TdApi.LoadChats(chatList, CHAT_PICKER_LOAD_BATCH), request = request
+        )) {
             is TdApi.Ok -> Unit
             is TdApi.Error -> {
                 if (result.code != 404) return ChatListLoadResult(directoryError(result), hasMore = true)
@@ -121,7 +127,7 @@ private suspend fun loadChatList(
         }
     }
     return ChatListLoadResult(
-        error = if (unavailableDetails) "Some Telegram chats could not be loaded. Retry to recover them." else null,
+        error = if (unavailableDetails) "Some Telegram group details are still syncing. Existing sources remain available." else null,
         hasMore = mayHaveMore || unavailableDetails
     )
 }
@@ -132,7 +138,9 @@ private suspend fun loadChatSource(
     isArchived: Boolean,
     request: suspend (TdApi.Function<*>) -> TdApi.Object?
 ): VideoChatItem? {
-    val chat = request(TdApi.GetChat(chatId)) as? TdApi.Chat ?: return null
+    val chat = retryTransientTelegramCatalogRequest(
+        TdApi.GetChat(chatId), attempts = 2, request = request
+    ) as? TdApi.Chat ?: return null
     val type = chat.type
     val kind = when (type) {
         is TdApi.ChatTypePrivate -> if (type.userId == owner.accountId) ChatSourceKind.SAVED_MESSAGES else ChatSourceKind.PRIVATE
@@ -142,18 +150,25 @@ private suspend fun loadChatSource(
         else -> ChatSourceKind.OTHER
     }
     val isSaved = kind == ChatSourceKind.SAVED_MESSAGES
-    val isForum = if (type is TdApi.ChatTypeSupergroup && !type.isChannel) {
-        val group = request(TdApi.GetSupergroup(type.supergroupId)) as? TdApi.Supergroup
-            ?: return null
-        group.isForum
-    } else false
+    // Do not hide a valid Telegram group when the additional GetSupergroup
+    // request times out during account synchronization. Mark classification
+    // incomplete; the next refresh retries it rather than caching a false answer.
+    val group = if (type is TdApi.ChatTypeSupergroup && !type.isChannel) {
+        retryTransientTelegramCatalogRequest(
+            TdApi.GetSupergroup(type.supergroupId), attempts = 2, request = request
+        ) as? TdApi.Supergroup
+    } else null
+    val forumMetadataResolved = type !is TdApi.ChatTypeSupergroup ||
+        type.isChannel || group != null
+    val isForum = group?.isForum ?: false
     return VideoChatItem(
         chatId = chatId,
         title = if (isSaved) SAVED_MESSAGES_TITLE else chat.title.orEmpty(),
         isSavedMessages = isSaved,
         isArchived = isArchived && !isSaved,
         kind = kind,
-        isForum = isForum
+        isForum = isForum,
+        forumMetadataResolved = forumMetadataResolved
     )
 }
 
