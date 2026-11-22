@@ -170,7 +170,7 @@ fun BousygramModeSelection(
                     ) {
                         ModeOption(
                             title = "Telegram Media",
-                            subtitle = "Saved messages, channels, groups and your media",
+                            subtitle = "Saved videos, channels and group media",
                             onClick = onTelegram,
                             primary = true,
                             modeTag = "mode-telegram",
@@ -180,7 +180,7 @@ fun BousygramModeSelection(
                         )
                         ModeOption(
                             title = "Movies, TV Shows & Anime",
-                            subtitle = "Explore catalogs and optional external playback",
+                            subtitle = "Movies, TV shows and anime catalogs",
                             onClick = onExtras,
                             primary = false,
                             modeTag = "mode-extras",
@@ -196,7 +196,7 @@ fun BousygramModeSelection(
                     ) {
                     ModeOption(
                         title = "Telegram Media",
-                        subtitle = "Saved messages, channels, groups and your media library",
+                        subtitle = "Saved videos, channels and group media",
                         onClick = onTelegram,
                         primary = true,
                         modeTag = "mode-telegram",
@@ -205,7 +205,7 @@ fun BousygramModeSelection(
                     )
                     ModeOption(
                         title = "Movies, TV Shows & Anime",
-                        subtitle = "Explore catalogs and optional external web playback",
+                        subtitle = "Movies, TV shows and anime catalogs",
                         onClick = onExtras,
                         primary = false,
                         modeTag = "mode-extras",
@@ -243,7 +243,7 @@ private fun ModeOption(
     val isShortWindow = rememberAdaptiveMetrics().isShortWindow
     // Keep both mode cards the same text-row height even when one title wraps.
     // Font scaling can still expand the cards instead of clipping the content.
-    val subtitleLines = if (isShortWindow) 2 else 3
+    val subtitleLines = 2
     val halo = LocalBousygramHaloColors.current
     val focusScale by animateFloatAsState(
         targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
