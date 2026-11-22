@@ -834,6 +834,7 @@ class MediaViewModel(
                 null
             )
             if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
+                recordFirstCard(cached)
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
