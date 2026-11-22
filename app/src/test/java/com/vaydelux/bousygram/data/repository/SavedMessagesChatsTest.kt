@@ -161,7 +161,11 @@ class SavedMessagesChatsTest {
         }, onPage = { pages += it })
 
         assertNull(error)
-        assertEquals(2, mainRequests)
+        // GetChats: first transient 503, successful retry, then one final
+        // snapshot after LoadChats reports end-of-list (404).
+        assertEquals(3, mainRequests)
+        // Retry a failed GetSupergroup once, but do not reissue metadata
+        // just because GetChats replays the same prefix.
         assertEquals(2, metadataRequests)
         assertEquals(202L, pages.last().single().chatId)
         assertEquals(true, pages.last().single().isForum)
