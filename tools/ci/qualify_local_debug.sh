@@ -25,6 +25,17 @@ command -v python3 >/dev/null
 command -v sha256sum >/dev/null
 [[ -x ./gradlew ]] || { echo "ERROR: Gradle wrapper is not executable." >&2; exit 1; }
 
+# Reuse the existing fail-closed packaging/verifier contracts locally.
+# Numeric ID 1 is a local packaging marker, NOT a CI attestation.
+export CI_VERIFICATION_RUN_ID=1
+export RELEASE_SHA="$(git rev-parse HEAD)"
+export GITHUB_OUTPUT="$(mktemp)"
+trap 'rm -f "$GITHUB_OUTPUT"' EXIT
+if [[ -z "${ANDROID_BUILD_TOOLS_DIR:-}" ]]; then
+  sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+  [[ -n "$sdk" ]] || { echo "ERROR: Set ANDROID_HOME or ANDROID_BUILD_TOOLS_DIR." >&2; exit 1; }
+  export ANDROID_BUILD_TOOLS_DIR="$sdk/build-tools/35.0.0"
+fi
 sha="$(git rev-parse HEAD)"
 out="ci-artifacts/local-debug-${sha:0:12}"
 mkdir -p "$out"
@@ -47,7 +58,7 @@ bash tools/ci/verify_telegram_local_only.sh
 python3 tools/ci/test_favorites_storage.py
 bash tools/ci/build_debug_preview.sh "$out"
 # The verifier requires a build/run identifier, even for local qualification.
-bash tools/ci/verify_debug_preview_publication.sh "$out" "$sha" "local"
+bash tools/ci/verify_debug_preview_publication.sh "$out" "$sha" "$CI_VERIFICATION_RUN_ID"
 ( cd "$out" && sha256sum --check SHA256SUMS.txt )
 [[ "$(find "$out" -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 3 ]] || {
   echo "ERROR: Expected exactly three APKs (arm32, arm64, universal)." >&2
