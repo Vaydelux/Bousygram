@@ -23,6 +23,7 @@ grep -Eq '^TMDB_API_KEY=[[:xdigit:]]{32}$' .env || {
 command -v java >/dev/null
 command -v python3 >/dev/null
 command -v sha256sum >/dev/null
+command -v zipinfo >/dev/null
 [[ -x ./gradlew ]] || { echo "ERROR: Gradle wrapper is not executable." >&2; exit 1; }
 
 # Reuse the existing fail-closed packaging/verifier contracts locally.
@@ -36,6 +37,10 @@ if [[ -z "${ANDROID_BUILD_TOOLS_DIR:-}" ]]; then
   [[ -n "$sdk" ]] || { echo "ERROR: Set ANDROID_HOME or ANDROID_BUILD_TOOLS_DIR." >&2; exit 1; }
   export ANDROID_BUILD_TOOLS_DIR="$sdk/build-tools/35.0.0"
 fi
+[[ -x "$ANDROID_BUILD_TOOLS_DIR/apksigner" && -x "$ANDROID_BUILD_TOOLS_DIR/aapt2" ]] || {
+  echo "ERROR: Android build-tools 35.0.0 with apksigner and aapt2 required." >&2
+  exit 1
+}
 sha="$(git rev-parse HEAD)"
 out="ci-artifacts/local-debug-${sha:0:12}"
 mkdir -p "$out"
