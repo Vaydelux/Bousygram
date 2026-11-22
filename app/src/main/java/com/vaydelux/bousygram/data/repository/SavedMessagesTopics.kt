@@ -13,7 +13,7 @@ internal fun SavedMessagesRepository.loadForumTopicsInternal(
     var pageRequest: Job? = null
     val loader = ForumTopicLoader(chatId, query, { request, callback ->
         pageRequest = sendCatalogRequest(request, onResult = callback)
-    }, onUpdate)
+    }, onUpdate = onUpdate)
     loader.load()
     return {
         loader.cancel()
