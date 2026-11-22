@@ -587,8 +587,14 @@ class MediaViewModel(
         val source = _uiState.value
         if (source.selectedChatId == null || source.availableTopics.none { it.id == topicId }) return
         rememberExplorerTopicFocus(source.selectedChatId, topicId)
-        cancelForumTopicLoading() // Do not compete with the selected topic's media request.
-        _uiState.update { it.copy(isLoadingTopics = false) }
+        // Completed topic pages have no pending TDLib request; preserve their
+        // cursor controller while viewing media so Back restores pagination.
+        // An in-flight topic request must be cancelled to prioritize media.
+        if (_uiState.value.isLoadingTopics || _uiState.value.isLoadingMoreTopics)
+            cancelForumTopicLoading()
+        topicLoadingTimeoutJob?.cancel()
+        topicLoadingTimeoutJob = null
+        _uiState.update { it.copy(isLoadingTopics = false, isLoadingMoreTopics = false) }
         _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
         selectTopic(topicId)
     }
@@ -599,9 +605,12 @@ class MediaViewModel(
         val source = _uiState.value
         val chatId = source.selectedChatId ?: return
         if (source.isSavedMessagesSelected || source.videoChats.none { it.chatId == chatId && it.isForum }) return
-        cancelForumTopicLoading()
+        if (_uiState.value.isLoadingTopics || _uiState.value.isLoadingMoreTopics)
+            cancelForumTopicLoading()
+        topicLoadingTimeoutJob?.cancel()
+        topicLoadingTimeoutJob = null
         ++topicRequestGeneration // Invalidate any already-dispatched callbacks.
-        _uiState.update { it.copy(isLoadingTopics = false) }
+        _uiState.update { it.copy(isLoadingTopics = false, isLoadingMoreTopics = false) }
         _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
         loadTopic(null, force = true)
     }
@@ -622,6 +631,13 @@ class MediaViewModel(
                 ExplorerLevel.SOURCES
             }
         )
+        // A page cancelled while the user entered media cannot be continued.
+        // Re-open the forum directory instead of presenting an inert Load more.
+        if (position.level == ExplorerLevel.MEDIA && source?.isForum == true &&
+            nextForumTopicPage == null
+        ) {
+            _uiState.value.selectedChatId?.let { requestForumTopics(it, force = true) }
+        }
         return true
     }
 
