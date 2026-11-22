@@ -39,12 +39,30 @@ internal fun SavedMessagesRepository.loadForumTopicsPagedInternal(
     onUpdate: (List<ForumTopicChannel>, String?, Boolean) -> Unit
 ): ForumTopicPageControl {
     var pageRequest: Job? = null
+    var pageStartNanos = TelegramCatalogTiming.nowNanos()
+    var firstPage = true
     val loader = ForumTopicLoader(
         chatId = chatId, query = query,
         send = { request, callback ->
+            pageStartNanos = TelegramCatalogTiming.nowNanos()
             pageRequest = sendCatalogRequest(request, onResult = callback)
         },
-        onUpdate = onUpdate,
+        onUpdate = { topics, error, isFinal ->
+            if (isFinal) {
+                TelegramCatalogTiming.record(
+                    if (firstPage) TelegramCatalogStage.TOPIC_FIRST_PAGE
+                        else TelegramCatalogStage.TOPIC_NEXT_PAGE,
+                    pageStartNanos, topics.size,
+                    when {
+                        error != null -> TelegramCatalogOutcome.PARTIAL
+                        topics.isEmpty() -> TelegramCatalogOutcome.EMPTY
+                        else -> TelegramCatalogOutcome.READY
+                    }
+                )
+                firstPage = false
+            }
+            onUpdate(topics, error, isFinal)
+        },
         autoAdvance = false,
         onHasMore = onHasMore
     )
