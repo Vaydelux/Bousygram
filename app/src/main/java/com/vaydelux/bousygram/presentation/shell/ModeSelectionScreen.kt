@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -102,7 +103,9 @@ fun BousygramModeSelection(
                 modifier = Modifier.widthIn(max = if (horizontalCards) 1020.dp else 760.dp)
                     .fillMaxWidth().verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)
+                // One gap between major groups; the hero and cards own their
+                // smaller internal gaps instead of inheriting this large gap.
+                verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 20.dp)
             ) {
                 if (compact) {
                     Row(
@@ -126,33 +129,39 @@ fun BousygramModeSelection(
                         }
                     }
                 } else {
-                    BousygramBrandMark(size = 86.dp, showHalo = true)
-                    Text(
-                        "Bousygram",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        "Your screen. Your library.",
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        "Choose a media experience to get started.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth().testTag("startup-hero"),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        BousygramBrandMark(size = 86.dp, showHalo = true)
+                        Text(
+                            "Bousygram",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Your screen. Your library.",
+                            style = MaterialTheme.typography.headlineLarge,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            "Choose a media experience to get started.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
                 BousygramButton(
                     text = "Change appearance",
                     onClick = { appearanceOpen = true },
                     leadingIcon = BousygramIcons.Theme,
                     tooltip = "Choose a theme, design style and background for every screen",
-                    modifier = Modifier.testTag("startup-change-appearance")
+                    modifier = Modifier.widthIn(min = 232.dp).testTag("startup-change-appearance")
                 )
                 if (horizontalCards) {
                     Row(
@@ -181,6 +190,10 @@ fun BousygramModeSelection(
                         )
                     }
                 } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().testTag("startup-mode-cards"),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                     ModeOption(
                         title = "Telegram Media",
                         subtitle = "Saved messages, channels, groups and your media library",
@@ -199,6 +212,7 @@ fun BousygramModeSelection(
                         icon = BousygramIcons.Anime,
                         tooltip = "Discover trending Movies, TV Shows, and Anime catalogs"
                     )
+                    }
                 }
                 if (!compact) {
                     Text(
@@ -227,6 +241,9 @@ private fun ModeOption(
     var focused by remember { mutableStateOf(false) }
     val motion = rememberBousygramMotionPolicy()
     val isShortWindow = rememberAdaptiveMetrics().isShortWindow
+    // Keep both mode cards the same text-row height even when one title wraps.
+    // Font scaling can still expand the cards instead of clipping the content.
+    val subtitleLines = if (isShortWindow) 2 else 3
     val halo = LocalBousygramHaloColors.current
     val focusScale by animateFloatAsState(
         targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
@@ -266,7 +283,9 @@ private fun ModeOption(
             placement = BousygramTooltipPlacement.AUTO_BELOW
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp),
+                Modifier.fillMaxWidth()
+                    .heightIn(min = if (isShortWindow) 112.dp else 140.dp)
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -291,12 +310,12 @@ private fun ModeOption(
                     Text(
                         title, style = MaterialTheme.typography.titleLarge,
                         color = colors.onSurface, fontWeight = FontWeight.SemiBold,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis
+                        minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         subtitle, style = MaterialTheme.typography.bodyMedium,
                         color = colors.onSurfaceVariant,
-                        maxLines = if (isShortWindow) 2 else 3,
+                        minLines = subtitleLines, maxLines = subtitleLines,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
