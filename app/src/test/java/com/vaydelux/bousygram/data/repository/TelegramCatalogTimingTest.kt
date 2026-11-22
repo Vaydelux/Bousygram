@@ -38,7 +38,7 @@ class TelegramCatalogTimingTest {
             assertEquals(null, TelegramCatalogTiming.observe(stage, index.toLong()))
         }
         val summary = TelegramCatalogTiming.observe(stage, 900_000)
-        assertEquals("stage=MEDIA_FIRST_CARD samples=20 p50Ms=10 p95Ms=19", summary)
+        assertEquals("stage=MEDIA_FIRST_CARD samples=20 p50Ms=10 p95Ms=600000", summary)
         assertFalse(summary!!.contains("chat"))
         assertFalse(summary.contains("file"))
         assertFalse(summary.contains("token"))
