@@ -94,7 +94,12 @@ set +e
 timeout 360s adb shell am instrument -w -r -e class "$test_classes" "$runner" | tee emulator-smoke-results.txt
 instrumentation_exit=${PIPESTATUS[0]}
 set -e
-if [[ "$instrumentation_exit" -ne 0 ]] || ! grep -Eq '^OK \([0-9]+ tests?\)' emulator-smoke-results.txt; then
+# The runner can succeed with a partial selection if a class name changes.
+# Every requested class must contribute at least one executed test.
+expected_classes=$(awk -F, '{print NF}' <<< "$test_classes")
+passed_tests=$(sed -nE 's/^OK \(([0-9]+) tests?\).*$/\1/p' emulator-smoke-results.txt | tail -n 1)
+if [[ "$instrumentation_exit" -ne 0 ]] || [[ -z "$passed_tests" ]] || (( passed_tests < expected_classes )) || grep -Eq '^FAILURES!!!|^INSTRUMENTATION_FAILED:' emulator-smoke-results.txt; then
+  echo "::error::Expected at least $expected_classes test cases; instrumentation reported ${passed_tests:-none}."
   fail "Instrumentation failed (exit $instrumentation_exit); saving emulator state before teardown."
 fi
 
