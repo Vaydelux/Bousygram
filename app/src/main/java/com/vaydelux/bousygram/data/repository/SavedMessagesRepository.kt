@@ -50,8 +50,15 @@ class SavedMessagesRepository {
         onResult: (TdApi.Object?) -> Unit
     ): Job =
         catalogScope.launch {
-            val result = requestCatalog(query, timeoutMs)
-                ?: TdApi.Error(408, "Telegram took too long to respond. Try again.")
+            // After login, TDLib can transiently reject SearchChatMessages
+            // and GetForumTopics while indexes/dialogs are synchronizing.
+            // Retry once inside this account-scoped request, rather than
+            // surfacing an error that requires repeated manual Retry taps.
+            val attempts = if (query is TdApi.SearchChatMessages ||
+                query is TdApi.GetForumTopics) 2 else 1
+            val result = retryTransientTelegramCatalogRequest(query, attempts) {
+                requestCatalog(it, timeoutMs)
+            } ?: TdApi.Error(408, "Telegram took too long to respond. Try again.")
             if (owner == null || AccountSession.isCurrent(owner)) onResult(result)
         }
 
