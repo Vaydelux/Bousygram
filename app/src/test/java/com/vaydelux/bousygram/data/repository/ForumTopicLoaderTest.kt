@@ -75,10 +75,11 @@ class ForumTopicLoaderTest {
         var hasMore = false
         val loader = ForumTopicLoader(
             7L, "", { request, reply -> requests += request; responses += reply },
-            { topics, error, done ->
+            autoAdvance = false, onHasMore = { hasMore = it },
+            onUpdate = { topics, error, done ->
                 assertNull(error)
                 updates += topics to done
-            }, autoAdvance = false, onHasMore = { hasMore = it }
+            }
         )
         loader.load()
         assertEquals(1, requests.size)
@@ -117,13 +118,13 @@ class ForumTopicLoaderTest {
                     if (last == 2_000) 0 else last
                 ))
             },
-            { topics, error, done ->
+            autoAdvance = false,
+            onHasMore = { hasMore = it },
+            onUpdate = { topics, error, done ->
                 assertNull(error)
                 assertTrue(done)
                 visible = topics
-            },
-            autoAdvance = false,
-            onHasMore = { hasMore = it }
+            }
         )
         loader.load()
         assertEquals(1, sent.size)
@@ -151,9 +152,9 @@ class ForumTopicLoaderTest {
                     else -> TdApi.ForumTopics(2, arrayOf(topic(2, 10)), 0, 0L, 0)
                 })
             },
-            { topics, error, _ -> visible = topics; message = error },
             autoAdvance = false,
-            onHasMore = { more = it }
+            onHasMore = { more = it },
+            onUpdate = { topics, error, _ -> visible = topics; message = error }
         )
         loader.load()
         loader.loadNextPage()
