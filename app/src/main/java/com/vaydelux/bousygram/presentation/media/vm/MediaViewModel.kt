@@ -8,6 +8,9 @@ import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
 import com.vaydelux.bousygram.core.memory.offscreenCatalogBudget
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.client.TelegramConnectionState
+import com.vaydelux.bousygram.data.repository.TelegramCatalogTiming
+import com.vaydelux.bousygram.data.repository.TelegramCatalogStage
+import com.vaydelux.bousygram.data.repository.TelegramCatalogOutcome
 import com.vaydelux.bousygram.data.repository.loadVideoChats
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
@@ -682,6 +685,7 @@ class MediaViewModel(
                 )
             }.orEmpty()
             if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
+                recordFirstCard(cached)
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
@@ -763,9 +767,20 @@ class MediaViewModel(
 
     fun loadChat(chatId: Long, title: String) {
         val owner = AccountSession.current() ?: return
+        val startedNanos = TelegramCatalogTiming.nowNanos()
+        val firstCardLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun recordFirstCard(items: List<MediaItem>) {
+            if (items.isNotEmpty() && firstCardLogged.compareAndSet(false, true)) {
+                TelegramCatalogTiming.record(
+                    TelegramCatalogStage.MEDIA_FIRST_CARD, startedNanos,
+                    items.size, TelegramCatalogOutcome.READY
+                )
+            }
+        }
         val requestGeneration = ++mediaRequestGeneration
         val folderKey = "chat:" + chatId + ":topic:0"
         val warmChat = catalogSnapshot(folderKey)
+        recordFirstCard(warmChat?.items.orEmpty())
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -803,6 +818,7 @@ class MediaViewModel(
         }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null) { items, nextFromMessageId, error, isFinal ->
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            recordFirstCard(items)
             _uiState.update { current ->
                 current.copy(
                     items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
@@ -980,9 +996,20 @@ class MediaViewModel(
         val chatId = state.selectedChatId ?: return
         if (!force && state.selectedTopicId == topicId) return
         val owner = AccountSession.current() ?: return
+        val startedNanos = TelegramCatalogTiming.nowNanos()
+        val firstCardLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun recordFirstCard(items: List<MediaItem>) {
+            if (items.isNotEmpty() && firstCardLogged.compareAndSet(false, true)) {
+                TelegramCatalogTiming.record(
+                    TelegramCatalogStage.MEDIA_FIRST_CARD, startedNanos,
+                    items.size, TelegramCatalogOutcome.READY
+                )
+            }
+        }
         val requestGeneration = ++mediaRequestGeneration
         val folderKey = "chat:" + chatId + ":topic:" + (topicId ?: 0)
         val warmTopic = catalogSnapshot(folderKey)
+        recordFirstCard(warmTopic?.items.orEmpty())
         _uiState.update {
             it.copy(
                 selectedTopicId = topicId,
@@ -1001,6 +1028,7 @@ class MediaViewModel(
                 topicId?.toLong()
             )
             if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
+                recordFirstCard(cached)
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
@@ -1008,6 +1036,7 @@ class MediaViewModel(
         }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null, topicId = topicId) { items, nextFromMessageId, error, isFinal ->
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            recordFirstCard(items)
             _uiState.update { current ->
                 current.copy(
                     items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
