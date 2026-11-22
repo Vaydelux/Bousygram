@@ -171,12 +171,14 @@ class MediaViewModel(
     private var topicRequestGeneration = 0L
     private var topicLoadingTimeoutJob: Job? = null
     private var cancelForumTopicRequest: (() -> Unit)? = null
+    private var nextForumTopicPage: (() -> Unit)? = null
 
     private fun cancelForumTopicLoading() {
         topicLoadingTimeoutJob?.cancel()
         topicLoadingTimeoutJob = null
         cancelForumTopicRequest?.invoke()
         cancelForumTopicRequest = null
+        nextForumTopicPage = null
     }
     private var quickSearchGeneration = 0L
     private val browseRestorations = BoundedBrowsingHistory<String, BrowseRestoration>(MAX_BROWSE_RESTORATIONS)
@@ -532,6 +534,8 @@ class MediaViewModel(
                         // The previous forum's topic request may still be running.
                         // Never carry its loading flag into a different group.
                         isLoadingTopics = false,
+                        hasMoreTopics = false,
+                        isLoadingMoreTopics = false,
                         isLoading = false,
                         isLoadingMore = false,
                         hasMore = false,
@@ -836,7 +840,10 @@ class MediaViewModel(
         if (cached != null) {
             _uiState.update { current ->
                 if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
-                    current.copy(availableTopics = cached, isLoadingTopics = false, error = null)
+                    current.copy(
+                        availableTopics = cached, isLoadingTopics = false,
+                        hasMoreTopics = false, isLoadingMoreTopics = false, error = null
+                    )
                 } else current
             }
             return
@@ -869,21 +876,34 @@ class MediaViewModel(
 
         _uiState.update { current ->
             if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
-                current.copy(isLoadingTopics = true, error = null)
+                current.copy(
+                    isLoadingTopics = true, isLoadingMoreTopics = false,
+                    hasMoreTopics = false, error = null
+                )
             } else current
         }
         armTimeout()
-        cancelForumTopicRequest = repository.loadForumTopics(chatId) { topics, error, isFinal ->
-            if (!stillCurrent()) return@loadForumTopics
+        val page = repository.loadForumTopicsPaged(
+            chatId = chatId,
+            onHasMore = { hasMore ->
+                if (stillCurrent()) _uiState.update { current ->
+                    if (current.selectedChatId == chatId && !current.isSavedMessagesSelected)
+                        current.copy(hasMoreTopics = hasMore)
+                    else current
+                }
+            }
+        ) { topics, error, isFinal ->
+            if (!stillCurrent()) return@loadForumTopicsPaged
             if (isFinal) {
                 topicLoadingTimeoutJob?.cancel()
                 topicLoadingTimeoutJob = null
-                cancelForumTopicRequest = null
             } else armTimeout()
             _uiState.update { current ->
                 if (current.selectedChatId != chatId || current.isSavedMessagesSelected) current
                 else {
-                    if (isFinal && error == null) {
+                    // Cache only an exhausted, completely loaded topic list.
+                    // A 40-item first page must never masquerade as complete.
+                    if (isFinal && error == null && !current.hasMoreTopics) {
                         snapshotKey("chat:" + chatId + ":topics")?.let { key ->
                             synchronized(catalogSnapshotLock) {
                                 topicSnapshots[key] = TopicSnapshot(
@@ -897,13 +917,47 @@ class MediaViewModel(
                         }
                     }
                     current.copy(
-                        availableTopics = if (error != null && current.availableTopics.isNotEmpty()) current.availableTopics else topics,
+                        availableTopics = if (error != null && current.availableTopics.isNotEmpty())
+                            current.availableTopics else topics,
                         isLoadingTopics = !isFinal,
+                        isLoadingMoreTopics = false,
                         error = error
                     )
                 }
             }
         }
+        cancelForumTopicRequest = page.cancel
+        nextForumTopicPage = page.loadMore
+    }
+
+    /** Continue this forum's cursor only when the user reaches the next page. */
+    fun loadMoreForumTopics() {
+        val state = _uiState.value
+        if (state.selectedChatId == null || state.isSavedMessagesSelected ||
+            !state.hasMoreTopics || state.isLoadingTopics || state.isLoadingMoreTopics ||
+            _explorerPosition.value.level != ExplorerLevel.TOPICS
+        ) return
+        val loadNext = nextForumTopicPage ?: return
+        val owner = AccountSession.current() ?: return
+        val chatId = state.selectedChatId
+        val generation = topicRequestGeneration
+        _uiState.update { it.copy(isLoadingMoreTopics = true, error = null) }
+        topicLoadingTimeoutJob?.cancel()
+        topicLoadingTimeoutJob = viewModelScope.launch {
+            delay(FORUM_TOPIC_PAGE_TIMEOUT_MS)
+            if (AccountSession.isCurrent(owner) &&
+                topicRequestGeneration == generation && _uiState.value.selectedChatId == chatId &&
+                _uiState.value.isLoadingMoreTopics
+            ) {
+                cancelForumTopicLoading()
+                ++topicRequestGeneration
+                _uiState.update { it.copy(
+                    isLoadingMoreTopics = false, hasMoreTopics = false,
+                    error = "Telegram topic page timed out. Refresh topics to retry."
+                ) }
+            }
+        }
+        loadNext()
     }
 
     fun selectTopic(topicId: Int?) = loadTopic(topicId, force = false)
