@@ -605,11 +605,12 @@ class MediaViewModel(
         val source = _uiState.value
         val chatId = source.selectedChatId ?: return
         if (source.isSavedMessagesSelected || source.videoChats.none { it.chatId == chatId && it.isForum }) return
-        if (_uiState.value.isLoadingTopics || _uiState.value.isLoadingMoreTopics)
+        if (_uiState.value.isLoadingTopics || _uiState.value.isLoadingMoreTopics) {
             cancelForumTopicLoading()
+            ++topicRequestGeneration // Pending callbacks from a cancelled page are stale.
+        }
         topicLoadingTimeoutJob?.cancel()
         topicLoadingTimeoutJob = null
-        ++topicRequestGeneration // Invalidate any already-dispatched callbacks.
         _uiState.update { it.copy(isLoadingTopics = false, isLoadingMoreTopics = false) }
         _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
         loadTopic(null, force = true)
@@ -865,7 +866,6 @@ class MediaViewModel(
         if (!force && _uiState.value.isLoadingTopics && _uiState.value.selectedChatId == chatId) return
         if (_uiState.value.videoChats.none { it.chatId == chatId && it.isForum }) return
         val owner = AccountSession.current() ?: return
-        val generation = mediaRequestGeneration
         cancelForumTopicLoading()
         val topicGeneration = ++topicRequestGeneration
         val cached = if (force) null else freshTopics(chatId)
@@ -882,8 +882,8 @@ class MediaViewModel(
         }
         fun stillCurrent(): Boolean =
             AccountSession.isCurrent(owner) &&
-                generation == mediaRequestGeneration &&
                 topicGeneration == topicRequestGeneration &&
+                _explorerPosition.value.level == ExplorerLevel.TOPICS &&
                 _uiState.value.selectedChatId == chatId &&
                 !_uiState.value.isSavedMessagesSelected
 
