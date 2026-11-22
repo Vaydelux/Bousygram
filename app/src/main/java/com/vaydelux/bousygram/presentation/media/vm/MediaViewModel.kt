@@ -672,9 +672,20 @@ class MediaViewModel(
             return
         }
         val owner = AccountSession.current() ?: return
+        val startedNanos = TelegramCatalogTiming.nowNanos()
+        val firstCardLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun recordFirstCard(items: List<MediaItem>) {
+            if (items.isNotEmpty() && firstCardLogged.compareAndSet(false, true)) {
+                TelegramCatalogTiming.record(
+                    TelegramCatalogStage.MEDIA_FIRST_CARD, startedNanos,
+                    items.size, TelegramCatalogOutcome.READY
+                )
+            }
+        }
         val requestGeneration = ++mediaRequestGeneration
         val savedChatId = repository.cachedSavedMessagesChatId
         val warmSaved = savedMessagesOnly(catalogSnapshot("saved:topic:0")?.items.orEmpty(), savedChatId)
+        recordFirstCard(warmSaved)
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -712,6 +723,7 @@ class MediaViewModel(
         repository.loadLatestMediaPagedProgressive(pageSize, null) { items, nextFromMessageId, error, isFinal ->
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
             val scopedItems = savedMessagesOnly(items, repository.cachedSavedMessagesChatId)
+            recordFirstCard(scopedItems)
             _uiState.update { current ->
                 val existing = savedMessagesOnly(current.items, repository.cachedSavedMessagesChatId)
                 current.copy(
