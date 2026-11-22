@@ -346,9 +346,12 @@ fun TelegramExplorerDashboard(
                     if (topics.isEmpty()) {
                         if (isLoadingTopics) ExplorerLoadingGrid("Loading forum topics…", cardMin)
                         else ExplorerMessage(
-                            message = errorMessage ?: "No accessible topics in this group",
-                            onRetry = onRefreshTopics,
-                            actionLabel = if (errorMessage == null) "Refresh" else "Retry"
+                            message = errorMessage
+                                ?: if (hasMoreTopics) "This topic page is empty. More topics may be available."
+                                else "No accessible topics in this group",
+                            onRetry = if (hasMoreTopics) onLoadMoreTopics else onRefreshTopics,
+                            actionLabel = if (hasMoreTopics) "Load next topic page"
+                                else if (errorMessage == null) "Refresh" else "Retry"
                         )
                     } else LazyVerticalGrid(
                         state = topicGrid,
