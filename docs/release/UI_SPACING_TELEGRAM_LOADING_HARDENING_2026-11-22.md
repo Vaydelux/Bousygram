@@ -17,7 +17,7 @@
 ### P0 — Visible startup UI layout (implemented in this PR)
 1. Separate logo/brand/headline/subtitle into a small-gap hero; use major-group spacing only between hero, appearance action, mode cards and footer.
 2. Minimum appearance-control width, centered icon+label and stable hit target.
-3. Equalized two-line mode titles and three-line standard mode descriptions (two lines on short viewports) to prevent unequal text-block heights.
+3. Equalized two-line mode titles and concise two-line descriptions to prevent unequal card heights, excessive empty rows and unpredictable wrapping.
 4. Independent 12dp mode-card spacing and minimum row height, with existing focus treatments and theme tokens. Long text stays accessible through tooltips.
 5. Maintain phone portrait, phone landscape, tablet and TV behavior; do not replace typography with hardcoded colors.
 
