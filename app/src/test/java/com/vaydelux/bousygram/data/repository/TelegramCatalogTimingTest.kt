@@ -32,4 +32,16 @@ class TelegramCatalogTimingTest {
             assertTrue(output.contains("elapsedMs=0 resultCount=0"))
         }
     }
+    @Test fun latencySummaryIsBoundedAndRedacted() {
+        val stage = TelegramCatalogStage.MEDIA_FIRST_CARD
+        repeat(19) { index ->
+            assertEquals(null, TelegramCatalogTiming.observe(stage, index.toLong()))
+        }
+        val summary = TelegramCatalogTiming.observe(stage, 900_000)
+        assertEquals("stage=MEDIA_FIRST_CARD samples=20 p50Ms=10 p95Ms=19", summary)
+        assertFalse(summary!!.contains("chat"))
+        assertFalse(summary.contains("file"))
+        assertFalse(summary.contains("token"))
+    }
+
 }
