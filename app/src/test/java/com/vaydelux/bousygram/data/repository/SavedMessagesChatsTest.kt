@@ -134,6 +134,78 @@ class SavedMessagesChatsTest {
         assertFalse(hasMore)
     }
 
+    @Test
+    fun transientDialogAndForumMetadataErrorsRecoverWithoutUserRetry() = runTest {
+        var mainRequests = 0
+        var metadataRequests = 0
+        val pages = mutableListOf<List<VideoChatItem>>()
+        val error = loadVideoChats(owner, 10, request = { query ->
+            when (query) {
+                is TdApi.GetChats -> if (query.chatList is TdApi.ChatListArchive)
+                    TdApi.Chats(0, longArrayOf()) else {
+                    mainRequests++
+                    if (mainRequests == 1) TdApi.Error(503, "TDLib synchronizing")
+                    else TdApi.Chats(1, longArrayOf(202))
+                }
+                is TdApi.GetChat -> groupChat(query.chatId).apply {
+                    type = TdApi.ChatTypeSupergroup(500, false)
+                }
+                is TdApi.GetSupergroup -> {
+                    metadataRequests++
+                    if (metadataRequests == 1) TdApi.Error(500, "Temporary")
+                    else TdApi.Supergroup().apply { isForum = true }
+                }
+                is TdApi.LoadChats -> TdApi.Error(404, "All chats loaded")
+                else -> error("unexpected")
+            }
+        }, onPage = { pages += it })
+
+        assertNull(error)
+        assertEquals(2, mainRequests)
+        assertEquals(2, metadataRequests)
+        assertEquals(202L, pages.last().single().chatId)
+        assertEquals(true, pages.last().single().isForum)
+        assertEquals(true, pages.last().single().forumMetadataResolved)
+    }
+
+    @Test
+    fun failedForumLookupKeepsGroupVisibleAndRepairsClassificationOnRefresh() = runTest {
+        var metadataReady = false
+        var getChatCount = 0
+        val request: suspend (TdApi.Function<*>) -> TdApi.Object? = { query ->
+            when (query) {
+                is TdApi.GetChats -> if (query.chatList is TdApi.ChatListArchive)
+                    TdApi.Chats(0, longArrayOf())
+                else TdApi.Chats(1, longArrayOf(303))
+                is TdApi.GetChat -> {
+                    getChatCount++
+                    groupChat(query.chatId).apply { type = TdApi.ChatTypeSupergroup(600, false) }
+                }
+                is TdApi.GetSupergroup -> if (metadataReady)
+                    TdApi.Supergroup().apply { isForum = true }
+                else TdApi.Error(503, "Not ready")
+                is TdApi.LoadChats -> TdApi.Error(404, "All chats loaded")
+                else -> error("unexpected")
+            }
+        }
+        var first = emptyList<VideoChatItem>()
+        val initialError = loadVideoChats(owner, 5, request = request, onPage = { first = it })
+        assertNotNull(initialError)
+        assertEquals(303L, first.single().chatId)
+        assertFalse(first.single().forumMetadataResolved)
+
+        metadataReady = true
+        var recovered = emptyList<VideoChatItem>()
+        val recoveryError = loadVideoChats(
+            owner, 5, request = request, knownSources = first,
+            onPage = { recovered = it }
+        )
+        assertNull(recoveryError)
+        assertEquals(2, getChatCount)
+        assertEquals(true, recovered.single().forumMetadataResolved)
+        assertEquals(true, recovered.single().isForum)
+    }
+
     private fun groupChat(chatId: Long) = TdApi.Chat().apply {
         id = chatId
         title = "Group $chatId"
