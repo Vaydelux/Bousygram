@@ -121,7 +121,10 @@ fun TelegramExplorerDashboard(
     onResume: () -> Unit,
     libraryMode: Boolean = false,
     modifier: Modifier = Modifier,
-    connection: TelegramConnectionState? = null
+    connection: TelegramConnectionState? = null,
+    hasMoreTopics: Boolean = false,
+    isLoadingMoreTopics: Boolean = false,
+    onLoadMoreTopics: () -> Unit = {}
 ) {
     val adaptive = rememberAdaptiveMetrics()
     val design = bousygramResponsiveTokens(adaptive)
@@ -231,8 +234,9 @@ fun TelegramExplorerDashboard(
             showSources -> explorerDirectoryStatus(position.section, directory.size, isLoadingSources) +
                 if (sourceErrorMessage != null && directory.isNotEmpty()) " · Sync incomplete"
                 else if (hasMoreSources && !isLoadingSources) " · More sources available" else ""
-            showTopics -> if (isLoadingTopics) "${topics.size} topics · Syncing"
-                else "${topics.size} topics"
+            showTopics -> if (isLoadingTopics || isLoadingMoreTopics) "${topics.size} topics · Loading"
+                else "${topics.size} topics" +
+                    if (hasMoreTopics) " · More available" else ""
             isLoading -> "${videos.size} files · Loading"
             else -> "${videos.size} files loaded${if (hasMore) " - More available" else ""}"
         }
@@ -371,6 +375,25 @@ fun TelegramExplorerDashboard(
                                     onSelectTopic(topic.id)
                                 }
                             )
+                        }
+                        if (hasMoreTopics || isLoadingMoreTopics || errorMessage != null) {
+                            item(key = "more-forum-topics", span = { GridItemSpan(maxLineSpan) }) {
+                                BousygramButton(
+                                    text = when {
+                                        isLoadingMoreTopics -> "Loading more topics…"
+                                        errorMessage != null && hasMoreTopics -> "Retry next topic page"
+                                        errorMessage != null -> "Refresh forum topics"
+                                        else -> "Load more forum topics"
+                                    },
+                                    leadingIcon = if (errorMessage != null) BousygramIcons.Refresh
+                                        else BousygramIcons.ChevronDown,
+                                    enabled = !isLoadingMoreTopics,
+                                    onClick = if (errorMessage != null && !hasMoreTopics)
+                                        onRefreshTopics else onLoadMoreTopics,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                        .testTag("telegram-topics-load-more")
+                                )
+                            }
                         }
                     }
                 }
