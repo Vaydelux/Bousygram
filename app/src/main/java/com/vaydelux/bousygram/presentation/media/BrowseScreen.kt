@@ -311,6 +311,8 @@ fun BrowseScreen(
                     isLoadingSources = state.isSidebarLoading,
                     hasMoreSources = state.hasMoreChatSources,
                     isLoadingTopics = state.isLoadingTopics,
+                    hasMoreTopics = state.hasMoreTopics,
+                    isLoadingMoreTopics = state.isLoadingMoreTopics,
                     errorMessage = state.error,
                     sourceErrorMessage = state.sidebarError,
                     isLoadingMore = state.isLoadingMore,
@@ -343,6 +345,7 @@ fun BrowseScreen(
                     onLoadMoreSources = viewModel::loadNextChatSources,
                     onRefreshSources = viewModel::refreshVideoChats,
                     onRefreshTopics = { state.selectedChatId?.let(viewModel::refreshForumTopics) },
+                    onLoadMoreTopics = viewModel::loadMoreForumTopics,
                     onRefreshMedia = viewModel::refreshCurrentMedia,
                     onSearch = {
                         val chatId = viewModel.currentSearchChatId()
