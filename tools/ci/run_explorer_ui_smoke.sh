@@ -17,7 +17,12 @@ timeout 330s adb shell am instrument -w -r -e class "$classes" "$runner" | tee e
 result=${PIPESTATUS[0]}
 set -e
 
-if [[ "$result" -ne 0 ]] || ! grep -Eq '^OK \([0-9]+ tests?\)' explorer-ui-smoke-results.txt; then
+# A truncated instrumentation selection can report "OK (1 test)" even
+# when most requested classes never executed. Fail closed on count mismatch.
+expected_classes=$(awk -F, '{print NF}' <<< "$classes")
+passed_tests=$(sed -nE 's/^OK \(([0-9]+) tests?\).*$/\1/p' explorer-ui-smoke-results.txt | tail -n 1)
+if [[ "$result" -ne 0 ]] || [[ -z "$passed_tests" ]] || (( passed_tests < expected_classes )) || grep -Eq '^FAILURES!!!|^INSTRUMENTATION_FAILED:' explorer-ui-smoke-results.txt; then
+  echo "::error::Expected at least $expected_classes test cases; instrumentation reported ${passed_tests:-none}."
   echo "::error::Explorer UI instrumentation failed (exit $result)."
   exit 1
 fi
