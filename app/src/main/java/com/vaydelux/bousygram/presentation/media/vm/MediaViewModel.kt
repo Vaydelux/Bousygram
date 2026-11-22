@@ -8,6 +8,9 @@ import com.vaydelux.bousygram.core.memory.MediaMemoryTrim
 import com.vaydelux.bousygram.core.memory.offscreenCatalogBudget
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import com.vaydelux.bousygram.core.tdlib.client.TelegramConnectionState
+import com.vaydelux.bousygram.data.repository.TelegramCatalogTiming
+import com.vaydelux.bousygram.data.repository.TelegramCatalogStage
+import com.vaydelux.bousygram.data.repository.TelegramCatalogOutcome
 import com.vaydelux.bousygram.data.repository.loadVideoChats
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import com.vaydelux.bousygram.data.repository.SavedMessagesRepository
@@ -171,12 +174,14 @@ class MediaViewModel(
     private var topicRequestGeneration = 0L
     private var topicLoadingTimeoutJob: Job? = null
     private var cancelForumTopicRequest: (() -> Unit)? = null
+    private var nextForumTopicPage: (() -> Unit)? = null
 
     private fun cancelForumTopicLoading() {
         topicLoadingTimeoutJob?.cancel()
         topicLoadingTimeoutJob = null
         cancelForumTopicRequest?.invoke()
         cancelForumTopicRequest = null
+        nextForumTopicPage = null
     }
     private var quickSearchGeneration = 0L
     private val browseRestorations = BoundedBrowsingHistory<String, BrowseRestoration>(MAX_BROWSE_RESTORATIONS)
@@ -532,6 +537,8 @@ class MediaViewModel(
                         // The previous forum's topic request may still be running.
                         // Never carry its loading flag into a different group.
                         isLoadingTopics = false,
+                        hasMoreTopics = false,
+                        isLoadingMoreTopics = false,
                         isLoading = false,
                         isLoadingMore = false,
                         hasMore = false,
@@ -580,8 +587,14 @@ class MediaViewModel(
         val source = _uiState.value
         if (source.selectedChatId == null || source.availableTopics.none { it.id == topicId }) return
         rememberExplorerTopicFocus(source.selectedChatId, topicId)
-        cancelForumTopicLoading() // Do not compete with the selected topic's media request.
-        _uiState.update { it.copy(isLoadingTopics = false) }
+        // Completed topic pages have no pending TDLib request; preserve their
+        // cursor controller while viewing media so Back restores pagination.
+        // An in-flight topic request must be cancelled to prioritize media.
+        if (_uiState.value.isLoadingTopics || _uiState.value.isLoadingMoreTopics)
+            cancelForumTopicLoading()
+        topicLoadingTimeoutJob?.cancel()
+        topicLoadingTimeoutJob = null
+        _uiState.update { it.copy(isLoadingTopics = false, isLoadingMoreTopics = false) }
         _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
         selectTopic(topicId)
     }
@@ -592,9 +605,13 @@ class MediaViewModel(
         val source = _uiState.value
         val chatId = source.selectedChatId ?: return
         if (source.isSavedMessagesSelected || source.videoChats.none { it.chatId == chatId && it.isForum }) return
-        cancelForumTopicLoading()
-        ++topicRequestGeneration // Invalidate any already-dispatched callbacks.
-        _uiState.update { it.copy(isLoadingTopics = false) }
+        if (_uiState.value.isLoadingTopics || _uiState.value.isLoadingMoreTopics) {
+            cancelForumTopicLoading()
+            ++topicRequestGeneration // Pending callbacks from a cancelled page are stale.
+        }
+        topicLoadingTimeoutJob?.cancel()
+        topicLoadingTimeoutJob = null
+        _uiState.update { it.copy(isLoadingTopics = false, isLoadingMoreTopics = false) }
         _explorerPosition.value = _explorerPosition.value.copy(level = ExplorerLevel.MEDIA)
         loadTopic(null, force = true)
     }
@@ -615,6 +632,13 @@ class MediaViewModel(
                 ExplorerLevel.SOURCES
             }
         )
+        // A page cancelled while the user entered media cannot be continued.
+        // Re-open the forum directory instead of presenting an inert Load more.
+        if (position.level == ExplorerLevel.MEDIA && source?.isForum == true &&
+            nextForumTopicPage == null
+        ) {
+            _uiState.value.selectedChatId?.let { requestForumTopics(it, force = true) }
+        }
         return true
     }
 
@@ -648,9 +672,20 @@ class MediaViewModel(
             return
         }
         val owner = AccountSession.current() ?: return
+        val startedNanos = TelegramCatalogTiming.nowNanos()
+        val firstCardLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun recordFirstCard(items: List<MediaItem>) {
+            if (items.isNotEmpty() && firstCardLogged.compareAndSet(false, true)) {
+                TelegramCatalogTiming.record(
+                    TelegramCatalogStage.MEDIA_FIRST_CARD, startedNanos,
+                    items.size, TelegramCatalogOutcome.READY
+                )
+            }
+        }
         val requestGeneration = ++mediaRequestGeneration
         val savedChatId = repository.cachedSavedMessagesChatId
         val warmSaved = savedMessagesOnly(catalogSnapshot("saved:topic:0")?.items.orEmpty(), savedChatId)
+        recordFirstCard(warmSaved)
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -678,6 +713,7 @@ class MediaViewModel(
                 )
             }.orEmpty()
             if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
+                recordFirstCard(cached)
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
@@ -687,6 +723,7 @@ class MediaViewModel(
         repository.loadLatestMediaPagedProgressive(pageSize, null) { items, nextFromMessageId, error, isFinal ->
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadLatestMediaPagedProgressive
             val scopedItems = savedMessagesOnly(items, repository.cachedSavedMessagesChatId)
+            recordFirstCard(scopedItems)
             _uiState.update { current ->
                 val existing = savedMessagesOnly(current.items, repository.cachedSavedMessagesChatId)
                 current.copy(
@@ -759,9 +796,20 @@ class MediaViewModel(
 
     fun loadChat(chatId: Long, title: String) {
         val owner = AccountSession.current() ?: return
+        val startedNanos = TelegramCatalogTiming.nowNanos()
+        val firstCardLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun recordFirstCard(items: List<MediaItem>) {
+            if (items.isNotEmpty() && firstCardLogged.compareAndSet(false, true)) {
+                TelegramCatalogTiming.record(
+                    TelegramCatalogStage.MEDIA_FIRST_CARD, startedNanos,
+                    items.size, TelegramCatalogOutcome.READY
+                )
+            }
+        }
         val requestGeneration = ++mediaRequestGeneration
         val folderKey = "chat:" + chatId + ":topic:0"
         val warmChat = catalogSnapshot(folderKey)
+        recordFirstCard(warmChat?.items.orEmpty())
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -786,6 +834,7 @@ class MediaViewModel(
                 null
             )
             if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
+                recordFirstCard(cached)
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
@@ -799,6 +848,7 @@ class MediaViewModel(
         }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null) { items, nextFromMessageId, error, isFinal ->
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            recordFirstCard(items)
             _uiState.update { current ->
                 current.copy(
                     items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {
@@ -829,22 +879,24 @@ class MediaViewModel(
         if (!force && _uiState.value.isLoadingTopics && _uiState.value.selectedChatId == chatId) return
         if (_uiState.value.videoChats.none { it.chatId == chatId && it.isForum }) return
         val owner = AccountSession.current() ?: return
-        val generation = mediaRequestGeneration
         cancelForumTopicLoading()
         val topicGeneration = ++topicRequestGeneration
         val cached = if (force) null else freshTopics(chatId)
         if (cached != null) {
             _uiState.update { current ->
                 if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
-                    current.copy(availableTopics = cached, isLoadingTopics = false, error = null)
+                    current.copy(
+                        availableTopics = cached, isLoadingTopics = false,
+                        hasMoreTopics = false, isLoadingMoreTopics = false, error = null
+                    )
                 } else current
             }
             return
         }
         fun stillCurrent(): Boolean =
             AccountSession.isCurrent(owner) &&
-                generation == mediaRequestGeneration &&
                 topicGeneration == topicRequestGeneration &&
+                _explorerPosition.value.level == ExplorerLevel.TOPICS &&
                 _uiState.value.selectedChatId == chatId &&
                 !_uiState.value.isSavedMessagesSelected
 
@@ -869,21 +921,34 @@ class MediaViewModel(
 
         _uiState.update { current ->
             if (current.selectedChatId == chatId && !current.isSavedMessagesSelected) {
-                current.copy(isLoadingTopics = true, error = null)
+                current.copy(
+                    isLoadingTopics = true, isLoadingMoreTopics = false,
+                    hasMoreTopics = false, error = null
+                )
             } else current
         }
         armTimeout()
-        cancelForumTopicRequest = repository.loadForumTopics(chatId) { topics, error, isFinal ->
-            if (!stillCurrent()) return@loadForumTopics
+        val page = repository.loadForumTopicsPaged(
+            chatId = chatId,
+            onHasMore = { hasMore ->
+                if (stillCurrent()) _uiState.update { current ->
+                    if (current.selectedChatId == chatId && !current.isSavedMessagesSelected)
+                        current.copy(hasMoreTopics = hasMore)
+                    else current
+                }
+            }
+        ) { topics, error, isFinal ->
+            if (!stillCurrent()) return@loadForumTopicsPaged
             if (isFinal) {
                 topicLoadingTimeoutJob?.cancel()
                 topicLoadingTimeoutJob = null
-                cancelForumTopicRequest = null
             } else armTimeout()
             _uiState.update { current ->
                 if (current.selectedChatId != chatId || current.isSavedMessagesSelected) current
                 else {
-                    if (isFinal && error == null) {
+                    // Cache only an exhausted, completely loaded topic list.
+                    // A 40-item first page must never masquerade as complete.
+                    if (isFinal && error == null && !current.hasMoreTopics) {
                         snapshotKey("chat:" + chatId + ":topics")?.let { key ->
                             synchronized(catalogSnapshotLock) {
                                 topicSnapshots[key] = TopicSnapshot(
@@ -897,13 +962,47 @@ class MediaViewModel(
                         }
                     }
                     current.copy(
-                        availableTopics = if (error != null && current.availableTopics.isNotEmpty()) current.availableTopics else topics,
+                        availableTopics = if (error != null && current.availableTopics.isNotEmpty())
+                            current.availableTopics else topics,
                         isLoadingTopics = !isFinal,
+                        isLoadingMoreTopics = false,
                         error = error
                     )
                 }
             }
         }
+        cancelForumTopicRequest = page.cancel
+        nextForumTopicPage = page.loadMore
+    }
+
+    /** Continue this forum's cursor only when the user reaches the next page. */
+    fun loadMoreForumTopics() {
+        val state = _uiState.value
+        if (state.selectedChatId == null || state.isSavedMessagesSelected ||
+            !state.hasMoreTopics || state.isLoadingTopics || state.isLoadingMoreTopics ||
+            _explorerPosition.value.level != ExplorerLevel.TOPICS
+        ) return
+        val loadNext = nextForumTopicPage ?: return
+        val owner = AccountSession.current() ?: return
+        val chatId = state.selectedChatId
+        val generation = topicRequestGeneration
+        _uiState.update { it.copy(isLoadingMoreTopics = true, error = null) }
+        topicLoadingTimeoutJob?.cancel()
+        topicLoadingTimeoutJob = viewModelScope.launch {
+            delay(FORUM_TOPIC_PAGE_TIMEOUT_MS)
+            if (AccountSession.isCurrent(owner) &&
+                topicRequestGeneration == generation && _uiState.value.selectedChatId == chatId &&
+                _uiState.value.isLoadingMoreTopics
+            ) {
+                cancelForumTopicLoading()
+                ++topicRequestGeneration
+                _uiState.update { it.copy(
+                    isLoadingMoreTopics = false, hasMoreTopics = false,
+                    error = "Telegram topic page timed out. Refresh topics to retry."
+                ) }
+            }
+        }
+        loadNext()
     }
 
     fun selectTopic(topicId: Int?) = loadTopic(topicId, force = false)
@@ -926,9 +1025,20 @@ class MediaViewModel(
         val chatId = state.selectedChatId ?: return
         if (!force && state.selectedTopicId == topicId) return
         val owner = AccountSession.current() ?: return
+        val startedNanos = TelegramCatalogTiming.nowNanos()
+        val firstCardLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun recordFirstCard(items: List<MediaItem>) {
+            if (items.isNotEmpty() && firstCardLogged.compareAndSet(false, true)) {
+                TelegramCatalogTiming.record(
+                    TelegramCatalogStage.MEDIA_FIRST_CARD, startedNanos,
+                    items.size, TelegramCatalogOutcome.READY
+                )
+            }
+        }
         val requestGeneration = ++mediaRequestGeneration
         val folderKey = "chat:" + chatId + ":topic:" + (topicId ?: 0)
         val warmTopic = catalogSnapshot(folderKey)
+        recordFirstCard(warmTopic?.items.orEmpty())
         _uiState.update {
             it.copy(
                 selectedTopicId = topicId,
@@ -947,6 +1057,7 @@ class MediaViewModel(
                 topicId?.toLong()
             )
             if (cached.isNotEmpty() && AccountSession.isCurrent(owner) && requestGeneration == mediaRequestGeneration) {
+                recordFirstCard(cached)
                 _uiState.update { current ->
                     if (current.items.isEmpty()) current.copy(items = cached) else current
                 }
@@ -954,6 +1065,7 @@ class MediaViewModel(
         }
         repository.loadChatMediaPagedProgressive(chatId, pageSize, null, topicId = topicId) { items, nextFromMessageId, error, isFinal ->
             if (!AccountSession.isCurrent(owner) || requestGeneration != mediaRequestGeneration) return@loadChatMediaPagedProgressive
+            recordFirstCard(items)
             _uiState.update { current ->
                 current.copy(
                     items = if (items.isEmpty() && current.items.isNotEmpty() && (!isFinal || error != null)) {

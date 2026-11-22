@@ -19,6 +19,8 @@ internal suspend fun loadVideoChats(
     onHasMore: (Boolean) -> Unit = {},
     onPage: (List<VideoChatItem>) -> Unit
 ): String? = coroutineScope {
+    val startedNanos = TelegramCatalogTiming.nowNanos()
+    var firstPageRecorded = false
     // The caller owns publication on the main dispatcher. Each list advances independently,
     // so a slow archive never blocks the first main page.
     // Reuse current-account metadata when expanding the directory instead of
@@ -33,11 +35,19 @@ internal suspend fun loadVideoChats(
     fun publish() {
         val saved = mainSources.values.firstOrNull { it.isSavedMessages }
             ?: archivedSources.values.firstOrNull { it.isSavedMessages }
-        onPage(buildList {
+        val visible = buildList {
             saved?.let(::add)
             addAll(mainSources.values.filterNot { it.isSavedMessages })
             addAll(archivedSources.values.filterNot { it.isSavedMessages || it.chatId in mainSources })
-        })
+        }
+        if (!firstPageRecorded && visible.isNotEmpty()) {
+            firstPageRecorded = true
+            TelegramCatalogTiming.record(
+                TelegramCatalogStage.SOURCE_FIRST_PAGE, startedNanos,
+                visible.size, TelegramCatalogOutcome.READY
+            )
+        }
+        onPage(visible)
     }
 
     suspend fun boundedRequest(query: TdApi.Function<*>): TdApi.Object? =
@@ -55,7 +65,17 @@ internal suspend fun loadVideoChats(
     // Do not infer directory exhaustion from the number of visible groups:
     // private chats may occupy most of the scanned Telegram dialog list.
     onHasMore(results.any { it.hasMore })
-    results.mapNotNull { it.error }.firstOrNull()
+    val error = results.mapNotNull { it.error }.firstOrNull()
+    TelegramCatalogTiming.record(
+        TelegramCatalogStage.SOURCE_SCAN_DONE, startedNanos,
+        mainSources.size + archivedSources.size,
+        when {
+            error != null -> TelegramCatalogOutcome.PARTIAL
+            mainSources.isEmpty() && archivedSources.isEmpty() -> TelegramCatalogOutcome.EMPTY
+            else -> TelegramCatalogOutcome.READY
+        }
+    )
+    error
 }
 
 private data class ChatListLoadResult(val error: String? = null, val hasMore: Boolean = false)

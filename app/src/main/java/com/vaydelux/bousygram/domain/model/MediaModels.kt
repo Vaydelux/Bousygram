@@ -134,6 +134,9 @@ data class MediaUiState(
     val availableTopics: List<ForumTopicChannel> = emptyList(),
     val selectedTopicId: Int? = null,
     val isLoadingTopics: Boolean = false,
+    /** More forum topics exist beyond the displayed cursor-backed page. */
+    val hasMoreTopics: Boolean = false,
+    val isLoadingMoreTopics: Boolean = false,
     val quickSearchQuery: String = ""
 ) {
     val filteredAndSortedItems: List<MediaItem>

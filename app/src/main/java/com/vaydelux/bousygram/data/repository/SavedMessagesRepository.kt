@@ -117,6 +117,18 @@ class SavedMessagesRepository {
         onUpdate: (List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>, String?, Boolean) -> Unit
     ): () -> Unit = loadForumTopicsInternal(chatId, query, onUpdate)
 
+    /**
+     * Browse on-demand. First 40 topics are enough to open a forum; users
+     * explicitly load later pages. No server-side traversal in the background.
+     */
+    internal fun loadForumTopicsPaged(
+        chatId: Long,
+        query: String = "",
+        onHasMore: (Boolean) -> Unit,
+        onUpdate: (List<com.vaydelux.bousygram.domain.model.ForumTopicChannel>, String?, Boolean) -> Unit
+    ): ForumTopicPageControl =
+        loadForumTopicsPagedInternal(chatId, query, onHasMore, onUpdate)
+
     fun fetchThumbnailPath(fileId: Int, onResult: (String?) -> Unit) =
         fetchThumbnailPathInternal(fileId, onResult)
 
