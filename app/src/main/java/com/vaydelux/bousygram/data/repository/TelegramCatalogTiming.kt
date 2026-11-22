@@ -22,6 +22,27 @@ internal enum class TelegramCatalogOutcome { READY, EMPTY, PARTIAL, FAILED }
 internal object TelegramCatalogTiming {
     private const val TAG = "TelegramCatalogTiming"
 
+    private const val WINDOW_SIZE = 64
+    private const val REPORT_INTERVAL = 20
+    private val windows = TelegramCatalogStage.entries.associateWith { ArrayDeque<Long>() }
+    private val observations = TelegramCatalogStage.entries.associateWith { 0 }.toMutableMap()
+
+    /** In-memory, bounded and identifier-free diagnostic summary. */
+    @Synchronized
+    internal fun observe(stage: TelegramCatalogStage, elapsedMs: Long): String? {
+        val window = windows.getValue(stage)
+        if (window.size == WINDOW_SIZE) window.removeFirst()
+        window.addLast(elapsedMs.coerceIn(0, 600_000))
+        val count = observations.getValue(stage) + 1
+        observations[stage] = count
+        if (count % REPORT_INTERVAL != 0) return null
+        val sorted = window.sorted()
+        fun percentile(percent: Int): Long =
+            sorted[((sorted.size - 1) * percent + 99) / 100]
+        return "stage=${stage.name} samples=${sorted.size} " +
+            "p50Ms=${percentile(50)} p95Ms=${percentile(95)}"
+    }
+
     fun nowNanos(): Long = System.nanoTime()
 
     fun format(
@@ -42,6 +63,7 @@ internal object TelegramCatalogTiming {
         val elapsedMs = ((nowNanos() - startedNanos).coerceAtLeast(0L) / 1_000_000L)
         try {
             Log.d(TAG, format(stage, elapsedMs, resultCount, outcome))
+            observe(stage, elapsedMs)?.let { Log.d(TAG, it) }
         } catch (_: RuntimeException) {
             // JVM fixture runners don't have android.util.Log.
         }
