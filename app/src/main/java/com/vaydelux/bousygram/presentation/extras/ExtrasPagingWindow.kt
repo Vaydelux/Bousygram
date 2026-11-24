@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import com.vaydelux.bousygram.core.memory.mergeBoundedOrderedWindow
+
 /** Pure tab state: independent queries/filters with independently bounded results. */
 internal data class TabState(
     val query: String = "",
@@ -62,32 +64,10 @@ internal object ExtrasPagingWindow {
         incoming: List<ExtrasItem>,
         maximumItems: Int
     ): Merge {
-        require(maximumItems > 0)
-        // Preserve each provider ID's first position and latest metadata.
-        // Keep only the bounded poster window strongly referenced, even if a
-        // provider returns an unexpectedly huge page on an ARM32 TV.
-        // Evicted keys are tracked without their poster payload so a later
-        // duplicate cannot re-enter at a different position.
-        val retained = LinkedHashMap<Pair<ExtrasType, Int>, ExtrasItem>()
-        val evicted = HashSet<Pair<ExtrasType, Int>>()
-        fun append(item: ExtrasItem) {
-            val key = item.type to item.id
-            if (retained.containsKey(key)) {
-                retained[key] = item
-                return
-            }
-            if (key in evicted) return
-            retained[key] = item
-            if (retained.size > maximumItems) {
-                val oldest = retained.entries.iterator()
-                val droppedKey = oldest.next().key
-                oldest.remove()
-                evicted.add(droppedKey)
-            }
+        val bounded = mergeBoundedOrderedWindow(existing, incoming, maximumItems) {
+            it.type to it.id
         }
-        existing.forEach(::append)
-        incoming.forEach(::append)
-        return Merge(retained.values.toList(), evicted.size)
+        return Merge(bounded.items, bounded.removedFromFront)
     }
 }
 

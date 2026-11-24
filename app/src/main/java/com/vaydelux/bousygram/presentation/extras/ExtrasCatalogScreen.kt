@@ -341,12 +341,20 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         val target = ExtrasPosterReturnPolicy.resolve(selectedPoster[type], state.results)
             ?: return@LaunchedEffect
         activeGrid.scrollToItem(target.index)
-        withFrameNanos { }
-        runCatching {
-            if (target.selectedPosterVisible) posterFocus.requestFocus()
-            else firstPosterFocus.requestFocus()
+        if (!isAndroidTv) {
+            // Touch navigation needs the scroll anchor, not forced input focus.
+            restoredPosterFocus = restorePosterFocus
+            return@LaunchedEffect
         }
-        restoredPosterFocus = restorePosterFocus
+        val preferred = if (target.selectedPosterVisible) posterFocus else firstPosterFocus
+        val restored = restoreExtrasFocus(
+            nextFrame = { withFrameNanos { } },
+            preferred = { runCatching { preferred.requestFocus() }.getOrDefault(false) },
+            fallback = { runCatching { searchFocus.requestFocus() }.getOrDefault(false) }
+        )
+        // Do not mark a failed focus request successful. A later catalog
+        // update can retry restoration without an unbounded frame loop.
+        if (restored) restoredPosterFocus = restorePosterFocus
     }
 
     BackHandler(enabled = activeEmbed == null) {
