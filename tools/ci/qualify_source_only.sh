@@ -11,6 +11,7 @@ bash tools/ci/test_local_qualification_ref.sh
 bash tools/ci/test_release_apk_verifier.sh
 python3 -B tools/ci/test_apk_native_inventory.py
 bash tools/ci/test_account_prefetch_smoke.sh
+bash tools/ci/test_catalog_layout_smoke.sh
 [[ "$(git rev-parse HEAD)" == "$sha" ]] || { echo "Source changed during qualification" >&2; exit 1; }
 local_qualification_kind "$@" >/dev/null
 echo "PASS: SDK-independent policy suites for $sha"

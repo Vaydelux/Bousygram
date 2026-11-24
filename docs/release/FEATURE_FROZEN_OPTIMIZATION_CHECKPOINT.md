@@ -87,3 +87,20 @@ The last run includes 2,000 assertions from 1,000 seeded arithmetic cases near L
 
 ### Merge-blocking next action
 Stop widening the uncompiled candidate: run the full exact-SHA Android qualifier, native/Room integration and UI/emulator checks, and real-device playback gates. Verify coroutine gateway operations at logout/relogin, player owner handoff timeouts (already-running main-thread actions are not cancellable), 2,000+ item catalog, background index backlog, and ARM32 long-session cache/RAM behavior. Defer R8 or binary removal until actual APK measurements. No APK or production release approved.
+
+## Batch 05 — exact-source qualification and confirmed fixture repairs
+- Reproduced a real Python SyntaxError in the candidate's native inventory test (Git blob f6999e34b6eb2a490166a07bdea0e5a1ead064). Remove the stray closing brace; fixed blob 7d05738176575c6bd77f6a105de93e6b74bc2722. Earlier transcribed passing fixtures did not detect this. Do not rely on those earlier results for repository qualification.
+- Local ref admission now fails closed when git status cannot be read. Signed-release verifier quotes the aapt2 executable path; regression tests include SDK/output directories with spaces. No weakened production gate.
+- Add source-only qualifier and independent catalog/layout smoke suite. Both require the local Kotlin coroutine jar and operate without Android SDK, network, GitHub Actions, or APK generation.
+
+### Executed evidence, not a full checkout or Android build
+Direct Git remote DNS still unavailable; JDK 21.0.12.1 and Kotlin 1.9.0 with bundled coroutine jar available, no Android SDK/Gradle/ADB. Files copied individually and their Git blob SHA-1 matched against the candidate tree; this is stronger than prior transcribed-policy evidence. Executed original four-file account/prefetch harness (2,032 assertions); nine production catalog/layout policy source files plus newly authored fixture/script (2,018 assertions across 400 overlap cases and 120 viewport/font/device configurations); corrected Python inventory test (six tests); corrected Git policy (eight cases); corrected signed APK verifier (eight mock SDK cases). All passed. The two Kotlin suites cover distinct fixture sets, total 4,050 assertions; the other 22 cases are shell/Python fixtures. No full Android compile, real signer, real APK, Compose rendering, performance or native integration evidence. The source-only umbrella script must be exercised on a complete checkout; individual commands ran in a partial copied tree. No actual device metrics.
+
+### Reproduction
+Set KOTLIN_COROUTINES_JAR to a readable local kotlinx-coroutines-core-jvm.jar. On a clean checkout of the exact candidate, run:
+
+```bash
+bash tools/ci/qualify_source_only.sh --candidate "$(git rev-parse HEAD)"
+```
+
+Then run the existing Android qualifier on the same SHA with SDK/native dependencies and required local configuration. Do not interpret source-only PASS as a release approval. No further app code expansion until actual Android compilation and regression evidence are available.
