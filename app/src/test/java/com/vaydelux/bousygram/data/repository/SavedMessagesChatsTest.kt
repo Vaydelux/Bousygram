@@ -215,4 +215,23 @@ class SavedMessagesChatsTest {
         title = "Group $chatId"
         type = TdApi.ChatTypeBasicGroup(chatId)
     }
+    @Test fun successfulLoadChatsWithoutGrowthStopsAndRetainsPartialDirectory() = runTest {
+        var mainLoads = 0
+        var hasMore = false
+        var visible = emptyList<VideoChatItem>()
+        val error = loadVideoChats(owner, 160, request = { query ->
+            when (query) {
+                is TdApi.GetChats -> if (query.chatList is TdApi.ChatListArchive)
+                    TdApi.Chats(0, longArrayOf()) else TdApi.Chats(1, longArrayOf(41))
+                is TdApi.GetChat -> groupChat(query.chatId)
+                is TdApi.LoadChats -> if (query.chatList is TdApi.ChatListArchive)
+                    TdApi.Error(404, "All chats loaded") else { mainLoads++; TdApi.Ok() }
+                else -> error("Unexpected directory request")
+            }
+        }, onHasMore = { hasMore = it }, onPage = { visible = it })
+        assertEquals(3, mainLoads)
+        assertEquals(listOf(41L), visible.map { it.chatId })
+        assertNotNull(error)
+        assertEquals(true, hasMore)
+    }
 }

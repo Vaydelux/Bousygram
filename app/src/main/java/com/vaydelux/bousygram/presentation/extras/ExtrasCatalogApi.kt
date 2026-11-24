@@ -199,7 +199,7 @@ object ExtrasCatalogApi {
     private data class Cached(val content: String, val until: Long)
     private val responseCache = object : LruCache<String, Cached>(4096) {
         override fun sizeOf(key: String, value: Cached): Int =
-            ((value.content.length * 2L) / 1024L).coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            catalogCacheEntryKiB(key.length, value.content.length)
     }
     /** Drop catalog JSON under OS memory pressure to protect ARM32 devices. */
     fun trimMemory(critical: Boolean) {
@@ -210,6 +210,10 @@ object ExtrasCatalogApi {
     }
 
     @Volatile private var anilistBackoffUntil = 0L
+    private val backoffLock = Any()
+    // Fixed lock stripes coalesce concurrent identical cache misses without
+    // retaining an unbounded map of search strings or detached network jobs.
+    private val requestStripes = Array(16) { Mutex() }
     // AniList currently advertises 30 requests/minute. A 2-token burst and one
     // refill every 2.1 seconds stay below that budget for a single app instance.
     private val anilistLimiter = Mutex()
@@ -623,14 +627,6 @@ object ExtrasCatalogApi {
         val payload = JSONObject().put("query", query).put("variables", variables).toString()
         // Serve fresh local metadata during a provider cooldown. Rate limiting
         // applies to network calls, not already cached screens/back navigation.
-        cachedResponse(ANILIST, payload)?.let { return it }
-        if (System.currentTimeMillis() < anilistBackoffUntil) {
-            throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
-        }
-        reserveAniListToken()
-        if (System.currentTimeMillis() < anilistBackoffUntil) {
-            throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
-        }
         return requestJson(ANILIST, payload, ttlMs = 5 * 60_000L).also {
             val errors = it.optJSONArray("errors")
             if (errors != null && errors.length() > 0) {
@@ -641,9 +637,13 @@ object ExtrasCatalogApi {
 
     private fun cachedResponse(url: String, body: String?): JSONObject? {
         val key = if (body == null) url else "$url::$body"
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         val cached = synchronized(responseCache) {
-            responseCache.get(key)?.takeIf { it.until > now }?.content
+            val entry = responseCache.get(key)
+            if (entry != null && entry.until <= now) {
+                responseCache.remove(key)
+                null
+            } else entry?.content
         }
         return cached?.let(::JSONObject)
     }
@@ -653,39 +653,57 @@ object ExtrasCatalogApi {
     private suspend fun requestJson(url: String, body: String?, ttlMs: Long): JSONObject {
         val cacheKey = if (body == null) url else "$url::$body"
         cachedResponse(url, body)?.let { return it }
+        val stripe = requestStripes[(cacheKey.hashCode() and Int.MAX_VALUE) % requestStripes.size]
+        stripe.lock()
+        try {
+            // Another screen may have populated the same response while we waited.
+            cachedResponse(url, body)?.let { return it }
+            if (url == ANILIST) {
+                if (SystemClock.elapsedRealtime() < anilistBackoffUntil)
+                    throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
+                reserveAniListToken()
+                if (SystemClock.elapsedRealtime() < anilistBackoffUntil)
+                    throw IOException("AniList is rate limiting requests. Retry after the cooldown.")
+            }
 
-        // Cancellation disconnects the socket rather than merely ignoring
-        // a late result. A canceled request must never populate the LRU.
-        val response = httpTransport.execute(url, body, MAX_BYTES)
-        val status = response.status
-        if (status == 429) {
-            if (body != null) {
-                val retrySeconds = response.retryAfter?.toLongOrNull()
-                    ?.coerceIn(1, 120) ?: 60L
-                anilistBackoffUntil = System.currentTimeMillis() + retrySeconds * 1000L
+            // Cancellation disconnects the socket rather than merely ignoring
+            // a late result. A canceled request must never populate the LRU.
+            val response = httpTransport.execute(url, body, MAX_BYTES)
+            val status = response.status
+            if (status == 429) {
+                if (body != null) {
+                    val retrySeconds = response.retryAfter?.toLongOrNull()
+                        ?.coerceIn(1, 120) ?: 60L
+                    synchronized(backoffLock) {
+                        anilistBackoffUntil = maxOf(anilistBackoffUntil,
+                            catalogDeadline(SystemClock.elapsedRealtime(), retrySeconds * 1000L))
+                    }
+                }
+                throw IOException("Catalog request limit reached. Please retry shortly.")
             }
-            throw IOException("Catalog request limit reached. Please retry shortly.")
-        }
-        if (status !in 200..299) {
-            throw IOException(when (status) {
-                401, 403 -> "Catalog provider access denied. Check API access and configuration."
-                404 -> "This title is no longer available."
-                else -> "Catalog request failed (HTTP $status)."
-            })
-        }
-        val data = response.json ?: throw IOException("Catalog response is empty")
-        val json = JSONObject(data)
-        val hasGraphQlErrors = (json.optJSONArray("errors")?.length() ?: 0) > 0
-        kotlinx.coroutines.currentCoroutineContext().ensureActive()
-        if (ExtrasProviderPolicy.mayCacheResponse(body != null, hasGraphQlErrors)) {
-            synchronized(responseCache) {
-                responseCache.put(
-                    cacheKey,
-                    Cached(data, System.currentTimeMillis() + ttlMs)
-                )
+            if (status !in 200..299) {
+                throw IOException(when (status) {
+                    401, 403 -> "Catalog provider access denied. Check API access and configuration."
+                    404 -> "This title is no longer available."
+                    else -> "Catalog request failed (HTTP $status)."
+                })
             }
+            val data = response.json ?: throw IOException("Catalog response is empty")
+            val json = JSONObject(data)
+            val hasGraphQlErrors = (json.optJSONArray("errors")?.length() ?: 0) > 0
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (ExtrasProviderPolicy.mayCacheResponse(body != null, hasGraphQlErrors)) {
+                synchronized(responseCache) {
+                    responseCache.put(
+                        cacheKey,
+                        Cached(data, catalogDeadline(SystemClock.elapsedRealtime(), ttlMs))
+                    )
+                }
+            }
+            return json
+        } finally {
+            stripe.unlock()
         }
-        return json
     }
 
     private fun encode(input: String) = URLEncoder.encode(input, StandardCharsets.UTF_8.name())

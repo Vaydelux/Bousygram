@@ -9,9 +9,10 @@ import org.drinkless.tdlib.TdApi
  * Authentication must never be faked by hiding a permanent error.
  */
 internal fun isTransientTelegramCatalogFailure(response: TdApi.Object?): Boolean =
-    response == null || (response is TdApi.Error && response.code in setOf(
-        408, 500, 502, 503, 504
-    ))
+    response == null || (response is TdApi.Error && when (response.code) {
+        408, 500, 502, 503, 504 -> true
+        else -> false
+    })
 
 /**
  * Bounded retries are deliberately serial and cancellable, so an unstable
