@@ -75,4 +75,7 @@ reject apks occupied
 [[ -f "$temp/occupied/keep" ]]
 ln -s "$temp/occupied" "$temp/link"
 reject apks link
-echo "PASS: 7 signed-release policy fixtures (mock SDK tools)"
+mv "$temp/sdk" "$temp/sdk with spaces"
+bash "$root/tools/ci/verify_release_apks.sh" "$temp/apks" "$temp/output with spaces" "$MOCK_CERT" "$temp/sdk with spaces" 1.0.0 1 >/dev/null
+[[ "$(find "$temp/output with spaces" -name '*.apk' | wc -l)" -eq 3 ]]
+echo "PASS: 8 signed-release policy fixtures (mock SDK tools)"

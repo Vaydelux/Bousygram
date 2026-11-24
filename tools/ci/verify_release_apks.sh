@@ -35,7 +35,7 @@ for apk in "${APKS[@]}"; do
   cert_output="$("$APKSIGNER" verify --print-certs "$apk")"
   mapfile -t certs < <(sed -n 's/^Signer #[0-9][0-9]* certificate SHA-256 digest: //p' <<<"$cert_output" | tr -d ':[:blank:]' | tr '[:upper:]' '[:lower:]')
   [[ "${#certs[@]}" -eq 1 && "${certs[0]}" == "$EXPECTED_CERT" ]] || { echo "Certificate mismatch or multiple signers: $apk" >&2; exit 1; }
-  badging="$($AAPT2 dump badging "$apk")"
+  badging="$("$AAPT2" dump badging "$apk")"
   grep -Fq "package: name='com.vaydelux.bousygram' versionCode='$EXPECTED_VERSION_CODE' versionName='$EXPECTED_VERSION'" <<<"$badging" || { echo "Unexpected package/version metadata: $apk" >&2; exit 1; }
   grep -q "sdkVersion:'26'" <<<"$badging" || { echo "Unexpected minSdkVersion: $apk" >&2; exit 1; }
   grep -q "targetSdkVersion:'37'" <<<"$badging" || { echo "Unexpected targetSdkVersion: $apk" >&2; exit 1; }

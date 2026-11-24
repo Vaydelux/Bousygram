@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Local validation only. Never publish, dispatch Actions or modify git refs.
 local_qualification_kind() {
-  local head branch
+  local head branch status
   head="$(git rev-parse HEAD)" || return 1
   branch="$(git branch --show-current)" || return 1
-  if [[ -n "$(git status --porcelain)" ]]; then
+  status="$(git status --porcelain)" || {
+    echo "ERROR: Unable to verify worktree cleanliness." >&2
+    return 1
+  }
+  if [[ -n "$status" ]]; then
     echo "ERROR: Worktree must be clean for reproducible APK provenance." >&2
     return 1
   fi

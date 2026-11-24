@@ -24,4 +24,12 @@ git checkout -q --detach
 [[ "$(local_qualification_kind --candidate "$sha")" == candidate-debug ]]
 touch dirty
 reject --candidate "$sha"
-echo "PASS: 7 local qualification-ref cases"
+rm dirty
+# Failure to read repository status must not masquerade as a clean tree.
+git() {
+  if [[ "$1" == status ]]; then return 1; fi
+  command git "$@"
+}
+reject --candidate "$sha"
+unset -f git
+echo "PASS: 8 local qualification-ref cases"
