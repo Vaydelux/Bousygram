@@ -83,28 +83,35 @@ object ThumbnailExtractor {
 
     // Byte-based budgets prevent full-resolution source thumbnails from silently
     // occupying a large fraction of a 32-bit TV's heap.
-    private val thumbnailBudgetKiB = thumbnailMemoryBudgetKiB(
-        Runtime.getRuntime().maxMemory(), isLowRam, preview = false
-    )
-    private val previewBudgetKiB = thumbnailMemoryBudgetKiB(
-        Runtime.getRuntime().maxMemory(), isLowRam, preview = true
-    )
+    private fun bitmapKiB(value: Bitmap): Int =
+        ((maxOf(value.byteCount, value.allocationByteCount).toLong() + 1023L) / 1024L)
+            .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
 
+    // Disk-only startup maintenance must not allocate the decoder dispatcher
+    // or either decoded cache. Initialize them on the first real frame request.
     private data class ThumbnailKey(val accountId: Long, val fileId: Int)
-    private val memoryCache = object : android.util.LruCache<ThumbnailKey, Bitmap>(thumbnailBudgetKiB) {
-        override fun sizeOf(key: ThumbnailKey, value: Bitmap): Int =
-            ((value.byteCount.toLong() + 1023L) / 1024L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    private val memoryCacheDelegate = lazy {
+        object : android.util.LruCache<ThumbnailKey, Bitmap>(
+            thumbnailMemoryBudgetKiB(Runtime.getRuntime().maxMemory(), isLowRam, preview = false)
+        ) {
+            override fun sizeOf(key: ThumbnailKey, value: Bitmap): Int = bitmapKiB(value)
+        }
     }
+    private val memoryCache by memoryCacheDelegate
 
     data class PreviewKey(val accountId: Long, val fileId: Int, val timeBucketMs: Long)
-    private val previewCache = object : android.util.LruCache<PreviewKey, Bitmap>(previewBudgetKiB) {
-        override fun sizeOf(key: PreviewKey, value: Bitmap): Int =
-            ((value.byteCount.toLong() + 1023L) / 1024L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    private val previewCacheDelegate = lazy {
+        object : android.util.LruCache<PreviewKey, Bitmap>(
+            thumbnailMemoryBudgetKiB(Runtime.getRuntime().maxMemory(), isLowRam, preview = true)
+        ) {
+            override fun sizeOf(key: PreviewKey, value: Bitmap): Int = bitmapKiB(value)
+        }
     }
+    private val previewCache by previewCacheDelegate
     private val diskWriteLock = Any()
     private val diskMaintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val frameDispatcher = Dispatchers.IO.limitedParallelism(if (isLowRam) 1 else 2)
-    private val localFramePermits = Semaphore(if (isLowRam) 1 else 2)
+    private val frameDispatcher by lazy { Dispatchers.IO.limitedParallelism(if (isLowRam) 1 else 2) }
+    private val localFramePermits by lazy { Semaphore(if (isLowRam) 1 else 2) }
 
     /** Capture identity before dispatch: queued requests cannot adopt a new login. */
     private suspend fun withFrameOwner(
@@ -145,10 +152,13 @@ object ThumbnailExtractor {
                     Log.i(TAG, "Recycled ${result.deletedFiles} generated cache images; freed ${result.freedBytes} bytes")
                 }
             }
-            .onFailure { Log.w(TAG, "Could not recycle generated thumbnail cache", it) }
+            .onFailure { Log.w(TAG, "Could not recycle generated thumbnail cache (${it.javaClass.simpleName})") }
     }
 
-    fun invalidateAccountResources() { memoryCache.evictAll(); previewCache.evictAll() }
+    fun invalidateAccountResources() {
+        if (memoryCacheDelegate.isInitialized()) memoryCache.evictAll()
+        if (previewCacheDelegate.isInitialized()) previewCache.evictAll()
+    }
 
     internal fun accountCachePath(accountId: Long, kind: String): String {
         require(accountId > 0L)
@@ -157,13 +167,12 @@ object ThumbnailExtractor {
     }
 
     fun trimMemory(critical: Boolean) {
-        if (critical) {
-            memoryCache.evictAll()
-            previewCache.evictAll()
-        } else {
-            memoryCache.trimToSize((memoryCache.maxSize() / 2).coerceAtLeast(1))
-            previewCache.trimToSize((previewCache.maxSize() / 2).coerceAtLeast(1))
+        fun trim(cache: android.util.LruCache<*, Bitmap>) {
+            if (critical) cache.evictAll()
+            else cache.trimToSize((cache.maxSize() / 2).coerceAtLeast(1))
         }
+        if (memoryCacheDelegate.isInitialized()) trim(memoryCache)
+        if (previewCacheDelegate.isInitialized()) trim(previewCache)
     }
 
     /**

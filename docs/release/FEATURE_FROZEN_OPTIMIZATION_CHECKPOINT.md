@@ -29,3 +29,17 @@ Prior isolated test totals were not independently substantiated by retained exec
 ## Additional account and timestamp hardening
 - Capture the account before dispatch for all three thumbnail paths; atomically publish memory frames with account invalidation and propagate cancellation. Clamp preview timestamps before conversion to microseconds.
 - A separate Kotlin 1.9 JVM harness executed 14 assertions against transcribed decoder replacement and quota policy logic using fake engine/owner objects and real temporary files. It verified failing diagnostics, repeated cleanup errors, LRU ordering, protected files, and linked-directory exclusion. This is not an Android build or execution of the repository JUnit suite.
+
+## Batch 02 — catalog, indexing, and startup efficiency (2026-11-25)
+Candidate extends the same temporary PR #233. No new dependencies, providers, UI features or playback engines.
+- Telegram main/archive source scans stop after three non-growing short prefixes, preserving partial sources and allowing retry. Duplicate chat IDs are filtered before metadata requests. Existing folder pagination and retry semantics remain.
+- Extras metadata: fixed 16 request lock stripes coalesce successful identical cache misses; cached responses bypass AniList rate token consumption. TTL/cooldown use elapsed realtime; expired entries are removed and request keys count toward the cache budget. HTTP transport limits active requests to three and rejects non-progressing streams. No weakened URL or redirect policy.
+- WebView applies initial paused state when attached below STARTED and skips lifecycle calls for known dead renderers.
+- Video index serializes writes and converts 25 items per transaction instead of eagerly duplicating the entire library; preserves cancellation and account ownership. Pending submissions may still queue; no claim of a bounded total backlog.
+- Thumbnail/seek memory caches initialize on actual use, account invalidation and OS trim avoid initializing unused caches, and bitmap budgets account for allocation size. ARM32 seek snapshots use low-memory limits.
+
+### Retained test evidence for this batch
+Local Kotlin/JVM 1.9.0 (JRE 21): 18/18 standalone checks executed on verbatim policy functions ChatDirectoryProgress, catalogCacheEntryKiB, catalogDeadline, covering stalls/growth/oscillation, negative inputs, rounding, key accounting, and overflow. Not repository Gradle/JUnit or Android integration evidence. New repository regression tests authored for stalled directory, cache arithmetic and zero-progress input stream; not run here. Direct Git checkout blocked by DNS, Android SDK and Gradle unavailable. No APK or real device metrics. Prior isolated results are historical and are not included in this batch's count.
+
+### Next qualification
+Run full local qualifier and repository tests before merge; specifically exercise TDLib auth/2,000-item groups, rapid search/cancellation and cache coalescing, native/WebView background/resume and ARM32 memory, then Compose phone/TV viewport and focus matrix. Continue M7 native APK inventory/security audit only after baseline measurement. Do not disable mandatory release gates.
