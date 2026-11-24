@@ -99,6 +99,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
             // confirmed logout purge. A transient identity verification failure
             // must not erase the user's history; failure still blocks activation.
             close { PlaybackProgressTracker.invalidateAccountResources() }
+            close { com.vaydelux.bousygram.data.database.VideoIndexRepository.invalidateAccountResources() }
             close { AppDatabase.closeAccountDatabases() }
             failure?.let { throw IllegalStateException("Account resources could not be fully closed", it) }
         }

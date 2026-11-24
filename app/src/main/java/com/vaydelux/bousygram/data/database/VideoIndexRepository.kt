@@ -8,6 +8,7 @@ import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -38,8 +39,14 @@ object VideoIndexRepository {
     }
 
     private fun database(owner: AccountSnapshot): AppDatabase? {
-        if (!AccountSession.isCurrent(owner)) return null
-        return testDatabase ?: appContext?.let { AppDatabase.getInstance(it, owner.accountId) }
+        var result: AppDatabase? = null
+        // Do not create a stale database after the logout barrier closed all
+        // account databases. Opening the instance and checking identity share
+        // the same short account publication guard.
+        AccountSession.runIfCurrent(owner) {
+            result = testDatabase ?: appContext?.let { AppDatabase.getInstance(it, owner.accountId) }
+        }
+        return result
     }
 
     suspend fun getIndexedVideosForChat(chatId: Long?, topicId: Long?): List<MediaItem> {
@@ -104,6 +111,11 @@ object VideoIndexRepository {
                     return@withContext
             }
         }
+    }
+
+    /** Cancel queued best-effort indexing before account databases are closed. */
+    fun invalidateAccountResources() {
+        indexScope.coroutineContext.cancelChildren()
     }
 
     fun indexMediaItemsAsync(items: List<MediaItem>) {

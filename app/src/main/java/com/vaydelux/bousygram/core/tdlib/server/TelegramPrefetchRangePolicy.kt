@@ -100,3 +100,11 @@ internal fun prefetchOffsetForPosition(totalSize: Long, positionMs: Long, durati
     return if (seconds > maximum / UNKNOWN_DURATION_BYTES_PER_SECOND) maximum
         else (seconds * UNKNOWN_DURATION_BYTES_PER_SECOND).coerceAtMost(maximum)
 }
+
+/** Advance only through returned bytes within the admitted request; never wrap at Long.MAX_VALUE. */
+internal fun advancePrefetchOffset(offset: Long, endExclusive: Long, requestedBytes: Int, returnedBytes: Int): Long {
+    require(offset >= 0L && endExclusive >= offset)
+    val advance = minOf(requestedBytes.coerceAtLeast(0).toLong(),
+        returnedBytes.coerceAtLeast(0).toLong(), endExclusive - offset)
+    return offset + advance
+}

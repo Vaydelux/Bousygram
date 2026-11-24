@@ -141,4 +141,20 @@ class AccountSessionControllerTest {
         assertNull(session.current())
         assertNull(session.activate(202L, session.generation()))
     }
+    @Test fun nativeErrorStillRunsRemainingPrivacyCleanupAndBlocksActivation() {
+        val session = AccountSessionController()
+        val owner = session.activate(101L, session.generation())!!
+        val first = LinkageError("fixture")
+        val second = IllegalStateException("fixture")
+        var cleaned = false
+        session.registerInvalidationHandler { throw first }
+        session.registerInvalidationHandler { throw second }
+        session.registerInvalidationHandler { cleaned = true }
+        val failure = runCatching { session.invalidate() }.exceptionOrNull()
+        assertTrue(cleaned)
+        assertTrue(failure?.cause === first)
+        assertTrue(first.suppressed.single() === second)
+        assertFalse(session.isCurrent(owner))
+        assertNull(session.activate(202L, session.generation()))
+    }
 }

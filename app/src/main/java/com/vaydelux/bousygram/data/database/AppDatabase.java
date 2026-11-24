@@ -57,8 +57,21 @@ public abstract class AppDatabase extends RoomDatabase {
     }
 
     public static synchronized void closeAccountDatabases() {
-        for (AppDatabase database : INSTANCES.values()) database.close();
-        INSTANCES.clear();
+        Throwable failure = null;
+        // A failed vendor/SQLite close must not strand other account handles.
+        // Keep failed handles registered for a subsequent fail-closed retry.
+        java.util.Iterator<Map.Entry<Long, AppDatabase>> iterator = INSTANCES.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Long, AppDatabase> entry = iterator.next();
+            try {
+                entry.getValue().close();
+                iterator.remove();
+            } catch (Throwable error) {
+                if (failure == null) failure = error;
+                else if (failure != error) failure.addSuppressed(error);
+            }
+        }
+        if (failure != null) throw new IllegalStateException("Account database cleanup failed", failure);
     }
 
     public static synchronized void setTestInstance(AppDatabase db) { testInstance = db; }

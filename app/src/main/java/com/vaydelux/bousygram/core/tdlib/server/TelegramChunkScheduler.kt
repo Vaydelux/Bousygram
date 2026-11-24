@@ -460,9 +460,14 @@ internal object TelegramChunkScheduler {
             nextFileStatusTouch = 0L
         }
         updateListeners.clear()
-        prefetchJobs.values.forEach { jobs -> jobs.toList().forEach { it.cancel() } }
-        prefetchJobs.clear()
-        activePrefetchRanges.clear()
+        val retiredPrefetchJobs = synchronized(prefetchLock) {
+            val jobs = (prefetchJobs.values.flatMap { it.toList() } +
+                activePrefetchRanges.values.flatMap { ranges -> ranges.map { it.second } }).toSet()
+            prefetchJobs.clear()
+            activePrefetchRanges.clear()
+            jobs
+        }
+        retiredPrefetchJobs.forEach { it.cancel() }
         permitsByFile.clear()
         activeCounts.clear()
         activeLeases.clear()
@@ -810,20 +815,20 @@ internal object TelegramChunkScheduler {
     ): Job {
         val effectiveId = resolveEffectiveFileId(fileId)
         val effectivePriority = if (isPlaybackPurpose(purpose)) PLAYBACK_PRIORITY else min(priority, PREFETCH_PRIORITY)
+        // Plan once before registration, so overlap detection never reserves
+        // bytes that the sampled storage budget did not permit.
+        val speculative = purpose == TelegramChunkPurpose.CacheAhead ||
+            purpose == TelegramChunkPurpose.BackgroundFull ||
+            purpose == TelegramChunkPurpose.Priming
+        val requestedEnd = saturatingPrefetchEnd(offset, length)
+        val permittedLength = if (speculative) StoragePressurePolicy.boundedReadAheadBytes(
+            length, StoragePressureMonitor.freeBytes()
+        ) else length
+        val range = trackedPrefetchRange(offset, permittedLength)
+        if (effectiveId <= 0 || range.isEmpty()) return Job().apply { complete() }
+        val endExclusive = saturatingPrefetchEnd(offset, permittedLength)
         val job = scope.launch(start = CoroutineStart.LAZY) {
-            if (effectiveId <= 0 || length <= 0L) return@launch
-            // Streaming and Preflight are user-driven reads and must still work.
-            // Only speculative range work yields under storage pressure.
-            val speculative = purpose == TelegramChunkPurpose.CacheAhead ||
-                purpose == TelegramChunkPurpose.BackgroundFull ||
-                purpose == TelegramChunkPurpose.Priming
-            val requestedEnd = saturatingPrefetchEnd(offset, length)
-            val permittedLength = if (speculative) StoragePressurePolicy.boundedReadAheadBytes(
-                length, StoragePressureMonitor.freeBytes()
-            ) else length
-            if (permittedLength <= 0L) return@launch
-            val endExclusive = saturatingPrefetchEnd(offset, permittedLength)
-            var currentOffset = offset.coerceAtLeast(0L)
+            var currentOffset = range.first
             var failures = 0
             markState(
                 effectiveId,
@@ -859,7 +864,7 @@ internal object TelegramChunkScheduler {
                         failures = 0
                         PlaybackTelemetryRecorder.notifyFirstByte(effectiveId)
                         if (result.bytes.isEmpty()) return@launch
-                        currentOffset += result.bytes.size
+                        currentOffset = advancePrefetchOffset(currentOffset, endExclusive, limit, result.bytes.size)
                         PlaybackDiagnostics.recordProxyState(
                             lastStalledOffset = currentOffset,
                             chunkRetryCount = result.retryCount,
@@ -884,11 +889,11 @@ internal object TelegramChunkScheduler {
                     }
                 }
             }
-            if (purpose == TelegramChunkPurpose.BackgroundFull && currentOffset >= requestedEnd) {
+            if (coroutineContext.isActive && purpose == TelegramChunkPurpose.BackgroundFull &&
+                currentOffset >= requestedEnd) {
                 markState(effectiveId, PlaybackCacheState.Cached)
             }
         }
-        val range = trackedPrefetchRange(offset, length)
         val rangeList: MutableList<Pair<LongRange, Job>>
         val rangePair = range to job
         synchronized(prefetchLock) {
