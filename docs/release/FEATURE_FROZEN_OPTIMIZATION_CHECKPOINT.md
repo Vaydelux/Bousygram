@@ -6,10 +6,12 @@ Baseline: 0d8ab4ce323a6bd3c54e5127f21a62215810fb05. Scope M0–M3. No new user-f
 - Bound speculative scheduler requests by sampled headroom above 500 MiB and 32 MiB maximum; do not label a partial BackgroundFull request Cached.
 - Track inclusive byte ranges without overflow or the exclusive endpoint; snapshot cancellation targets under the registration lock and cancel outside it.
 - Attempt independent wake and Wi-Fi lock acquisition/release even after a platform error; redact exception details.
+- Stream directory accounting without a wide File array; normalize exclusions and ignore symbolic links.
+- Reuse successfully loaded offline-pin snapshots even when empty, scoped to the authenticated account generation. Do not mark unavailable preferences loaded.
 - Add focused unit regressions and reconcile obsolete storage documentation.
 
 ## Qualification status
-Android Gradle, authenticated TDLib, emulator, and real ARM32/ARM64 testing are not yet executed for this change. No APK or production approval. Cached free-space estimates are not a physical cap; no measured speedup or memory reduction is claimed.
+Extracted pure Kotlin smoke checks passed 27 assertions for storage limits, range endpoints and lock actions (Kotlin 1.9, separate JVM harness; not Android/JUnit execution). Android Gradle, authenticated TDLib, emulator, directory traversal on Android, pin-cache integration, and real ARM32/ARM64 testing are not yet executed for this change. No APK or production approval. Cached free-space estimates are not a physical cap; no measured speedup or memory reduction is claimed.
 
 ## Next work (in order)
 1. Execute existing local debug qualifier and existing scheduler/lock tests, then physical matched baseline. Verify seek cancellation during overlapping prefetch and check actual available bytes after cleanup.

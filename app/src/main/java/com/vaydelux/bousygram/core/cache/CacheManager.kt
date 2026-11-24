@@ -86,7 +86,8 @@ object CacheManager {
     private const val STREAM_ONLY_RECLAIM_RETRY_MS = 60_000L
     private const val STREAM_ONLY_RECLAIM_MAX_ATTEMPTS = 3
     private val streamOnlyReclaimJobs = ConcurrentHashMap<Int, Job>()
-    private var pinnedAccountId: Long? = null
+    private var pinnedAccount: AccountSnapshot? = null
+    private var pinnedLoaded = false
     // Access timestamps are sorted oldest first. Rotate a bounded TDLib
     // lookup page across sweeps so the first 256 entries cannot starve newer
     // tracked files when some old entries are protected or unresolved.
@@ -95,14 +96,21 @@ object CacheManager {
 
     @Synchronized
     private fun ensurePinnedLoaded() {
-        val accountId = AccountSession.current()?.accountId
-        if (pinnedAccountId != accountId) {
+        val account = AccountSession.current()
+        if (pinnedAccount != account) {
             pinnedFiles.clear()
-            pinnedAccountId = accountId
+            pinnedAccount = account
+            pinnedLoaded = false
         }
-        if (accountId != null && pinnedFiles.isEmpty()) {
-            val pinnedStrSet = prefs?.getStringSet(KEY_PINNED, emptySet()) ?: emptySet()
-            pinnedStrSet.forEach { it.toIntOrNull()?.let(pinnedFiles::add) }
+        if (account != null && !pinnedLoaded) {
+            val accountPrefs = prefs ?: return
+            val stored = accountPrefs.getStringSet(KEY_PINNED, emptySet()).orEmpty()
+            // An empty set is a valid loaded snapshot, not a cache miss.
+            // Never mark unavailable storage or an invalidated identity loaded.
+            AccountSession.runIfCurrent(account) {
+                stored.forEach { it.toIntOrNull()?.let(pinnedFiles::add) }
+                pinnedLoaded = true
+            }
         }
     }
 
@@ -113,7 +121,8 @@ object CacheManager {
             pinnedFiles.toList().forEach { id -> runCatching { client.send(TdApi.CancelDownloadFile(id, false)) { } } }
         }
         pinnedFiles.clear()
-        pinnedAccountId = null
+        pinnedAccount = null
+        pinnedLoaded = false
         lastAccessCleanupMarker.set(null)
         postPlaybackCleanupJob?.cancel()
         postPlaybackCleanupJob = null
