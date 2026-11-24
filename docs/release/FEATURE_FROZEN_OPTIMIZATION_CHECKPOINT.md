@@ -68,3 +68,5 @@ bash tools/ci/qualify_local_debug.sh --candidate "$(git rev-parse HEAD)"
 ```
 
 Retain the exact commit, qualifier logs, SHA256SUMS, NATIVE_INVENTORY.json, and device/UI evidence. Test the full candidate before merge; use the existing main-only release policy afterwards. Do not publish local candidate builds as CI-attested artifacts.
+
+Additional release-verifier evidence: seven synthetic APK cases passed locally using the transcribed Bash verifier and mock apksigner/zipalign/aapt2, with real ZIP archives. Cases covered valid matrix, missing LibVLC, multiple signers, literal package mismatch, literal version mismatch, nonempty output directory preservation, and symlink output refusal. No real signature or Android alignment was validated. All three new packaging/ref fixture suites are now included in local qualification. R8 rules remain intentionally unchanged pending real release-build analysis.
