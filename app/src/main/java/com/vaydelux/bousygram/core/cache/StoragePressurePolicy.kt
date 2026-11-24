@@ -21,13 +21,13 @@ internal object StoragePressurePolicy {
     }
 
     fun allowSpeculativeDownload(availableBytes: Long?): Boolean =
-        level(availableBytes) == Level.NORMAL
+        availableBytes != null && availableBytes > LOW_FREE_BYTES
 
     /** Read-ahead is speculative; the foreground DataSource remains unrestricted. */
     fun boundedReadAheadBytes(requestedBytes: Long, availableBytes: Long?): Long =
-        if (allowSpeculativeDownload(availableBytes)) {
-            requestedBytes.coerceIn(0L, 32L * TvStorageBudget.MIB)
-        } else 0L
+        if (availableBytes == null || availableBytes <= LOW_FREE_BYTES) 0L
+        else minOf(requestedBytes.coerceAtLeast(0L), 32L * TvStorageBudget.MIB,
+            availableBytes - LOW_FREE_BYTES)
 }
 
 /**

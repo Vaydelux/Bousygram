@@ -16,6 +16,12 @@ internal fun saturatingPrefetchEnd(offset: Long, length: Long): Long {
     return if (start > Long.MAX_VALUE - count) Long.MAX_VALUE else start + count
 }
 
+/** The tracked interval contains actual requested bytes, never the exclusive endpoint. */
+internal fun trackedPrefetchRange(offset: Long, length: Long): LongRange {
+    val start = offset.coerceAtLeast(0L)
+    return start until saturatingPrefetchEnd(start, length)
+}
+
 /**
  * Download ranges use exclusive ends; seek windows use inclusive ends.
  * Adjacent ranges with no shared bytes must not keep obsolete prefetch alive.
