@@ -71,11 +71,11 @@ python3 tools/ci/apk_native_inventory.py "$out"/*.apk > "$out/NATIVE_INVENTORY.j
   echo "ERROR: Expected exactly three APKs (arm32, arm64, universal)." >&2
   exit 1
 }
-[[ "$(git rev-parse HEAD)" == "$sha" ]] &&
-  git diff --quiet && git diff --cached --quiet || {
+if [[ "$(git rev-parse HEAD)" != "$sha" ]] ||
+   ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERROR: Source changed during qualification." >&2
   exit 1
-}
+fi
 echo "PASS: Locally qualified three $qualification_kind APKs from $sha in $out"
 echo "NOTE: Local artifact run ID is not CI attestation; never publish these as CI artifacts."
 echo "NOTE: Physical Android TV/phone and authenticated Telegram smoke tests remain required."

@@ -107,7 +107,11 @@ jobs:
 
       - name: Exercise release identity and qualification failure fixtures
         shell: bash
-        run: bash tools/ci/test_release_manifest.sh
+        run: |
+          bash tools/ci/test_release_manifest.sh
+          bash tools/ci/test_local_qualification_ref.sh
+          bash tools/ci/test_release_apk_verifier.sh
+          python3 -B tools/ci/test_apk_native_inventory.py
 
       - name: Test automated release version policy
         shell: bash

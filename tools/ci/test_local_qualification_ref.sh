@@ -30,6 +30,11 @@ git() {
   if [[ "$1" == status ]]; then return 1; fi
   command git "$@"
 }
+# Verify the injected failure itself before exercising the sourced helper.
+if git status --porcelain >/dev/null 2>&1; then
+  echo "Status failure fixture did not activate" >&2
+  exit 1
+fi
 reject --candidate "$sha"
 unset -f git
 echo "PASS: 8 local qualification-ref cases"
