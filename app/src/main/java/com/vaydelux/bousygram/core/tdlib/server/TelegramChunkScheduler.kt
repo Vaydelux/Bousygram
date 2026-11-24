@@ -2,6 +2,7 @@ package com.vaydelux.bousygram.core.tdlib.server
 
 import android.util.Log
 import com.vaydelux.bousygram.BuildConfig
+import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.media.PlaybackSessionController
 import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import com.vaydelux.bousygram.core.observability.PlaybackTelemetryRecorder
@@ -470,8 +471,10 @@ internal object TelegramChunkScheduler {
         retiredPrefetchJobs.forEach { it.cancel() }
         permitsByFile.clear()
         activeCounts.clear()
-        activeLeases.clear()
-        leaseCountsByFile.clear()
+        synchronized(leaseLock) {
+            activeLeases.clear()
+            leaseCountsByFile.clear()
+        }
     }
 
     /** Drop every file-id namespace before a different TDLib account can be admitted. */
@@ -519,7 +522,9 @@ internal object TelegramChunkScheduler {
     ) {
         lease ?: return
         val shouldCancel = synchronized(leaseLock) {
-            val removed = activeLeases.remove(lease.leaseId) ?: return@synchronized false
+            // Duplicate or invalidated releases must not publish cancellation
+            // telemetry against the same file ID in a later account.
+            val removed = activeLeases.remove(lease.leaseId) ?: return
             val remaining = ((leaseCountsByFile[removed.fileId] ?: 1) - 1).coerceAtLeast(0)
             if (remaining == 0) leaseCountsByFile.remove(removed.fileId) else leaseCountsByFile[removed.fileId] = remaining
             remaining == 0 && removed.consumer != TelegramStreamConsumer.Offline
@@ -813,6 +818,7 @@ internal object TelegramChunkScheduler {
         purpose: TelegramChunkPurpose,
         priority: Int = PREFETCH_PRIORITY
     ): Job {
+        val generation = AccountSession.generation()
         val effectiveId = resolveEffectiveFileId(fileId)
         val effectivePriority = if (isPlaybackPurpose(purpose)) PLAYBACK_PRIORITY else min(priority, PREFETCH_PRIORITY)
         // Plan once before registration, so overlap detection never reserves
@@ -830,19 +836,22 @@ internal object TelegramChunkScheduler {
         val job = scope.launch(start = CoroutineStart.LAZY) {
             var currentOffset = range.first
             var failures = 0
-            markState(
-                effectiveId,
-                when (purpose) {
+            if (!AccountSession.runIfGeneration(generation) {
+                markState(
+                    effectiveId,
+                    when (purpose) {
                     TelegramChunkPurpose.BackgroundFull,
                     TelegramChunkPurpose.CacheAhead -> PlaybackCacheState.CachingAhead
                     TelegramChunkPurpose.Priming,
                     TelegramChunkPurpose.Preflight -> PlaybackCacheState.Priming
                     TelegramChunkPurpose.Streaming -> PlaybackCacheState.Streaming
-                    TelegramChunkPurpose.Metadata -> PlaybackCacheState.Preparing
-                }
-            )
+                        TelegramChunkPurpose.Metadata -> PlaybackCacheState.Preparing
+                    }
+                )
+            }) return@launch
 
-            while (currentOffset < endExclusive && coroutineContext.isActive) {
+            while (currentOffset < endExclusive && coroutineContext.isActive &&
+                AccountSession.generation() == generation) {
                 // A previously started next-episode/poster prefetch cannot keep
                 // filling flash after free space drops below 500 MiB.
                 val requestedChunk = min(CHUNK_SIZE_BYTES.toLong(), endExclusive - currentOffset)
@@ -859,6 +868,7 @@ internal object TelegramChunkScheduler {
                         purpose = purpose
                     )
                 )
+                if (!coroutineContext.isActive || AccountSession.generation() != generation) return@launch
                 when (result) {
                     is TelegramChunkResult.Ready -> {
                         failures = 0
@@ -891,16 +901,26 @@ internal object TelegramChunkScheduler {
             }
             if (coroutineContext.isActive && purpose == TelegramChunkPurpose.BackgroundFull &&
                 currentOffset >= requestedEnd) {
-                markState(effectiveId, PlaybackCacheState.Cached)
+                AccountSession.runIfGeneration(generation) {
+                    markState(effectiveId, PlaybackCacheState.Cached)
+                }
             }
         }
-        val rangeList: MutableList<Pair<LongRange, Job>>
         val rangePair = range to job
-        synchronized(prefetchLock) {
-            prefetchJobs.computeIfAbsent(effectiveId) { ConcurrentHashMap.newKeySet() }.add(job)
-            rangeList = activePrefetchRanges.computeIfAbsent(effectiveId) { java.util.Collections.synchronizedList(mutableListOf()) }
-            rangeList.add(rangePair)
+        var registeredRanges: MutableList<Pair<LongRange, Job>>? = null
+        // Registration is atomic with invalidation of this generation.
+        if (!AccountSession.runIfGeneration(generation) {
+            synchronized(prefetchLock) {
+                prefetchJobs.computeIfAbsent(effectiveId) { ConcurrentHashMap.newKeySet() }.add(job)
+                registeredRanges = activePrefetchRanges.computeIfAbsent(effectiveId) {
+                    java.util.Collections.synchronizedList(mutableListOf())
+                }.also { it.add(rangePair) }
+            }
+        }) {
+            job.cancel()
+            return job
         }
+        val rangeList = checkNotNull(registeredRanges)
         job.invokeOnCompletion {
             synchronized(prefetchLock) {
                 rangeList.remove(rangePair)
@@ -1308,12 +1328,8 @@ internal object TelegramChunkScheduler {
     private fun sliceSavedTail(fileId: Int, offset: Long, limit: Int): ByteArray? {
         if (limit <= 0) return null
         val tail = savedTails[fileId] ?: return null
-        if (offset < tail.offset) return null
-        val start = (offset - tail.offset).toInt()
-        if (start < 0 || start >= tail.bytes.size) return null
-        val take = min(limit, tail.bytes.size - start)
-        if (take <= 0) return null
-        return tail.bytes.copyOfRange(start, start + take)
+        val slice = savedTailSliceBounds(tail.offset, tail.bytes.size, offset, limit) ?: return null
+        return tail.bytes.copyOfRange(slice.first, slice.last + 1)
     }
 
     private fun rememberWindow(

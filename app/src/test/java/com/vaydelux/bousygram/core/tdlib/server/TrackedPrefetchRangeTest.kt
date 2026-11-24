@@ -27,4 +27,24 @@ class TrackedPrefetchRangeTest {
         org.junit.Assert.assertEquals(Long.MAX_VALUE,
             advancePrefetchOffset(Long.MAX_VALUE - 2, Long.MAX_VALUE, 20, 20))
     }
+    @org.junit.Test fun hugeRelativeTailOffsetsCannotWrapIntoValidByteArrayIndexes() {
+        org.junit.Assert.assertNull(savedTailSliceBounds(100L, 64, 100L + (1L shl 32), 8))
+        org.junit.Assert.assertNull(savedTailSliceBounds(100L, 64, 164L, 8))
+        org.junit.Assert.assertNull(savedTailSliceBounds(100L, 64, 99L, 8))
+        org.junit.Assert.assertEquals(2..9, savedTailSliceBounds(100L, 64, 102L, 8))
+        org.junit.Assert.assertEquals(60..63, savedTailSliceBounds(100L, 64, 160L, 8))
+    }
+
+    @org.junit.Test fun randomizedBoundaryProgressNeverExceedsAdmittedRange() {
+        val random = kotlin.random.Random(233)
+        repeat(1000) {
+            val start = Long.MAX_VALUE - random.nextLong(0, 100000)
+            val end = saturatingPrefetchEnd(start, random.nextLong(0, 100000))
+            val request = random.nextInt(0, 100000)
+            val result = random.nextInt(0, 100000)
+            val advanced = advancePrefetchOffset(start, end, request, result)
+            org.junit.Assert.assertTrue(advanced in start..end)
+            org.junit.Assert.assertEquals(minOf(request.toLong(), result.toLong(), end - start), advanced - start)
+        }
+    }
 }

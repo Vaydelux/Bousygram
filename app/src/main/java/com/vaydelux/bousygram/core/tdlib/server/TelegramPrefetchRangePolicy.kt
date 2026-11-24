@@ -108,3 +108,13 @@ internal fun advancePrefetchOffset(offset: Long, endExclusive: Long, requestedBy
         returnedBytes.coerceAtLeast(0).toLong(), endExclusive - offset)
     return offset + advance
 }
+
+/** Check the Long-relative offset before converting to a ByteArray index. */
+internal fun savedTailSliceBounds(tailOffset: Long, tailSize: Int, offset: Long, limit: Int): IntRange? {
+    if (tailOffset < 0L || offset < tailOffset || tailSize <= 0 || limit <= 0) return null
+    val relative = offset - tailOffset
+    if (relative >= tailSize.toLong()) return null
+    val start = relative.toInt()
+    val count = minOf(limit, tailSize - start)
+    return start until (start + count)
+}
