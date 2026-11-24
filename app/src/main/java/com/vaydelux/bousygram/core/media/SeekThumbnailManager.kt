@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.Log
 import android.util.LruCache
 import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -103,17 +104,24 @@ object SeekThumbnailManager {
         key: String,
         filePathOrUrl: String,
         durationMs: Long
-    ): List<Bitmap> = withContext(Dispatchers.IO) {
-        val job = coroutineContext[Job]
-        extractionMutex.withLock { generateSnapshotsLocked(key, filePathOrUrl, durationMs, job) }
+    ): List<Bitmap> {
+        // Capture the identity before switching dispatchers or waiting on a native
+        // extraction permit. Queued work must never be relabeled as a new login.
+        val owner = AccountSession.current() ?: return emptyList()
+        return withContext(Dispatchers.IO) {
+            val job = coroutineContext[Job]
+            extractionMutex.withLock {
+                generateSnapshotsLocked(owner, key, filePathOrUrl, durationMs, job)
+            }
+        }
     }
 
     /** Runs off the main thread with the native extractor mutex held. */
     private fun generateSnapshotsLocked(
-        key: String, filePathOrUrl: String, durationMs: Long, job: Job?
+        owner: AccountSnapshot, key: String, filePathOrUrl: String, durationMs: Long, job: Job?
     ): List<Bitmap> {
         if (job?.isActive == false) throw CancellationException("Seek preview cancelled")
-        val owner = AccountSession.current() ?: return emptyList()
+        if (!AccountSession.isCurrent(owner)) return emptyList()
         val accountKey = "${owner.accountId}:${owner.generation}:$key"
         val cached = memoryCache.get(accountKey)
         if (cached != null && cached.isNotEmpty()) {
@@ -125,6 +133,9 @@ object SeekThumbnailManager {
             return emptyList()
         }
 
+        // Reject remote/nonexistent files before creating the native retriever.
+        val file = File(filePathOrUrl)
+        if (!file.isFile || !file.canRead()) return emptyList()
         val retriever = MediaMetadataRetriever()
         val list = mutableListOf<CapturedFrame>()
         var retainedByCache = false
@@ -133,10 +144,6 @@ object SeekThumbnailManager {
             // TDLib range requests, create rebuffering, and retain short-lived
             // private loopback capability URLs. Only probe a readable local file.
             // Timestamp-only seek previews remain available for streamed media.
-            val file = File(filePathOrUrl)
-            if (!file.exists() || !file.isFile || !file.canRead()) {
-                return emptyList()
-            }
             retriever.setDataSource(file.absolutePath)
 
             for (i in 0 until SNAPSHOT_COUNT) {
@@ -176,8 +183,10 @@ object SeekThumbnailManager {
             if (job?.isActive == false) throw CancellationException("Seek preview cancelled")
             if (!AccountSession.isCurrent(owner)) return emptyList()
             if (list.isNotEmpty()) {
-                memoryCache.put(accountKey, list)
-                retainedByCache = true
+                if (!AccountSession.runIfCurrent(owner) {
+                        memoryCache.put(accountKey, list)
+                        retainedByCache = true
+                    }) return emptyList()
                 Log.d(TAG, "Generated ${list.size} seek snapshots")
             }
             return list.map { it.bitmap }

@@ -113,4 +113,25 @@ class PlaybackEngineSwitchCoordinatorTest {
         assertEquals(1, releases)
     }
 
+    @Test fun repeatedCleanupThrowableDoesNotPreventReleaseOfRejectedCandidate() {
+        val session = PlaybackSessionController.start(fileId = 707)
+        val failure = IllegalStateException("owner handoff failed")
+        val original = FakeTestEngine()
+        var released = 0
+        val candidate = object : FakeTestEngine() {
+            override fun detachSurface() { throw failure }
+            override fun stop() { throw failure }
+            override fun release() { released++ }
+        }
+        var reject = true
+        val owner = PlaybackEngineOwner(session, original, onOwnerThread = { action ->
+            if (reject) throw failure else action()
+        })
+        val result = PlaybackEngineSwitchCoordinator(owner) { _, _ -> candidate }
+            .switchTo(SelectedPlayerEngine.MPV, 1f)
+        assertSame(failure, result.exceptionOrNull())
+        assertEquals(1, released)
+        reject = false
+        PlaybackSessionController.stop(session, PlaybackCacheStopReason.Back)
+    }
 }

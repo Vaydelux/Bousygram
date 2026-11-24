@@ -45,7 +45,11 @@ internal fun replacePlayerEngineSafely(
 
     // The new engine is now the owner. A faulty old native teardown must not
     // revert to a player that may already have been partially destroyed.
-    runCatching { current.stop() }.onFailure(reportCleanupFailure)
-    runCatching { current.release() }.onFailure(reportCleanupFailure)
+    fun report(error: Throwable) {
+        // A diagnostic callback cannot undo adoption or skip native cleanup.
+        runCatching { reportCleanupFailure(error) }
+    }
+    runCatching { current.stop() }.onFailure(::report)
+    runCatching { current.release() }.onFailure(::report)
     return Result.success(replacement)
 }

@@ -30,9 +30,12 @@ class PlaybackEngineSwitchCoordinator(
             // An owner can reject adoption after logout or if disposal failed. Only release
             // an engine still outside the owner; never double-release an already adopted one.
             if (owner.value !== next) {
-                runCatching { next.detachSurface() }.onFailure(error::addSuppressed)
-                runCatching { next.stop() }.onFailure(error::addSuppressed)
-                runCatching { next.release() }.onFailure(error::addSuppressed)
+                fun record(cleanup: Throwable) {
+                    if (cleanup !== error) error.addSuppressed(cleanup)
+                }
+                runCatching { next.detachSurface() }.onFailure(::record)
+                runCatching { next.stop() }.onFailure(::record)
+                runCatching { next.release() }.onFailure(::record)
             }
             throw error
         }

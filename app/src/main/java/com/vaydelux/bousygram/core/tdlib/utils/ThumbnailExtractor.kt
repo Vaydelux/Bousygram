@@ -71,9 +71,10 @@ object ThumbnailExtractor {
     private val isLowRam: Boolean by lazy {
         try {
             val app = com.vaydelux.bousygram.app.BousygramApp.instance
-            com.vaydelux.bousygram.core.media.PlayerBufferConfig.isLowRamDevice(app)
+            !android.os.Process.is64Bit() ||
+                com.vaydelux.bousygram.core.media.PlayerBufferConfig.isLowRamDevice(app)
         } catch (_: Throwable) {
-            false
+            true
         }
     }
 
@@ -99,7 +100,8 @@ object ThumbnailExtractor {
     }
     private val diskWriteLock = Any()
     private val diskMaintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val localFramePermits = Semaphore(2)
+    private val frameDispatcher = Dispatchers.IO.limitedParallelism(if (isLowRam) 1 else 2)
+    private val localFramePermits = Semaphore(if (isLowRam) 1 else 2)
 
     /** Reclaim old per-account previews on upgrade without delaying app launch. */
     fun pruneDiskCacheAsync(context: Context) {
@@ -145,7 +147,7 @@ object ThumbnailExtractor {
     suspend fun getCachedTransportStreamThumbnail(
         context: Context,
         fileId: Int
-    ): Bitmap? = withContext(Dispatchers.IO) {
+    ): Bitmap? = withContext(frameDispatcher) {
         val owner = AccountSession.current() ?: return@withContext null
         if (fileId <= 0) return@withContext null
         val key = ThumbnailKey(owner.accountId, fileId)
@@ -165,10 +167,12 @@ object ThumbnailExtractor {
             }
         }
         localFramePermits.withPermit {
+            if (!AccountSession.isCurrent(owner)) return@withPermit null
+            memoryCache.get(key)?.let { return@withPermit it.takeIf { AccountSession.isCurrent(owner) } }
             val file = withTimeoutOrNull(2_000L) {
                 TelegramFileGatewayRegistry.current.getFile(fileId)
             } ?: return@withPermit null
-            if (file.localPath.isBlank()) return@withPermit null
+            if (!AccountSession.isCurrent(owner) || file.localPath.isBlank()) return@withPermit null
             val local = File(file.localPath)
             if (!local.isFile || !VideoFormatSupport.canProbeLocalTsFrame(
                     completed = file.isDownloadingCompleted,
@@ -221,7 +225,7 @@ object ThumbnailExtractor {
         context: Context,
         fileId: Int,
         streamUrl: String
-    ): Bitmap? = withContext(Dispatchers.IO) {
+    ): Bitmap? = withContext(frameDispatcher) {
         val owner = AccountSession.current() ?: return@withContext null
         val key = ThumbnailKey(owner.accountId, fileId)
         memoryCache.get(key)?.let { return@withContext it.takeIf { AccountSession.isCurrent(owner) } }
@@ -241,7 +245,7 @@ object ThumbnailExtractor {
                     return@withContext bitmap
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading cached thumbnail from disk", e)
+                Log.e(TAG, "Error loading cached thumbnail (${e.javaClass.simpleName})")
             }
         }
 
@@ -283,7 +287,7 @@ object ThumbnailExtractor {
         streamUrl: String,
         timeMs: Long,
         durationMs: Long = 0L
-    ): Bitmap? = withContext(Dispatchers.IO) {
+    ): Bitmap? = withContext(frameDispatcher) {
         val owner = AccountSession.current() ?: return@withContext null
         val timeBucketMs = (timeMs / 10000L) * 10000L // 10-second buckets
         val key = PreviewKey(owner.accountId, fileId, timeBucketMs)
@@ -303,7 +307,7 @@ object ThumbnailExtractor {
                     return@withContext bitmap
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading seek preview from disk", e)
+                Log.e(TAG, "Error loading seek preview (${e.javaClass.simpleName})")
             }
         }
 
