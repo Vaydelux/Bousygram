@@ -45,3 +45,26 @@ Local Kotlin/JVM 1.9.0 (JRE 21): 18/18 standalone checks executed on verbatim po
 Run full local qualifier and repository tests before merge; specifically exercise TDLib auth/2,000-item groups, rapid search/cancellation and cache coalescing, native/WebView background/resume and ARM32 memory, then Compose phone/TV viewport and focus matrix. Continue M7 native APK inventory/security audit only after baseline measurement. Do not disable mandatory release gates.
 
 Additional execution evidence: 6/6 checks passed in a separate local JVM harness running the transcribed ExtrasHttpTransport with fake HttpURLConnection objects, the installed Kotlin coroutine runtime, and a test-only URL-policy stub. Verified three-worker cap, queued requests owning no socket, all six requests completing, oversized response rejection, and zero-progress read rejection. The actual URL security policy, production coroutine version and Android integration were not tested by that harness. Added an equivalent repository JUnit concurrency fixture, pending Gradle execution. Current batch: 24/24 isolated assertions executed (18 pure policy + 6 fake transport); not a full build or runtime performance qualification.
+
+## Batch 03 — bounded UI state and local release tooling
+- Telegram and Extras share first-seen-order/latest-payload bounded merge. Only retained media payloads remain referenced by the merge map; evicted identities still scale with unique inputs for exact deduplication. No changes to cursor semantics or UI design.
+- TV focus restoration retries up to three frames before one navigation fallback. Touch devices restore the scroll anchor without forcing input focus. Failed requests are not reported as successful.
+- Local qualification now accepts a clean checkout of an exact candidate SHA with `--candidate <full SHA>`, preserving the default main-only mode and all remote publication rules. Separate candidate artifact directory, local-only build marker, final tracked-source check and native inventory report.
+- Signed release verifier now requires all retained native engines and C++ runtime per ABI, rejects multiple signers and mismatched literal package/version metadata, and refuses to delete existing artifact directories.
+- APK inventory reports total APK bytes, compressed and uncompressed native bytes by ABI/library, and rejects missing libraries, unknown ABIs, duplicate entries and empty native libraries. It is not proof of ELF compatibility, signature validity, or runtime safety.
+- Existing R8/JNI rules, baseline profile generator, dependencies and all engines retained. No size reduction asserted without a measured candidate inventory and release regression tests.
+
+### Locally executed evidence (this session only)
+- Kotlin/JVM 1.9.0 / JRE 21: 806 checks passed in standalone transcribed-policy harness (400 seeded overlap cases, two assertions per case; six focus checks). Not a Compose instrumentation test or full repository build.
+- Python: six synthetic ZIP inventory unit tests passed using copied inventory implementation and fixture test source.
+- Bash: seven local Git qualification-ref cases passed against temporary real Git repositories.
+- Android SDK and Gradle not available; Git remote DNS resolution failed. All candidate Android integration, screenshot evidence, native performance and release-device gates remain outstanding. No debug APK built.
+
+### Local candidate qualification command
+With JDK 21, Android SDK, native dependencies, and required local configuration on a clean candidate checkout:
+
+```bash
+bash tools/ci/qualify_local_debug.sh --candidate "$(git rev-parse HEAD)"
+```
+
+Retain the exact commit, qualifier logs, SHA256SUMS, NATIVE_INVENTORY.json, and device/UI evidence. Test the full candidate before merge; use the existing main-only release policy afterwards. Do not publish local candidate builds as CI-attested artifacts.

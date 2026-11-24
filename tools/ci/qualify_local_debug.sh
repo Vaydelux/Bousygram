@@ -43,6 +43,9 @@ sha="$(git rev-parse HEAD)"
 out="ci-artifacts/local-$qualification_kind-${sha:0:12}"
 mkdir -p "$out"
 echo "Qualifying commit $sha (local only)"
+bash tools/ci/test_local_qualification_ref.sh
+bash tools/ci/test_release_apk_verifier.sh
+python3 -B tools/ci/test_apk_native_inventory.py
 bash tools/ci/verify_brand_identity.sh
 bash tools/ci/verify_telegram_local_only.sh
 ./gradlew --no-daemon --no-configuration-cache --console=plain \
