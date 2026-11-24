@@ -25,3 +25,7 @@ Prior isolated test totals were not independently substantiated by retained exec
 - Bind queued seek extraction to its original account generation, skip non-local paths before allocating native retriever, and publish cache data only while the captured session is current.
 - Bound thumbnail decoding across existing paths to one worker on ARM32/low-RAM and two elsewhere. Recheck identity and memory cache after waiting for local permits. No new functionality.
 - Qualification: source review and authored regression tests; Android SDK and hardware gates remain mandatory. Update this record with actual retained test evidence only.
+
+## Additional account and timestamp hardening
+- Capture the account before dispatch for all three thumbnail paths; atomically publish memory frames with account invalidation and propagate cancellation. Clamp preview timestamps before conversion to microseconds.
+- A separate Kotlin 1.9 JVM harness executed 14 assertions against transcribed decoder replacement and quota policy logic using fake engine/owner objects and real temporary files. It verified failing diagnostics, repeated cleanup errors, LRU ordering, protected files, and linked-directory exclusion. This is not an Android build or execution of the repository JUnit suite.
