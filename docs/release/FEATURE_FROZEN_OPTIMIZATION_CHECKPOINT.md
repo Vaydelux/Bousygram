@@ -70,3 +70,20 @@ bash tools/ci/qualify_local_debug.sh --candidate "$(git rev-parse HEAD)"
 Retain the exact commit, qualifier logs, SHA256SUMS, NATIVE_INVENTORY.json, and device/UI evidence. Test the full candidate before merge; use the existing main-only release policy afterwards. Do not publish local candidate builds as CI-attested artifacts.
 
 Additional release-verifier evidence: seven synthetic APK cases passed locally using the transcribed Bash verifier and mock apksigner/zipalign/aapt2, with real ZIP archives. Cases covered valid matrix, missing LibVLC, multiple signers, literal package mismatch, literal version mismatch, nonempty output directory preservation, and symlink output refusal. No real signature or Android alignment was validated. All three new packaging/ref fixture suites are now included in local qualification. R8 rules remain intentionally unchanged pending real release-build analysis.
+
+## Batch 04 — integration risk and account-bound resource hardening
+- Scheduler reset already cleared file namespaces; no claim of a previously uncleared map. Snapshot and clear registered prefetch jobs under their registration lock, cancel outside it, and clear lease maps under their lock. Guard new prefetch registration with captured account generation; recheck after chunk await and guard initial/final state publication. Duplicate releases no longer emit telemetry. This does not prove all gateway operations are safe across account changes.
+- Register only the initially admitted storage-pressure range rather than the original requested extent. Recheck sampled headroom per chunk; cap progress by the requested count and exclusive end. Saved-tail lookup validates the Long offset before converting to an Int index. The sampled cache reserve is not a physical hard limit.
+- Account invalidation attempts all handlers even if native teardown throws an Error, retains the cause, and continues to fail closed. Database cleanup attempts each handle and retains failed ones for retry. Video index acquisition checks account identity atomically with instance creation; queued background indexing is cancelled before account database closure. No index data dropped on queue saturation; unbounded pending submissions during long playback remain a separate risk.
+
+### Verified execution evidence (current session)
+Environment: OpenJDK 21.0.12.1, kotlinc-jvm 1.9.0, bundled coroutines JVM jar. Direct git ls-remote failed DNS resolution; no Gradle, adb or Android SDK executables available. Two actual local JVM runs on transcribed AccountSession and extracted range helpers passed 2,023 then 2,032 assertions. Latest output:
+
+```
+PASS 2032 assertions: account cleanup/activation barrier, prefetch arithmetic, and saved-tail slices
+```
+
+The last run includes 2,000 assertions from 1,000 seeded arithmetic cases near Long.MAX_VALUE; remaining checks cover cleanup failures, same-generation admission, stale callbacks, concurrent invalidation and saved-tail bounds. Do not add the earlier 2,023 count to this total. An optional SDK-free harness is now stored under tools/ci/test_account_prefetch_smoke.sh to compile the actual repository policy files using a locally installed Kotlin coroutine jar; the newly committed script has not been run from a full checkout here. Existing/new JUnit tests remain unexecuted. No integration or performance qualification implied.
+
+### Merge-blocking next action
+Stop widening the uncompiled candidate: run the full exact-SHA Android qualifier, native/Room integration and UI/emulator checks, and real-device playback gates. Verify coroutine gateway operations at logout/relogin, player owner handoff timeouts (already-running main-thread actions are not cancellable), 2,000+ item catalog, background index backlog, and ARM32 long-session cache/RAM behavior. Defer R8 or binary removal until actual APK measurements. No APK or production release approved.

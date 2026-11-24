@@ -840,11 +840,11 @@ internal object TelegramChunkScheduler {
                 markState(
                     effectiveId,
                     when (purpose) {
-                    TelegramChunkPurpose.BackgroundFull,
-                    TelegramChunkPurpose.CacheAhead -> PlaybackCacheState.CachingAhead
-                    TelegramChunkPurpose.Priming,
-                    TelegramChunkPurpose.Preflight -> PlaybackCacheState.Priming
-                    TelegramChunkPurpose.Streaming -> PlaybackCacheState.Streaming
+                        TelegramChunkPurpose.BackgroundFull,
+                        TelegramChunkPurpose.CacheAhead -> PlaybackCacheState.CachingAhead
+                        TelegramChunkPurpose.Priming,
+                        TelegramChunkPurpose.Preflight -> PlaybackCacheState.Priming
+                        TelegramChunkPurpose.Streaming -> PlaybackCacheState.Streaming
                         TelegramChunkPurpose.Metadata -> PlaybackCacheState.Preparing
                     }
                 )
@@ -885,7 +885,9 @@ internal object TelegramChunkScheduler {
                         )
                     }
                     is TelegramChunkResult.FatalFailure -> {
-                        markState(effectiveId, PlaybackCacheState.Failed)
+                        AccountSession.runIfGeneration(generation) {
+                            markState(effectiveId, PlaybackCacheState.Failed)
+                        }
                         PlaybackDiagnostics.recordStreamError(result.message)
                         return@launch
                     }
