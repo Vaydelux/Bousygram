@@ -104,3 +104,5 @@ bash tools/ci/qualify_source_only.sh --candidate "$(git rev-parse HEAD)"
 ```
 
 Then run the existing Android qualifier on the same SHA with SDK/native dependencies and required local configuration. Do not interpret source-only PASS as a release approval. No further app code expansion until actual Android compilation and regression evidence are available.
+
+Follow-up execution: the exact `qualify_source_only.sh` blob 4dad45bb66a71e918843feb4170b3e0b9fcb6a0f passed end-to-end on a clean temporary Git fixture containing only the copied, Git-blob-verified source and test files (local fixture commit c0a70a6849e60e81c695b1d3a5cf236685e06ecb, NOT the repository candidate commit). Output: PASS 8 local qualification-ref cases; PASS 8 signed-release mock cases; Python Ran 6 tests OK; PASS 2032 account/prefetch assertions; PASS 2018 catalog/layout assertions. Explicit final NOT QUALIFIED message printed for Android compilation, signing, rendering, native playback, device and performance tests. This verifies the umbrella runner against the tested subset; full remote checkout and Android qualification remain pending.
