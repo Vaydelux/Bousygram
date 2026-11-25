@@ -101,6 +101,7 @@ class MainActivitySmokeTest {
             "Real mode chooser must no longer be present in the debug preview",
             device.wait(Until.gone(By.res("mode-telegram")), 10_000)
         )
+    }
 
     private fun launchMainActivity(
         instrumentation: android.app.Instrumentation,
