@@ -9,6 +9,8 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.vaydelux.bousygram.BuildConfig
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.server.HttpRangeParser
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
@@ -61,19 +63,21 @@ object CastLanStreamingServer {
     }
 
     @Synchronized
-    fun start(context: Context, fileId: Int, size: Long, mimeType: String): String? =
-        startInternal(context, fileId, size, mimeType, null)
+    fun start(context: Context, fileId: Int, size: Long, mimeType: String,
+              expectedOwner: AccountSnapshot? = AccountSession.current()): String? =
+        startInternal(context, fileId, size, mimeType, null, expectedOwner)
 
-    /** Qualification-only entry point; not yet called by the player. */
+    /** Debug-only verified clip delivery. */
     @Synchronized
     internal fun startRemuxed(context: Context, artifact: CastRemuxArtifact): String? {
         if (!artifact.isAvailable()) return null
         // Caller retains ownership on failure; server owns the output on success.
-        return startInternal(context, artifact.fileId, artifact.size, "video/mp4", artifact)
+        return startInternal(context, artifact.fileId, artifact.size, "video/mp4", artifact, artifact.owner)
     }
 
     private fun startInternal(context: Context, fileId: Int, size: Long, mimeType: String,
-                              artifact: CastRemuxArtifact?): String? {
+                              artifact: CastRemuxArtifact?, expectedOwner: AccountSnapshot?): String? {
+        if (expectedOwner == null || !AccountSession.isCurrent(expectedOwner)) return null
         stop()
         if (remuxArtifact != null || (artifact != null && !artifact.isAvailable())) return null
         // The current receiver workflow uses HTTP. A bearer capability is authorization,
@@ -84,7 +88,7 @@ object CastLanStreamingServer {
         val address = activeLanAddress(context) ?: return null
         val hostAddress = address.hostAddress ?: return null
         val grant = runCatching {
-            if (artifact == null) CastAccessRegistry.issue(fileId) else CastAccessRegistry.issue(fileId, artifact.owner)
+            CastAccessRegistry.issue(fileId, expectedOwner)
         }.getOrElse {
             Log.w(TAG, "Could not create Cast media capability", it)
             return null
@@ -121,6 +125,7 @@ object CastLanStreamingServer {
                 resolved
             }
             val resolvedPort = port?.takeIf { it > 0 } ?: error("Cast server did not bind")
+            check(AccountSession.isCurrent(expectedOwner) && CastAccessRegistry.isActive(grant)) { "Cast account changed" }
             server = engine
             capability = grant
             serverContextRef = WeakReference(context.applicationContext)
@@ -136,6 +141,11 @@ object CastLanStreamingServer {
             Log.w(TAG, "Cast server startup failed", error)
             null
         }
+    }
+
+    @Synchronized
+    internal fun stopIfCurrentUrl(url: String) {
+        if (publicUrl == url) stop()
     }
 
     @Synchronized

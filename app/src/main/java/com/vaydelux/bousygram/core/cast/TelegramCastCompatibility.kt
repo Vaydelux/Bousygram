@@ -4,11 +4,18 @@ import java.util.Locale
 
 /** Conservative container admission, not receiver codec certification. */
 internal object TelegramCastCompatibility {
+    fun requiresRemux(mime: String?, fileName: String?): Boolean {
+        val name = fileName.orEmpty().lowercase(Locale.ROOT)
+        val type = mime.orEmpty().substringBefore(';').trim().lowercase(Locale.ROOT)
+        if (name.endsWith(".ts") || name.endsWith(".m2ts") || type == "video/mp2t") return false
+        return name.endsWith(".mkv") || type in setOf("video/x-matroska", "video/matroska")
+    }
+
     fun rejection(mime: String?, fileName: String?): String? {
         val name = fileName.orEmpty().lowercase(Locale.ROOT)
         val type = mime.orEmpty().substringBefore(';').trim().lowercase(Locale.ROOT)
         if (name.endsWith(".mkv") || type in setOf("video/x-matroska", "video/matroska")) {
-            return "MKV Cast is unavailable: remux delivery is not yet qualified. Play on Bousygram instead."
+            return "MKV requires verified clip conversion before casting. Play on Bousygram instead."
         }
         if (name.endsWith(".ts") || name.endsWith(".m2ts") || type == "video/mp2t") {
             return "TS Cast is unavailable: the platform extractor lost samples; a qualified HLS packager is required. Play on Bousygram instead."
