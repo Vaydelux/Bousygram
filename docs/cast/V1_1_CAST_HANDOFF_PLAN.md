@@ -61,3 +61,6 @@ Added CastRemuxArtifact for verified output + captured account + source file ID,
 
 ## Rolling HLS R1 — storage foundation
 3aee77f passed all three exact-head workflows. Added private rolling segment storage, bounded streaming copies, explicit retirement, reader pinning, revocation checks, and shared-cache admission policy. See [rolling HLS qualification](ROLLING_HLS_QUALIFICATION.md). Native demux/mux, actual Android cache coordination, playlists, full-length seeking and Cast integration remain pending. No production flag or stable playback changes.
+
+## Rolling HLS R2a — producer boundaries
+8df61a4 passed all three workflows. Added bounded observational TDLib input, AAC-LC ADTS normalization, and incremental fMP4 framing with seven JVM regression cases. No actual native muxer/demuxer or rolling HLS delivery yet. See [qualification plan](ROLLING_HLS_QUALIFICATION.md). Keep production and stable playback unchanged.
