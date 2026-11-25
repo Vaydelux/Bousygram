@@ -47,8 +47,9 @@ class MediaForgeCastPolicy(qualifiedHosts: Set<String>) {
                     id = index.toLong() + 1L,
                     url = caption.url,
                     mimeType = if (caption.format == CaptionFormat.VTT) "text/vtt" else "application/ttml+xml",
-                    language = caption.language?.take(35),
-                    label = (caption.label ?: caption.language ?: caption.host).take(120)
+                    language = caption.language?.takeIf { it.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8}){0,3}")) && it.length <= 35 },
+                    label = (caption.label ?: caption.language ?: caption.host)
+                        .filterNot { it.isISOControl() }.take(120).ifBlank { "Subtitles" }
                 )
             }
         val selected = selectedCaption?.let { candidate ->

@@ -16,3 +16,6 @@ C4: Bousygram TV receiver: select Cast Connect configuration or authenticated lo
 C5: actual phone/TV and Chromecast trials with authorized test media, subtitles, VOD/live, network loss, screen off, storage budget, and denied/expired sessions. Production gates remain unchanged. No APK publication or merge until scoped tests pass.
 
 Current state: foundation only; not yet usable as a Cast feature, no Cast SDK session or pairing network implemented. No hosting or new third-party dependencies introduced.
+
+## SDK mapping increment
+ExtrasCastRequestAdapter constructs official MediaInfo, MediaTrack and MediaLoadRequestData objects without loading anything or sharing Telegram's automatic session takeover. Selected external VTT/TTML tracks and explicit Off map to active track IDs, VOD resume is preserved, live leaves the default position untouched, and Pause intent survives request construction. Two Android instrumented tests are added to the existing emulator smoke runner. No new dependency, no receiver discovery or actual remote load. Requires fresh emulator verification. C1 remains incomplete until an isolated session is integrated, with explicit ownership and receiver acknowledgement.
