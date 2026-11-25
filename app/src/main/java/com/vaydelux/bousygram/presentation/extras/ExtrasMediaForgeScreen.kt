@@ -1747,8 +1747,8 @@ private fun ExtrasMediaForgeNativePlayer(
     val foregroundIntent = remember(player) { ExtrasForegroundPlaybackIntent() }
     val castPolicy = remember { MediaForgeCastPolicy(com.vaydelux.bousygram.BuildConfig.EXTRAS_CAST_QUALIFIED_HOSTS
         .split(',').filter { it.isNotBlank() }.toSet()) }
-    val castEligible = com.vaydelux.bousygram.BuildConfig.DEBUG && !isAndroidTv &&
-        remember(media, title) { castPolicy.plan(media, title.take(256)) != null }
+    val castPlanAvailable = remember(media, title) { castPolicy.plan(media, title.take(256)) != null }
+    val castEligible = com.vaydelux.bousygram.BuildConfig.DEBUG && !isAndroidTv && castPlanAvailable
     val extrasCastSender = remember(player, castEligible) { if (castEligible) ExtrasCastSender() else null }
     var castHoldsLocal by remember(player) { mutableStateOf(false) }
     var castReady by remember(player) { mutableStateOf(false) }
@@ -1765,7 +1765,7 @@ private fun ExtrasMediaForgeNativePlayer(
                     // still owns an active Play intent.
                     foregroundIntent.onBackground(
                         shouldPreserveExtrasMedia3Resume(
-                            playWhenReady = player.playWhenReady,
+                            playWhenReady = !castHoldsLocal && player.playWhenReady,
                             hasPlaybackError = playbackError != null,
                             reachedEnd = player.playbackState == Player.STATE_ENDED
                         )
@@ -1773,7 +1773,7 @@ private fun ExtrasMediaForgeNativePlayer(
                     controls.pause()
                 }
                 Lifecycle.Event.ON_START -> {
-                    if (foregroundIntent.onForeground() &&
+                    if (foregroundIntent.onForeground() && !castHoldsLocal &&
                         shouldPreserveExtrasMedia3Resume(
                             playWhenReady = true,
                             hasPlaybackError = playbackError != null,

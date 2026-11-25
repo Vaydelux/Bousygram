@@ -25,6 +25,7 @@ internal data class ExtrasCastState(
     val positionMs: Long? = null,
     val durationMs: Long = 0L,
     val playing: Boolean = false,
+    val buffering: Boolean = false,
     val live: Boolean = false,
     val captions: List<ExtrasCastCaption> = emptyList(),
     val activeCaptionIds: Set<Long> = emptySet()
@@ -123,6 +124,10 @@ internal class ExtrasCastSender {
         }
     }
 
+    fun routeSetupFailed() {
+        if (!closed && owned == null) fail("Unable to open Cast device selection.")
+    }
+
     fun cancelChoice() {
         if (owned == null) {
             armed = false
@@ -168,10 +173,16 @@ internal class ExtrasCastSender {
         if (closed) return
         val session = owned ?: return
         val remote = client ?: return
-        if (manager?.currentCastSession !== session || !session.isConnected) return
         val previous = mutableState.value
+        // Check the deadline even when the SDK stops reporting a connected route.
         if (previous.phase == ExtrasCastPhase.LOADING && SystemClock.elapsedRealtime() >= deadline) {
             failOwned("TV did not confirm playback. Check source compatibility.")
+            return
+        }
+        if (manager?.currentCastSession !== session || !session.isConnected) {
+            if (previous.phase == ExtrasCastPhase.ACTIVE) {
+                releaseOwnership(ExtrasCastPhase.DISCONNECTED, "Connection interrupted. Check the TV before playing locally.")
+            }
             return
         }
         if (previous.phase != ExtrasCastPhase.ACTIVE &&
@@ -198,6 +209,7 @@ internal class ExtrasCastSender {
             positionMs = remote.approximateStreamPosition.coerceAtLeast(0L),
             durationMs = remote.streamDuration.coerceAtLeast(0L),
             playing = status.playerState == MediaStatus.PLAYER_STATE_PLAYING,
+            buffering = status.playerState == MediaStatus.PLAYER_STATE_BUFFERING,
             captions = tracks.map { ExtrasCastCaption(it.id, it.name.orEmpty().filterNot(Char::isISOControl).take(120).ifBlank { "Subtitles" }) },
             activeCaptionIds = status.activeTrackIds?.toSet().orEmpty().intersect(tracks.map { it.id }.toSet())
         )
@@ -231,7 +243,8 @@ internal class ExtrasCastSender {
     fun seekBy(deltaMs: Long): Boolean {
         val current = mutableState.value
         if (current.live || current.durationMs <= 0L || current.positionMs == null) return false
-        val target = (current.positionMs + deltaMs.coerceIn(-60_000L, 60_000L)).coerceIn(0L, current.durationMs)
+        val target = ExtrasCastControlPolicy.seekTarget(current.positionMs, current.durationMs, deltaMs)
+            ?: return false
         return command { it.seek(target) }
     }
 
@@ -247,8 +260,8 @@ internal class ExtrasCastSender {
         val textIds = tracks.filter { it.type == MediaTrack.TYPE_TEXT }.map { it.id }.toSet()
         if (trackId != null && trackId !in textIds) return false
         // setActiveMediaTracks replaces the entire selection; preserve audio/video IDs.
-        val others = (remote.mediaStatus?.activeTrackIds ?: longArrayOf()).filter { it !in textIds }
-        val next = (others + listOfNotNull(trackId)).distinct().toLongArray()
+        val active = remote.mediaStatus?.activeTrackIds ?: longArrayOf()
+        val next = ExtrasCastControlPolicy.activeTracks(active, textIds, trackId) ?: return false
         return command { it.setActiveMediaTracks(next) }
     }
 
@@ -282,7 +295,8 @@ internal class ExtrasCastSender {
         lease.revoke()
         loadAcknowledged = false
         deadline = 0L
-        mutableState.value = mutableState.value.copy(phase = phase, message = message, playing = false)
+        mutableState.value = mutableState.value.copy(phase = phase, message = message, playing = false,
+            buffering = false, captions = emptyList(), activeCaptionIds = emptySet())
     }
 
     fun close() {

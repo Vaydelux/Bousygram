@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.presentation.extras
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
@@ -58,6 +59,13 @@ internal fun ExtrasCastPanel(
     val state by sender.state.collectAsStateWithLifecycle()
     var held by remember(sender) { mutableStateOf(false) }
     var localMessage by remember(sender) { mutableStateOf<String?>(null) }
+    var routeFailed by remember(sender) { mutableStateOf(false) }
+    LaunchedEffect(routeFailed) {
+        if (routeFailed) {
+            sender.routeSetupFailed()
+            routeFailed = false
+        }
+    }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) sender.chooseReceiver(context)
         else localMessage = "Local network permission is required for TV discovery."
@@ -106,9 +114,14 @@ internal fun ExtrasCastPanel(
                     AndroidView(
                         modifier = Modifier.size(48.dp).testTag("extras-cast-route"),
                         factory = { ctx ->
-                            CastRouteButtonFactory.create(ctx).also {
-                                CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, it)
-                                it.contentDescription = "Choose a Cast device"
+                            try {
+                                CastRouteButtonFactory.create(ctx).also {
+                                    CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, it)
+                                    it.contentDescription = "Choose a Cast device"
+                                }
+                            } catch (_: Exception) {
+                                routeFailed = true
+                                View(ctx)
                             }
                         }
                     )
@@ -138,8 +151,8 @@ internal fun ExtrasCastPanel(
                 }
                 ExtrasCastPhase.LOADING -> OutlinedButton(onClick = sender::disconnect) { Text("Cancel Cast") }
                 ExtrasCastPhase.ACTIVE -> {
-                    OutlinedButton(onClick = { if (state.playing) sender.pause() else sender.play() }) {
-                        Text(if (state.playing) "Pause" else "Play")
+                    OutlinedButton(onClick = { if (state.playing || state.buffering) sender.pause() else sender.play() }) {
+                        Text(if (state.playing || state.buffering) "Pause" else "Play")
                     }
                     if (!state.live && state.durationMs > 0L) {
                         OutlinedButton(onClick = { sender.seekBy(-10_000L) }) { Text("−10s") }
