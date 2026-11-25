@@ -13,6 +13,7 @@ import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.mediaforge.core.MediaForgeCastPlan
+import com.vaydelux.mediaforge.core.MediaForgeCastPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -36,6 +37,8 @@ internal data class ExtrasCastState(
  */
 internal class ExtrasCastSender {
     private val lease = ExtrasCastLease()
+    private val policy = MediaForgeCastPolicy(BuildConfig.EXTRAS_CAST_QUALIFIED_HOSTS
+        .split(',').filter { it.isNotBlank() }.toSet())
     private val mutableState = MutableStateFlow(ExtrasCastState())
     val state = mutableState.asStateFlow()
     private var manager: SessionManager? = null
@@ -88,7 +91,7 @@ internal class ExtrasCastSender {
                 // can acknowledge a stop. Never adopt a subsequently resumed session.
                 val current = manager
                 releaseOwnership(ExtrasCastPhase.DISCONNECTED, "Connection interrupted. Check the TV before playing locally.")
-                if (current?.currentCastSession === session) runCatching { current.endCurrentSession(false) }
+                if (current != null && current.currentCastSession === session) runCatching { current.endCurrentSession(false) }
             }
         }
     }
@@ -129,7 +132,8 @@ internal class ExtrasCastSender {
     }
 
     fun load(plan: MediaForgeCastPlan): Boolean {
-        if (closed || mutableState.value.phase != ExtrasCastPhase.CONNECTED) return false
+        if (closed || !BuildConfig.DEBUG || mutableState.value.phase != ExtrasCastPhase.CONNECTED ||
+            !policy.permits(plan)) return false
         val session = owned ?: return false
         val remote = client ?: return false
         if (manager?.currentCastSession !== session || !session.isConnected || remote.mediaInfo != null) {
@@ -243,7 +247,7 @@ internal class ExtrasCastSender {
         val textIds = tracks.filter { it.type == MediaTrack.TYPE_TEXT }.map { it.id }.toSet()
         if (trackId != null && trackId !in textIds) return false
         // setActiveMediaTracks replaces the entire selection; preserve audio/video IDs.
-        val others = remote.mediaStatus?.activeTrackIds.orEmpty().filter { it !in textIds }
+        val others = (remote.mediaStatus?.activeTrackIds ?: longArrayOf()).filter { it !in textIds }
         val next = (others + listOfNotNull(trackId)).distinct().toLongArray()
         return command { it.setActiveMediaTracks(next) }
     }

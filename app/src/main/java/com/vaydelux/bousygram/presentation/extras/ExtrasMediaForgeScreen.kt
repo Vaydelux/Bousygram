@@ -94,6 +94,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.vaydelux.mediaforge.core.CaptionCandidate
 import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.MediaForgeInspectionFailure
+import com.vaydelux.mediaforge.core.MediaForgeCastPolicy
+import com.vaydelux.bousygram.core.cast.ExtrasCastSender
 import com.vaydelux.mediaforge.core.MediaForgeSdk
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.core.MediaForgeSessionInspection
@@ -506,6 +508,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 media = media,
                 caption = selectedCaption,
                 title = request.title,
+                isAndroidTv = isAndroidTv,
                 initialPositionMs = nativeResumePositionMs,
                 initiallyPlayRequested = nativePlayRequested,
                 onBack = { returnToWebView() },
@@ -1727,6 +1730,7 @@ private fun ExtrasMediaForgeNativePlayer(
     media: InspectedMedia,
     caption: CaptionCandidate?,
     title: String,
+    isAndroidTv: Boolean,
     initialPositionMs: Long,
     initiallyPlayRequested: Boolean,
     onBack: () -> Unit,
@@ -1741,6 +1745,13 @@ private fun ExtrasMediaForgeNativePlayer(
     }
     val controls = remember(player) { MediaForgeMedia3Controls(player) }
     val foregroundIntent = remember(player) { ExtrasForegroundPlaybackIntent() }
+    val castPolicy = remember { MediaForgeCastPolicy(com.vaydelux.bousygram.BuildConfig.EXTRAS_CAST_QUALIFIED_HOSTS
+        .split(',').filter { it.isNotBlank() }.toSet()) }
+    val castEligible = com.vaydelux.bousygram.BuildConfig.DEBUG && !isAndroidTv &&
+        remember(media, title) { castPolicy.plan(media, title.take(256)) != null }
+    val extrasCastSender = remember(player, castEligible) { if (castEligible) ExtrasCastSender() else null }
+    var castHoldsLocal by remember(player) { mutableStateOf(false) }
+    var castReady by remember(player) { mutableStateOf(false) }
     // A changed caption/source creates a new player; stale errors must not bleed across it.
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
     DisposableEffect(player, lifecycleOwner) {
@@ -1775,7 +1786,11 @@ private fun ExtrasMediaForgeNativePlayer(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                castReady = playbackState == Player.STATE_READY
+            }
             override fun onPlayerError(error: PlaybackException) {
+                castReady = false
                 foregroundIntent.cancel()
                 playbackError = "Native playback failed. Return to WebView or try another source."
             }
@@ -1794,7 +1809,7 @@ private fun ExtrasMediaForgeNativePlayer(
     }
     Column(Modifier.fillMaxSize().background(Color.Black)
         .windowInsetsPadding(WindowInsets.safeDrawing)) {
-        val canUseVlc = com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
+        val canUseVlc = !castHoldsLocal && com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
             MediaForgeGuardedProgressiveSource.supported(media.stream)
         val switchVlc = {
             onUseLibVlc(extrasMedia3Handoff(
@@ -1844,7 +1859,32 @@ private fun ExtrasMediaForgeNativePlayer(
                 }
             }
         }
-        playbackError?.let { error ->
+        extrasCastSender?.let { sender ->
+            ExtrasCastPanel(
+                sender = sender,
+                ready = castReady,
+                buildPlan = {
+                    val live = player.isCurrentMediaItemLive
+                    castPolicy.plan(media, title.take(256),
+                        positionMs = if (!live && player.isCurrentMediaItemSeekable) player.currentPosition.coerceAtLeast(0L) else 0L,
+                        playRequested = player.playWhenReady, live = live, selectedCaption = caption)
+                },
+                onHoldLocal = {
+                    castHoldsLocal = true
+                    foregroundIntent.cancel()
+                    controls.pause()
+                },
+                onReturnLocal = { position ->
+                    if (position != null && player.isCurrentMediaItemSeekable && !player.isCurrentMediaItemLive) {
+                        controls.seekTo(position.coerceAtLeast(0L))
+                    }
+                    foregroundIntent.cancel()
+                    controls.pause()
+                    castHoldsLocal = false
+                }
+            )
+        }
+        playbackError?.takeUnless { castHoldsLocal }?.let { error ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1869,16 +1909,22 @@ private fun ExtrasMediaForgeNativePlayer(
                 ) { Text("Retry playback") }
             }
         }
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = true
-                    this.player = player
-                }
-            },
-            update = { it.player = player },
-            onRelease = { it.player = null },
-            modifier = Modifier.fillMaxWidth().weight(1f)
-        )
+        if (castHoldsLocal) {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Text("Playing on TV", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            }
+        } else {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = true
+                        this.player = player
+                    }
+                },
+                update = { it.player = player },
+                onRelease = { it.player = null },
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            )
+        }
     }
 }

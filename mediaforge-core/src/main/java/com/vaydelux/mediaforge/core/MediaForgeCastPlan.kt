@@ -18,6 +18,10 @@ class MediaForgeCastPolicy(qualifiedHosts: Set<String>) {
             uri.rawQuery == null && uri.rawFragment == null
     }
 
+    /** Recheck the effective build allowlist immediately before SDK load. */
+    fun permits(plan: MediaForgeCastPlan): Boolean = permitted(plan.url) &&
+        plan.captions.size <= 30 && plan.captions.all { permitted(it.url) }
+
     fun plan(
         media: InspectedMedia,
         title: String,
