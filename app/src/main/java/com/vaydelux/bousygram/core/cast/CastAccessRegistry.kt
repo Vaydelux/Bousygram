@@ -20,9 +20,10 @@ internal object CastAccessRegistry {
     class Capability internal constructor(val resourceId: String, val token: String, val fileId: Int)
 
     @Synchronized
-    fun issue(fileId: Int): Capability {
+    fun issue(fileId: Int, expectedOwner: AccountSnapshot? = AccountSession.current()): Capability {
         require(fileId > 0)
-        val owner = checkNotNull(AccountSession.current()) { "Verified Telegram account required for Cast" }
+        val owner = checkNotNull(expectedOwner) { "Verified Telegram account required for Cast" }
+        check(AccountSession.isCurrent(owner)) { "Telegram account changed before Cast authorization" }
         purgeExpired()
         check(grants.size < MAX_GRANTS) { "Cast stream resource limit reached" }
         val resourceId = randomToken(18)
