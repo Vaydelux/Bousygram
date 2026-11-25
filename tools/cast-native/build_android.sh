@@ -62,46 +62,8 @@ for abi in arm64-v8a armeabi-v7a x86_64; do
         -lm -lz -ldl -latomic -o "$output/$abi/libbousygram_cast_remux.so"
     "$toolchain/llvm-readelf" -h -l -d --wide "$output/$abi/libbousygram_cast_remux.so" > "$output/$abi/ELF.txt"
     "$toolchain/llvm-nm" -D --defined-only "$output/$abi/libbousygram_cast_remux.so" > "$output/$abi/EXPORTS.txt"
-    grep -q 'Java_com_vaydelux_bousygram_core_cast_NativeCastRemuxBridge_run
-    python3 - "$output/$abi/ELF.txt" <<'PY'
-import sys
-loads = [line.split() for line in open(sys.argv[1], encoding="utf-8") if line.strip().startswith("LOAD ")]
-if not loads:
-    raise SystemExit("No ELF LOAD segments")
-for fields in loads:
-    offset, address, alignment = int(fields[1], 16), int(fields[2], 16), int(fields[-1], 16)
-    if alignment < 16384 or alignment & (alignment - 1) or (offset - address) % 16384:
-        raise SystemExit("Invalid 16 KiB ELF LOAD alignment")
-PY
-    case "$abi" in
-        arm64-v8a) grep -Eq 'Machine:.*AArch64' "$output/$abi/ELF.txt" ;;
-        armeabi-v7a) grep -Eq 'Machine:.*ARM' "$output/$abi/ELF.txt" ;;
-        x86_64) grep -Eq 'Machine:.*(X86-64|x86-64)' "$output/$abi/ELF.txt" ;;
-    esac
-    (cd "$output/$abi" && sha256sum libbousygram_cast_remux.so native_cast_remux.o > SHA256SUMS)
-done
-echo "Native qualification binaries built; not approved for packaging."
- "$output/$abi/EXPORTS.txt"
-    grep -q 'Java_com_vaydelux_bousygram_core_cast_NativeCastRuntimeSmoke_runExtended
-    python3 - "$output/$abi/ELF.txt" <<'PY'
-import sys
-loads = [line.split() for line in open(sys.argv[1], encoding="utf-8") if line.strip().startswith("LOAD ")]
-if not loads:
-    raise SystemExit("No ELF LOAD segments")
-for fields in loads:
-    offset, address, alignment = int(fields[1], 16), int(fields[2], 16), int(fields[-1], 16)
-    if alignment < 16384 or alignment & (alignment - 1) or (offset - address) % 16384:
-        raise SystemExit("Invalid 16 KiB ELF LOAD alignment")
-PY
-    case "$abi" in
-        arm64-v8a) grep -Eq 'Machine:.*AArch64' "$output/$abi/ELF.txt" ;;
-        armeabi-v7a) grep -Eq 'Machine:.*ARM' "$output/$abi/ELF.txt" ;;
-        x86_64) grep -Eq 'Machine:.*(X86-64|x86-64)' "$output/$abi/ELF.txt" ;;
-    esac
-    (cd "$output/$abi" && sha256sum libbousygram_cast_remux.so native_cast_remux.o > SHA256SUMS)
-done
-echo "Native qualification binaries built; not approved for packaging."
- "$output/$abi/EXPORTS.txt"
+    grep -q 'Java_com_vaydelux_bousygram_core_cast_NativeCastRemuxBridge_run$' "$output/$abi/EXPORTS.txt"
+    grep -q 'Java_com_vaydelux_bousygram_core_cast_NativeCastRuntimeSmoke_runExtended$' "$output/$abi/EXPORTS.txt"
     python3 - "$output/$abi/ELF.txt" <<'PY'
 import sys
 loads = [line.split() for line in open(sys.argv[1], encoding="utf-8") if line.strip().startswith("LOAD ")]
