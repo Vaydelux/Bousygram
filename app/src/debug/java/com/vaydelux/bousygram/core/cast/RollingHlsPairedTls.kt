@@ -5,6 +5,8 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.Principal
 import java.security.PrivateKey
+import java.security.Signature
+import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.net.Socket
 import javax.net.ssl.SSLContext
@@ -38,6 +40,24 @@ internal object RollingHlsPairedTls {
         // These qualification certificates are self-signed, enrolled as
         // exact leaf trust anchors. No default public CA trust is added.
         peer.verify(peer.publicKey)
+        // Fail before opening a listener if the platform cannot sign a
+        // prehashed ECDSA transcript with this nonexportable key.
+        val challenge = ByteArray(32).also(SecureRandom()::nextBytes)
+        try {
+            val signature = Signature.getInstance("NONEwithECDSA").run {
+                initSign(identity.privateKey())
+                update(challenge)
+                sign()
+            }
+            try {
+                check(Signature.getInstance("NONEwithECDSA").run {
+                    initVerify(local.publicKey)
+                    update(challenge)
+                    verify(signature)
+                }) { "TLS signing preflight failed" }
+            } finally { signature.fill(0) }
+        } finally { challenge.fill(0) }
+        check(current(owner))
         val trust = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
             load(null, null)
             setCertificateEntry("enrolled-peer", peer)

@@ -4,6 +4,10 @@ import android.graphics.SurfaceTexture
 import android.os.SystemClock
 import android.view.Surface
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import java.io.IOException
+import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.vaydelux.bousygram.core.account.AccountSnapshot
@@ -81,7 +85,37 @@ class RollingHlsLocalReceiverInstrumentedTest {
                         }
                         val server = RollingHlsPairedTls.create(owner, pins, sender, tv.certificate(), false) { it == owner }
                         val client = RollingHlsPairedTls.create(owner, pins, tv, sender.certificate(), true) { it == owner }
+                        // Negative pin check uses the genuine TLS trust context
+                        // but an incorrect out-of-band expected server pin.
+                        RollingHlsTlsLoopback(session, server,
+                            RollingHlsPairedTls.Peer(client.context, ByteArray(32))).use { wrong ->
+                            val source = wrong.factory().createDataSource()
+                            try {
+                                assertThrows(IOException::class.java) {
+                                    source.open(DataSpec(RollingHlsLocalDataSource.playlistUri(session)))
+                                }
+                            } finally { source.close() }
+                            assertEquals(0, wrong.diagnostics().responses)
+                        }
                         transport = RollingHlsTlsLoopback(session, server, client)
+                        // Isolate the handshake/data path from the decoder.
+                        val uri = RollingHlsLocalDataSource.playlistUri(session)
+                        val source = transport.factory().createDataSource()
+                        try {
+                            val length = source.open(DataSpec(uri))
+                            assertTrue(length in 1L..4096L)
+                            val bytes = ByteArrayOutputStream()
+                            val chunk = ByteArray(128)
+                            while (true) {
+                                val n = source.read(chunk, 0, chunk.size)
+                                if (n < 0) break
+                                bytes.write(chunk, 0, n)
+                            }
+                            assertEquals(length, bytes.size().toLong())
+                            assertTrue(bytes.toString("UTF-8").startsWith("#EXTM3U"))
+                        } catch (error: Exception) {
+                            throw AssertionError("TLS preflight: ${transport.diagnostics()}", error)
+                        } finally { source.close() }
                     }
                     val factory = transport?.factory() ?: RollingHlsLocalDataSource.factory(session)
                     val receiver = main { RollingHlsLocalReceiver(context, session, surface, factory) }
@@ -103,6 +137,10 @@ class RollingHlsLocalReceiverInstrumentedTest {
                     assertTrue(receiver.retireAfterRelease())
                     assertFalse(receiver.retireAfterRelease())
                     assertEquals(listOf(2L), store.snapshot().map { it.sequence })
+                    transport?.diagnostics()?.let { diagnostics ->
+                        assertTrue("Expected playlist, init and two media transfers: $diagnostics",
+                            diagnostics.handshakes >= 4 && diagnostics.responses >= 4)
+                    }
                     } finally {
                         try { transport?.close() }
                         finally { keys.asReversed().forEach { it.close() } }
@@ -176,6 +214,14 @@ class RollingHlsLocalReceiverInstrumentedTest {
             }
             assertTrue(Signature.getInstance("SHA256withECDSA").run {
                 initVerify(it.certificate()); update(data); verify(signed)
+            })
+            // Conscrypt delegates prehashed ECDSA to the raw signature API.
+            val digest = MessageDigest.getInstance("SHA-256").digest(data)
+            val raw = Signature.getInstance("NONEwithECDSA").run {
+                initSign(it.privateKey()); update(digest); sign()
+            }
+            assertTrue(Signature.getInstance("NONEwithECDSA").run {
+                initVerify(it.certificate()); update(digest); verify(raw)
             })
             account = AccountSnapshot(2, 2)
             assertThrows(IllegalStateException::class.java) { it.privateKey() }

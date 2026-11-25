@@ -157,3 +157,6 @@ Fixed-format invitation QR codec, Android bitmap/Keystore round-trip qualificati
 
 ## Rolling HLS R3f — actual Android TLS receiver qualification
 Bind paired Keystore identities to TLS1.3 loopback data delivery, inject transport into real Media3 HLS receiver and exercise playback and release before retirement. No LAN or remote ACK; finite completed-window only. Exact-head checks pending.
+
+## Rolling HLS R3g — Android TLS compatibility repair
+137/138 prior Android instrumentation tests passed; only Android encrypted playback handshake failed. Dedicated ephemeral Keystore raw ECDSA support, signing/transport preflight, negative pin gate, diagnostics and bounded deadlines added. Actual repair unverified; no live LAN or feature expansion until exact-head integration passes.

@@ -58,7 +58,10 @@ internal class RollingHlsKeystoreIdentity private constructor(
                 val now = System.currentTimeMillis()
                 val spec = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
                     .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    // Conscrypt signs the already-computed TLS ECDSA digest
+                    // using NONEwithECDSA. Restrict this to the ephemeral EC
+                    // session key; TLS itself still hashes its transcript.
+                    .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_NONE)
                     .setCertificateSubject(X500Principal("CN=Bousygram Qualification Receiver"))
                     .setCertificateSerialNumber(BigInteger.ONE)
                     .setCertificateNotBefore(Date(now - 60_000))

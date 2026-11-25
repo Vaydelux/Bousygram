@@ -13,6 +13,9 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
 
@@ -39,7 +42,20 @@ internal class RollingHlsTlsLoopback(
     private val lock = Any()
     @Volatile private var stopped = false
     private var accepted: SSLSocket? = null
-    private val clients = mutableSetOf<SSLSocket>()
+    private val clients = mutableMapOf<SSLSocket, ScheduledFuture<*>>()
+    private val handshakes = AtomicInteger()
+    private val responses = AtomicInteger()
+    private val lastFailure = AtomicReference<String?>(null)
+
+    data class Diagnostics(val handshakes: Int, val responses: Int, val lastFailure: String?)
+    fun diagnostics() = Diagnostics(handshakes.get(), responses.get(), lastFailure.get())
+
+    private fun record(stage: String, error: Exception) {
+        // Never include provider messages, URIs, tokens, pins or cert bytes.
+        val label = "$stage:${error.javaClass.simpleName}"
+        lastFailure.set(label)
+        android.util.Log.w("RollingHlsTls", label)
+    }
     private val dispatcher = RollingHlsDeliveryDispatcher(session)
     private val worker = Thread(::serve, "rolling-hls-tls-qualification").apply { start() }
 
@@ -55,14 +71,19 @@ internal class RollingHlsTlsLoopback(
                 accepted = socket
             }
             val deadline = watchdog.schedule({ runCatching { socket.close() } }, TIMEOUT.toLong(), TimeUnit.MILLISECONDS)
+            var stage = "server-handshake"
             try {
                 socket.use {
                     if (!active() || !it.inetAddress.isLoopbackAddress) return@use
                     it.soTimeout = TIMEOUT
+                    it.useClientMode = false
                     it.enabledProtocols = arrayOf("TLSv1.3")
                     it.needClientAuth = true
                     it.startHandshake()
+                    stage = "server-peer-pin"
                     RollingHlsPeerIdentity.requirePeer(it.session, serverPeer.pin())
+                    handshakes.incrementAndGet()
+                    stage = "server-request"
                     val input = DataInputStream(it.inputStream)
                     val output = DataOutputStream(it.outputStream)
                     if (input.readInt() != MAGIC) throw IOException("Invalid transport version")
@@ -70,6 +91,7 @@ internal class RollingHlsTlsLoopback(
                     val token = readField(input, 43)
                     val path = readField(input, 64)
                     if (!active()) throw IOException("Receiver revoked")
+                    stage = "server-response"
                     dispatcher.dispatch(RollingHlsDeliveryDispatcher.Request("GET", resource, path, token)).use { response ->
                         val length = response.length ?: 0L
                         if (length !in 0L..RollingHlsBudget.MAX_SEGMENT_BYTES) throw IOException("Invalid response length")
@@ -83,9 +105,11 @@ internal class RollingHlsTlsLoopback(
                             }
                         }
                         output.flush()
+                        if (response.status == 200) responses.incrementAndGet()
                     }
                 }
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                record(stage, error)
                 // Individual malformed, rejected or disconnected requests
                 // never authorize playback. No request secrets are logged.
             } finally {
@@ -105,15 +129,26 @@ internal class RollingHlsTlsLoopback(
         val socket = clientPeer.context.socketFactory.createSocket() as SSLSocket
         synchronized(lock) {
             if (stopped || clients.size >= 2) { socket.close(); throw IOException("Receiver busy") }
-            clients.add(socket)
+            try {
+                clients[socket] = watchdog.schedule({ runCatching { socket.close() } },
+                    TIMEOUT.toLong(), TimeUnit.MILLISECONDS)
+            } catch (error: Exception) {
+                socket.close()
+                throw error
+            }
         }
+        var stage = "client-connect"
         try {
             socket.connect(InetSocketAddress(loopback, listener.localPort), TIMEOUT)
             socket.soTimeout = TIMEOUT
+            socket.useClientMode = true
             socket.enabledProtocols = arrayOf("TLSv1.3")
+            stage = "client-handshake"
             socket.startHandshake()
             // Identity is the explicitly enrolled certificate, not DNS.
+            stage = "client-peer-pin"
             RollingHlsPeerIdentity.requirePeer(socket.session, clientPeer.pin())
+            stage = "client-request"
             if (!active()) throw IOException("Receiver revoked")
             val output = DataOutputStream(socket.outputStream)
             output.writeInt(MAGIC)
@@ -123,13 +158,14 @@ internal class RollingHlsTlsLoopback(
             output.flush()
             return socket to DataInputStream(socket.inputStream)
         } catch (error: Exception) {
-            release(socket)
+            record(stage, error)
+            try { release(socket) } catch (cleanup: Exception) { error.addSuppressed(cleanup) }
             throw error
         }
     }
 
     private fun release(socket: SSLSocket) {
-        try { socket.close() } finally { synchronized(lock) { clients.remove(socket) } }
+        try { socket.close() } finally { synchronized(lock) { clients.remove(socket)?.cancel(false) } }
     }
 
     fun factory(): DataSource.Factory = DataSource.Factory { Source() }
@@ -162,6 +198,8 @@ internal class RollingHlsTlsLoopback(
                 transferStarted(dataSpec)
                 return remaining
             } catch (error: Exception) {
+                // Preserve the more specific handshake diagnosis from open().
+                if (socket != null) record("client-response", error)
                 try { close() } catch (cleanup: Exception) { error.addSuppressed(cleanup) }
                 throw error
             }
@@ -181,6 +219,7 @@ internal class RollingHlsTlsLoopback(
                 return n
             } catch (error: Exception) {
                 buffer.fill(0, offset, offset + length)
+                record("client-body", error)
                 throw error
             }
         }
@@ -196,10 +235,10 @@ internal class RollingHlsTlsLoopback(
     override fun close() {
         stopped = true
         listener.close()
-        val sockets = synchronized(lock) { listOfNotNull(accepted) + clients.toList() }
+        val sockets = synchronized(lock) { listOfNotNull(accepted) + clients.keys.toList() }
         sockets.forEach { runCatching { it.close() } }
-        worker.join((TIMEOUT + 1000).toLong())
-        watchdog.shutdownNow()
+        try { worker.join((TIMEOUT + 1000).toLong()) }
+        finally { watchdog.shutdownNow() }
         check(!worker.isAlive && watchdog.awaitTermination(1, TimeUnit.SECONDS))
     }
 
