@@ -52,7 +52,14 @@ internal class RollingHlsDeliverySession(
         .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
 
     /** Lock-free predicate usable by producer/store callbacks. */
-    fun active(): Boolean = !revoked && current(owner) && routeAllowed() && nowMs() in created until expires
+    fun active(): Boolean {
+        if (revoked) return false
+        if (!current(owner) || !routeAllowed() || nowMs() !in created until expires) {
+            revoked = true // observed route/account loss is irreversible
+            return false
+        }
+        return !revoked
+    }
 
     private fun equal(expected: String, offered: String?): Boolean =
         offered != null && offered.length == expected.length &&
@@ -61,6 +68,9 @@ internal class RollingHlsDeliverySession(
 
     private fun authorize(resource: String?, token: String?, control: Boolean = false): Boolean =
         active() && equal(resourceId, resource) && equal(if (control) controlToken else readToken, token)
+
+    fun canRead(resource: String?, token: String?): Boolean = authorize(resource, token)
+    fun canControl(resource: String?, token: String?): Boolean = authorize(resource, token, control = true)
 
     /** Trusted producer supplies independently verified initialization exactly once. */
     @Synchronized fun installInitialization(bytes: ByteArray): Boolean {

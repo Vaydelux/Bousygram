@@ -121,3 +121,6 @@ Six-minute independent host rolling reference CI plus explicit storage-pressure 
 
 ## Rolling HLS R2t — controlled receiver delivery contract
 Authenticated private playlist/init/segment lease and explicit control acknowledgement policy implemented. No network route or standard Cast receiver support; transport, RFC retention and native qualification remain gates.
+
+## Rolling HLS R2u — transport-neutral dispatcher
+Strict request routing, private headers, bounded body transfer and sticky route revocation implemented. Four tests; no network registration. Hosted six-minute reference emitted both success markers before workflow cancellation. Native integrity unverified.
