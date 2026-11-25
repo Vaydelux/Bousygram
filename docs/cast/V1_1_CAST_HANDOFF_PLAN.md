@@ -70,3 +70,6 @@ Pinned Media3 1.10.1 fragmented writer omits tfdt and uses absolute offsets; do 
 
 ## Rolling HLS R2c — isolated native qualification candidate
 Added custom-AVIO JNI remux source, signed upstream source build recipe and ARM32/ARM64 qualification workflow. Fixed previous Enterprise documentation whitespace failure. Native compile, runtime, media conservation, licensing and security review pending. No app packaging or production changes.
+
+## Rolling HLS R2d — JNI runtime gate
+b769557 all four workflows passed including signed source ARM64/ARM32 native cross-compilation. Added source digest pin, exact ELF alignment validation, x86-64 Android ART runtime harness and independent media/timestamp verification. Fresh qualification pending; no APK integration or publication. See [qualification plan](ROLLING_HLS_QUALIFICATION.md).

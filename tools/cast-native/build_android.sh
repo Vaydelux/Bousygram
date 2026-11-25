@@ -21,15 +21,17 @@ gpg --batch --import "$scratch/key.asc"
 fingerprint="$(gpg --batch --with-colons --fingerprint | awk -F: '$1=="pub"{primary=1;next} primary&&$1=="fpr"{print $10;primary=0}')"
 [[ "$fingerprint" == FCF986EA15E6E293A5644F10B4322F04D67658D8 ]]
 gpg --batch --verify "$scratch/$archive.asc" "$scratch/$archive"
+( cd "$scratch" && printf '%s  %s\n' 7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3 "$archive" | sha256sum --check - )
 tar -xJf "$scratch/$archive" -C "$scratch"
 mkdir -p "$output"
 sha256sum "$scratch/$archive" | awk '{print $1 "  ffmpeg-8.1.3.tar.xz"}' > "$output/SOURCE.sha256"
 cp "$ndk/source.properties" "$output/NDK.properties"
 cp "$scratch/ffmpeg-$version/COPYING.LGPLv2.1" "$output/"
-for abi in arm64-v8a armeabi-v7a; do
+for abi in arm64-v8a armeabi-v7a x86_64; do
     case "$abi" in
         arm64-v8a) arch=aarch64; triple=aarch64-linux-android ;;
         armeabi-v7a) arch=arm; triple=armv7a-linux-androideabi ;;
+        x86_64) arch=x86_64; triple=x86_64-linux-android ;;
     esac
     cc="$toolchain/${triple}26-clang"
     prefix="$scratch/install-$abi"
@@ -61,10 +63,20 @@ for abi in arm64-v8a armeabi-v7a; do
     "$toolchain/llvm-readelf" -h -l -d --wide "$output/$abi/libbousygram_cast_remux.so" > "$output/$abi/ELF.txt"
     "$toolchain/llvm-nm" -D --defined-only "$output/$abi/libbousygram_cast_remux.so" > "$output/$abi/EXPORTS.txt"
     grep -q 'Java_com_vaydelux_bousygram_core_cast_NativeCastRemuxBridge_run$' "$output/$abi/EXPORTS.txt"
-    awk '$1=="LOAD" {seen++; if ($NF !~ /^0x[4-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]+$/ && $NF != "0x10000") bad=1} END {exit !(seen && !bad)}' "$output/$abi/ELF.txt"
+    python3 - "$output/$abi/ELF.txt" <<'PY'
+import sys
+loads = [line.split() for line in open(sys.argv[1], encoding="utf-8") if line.strip().startswith("LOAD ")]
+if not loads:
+    raise SystemExit("No ELF LOAD segments")
+for fields in loads:
+    offset, address, alignment = int(fields[1], 16), int(fields[2], 16), int(fields[-1], 16)
+    if alignment < 16384 or alignment & (alignment - 1) or (offset - address) % 16384:
+        raise SystemExit("Invalid 16 KiB ELF LOAD alignment")
+PY
     case "$abi" in
         arm64-v8a) grep -Eq 'Machine:.*AArch64' "$output/$abi/ELF.txt" ;;
         armeabi-v7a) grep -Eq 'Machine:.*ARM' "$output/$abi/ELF.txt" ;;
+        x86_64) grep -Eq 'Machine:.*(X86-64|x86-64)' "$output/$abi/ELF.txt" ;;
     esac
     (cd "$output/$abi" && sha256sum libbousygram_cast_remux.so native_cast_remux.o > SHA256SUMS)
 done

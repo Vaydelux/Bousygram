@@ -11,18 +11,22 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: '21'
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
       - name: Install pinned NDK and qualification tools
         run: |
-          sdkmanager 'ndk;28.2.13676358'
+          sdkmanager 'ndk;28.2.13676358' 'build-tools;35.0.0'
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y make curl gnupg xz-utils shellcheck
+          sudo apt-get install --no-install-recommends -y make curl gnupg xz-utils shellcheck python3 ffmpeg
       - name: Cross-compile isolated qualification bridge
         run: |
           shellcheck tools/cast-native/build_android.sh
@@ -31,8 +35,28 @@ jobs:
       - name: Report native evidence without publishing binaries
         run: |
           cat "$RUNNER_TEMP/cast-native/SOURCE.sha256"
-          for abi in arm64-v8a armeabi-v7a; do
+          for abi in arm64-v8a armeabi-v7a x86_64; do
             cat "$RUNNER_TEMP/cast-native/$abi/ELF.txt"
             cat "$RUNNER_TEMP/cast-native/$abi/EXPORTS.txt"
             cat "$RUNNER_TEMP/cast-native/$abi/SHA256SUMS"
           done
+      - name: Enable emulator acceleration
+        run: |
+          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; else exit 1; fi
+      - name: Generate synthetic native fixtures and DEX harness
+        run: |
+          bash tools/cast-native/prepare_runtime.sh "$RUNNER_TEMP/cast-runtime" "$ANDROID_HOME/build-tools/35.0.0/d8"
+      - name: Provision test emulator image
+        run: bash tools/ci/provision_emulator_image.sh
+      - name: Execute isolated JNI bridge on Android x86-64
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 3072M
+          emulator-options: -partition-size 3072 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: bash tools/cast-native/run_runtime.sh "$RUNNER_TEMP/cast-native/x86_64/libbousygram_cast_remux.so" "$RUNNER_TEMP/cast-runtime"

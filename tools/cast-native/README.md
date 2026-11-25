@@ -33,3 +33,6 @@ packet and timeline comparison to existing fixtures, revocation and truncated
 input; then bounded output framing, producer-owned TDLib download leases and
 cache integration. Random access, longer media, DTS/PTS validation and
 per-fragment memory caps require further engineering. No HLS receiver exposure.
+
+## Runtime qualification
+The build also produces x86-64 for an isolated Android emulator only. The PR workflow compiles a DEX harness and runs it as a shell-owned ART process using synthetic fixtures. The independent host verifier requires all 12 fragments per source, exact packet counts and 2.1 ms timing tolerance. No native binaries are published. ARM compilation does not establish ARM device execution. Run prepare_runtime.sh and run_runtime.sh against an API 35 x86-64 test emulator; do not use a personal device or private media for this harness.
