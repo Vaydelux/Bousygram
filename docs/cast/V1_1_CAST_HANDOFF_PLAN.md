@@ -58,3 +58,6 @@ Added CastRemuxArtifact for verified output + captured account + source file ID,
 
 ## Queue ownership hardening — 2026-11-25
 8723ca1 passed Enterprise, responsive UI and media/Cast (133/133 emulator tests). Pin the full chat/message/file identity before any asynchronous preparation. A different or missing selection disconnects instead of preparing another video on the existing route; repeated identical selections do not restart remux. Recheck the live queue index and full identity immediately before LOAD, and do not apply the previous Cast position to a different message. Added JVM selection-policy fixtures. New exact-head Android qualification and physical receiver trials remain required. No production enablement, new dependencies, storage-budget expansion or full-length conversion.
+
+## Rolling HLS R1 — storage foundation
+3aee77f passed all three exact-head workflows. Added private rolling segment storage, bounded streaming copies, explicit retirement, reader pinning, revocation checks, and shared-cache admission policy. See [rolling HLS qualification](ROLLING_HLS_QUALIFICATION.md). Native demux/mux, actual Android cache coordination, playlists, full-length seeking and Cast integration remain pending. No production flag or stable playback changes.
