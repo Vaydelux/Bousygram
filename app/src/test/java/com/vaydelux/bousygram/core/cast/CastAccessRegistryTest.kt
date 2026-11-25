@@ -72,6 +72,15 @@ class CastAccessRegistryTest {
     }
 
     @Test
+    fun staleOwnerCannotIssueGrantAfterAccountSwitch() {
+        val old = checkNotNull(AccountSession.current())
+        AccountSession.invalidate()
+        checkNotNull(AccountSession.activate(202L, AccountSession.generation()))
+        assertTrue(runCatching { CastAccessRegistry.issue(7, old) }.exceptionOrNull() is IllegalStateException)
+        assertTrue(CastAccessRegistry.isActive(CastAccessRegistry.issue(7)))
+    }
+
+    @Test
     fun malformedAndOversizedCredentialsAreRejected() {
         val grant = CastAccessRegistry.issue(19)
         assertNull(CastAccessRegistry.authorize(grant.resourceId, null))

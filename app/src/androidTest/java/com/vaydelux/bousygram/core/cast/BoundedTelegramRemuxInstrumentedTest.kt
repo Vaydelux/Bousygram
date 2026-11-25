@@ -6,6 +6,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.RandomAccessFile
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import kotlinx.coroutines.runBlocking
+import com.vaydelux.bousygram.core.account.AccountSessionController
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -82,6 +86,46 @@ class BoundedTelegramRemuxInstrumentedTest {
             android.util.Log.i("CastRemuxFixtures", "Sample counts: $result")
             return result
         } finally { extractor.release() }
+    }
+
+    @Test fun verifiedArtifactRangesAndAccountRevocation() = runBlocking {
+        val dir = scratch()
+        try {
+            val result = BoundedTelegramRemuxer.convert(fixture("seek-control.mp4"), dir)
+            assertTrue("Baseline remux required for delivery test: $result", result is BoundedTelegramRemuxer.Result.Ready)
+            val output = (result as BoundedTelegramRemuxer.Result.Ready).output
+            output.use {
+                val accounts = AccountSessionController()
+                val owner = checkNotNull(accounts.activate(123L, accounts.generation()))
+                val artifact = checkNotNull(CastRemuxArtifact.adopt(owner, 5, output, accounts))
+                artifact.use {
+                    val bytes = ByteArrayOutputStream()
+                    val end = minOf(1023L, artifact.size - 1)
+                    artifact.stream(0, end, { true }) { data, count -> bytes.write(data, 0, count) }
+                    val expected = ByteArray((end + 1).toInt())
+                    RandomAccessFile(output.file, "r").use { it.readFully(expected) }
+                    assertArrayEquals(expected, bytes.toByteArray())
+                    val invalid = runCatching { artifact.stream(0, artifact.size, { true }) { _, _ -> error("invalid write") } }
+                    assertTrue(invalid.exceptionOrNull() is IOException)
+                    val denied = runCatching { artifact.stream(0, end, { false }) { _, _ -> error("denied write") } }
+                    assertTrue(denied.exceptionOrNull() is IOException)
+                    // Invalidate during a multi-chunk transfer: no subsequent write.
+                    assertTrue("Fixture must span two chunks", artifact.size > 65536)
+                    var writes = 0
+                    val revoked = runCatching {
+                        artifact.stream(0, artifact.size - 1, { true }) { _, _ ->
+                            writes++
+                            accounts.invalidate()
+                        }
+                    }
+                    assertEquals(1, writes)
+                    assertTrue(revoked.exceptionOrNull() is IOException)
+                    assertFalse(artifact.isAvailable())
+                    assertNull(CastRemuxArtifact.adopt(owner, 5, output, accounts))
+                }
+            }
+            assertTrue(dir.listFiles().orEmpty().isEmpty())
+        } finally { dir.deleteRecursively() }
     }
 
     @Test fun cancellationAndSizeRejectionLeaveNoScratchOutput() {
