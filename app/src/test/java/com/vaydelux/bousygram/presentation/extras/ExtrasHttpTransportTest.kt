@@ -7,6 +7,9 @@ import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -117,5 +120,61 @@ class ExtrasHttpTransportTest {
         assertEquals(429, result.status)
         assertEquals("15", result.retryAfter)
         assertEquals(null, result.json)
+    }
+    @Test fun nonProgressingInputStreamFailsInsteadOfSpinning() = runBlocking {
+        val fake = object : HttpURLConnection(URL("https://example.invalid/")) {
+            override fun connect() {}
+            override fun disconnect() {}
+            override fun usingProxy() = false
+            override fun getResponseCode() = 200
+            override fun getInputStream() = object : java.io.InputStream() {
+                override fun read(): Int = 0
+                override fun read(b: ByteArray, off: Int, len: Int): Int = 0
+            }
+        }
+        try {
+            ExtrasHttpTransport { fake }.execute("https://example.invalid/", null, 1024)
+            throw AssertionError("Non-progressing stream was accepted")
+        } catch (expected: IOException) {
+            assertTrue(expected.message.orEmpty().contains("no read progress"))
+        }
+    }
+    @Test fun concurrentRequestsDoNotOpenMoreThanThreeConnections() = runBlocking {
+        val active = AtomicInteger()
+        val peak = AtomicInteger()
+        val opened = AtomicInteger()
+        val started = CountDownLatch(3)
+        val finish = CountDownLatch(1)
+        val transport = ExtrasHttpTransport { url ->
+            opened.incrementAndGet()
+            object : HttpURLConnection(url) {
+                override fun connect() {}
+                override fun disconnect() {}
+                override fun usingProxy() = false
+                override fun getResponseCode(): Int {
+                    val count = active.incrementAndGet()
+                    peak.updateAndGet { maxOf(it, count) }
+                    started.countDown()
+                    try {
+                        check(finish.await(5, TimeUnit.SECONDS))
+                        return 200
+                    } finally {
+                        active.decrementAndGet()
+                    }
+                }
+                override fun getInputStream() = ByteArrayInputStream("{}".toByteArray())
+            }
+        }
+        val requests = (1..6).map { index ->
+            async { transport.execute("https://example.invalid/$index", null, 32) }
+        }
+        try {
+            assertTrue(withContext(Dispatchers.IO) { started.await(2, TimeUnit.SECONDS) })
+            assertEquals(3, opened.get())
+        } finally {
+            finish.countDown()
+        }
+        assertTrue(requests.awaitAll().all { it.json == "{}" })
+        assertEquals(3, peak.get())
     }
 }

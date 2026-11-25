@@ -67,4 +67,24 @@ class ThumbnailDiskQuotaTest {
         assertTrue(unknownAccount.exists())
         assertTrue(unknownFile.exists())
     }
+    @Test fun linkedAccountAndCacheDirectoriesAreNeverPruned() {
+        val outside = temp.newFolder("outside")
+        val outsidePoster = makeFile("outside/video_thumbnails/thumb_9.png", 20L, 1_000L)
+        val accountRoot = File(temp.root, "accounts").apply { mkdirs() }
+        val realAccount = File(accountRoot, "2").apply { mkdirs() }
+        try {
+            java.nio.file.Files.createSymbolicLink(File(accountRoot, "1").toPath(), outside.toPath())
+            java.nio.file.Files.createSymbolicLink(File(realAccount, "video_thumbnails").toPath(),
+                outsidePoster.parentFile.toPath())
+            val result = ThumbnailDiskQuota.enforce(temp.root)
+            assertEquals(0, result.deletedFiles)
+            assertEquals(0L, result.remainingBytes)
+            assertTrue(outsidePoster.exists())
+        } catch (unsupported: java.io.IOException) {
+            org.junit.Assume.assumeNoException(unsupported)
+        } finally {
+            java.nio.file.Files.deleteIfExists(File(accountRoot, "1").toPath())
+            java.nio.file.Files.deleteIfExists(File(realAccount, "video_thumbnails").toPath())
+        }
+    }
 }

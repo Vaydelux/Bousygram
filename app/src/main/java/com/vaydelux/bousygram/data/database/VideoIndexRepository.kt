@@ -7,6 +7,12 @@ import com.vaydelux.bousygram.core.media.SeriesMetadataParser
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.domain.model.MediaType
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -20,6 +26,7 @@ object VideoIndexRepository {
     @Volatile private var appContext: Context? = null
     @Volatile private var testDatabase: AppDatabase? = null
     private val indexScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val indexWriteGate = Mutex()
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -32,8 +39,14 @@ object VideoIndexRepository {
     }
 
     private fun database(owner: AccountSnapshot): AppDatabase? {
-        if (!AccountSession.isCurrent(owner)) return null
-        return testDatabase ?: appContext?.let { AppDatabase.getInstance(it, owner.accountId) }
+        var result: AppDatabase? = null
+        // Do not create a stale database after the logout barrier closed all
+        // account databases. Opening the instance and checking identity share
+        // the same short account publication guard.
+        AccountSession.runIfCurrent(owner) {
+            result = testDatabase ?: appContext?.let { AppDatabase.getInstance(it, owner.accountId) }
+        }
+        return result
     }
 
     suspend fun getIndexedVideosForChat(chatId: Long?, topicId: Long?): List<MediaItem> {
@@ -77,21 +90,32 @@ object VideoIndexRepository {
     }
 
     private suspend fun indexMediaItems(owner: AccountSnapshot, items: List<MediaItem>) = withContext(Dispatchers.IO) {
-        val db = database(owner) ?: return@withContext
         if (items.isEmpty()) return@withContext
-        val entities = items
-            .filter { it.type == MediaType.Video || it.fileId != null }
-            .map { it.toVideoEntity() }
-
-        if (entities.isEmpty()) return@withContext
-
-        entities.chunked(25).forEach { chunk ->
-            while (PlaybackSessionController.isVideoPlaying()) {
+        indexWriteGate.withLock {
+            if (!AccountSession.isCurrent(owner)) return@withContext
+            // Convert only one transaction's worth at a time. In particular,
+            // do not materialize a second full library before waiting for playback.
+            val chunks = items.asSequence()
+                .filter { it.type == MediaType.Video || it.fileId != null }
+                .chunked(25)
+            for (chunk in chunks) {
+                while (PlaybackSessionController.isVideoPlaying()) {
+                    if (!AccountSession.isCurrent(owner)) return@withContext
+                    delay(1000L)
+                }
+                currentCoroutineContext().ensureActive()
                 if (!AccountSession.isCurrent(owner)) return@withContext
-                delay(1000L)
+                val db = database(owner) ?: return@withContext
+                val entities = chunk.map { it.toVideoEntity() }
+                if (!AccountSession.runIfCurrent(owner) { db.videoDao().insertVideos(entities) })
+                    return@withContext
             }
-            if (!AccountSession.runIfCurrent(owner) { db.videoDao().insertVideos(chunk) }) return@withContext
         }
+    }
+
+    /** Cancel queued best-effort indexing before account databases are closed. */
+    fun invalidateAccountResources() {
+        indexScope.coroutineContext.cancelChildren()
     }
 
     fun indexMediaItemsAsync(items: List<MediaItem>) {
@@ -100,8 +124,10 @@ object VideoIndexRepository {
         indexScope.launch {
             try {
                 indexMediaItems(owner, items)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
-                Log.w(TAG, "Error indexing media items: ${e.message}")
+                Log.w(TAG, "Error indexing media items (${e.javaClass.simpleName})")
             }
         }
     }

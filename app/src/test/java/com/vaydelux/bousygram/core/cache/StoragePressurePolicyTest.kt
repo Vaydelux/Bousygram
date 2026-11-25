@@ -34,4 +34,13 @@ class StoragePressurePolicyTest {
             StoragePressurePolicy.boundedReadAheadBytes(8L * TvStorageBudget.MIB,
                 900L * TvStorageBudget.MIB))
     }
+    @Test fun speculativeWorkPreservesLowSpaceReserve() {
+        val reserve = StoragePressurePolicy.LOW_FREE_BYTES
+        assertFalse(StoragePressurePolicy.allowSpeculativeDownload(reserve))
+        assertEquals(0L, StoragePressurePolicy.boundedReadAheadBytes(Long.MAX_VALUE, reserve))
+        assertEquals(1L, StoragePressurePolicy.boundedReadAheadBytes(Long.MAX_VALUE, reserve + 1L))
+        assertEquals(TvStorageBudget.MIB, StoragePressurePolicy.boundedReadAheadBytes(
+            Long.MAX_VALUE, reserve + TvStorageBudget.MIB))
+        assertEquals(0L, StoragePressurePolicy.boundedReadAheadBytes(-1L, Long.MAX_VALUE))
+    }
 }

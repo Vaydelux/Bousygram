@@ -16,6 +16,12 @@ internal fun saturatingPrefetchEnd(offset: Long, length: Long): Long {
     return if (start > Long.MAX_VALUE - count) Long.MAX_VALUE else start + count
 }
 
+/** The tracked interval contains actual requested bytes, never the exclusive endpoint. */
+internal fun trackedPrefetchRange(offset: Long, length: Long): LongRange {
+    val start = offset.coerceAtLeast(0L)
+    return start until saturatingPrefetchEnd(start, length)
+}
+
 /**
  * Download ranges use exclusive ends; seek windows use inclusive ends.
  * Adjacent ranges with no shared bytes must not keep obsolete prefetch alive.
@@ -93,4 +99,22 @@ internal fun prefetchOffsetForPosition(totalSize: Long, positionMs: Long, durati
     val seconds = position / 1_000L
     return if (seconds > maximum / UNKNOWN_DURATION_BYTES_PER_SECOND) maximum
         else (seconds * UNKNOWN_DURATION_BYTES_PER_SECOND).coerceAtMost(maximum)
+}
+
+/** Advance only through returned bytes within the admitted request; never wrap at Long.MAX_VALUE. */
+internal fun advancePrefetchOffset(offset: Long, endExclusive: Long, requestedBytes: Int, returnedBytes: Int): Long {
+    require(offset >= 0L && endExclusive >= offset)
+    val advance = minOf(requestedBytes.coerceAtLeast(0).toLong(),
+        returnedBytes.coerceAtLeast(0).toLong(), endExclusive - offset)
+    return offset + advance
+}
+
+/** Check the Long-relative offset before converting to a ByteArray index. */
+internal fun savedTailSliceBounds(tailOffset: Long, tailSize: Int, offset: Long, limit: Int): IntRange? {
+    if (tailOffset < 0L || offset < tailOffset || tailSize <= 0 || limit <= 0) return null
+    val relative = offset - tailOffset
+    if (relative >= tailSize.toLong()) return null
+    val start = relative.toInt()
+    val count = minOf(limit, tailSize - start)
+    return start until (start + count)
 }

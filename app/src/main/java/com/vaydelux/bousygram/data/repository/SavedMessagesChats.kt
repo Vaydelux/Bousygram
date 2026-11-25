@@ -99,6 +99,7 @@ private suspend fun loadChatList(
     // requesting the same unresolved group's metadata on every replay
     // consumes retries and delays first visible content for large accounts.
     val attemptedMetadata = hashSetOf<Long>()
+    val progress = ChatDirectoryProgress()
     while (true) {
         val response = retryTransientTelegramCatalogRequest(
             TdApi.GetChats(chatList, queryLimit), request = request
@@ -110,10 +111,10 @@ private suspend fun loadChatList(
         val removed = if (ids.size >= limit || (endOfList && ids.size < queryLimit)) {
             sources.keys.retainAll(ids.toSet())
         } else false
-        val batches = ids.filter { id ->
+        val batches = ids.asSequence().distinct().filter { id ->
             (sources[id] == null || sources[id]?.forumMetadataResolved == false) &&
                 id !in attemptedMetadata
-        }.chunked(CHAT_PICKER_DETAIL_BATCH)
+        }.chunked(CHAT_PICKER_DETAIL_BATCH).toList()
 
         for ((index, batch) in batches.withIndex()) {
             attemptedMetadata.addAll(batch)
@@ -140,6 +141,14 @@ private suspend fun loadChatList(
             continue
         }
 
+        // TDLib can acknowledge LoadChats without growing its visible prefix.
+        // Stop the stalled scan rather than spinning forever after login.
+        if (!progress.allowLoadMore(ids.size)) {
+            return ChatListLoadResult(
+                "Telegram is still syncing the chat directory. Existing sources remain available.",
+                hasMore = true
+            )
+        }
         // TDLib can return a short page while more dialogs are still available.
         when (val result = retryTransientTelegramCatalogRequest(
             TdApi.LoadChats(chatList, CHAT_PICKER_LOAD_BATCH), request = request

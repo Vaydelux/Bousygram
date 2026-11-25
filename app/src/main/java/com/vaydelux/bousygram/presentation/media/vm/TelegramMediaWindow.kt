@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.presentation.media.vm
 
 import com.vaydelux.bousygram.domain.model.MediaItem
+import com.vaydelux.bousygram.core.memory.mergeBoundedOrderedWindow
 
 /** Cursor-independent bounded viewport for Telegram metadata; never retains video bytes. */
 internal object TelegramMediaWindow {
@@ -67,12 +68,10 @@ internal object TelegramMediaWindow {
      * references from this in-memory traversal. TDLib's paging cursor remains untouched.
      */
     fun merge(existing: List<MediaItem>, incoming: List<MediaItem>, maxItems: Int): Merge {
-        require(maxItems > 0)
-        val unique = LinkedHashMap<Pair<Long, Long>, MediaItem>()
-        existing.forEach { unique[it.chatId to it.messageId] = it }
-        incoming.forEach { unique[it.chatId to it.messageId] = it }
-        val discarded = (unique.size - maxItems).coerceAtLeast(0)
-        return Merge(unique.values.drop(discarded), discarded)
+        val bounded = mergeBoundedOrderedWindow(existing, incoming, maxItems) {
+            it.chatId to it.messageId
+        }
+        return Merge(bounded.items, bounded.removedFromFront)
     }
 }
 

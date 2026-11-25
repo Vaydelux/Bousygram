@@ -43,10 +43,17 @@ open class AccountSessionController {
         }
         var failure: Throwable? = null
         handlers.forEach { handler ->
-            try { handler() } catch (error: Exception) { if (failure == null) failure = error }
+            try {
+                handler()
+            } catch (error: Throwable) {
+                // JNI or vendor teardown may throw an Error, not an Exception.
+                // Attempt every remaining privacy cleanup before failing closed.
+                if (failure == null) failure = error
+                else if (failure !== error) failure?.addSuppressed(error)
+            }
         }
         synchronized(lock) { cleanupComplete = failure == null }
-        check(failure == null) { "Private account resources could not be invalidated" }
+        failure?.let { throw IllegalStateException("Private account resources could not be invalidated", it) }
         newGeneration
     }
 

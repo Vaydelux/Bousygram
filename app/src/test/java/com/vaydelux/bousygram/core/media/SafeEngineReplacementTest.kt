@@ -127,4 +127,16 @@ class SafeEngineReplacementTest {
         assertTrue(result.isFailure)
         assertFalse(released)
     }
+    @Test fun throwingDiagnosticReporterCannotSkipReleaseOrInvalidateAdoption() {
+        var released = 0
+        val current = object : FakeTestEngine() {
+            override fun stop() { error("stop failed") }
+            override fun release() { released++ }
+        }
+        val next = FakeTestEngine()
+        val result = replacePlayerEngineSafely(current, { next }, {}, {},
+            reportCleanupFailure = { error("diagnostic failed") })
+        assertSame(next, result.getOrThrow())
+        assertEquals(1, released)
+    }
 }

@@ -25,29 +25,19 @@ class StreamingSessionManager(context: Context) {
     }
 
     fun acquireLocks() {
-        runCatching {
-            if (wakeLock?.isHeld != true) {
-                wakeLock?.acquire(STREAMING_LOCK_TIMEOUT_MS)
-            }
-            if (wifiLock?.isHeld != true) {
-                wifiLock?.acquire()
-            }
-        }.onFailure { error ->
-            Log.w(TAG, "Could not acquire streaming locks: ${error.message}")
-        }
+        runIndependentStreamingLockActions(
+            first = { if (wakeLock?.isHeld != true) wakeLock?.acquire(STREAMING_LOCK_TIMEOUT_MS) },
+            second = { if (wifiLock?.isHeld != true) wifiLock?.acquire() },
+            onFailure = { error -> Log.w(TAG, "Streaming lock acquisition failed (${error.javaClass.simpleName})") }
+        )
     }
 
     fun releaseLocks() {
-        runCatching {
-            if (wifiLock?.isHeld == true) {
-                wifiLock.release()
-            }
-            if (wakeLock?.isHeld == true) {
-                wakeLock.release()
-            }
-        }.onFailure { error ->
-            Log.w(TAG, "Could not release streaming locks: ${error.message}")
-        }
+        runIndependentStreamingLockActions(
+            first = { if (wifiLock?.isHeld == true) wifiLock.release() },
+            second = { if (wakeLock?.isHeld == true) wakeLock.release() },
+            onFailure = { error -> Log.w(TAG, "Streaming lock release failed (${error.javaClass.simpleName})") }
+        )
     }
 
     private companion object {

@@ -11,6 +11,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import androidx.core.graphics.scale
 import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import com.vaydelux.bousygram.core.media.VideoFormatSupport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -71,35 +74,68 @@ object ThumbnailExtractor {
     private val isLowRam: Boolean by lazy {
         try {
             val app = com.vaydelux.bousygram.app.BousygramApp.instance
-            com.vaydelux.bousygram.core.media.PlayerBufferConfig.isLowRamDevice(app)
+            !android.os.Process.is64Bit() ||
+                com.vaydelux.bousygram.core.media.PlayerBufferConfig.isLowRamDevice(app)
         } catch (_: Throwable) {
-            false
+            true
         }
     }
 
     // Byte-based budgets prevent full-resolution source thumbnails from silently
     // occupying a large fraction of a 32-bit TV's heap.
-    private val thumbnailBudgetKiB = thumbnailMemoryBudgetKiB(
-        Runtime.getRuntime().maxMemory(), isLowRam, preview = false
-    )
-    private val previewBudgetKiB = thumbnailMemoryBudgetKiB(
-        Runtime.getRuntime().maxMemory(), isLowRam, preview = true
-    )
+    private fun bitmapKiB(value: Bitmap): Int =
+        ((maxOf(value.byteCount, value.allocationByteCount).toLong() + 1023L) / 1024L)
+            .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
 
+    // Disk-only startup maintenance must not allocate the decoder dispatcher
+    // or either decoded cache. Initialize them on the first real frame request.
     private data class ThumbnailKey(val accountId: Long, val fileId: Int)
-    private val memoryCache = object : android.util.LruCache<ThumbnailKey, Bitmap>(thumbnailBudgetKiB) {
-        override fun sizeOf(key: ThumbnailKey, value: Bitmap): Int =
-            ((value.byteCount.toLong() + 1023L) / 1024L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    private val memoryCacheDelegate = lazy {
+        object : android.util.LruCache<ThumbnailKey, Bitmap>(
+            thumbnailMemoryBudgetKiB(Runtime.getRuntime().maxMemory(), isLowRam, preview = false)
+        ) {
+            override fun sizeOf(key: ThumbnailKey, value: Bitmap): Int = bitmapKiB(value)
+        }
     }
+    private val memoryCache by memoryCacheDelegate
 
     data class PreviewKey(val accountId: Long, val fileId: Int, val timeBucketMs: Long)
-    private val previewCache = object : android.util.LruCache<PreviewKey, Bitmap>(previewBudgetKiB) {
-        override fun sizeOf(key: PreviewKey, value: Bitmap): Int =
-            ((value.byteCount.toLong() + 1023L) / 1024L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    private val previewCacheDelegate = lazy {
+        object : android.util.LruCache<PreviewKey, Bitmap>(
+            thumbnailMemoryBudgetKiB(Runtime.getRuntime().maxMemory(), isLowRam, preview = true)
+        ) {
+            override fun sizeOf(key: PreviewKey, value: Bitmap): Int = bitmapKiB(value)
+        }
     }
+    private val previewCache by previewCacheDelegate
     private val diskWriteLock = Any()
     private val diskMaintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val localFramePermits = Semaphore(2)
+    private val frameDispatcher by lazy { Dispatchers.IO.limitedParallelism(if (isLowRam) 1 else 2) }
+    private val localFramePermits by lazy { Semaphore(if (isLowRam) 1 else 2) }
+
+    /** Capture identity before dispatch: queued requests cannot adopt a new login. */
+    private suspend fun withFrameOwner(
+        block: suspend CoroutineScope.(AccountSnapshot) -> Bitmap?
+    ): Bitmap? {
+        val owner = AccountSession.current() ?: return null
+        return withContext(frameDispatcher) {
+            if (!AccountSession.isCurrent(owner)) return@withContext null
+            val frame = block(owner)
+            coroutineContext.ensureActive()
+            frame?.takeIf { AccountSession.isCurrent(owner) }
+        }
+    }
+
+    private fun <K> publishFrame(
+        owner: AccountSnapshot, cache: android.util.LruCache<K, Bitmap>,
+        key: K, frame: Bitmap
+    ): Boolean {
+        // Cache publication is atomic with account invalidation. An obsolete
+        // request cannot repopulate a cache after logout clears it.
+        val published = AccountSession.runIfCurrent(owner) { cache.put(key, frame) }
+        if (!published && !frame.isRecycled) frame.recycle()
+        return published
+    }
 
     /** Reclaim old per-account previews on upgrade without delaying app launch. */
     fun pruneDiskCacheAsync(context: Context) {
@@ -116,10 +152,13 @@ object ThumbnailExtractor {
                     Log.i(TAG, "Recycled ${result.deletedFiles} generated cache images; freed ${result.freedBytes} bytes")
                 }
             }
-            .onFailure { Log.w(TAG, "Could not recycle generated thumbnail cache", it) }
+            .onFailure { Log.w(TAG, "Could not recycle generated thumbnail cache (${it.javaClass.simpleName})") }
     }
 
-    fun invalidateAccountResources() { memoryCache.evictAll(); previewCache.evictAll() }
+    fun invalidateAccountResources() {
+        if (memoryCacheDelegate.isInitialized()) memoryCache.evictAll()
+        if (previewCacheDelegate.isInitialized()) previewCache.evictAll()
+    }
 
     internal fun accountCachePath(accountId: Long, kind: String): String {
         require(accountId > 0L)
@@ -128,13 +167,12 @@ object ThumbnailExtractor {
     }
 
     fun trimMemory(critical: Boolean) {
-        if (critical) {
-            memoryCache.evictAll()
-            previewCache.evictAll()
-        } else {
-            memoryCache.trimToSize((memoryCache.maxSize() / 2).coerceAtLeast(1))
-            previewCache.trimToSize((previewCache.maxSize() / 2).coerceAtLeast(1))
+        fun trim(cache: android.util.LruCache<*, Bitmap>) {
+            if (critical) cache.evictAll()
+            else cache.trimToSize((cache.maxSize() / 2).coerceAtLeast(1))
         }
+        if (memoryCacheDelegate.isInitialized()) trim(memoryCache)
+        if (previewCacheDelegate.isInitialized()) trim(previewCache)
     }
 
     /**
@@ -145,12 +183,11 @@ object ThumbnailExtractor {
     suspend fun getCachedTransportStreamThumbnail(
         context: Context,
         fileId: Int
-    ): Bitmap? = withContext(Dispatchers.IO) {
-        val owner = AccountSession.current() ?: return@withContext null
-        if (fileId <= 0) return@withContext null
+    ): Bitmap? = withFrameOwner { owner ->
+        if (fileId <= 0) return@withFrameOwner null
         val key = ThumbnailKey(owner.accountId, fileId)
         memoryCache.get(key)?.let {
-            return@withContext it.takeIf { AccountSession.isCurrent(owner) }
+            return@withFrameOwner it.takeIf { AccountSession.isCurrent(owner) }
         }
         val dir = File(context.cacheDir, accountCachePath(owner.accountId, "video_thumbnails"))
         val disk = File(dir, "thumb_$fileId.png")
@@ -160,15 +197,16 @@ object ThumbnailExtractor {
             }.getOrNull()
             if (cached != null && AccountSession.isCurrent(owner)) {
                 runCatching { disk.setLastModified(System.currentTimeMillis()) }
-                memoryCache.put(key, cached)
-                return@withContext cached
+                return@withFrameOwner cached.takeIf { publishFrame(owner, memoryCache, key, it) }
             }
         }
         localFramePermits.withPermit {
+            if (!AccountSession.isCurrent(owner)) return@withPermit null
+            memoryCache.get(key)?.let { return@withPermit it.takeIf { AccountSession.isCurrent(owner) } }
             val file = withTimeoutOrNull(2_000L) {
                 TelegramFileGatewayRegistry.current.getFile(fileId)
             } ?: return@withPermit null
-            if (file.localPath.isBlank()) return@withPermit null
+            if (!AccountSession.isCurrent(owner) || file.localPath.isBlank()) return@withPermit null
             val local = File(file.localPath)
             if (!local.isFile || !VideoFormatSupport.canProbeLocalTsFrame(
                     completed = file.isDownloadingCompleted,
@@ -211,9 +249,7 @@ object ThumbnailExtractor {
                     throw failure
                 }
             }
-            if (!AccountSession.isCurrent(owner)) return@withPermit null
-            memoryCache.put(key, scaled)
-            scaled
+            scaled.takeIf { publishFrame(owner, memoryCache, key, it) }
         }
     }
 
@@ -221,10 +257,10 @@ object ThumbnailExtractor {
         context: Context,
         fileId: Int,
         streamUrl: String
-    ): Bitmap? = withContext(Dispatchers.IO) {
-        val owner = AccountSession.current() ?: return@withContext null
+    ): Bitmap? = withFrameOwner { owner ->
+        if (fileId <= 0) return@withFrameOwner null
         val key = ThumbnailKey(owner.accountId, fileId)
-        memoryCache.get(key)?.let { return@withContext it.takeIf { AccountSession.isCurrent(owner) } }
+        memoryCache.get(key)?.let { return@withFrameOwner it.takeIf { AccountSession.isCurrent(owner) } }
 
         // Check if there is a cached file on disk
         val cacheDir = File(context.cacheDir, accountCachePath(owner.accountId, "video_thumbnails"))
@@ -237,11 +273,10 @@ object ThumbnailExtractor {
                 val bitmap = android.graphics.BitmapFactory.decodeFile(diskFile.absolutePath)
                 if (bitmap != null && AccountSession.isCurrent(owner)) {
                     runCatching { diskFile.setLastModified(System.currentTimeMillis()) }
-                    memoryCache.put(key, bitmap)
-                    return@withContext bitmap
+                    return@withFrameOwner bitmap.takeIf { publishFrame(owner, memoryCache, key, it) }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading cached thumbnail from disk", e)
+                Log.e(TAG, "Error loading cached thumbnail (${e.javaClass.simpleName})")
             }
         }
 
@@ -256,7 +291,7 @@ object ThumbnailExtractor {
                 val scaled = bitmap
                 // Cache to disk
                 synchronized(diskWriteLock) {
-                    if (!AccountSession.isCurrent(owner)) return@withContext null
+                    if (!AccountSession.isCurrent(owner)) return@withFrameOwner null
                     val atomic = AtomicFile(diskFile)
                     val out = atomic.startWrite()
                     try {
@@ -265,16 +300,16 @@ object ThumbnailExtractor {
                         recycleGeneratedDiskFiles(context.cacheDir, diskFile)
                     } catch (failure: Throwable) { atomic.failWrite(out); throw failure }
                 }
-                if (!AccountSession.isCurrent(owner)) return@withContext null
-                memoryCache.put(key, scaled)
-                return@withContext scaled
+                return@withFrameOwner scaled.takeIf { publishFrame(owner, memoryCache, key, it) }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Throwable) {
             Log.w(TAG, "Could not extract a media thumbnail (${e.javaClass.simpleName})")
         } finally {
             try { retriever.release() } catch (_: Exception) {}
         }
-        return@withContext null
+        return@withFrameOwner null
     }
 
     suspend fun getPreviewFrame(
@@ -283,11 +318,11 @@ object ThumbnailExtractor {
         streamUrl: String,
         timeMs: Long,
         durationMs: Long = 0L
-    ): Bitmap? = withContext(Dispatchers.IO) {
-        val owner = AccountSession.current() ?: return@withContext null
-        val timeBucketMs = (timeMs / 10000L) * 10000L // 10-second buckets
+    ): Bitmap? = withFrameOwner { owner ->
+        if (fileId <= 0) return@withFrameOwner null
+        val timeBucketMs = boundedPreviewBucketMs(timeMs, durationMs)
         val key = PreviewKey(owner.accountId, fileId, timeBucketMs)
-        previewCache.get(key)?.let { return@withContext it.takeIf { AccountSession.isCurrent(owner) } }
+        previewCache.get(key)?.let { return@withFrameOwner it.takeIf { AccountSession.isCurrent(owner) } }
 
         val cacheDir = File(context.cacheDir, accountCachePath(owner.accountId, "seek_previews"))
         if (!cacheDir.exists()) {
@@ -299,11 +334,10 @@ object ThumbnailExtractor {
                 val bitmap = android.graphics.BitmapFactory.decodeFile(diskFile.absolutePath)
                 if (bitmap != null && AccountSession.isCurrent(owner)) {
                     runCatching { diskFile.setLastModified(System.currentTimeMillis()) }
-                    previewCache.put(key, bitmap)
-                    return@withContext bitmap
+                    return@withFrameOwner bitmap.takeIf { publishFrame(owner, previewCache, key, it) }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading seek preview from disk", e)
+                Log.e(TAG, "Error loading seek preview (${e.javaClass.simpleName})")
             }
         }
 
@@ -315,7 +349,7 @@ object ThumbnailExtractor {
             if (bitmap != null && AccountSession.isCurrent(owner)) {
                 val scaled = bitmap
                 synchronized(diskWriteLock) {
-                    if (!AccountSession.isCurrent(owner)) return@withContext null
+                    if (!AccountSession.isCurrent(owner)) return@withFrameOwner null
                     val atomic = AtomicFile(diskFile)
                     val out = atomic.startWrite()
                     try {
@@ -324,15 +358,15 @@ object ThumbnailExtractor {
                         recycleGeneratedDiskFiles(context.cacheDir, diskFile)
                     } catch (failure: Throwable) { atomic.failWrite(out); throw failure }
                 }
-                if (!AccountSession.isCurrent(owner)) return@withContext null
-                previewCache.put(key, scaled)
-                return@withContext scaled
+                return@withFrameOwner scaled.takeIf { publishFrame(owner, previewCache, key, it) }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Throwable) {
             Log.w(TAG, "Could not extract a seek preview (${e.javaClass.simpleName})")
         } finally {
             try { retriever.release() } catch (_: Exception) {}
         }
-        return@withContext null
+        return@withFrameOwner null
     }
 }

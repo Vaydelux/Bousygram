@@ -590,16 +590,20 @@ private fun ExtrasMediaForgePlayerScreen(
     // Browser media should not continue consuming resources while the app is
     // backgrounded. WebView.onPause is best-effort for third-party players.
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(webView, lifecycleOwner) {
+    DisposableEffect(webView, lifecycleOwner, bridge) {
         val activeView = webView
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> activeView?.onPause()
-                Lifecycle.Event.ON_START -> activeView?.onResume()
+                Lifecycle.Event.ON_STOP -> activeView?.let { if (!bridge.rendererGone(it)) runCatching { it.onPause() } }
+                Lifecycle.Event.ON_START -> activeView?.let { if (!bridge.rendererGone(it)) runCatching { it.onResume() } }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        // Attaching after ON_STOP does not deliver another stop event.
+        if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            activeView?.let { if (!bridge.rendererGone(it)) runCatching { it.onPause() } }
+        }
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
