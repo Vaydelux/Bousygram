@@ -148,3 +148,6 @@ Ephemeral certificate pin enrollment and independent forward-only playback recei
 
 ## Rolling HLS R3c — actual playback interval
 Require trusted observed playback progress on verified source timeline, not just first frame/ENDED; reject seeks and protect pending pairing pins. Local two-fragment decode passed, Android receipt qualification pending.
+
+## Rolling HLS R3d — finite one-player HLS receiver
+Debug Media3 local HLS DataSource and single-player completed-window qualification, explicit playback/release retirement, pause/resume, and Android Keystore session identity. Actual instrumentation pending; live LAN, continuous rolling retirement, QR UI and source reclamation remain gates.

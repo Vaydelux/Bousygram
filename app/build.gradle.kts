@@ -805,6 +805,7 @@ dependencies {
 
     // AndroidX Media3 ExoPlayer for premium native video playback
     implementation(libs.androidx.media3.exoplayer)
+    debugImplementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
     implementation(libs.google.play.services.cast.framework)

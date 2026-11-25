@@ -112,6 +112,15 @@ internal class RollingHlsDeliverySession(
         return bytes
     }
 
+    /** Trusted local qualification only: freeze the completed finite window.
+     * A live HLS consumer cannot use this as a retirement proof. */
+    @Synchronized fun completedSnapshot(): List<RollingHlsSegmentStore.Segment>? {
+        if (!active() || init == null || finalSequence == null) return null
+        val segments = store.snapshot()
+        return segments.takeIf { it.isNotEmpty() && it.first().sequence == nextAck &&
+            it.last().sequence == finalSequence && active() }
+    }
+
     /** Producer completion, never inferred from empty buffer or receiver GET. */
     @Synchronized fun markComplete(lastSequence: Long): Boolean {
         if (!active() || init == null || finalSequence != null || lastSequence < nextAck ||
