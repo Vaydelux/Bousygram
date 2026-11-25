@@ -133,12 +133,23 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
 
     override suspend fun cancelDownloadFile(fileId: Int, onlyIfPending: Boolean): Boolean {
         val owner = AccountSession.current() ?: throw CancellationException("No active Telegram account")
+        return cancelForOwner(owner, fileId, onlyIfPending)
+    }
+
+    internal suspend fun cancelForOwner(owner: AccountSnapshot, fileId: Int, onlyIfPending: Boolean): Boolean {
         val response = SharedTelegramFileMutationFence.instance.legacy(owner, fileId) {
             TdLibClient.awaitAccountResponse(TdApi.CancelDownloadFile(fileId, onlyIfPending),
                 expectedOwner = owner) ?: throw CancellationException("Uncertain Telegram cancellation response")
         }
         return response is TdApi.Ok
     }
+
+    internal suspend fun deleteForOwner(owner: AccountSnapshot, fileId: Int, protected: () -> Boolean): Boolean =
+        SharedTelegramFileMutationFence.instance.maintenance(owner, fileId, protected) {
+            val response = TdLibClient.awaitAccountResponse(TdApi.DeleteFile(fileId), expectedOwner = owner,
+                timeoutMs = 4_000L) ?: throw CancellationException("Uncertain Telegram deletion response")
+            response is TdApi.Ok
+        } ?: false
 
     override suspend fun reResolveFile(chatId: Long, messageId: Long): TelegramGatewayFile? {
         // Capture once: GetMessage from account A must never be followed by GetFile in account B.

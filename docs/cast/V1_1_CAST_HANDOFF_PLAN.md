@@ -91,3 +91,6 @@ Implemented isolated account-bound exclusive lease/window state machine, 2 MiB r
 
 ## Rolling HLS R2j — global producer lifecycle
 Added single process-wide lifetime, debug shared-claim binding, exact mutex owner tokens and stop reconciliation after takeover; four lifecycle tests. Pre-cache cancellation, deletion/eviction, confirmed native teardown, actual rolling output and live integration remain pending.
+
+## Rolling HLS R2k — deletion and pre-cache fence
+Owner-explicit pre-cache cancel and non-waiting tracked cache deletion fence added with bounded deadline and three regression tests. No live producer or APK changes; raw logout teardown remains separate.

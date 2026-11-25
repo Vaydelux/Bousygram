@@ -47,6 +47,30 @@ internal class TelegramFileMutationFence(private val current: (AccountSnapshot) 
             slot.uncertainOwner != claim.owner && (slot.claim == null || slot.claim === claim)
     }
 
+    /** Cache eviction yields to the producer and to any busy command stripe.
+     * Never queue deletion behind a producer and then evict its just-read file.
+     * A lost response quarantines future producer admission for this account. */
+    suspend fun <T> maintenance(owner: AccountSnapshot, fileId: Int,
+                                protected: () -> Boolean, action: suspend () -> T): T? {
+        require(fileId > 0)
+        val slot = stripe(fileId)
+        if (!slot.lock.tryLock()) return null
+        try {
+            if (!current(owner) || protected() || slot.uncertainOwner == owner ||
+                (slot.claim?.let { current(it.owner) } == true)) return null
+            return try {
+                val result = action()
+                if (!current(owner)) throw CancellationException("Telegram account changed during cache mutation")
+                result
+            } catch (error: Exception) {
+                slot.uncertainOwner = owner
+                throw error
+            }
+        } finally {
+            slot.lock.unlock()
+        }
+    }
+
     /** A stale close must never remove a later producer's claim. */
     suspend fun release(claim: Claim) {
         val slot = stripe(claim.fileId)

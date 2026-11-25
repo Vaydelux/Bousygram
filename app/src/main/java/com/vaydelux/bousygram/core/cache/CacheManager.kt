@@ -18,6 +18,10 @@ import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
 import com.vaydelux.bousygram.core.tdlib.server.TdLibTelegramFileGateway
 import com.vaydelux.bousygram.core.tdlib.server.TelegramGatewayResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.data.database.AppDatabase
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
@@ -754,65 +758,33 @@ object CacheManager {
 
     private fun deleteFilesBlocking(fileIds: List<Int>, account: AccountSnapshot): Set<Int> {
         if (fileIds.isEmpty() || !AccountSession.isCurrent(account)) return emptySet()
-        val client = TdLibClient.client
         val eligibleFileIds = fileIds.filterNot(::isTrackedFileDeletionProtected)
         if (eligibleFileIds.isEmpty()) return emptySet()
         val confirmed = ConcurrentHashMap.newKeySet<Int>()
-        val startedNs = System.nanoTime()
-        // Limit native deletion requests too. Recheck every file immediately
-        // before issuance: the queued episode may now be the playing video.
-        for (batch in cacheTdLibRequestBatches(eligibleFileIds)) {
-            if (!AccountSession.isCurrent(account)) break
-            val remainingNs = cacheTdLibRemainingNanos(startedNs, System.nanoTime(), TD_API_TIMEOUT_MS)
-            if (remainingNs <= 0L) break
-            val latch = CountDownLatch(batch.size)
-            val accepting = AtomicBoolean(true)
-            var completed = false
-            try {
-                batch.forEach { fileId ->
-                    try {
-                        if (!AccountSession.isCurrent(account) ||
-                            isTrackedFileDeletionProtected(fileId)
-                        ) {
-                            latch.countDown()
-                            return@forEach
-                        }
-                        client.send(TdApi.DeleteFile(fileId)) { response ->
+        // This function runs on the existing cache cleanup executor, never the
+        // main thread. Keep a single shared deadline and bounded request batches.
+        runBlocking {
+            withTimeoutOrNull(TD_API_TIMEOUT_MS) {
+                for (batch in cacheTdLibRequestBatches(eligibleFileIds)) {
+                    if (!AccountSession.isCurrent(account)) break
+                    batch.map { fileId ->
+                        async {
                             try {
-                                if (accepting.get() && AccountSession.isCurrent(account)) {
-                                    if (response is TdApi.Ok) {
-                                        confirmed.add(fileId)
-                                        prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }
-                                    } else if (response is TdApi.Error) {
-                                        Log.w(TAG, "TDLib refused cache eviction fileId=$fileId code=${response.code} message=${response.message}")
-                                    }
+                                val deleted = TdLibTelegramFileGateway.deleteForOwner(account, fileId) {
+                                    isTrackedFileDeletionProtected(fileId)
                                 }
-                            } finally {
-                                latch.countDown()
+                                if (deleted) AccountSession.runIfCurrent(account) {
+                                    confirmed.add(fileId)
+                                    prefs?.edit { remove(KEY_ACCESS_PREFIX + fileId) }
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Log.w(TAG, "Could not request TDLib cache eviction fileId=$fileId", error)
                             }
                         }
-                    } catch (error: Exception) {
-                        Log.w(TAG, "Could not request TDLib cache eviction fileId=$fileId", error)
-                        latch.countDown()
-                    }
+                    }.awaitAll()
                 }
-                completed = try {
-                    // Include batch submission time in the single shared deadline.
-                    val waitNs = cacheTdLibRemainingNanos(
-                        startedNs, System.nanoTime(), TD_API_TIMEOUT_MS
-                    )
-                    if (waitNs > 0L) latch.await(waitNs, TimeUnit.NANOSECONDS)
-                    else false
-                } catch (interrupted: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    false
-                }
-            } finally {
-                accepting.set(false)
-            }
-            if (!completed) {
-                Log.w(TAG, "TDLib cache deletion batch timed out; deferring remaining files")
-                break
             }
         }
         return confirmed.toSet()
