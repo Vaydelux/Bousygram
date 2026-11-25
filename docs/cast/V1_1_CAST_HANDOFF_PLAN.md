@@ -94,3 +94,6 @@ Added single process-wide lifetime, debug shared-claim binding, exact mutex owne
 
 ## Rolling HLS R2k — deletion and pre-cache fence
 Owner-explicit pre-cache cancel and non-waiting tracked cache deletion fence added with bounded deadline and three regression tests. No live producer or APK changes; raw logout teardown remains separate.
+
+## Rolling HLS R2l — finite private output/store qualification
+Native callback staging, independent-verifier interface, fMP4 parsing and rolling segment feed integrated in debug qualification path with six tests. No full-length streaming or real semantic verifier yet; no live receiver or native loading. Next actual semantic media verification and real JNI-to-store execution, then streaming backpressure and cleanup qualification.
