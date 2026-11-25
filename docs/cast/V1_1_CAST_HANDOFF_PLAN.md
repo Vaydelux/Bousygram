@@ -169,3 +169,6 @@ Consolidate tested retention planner, scratch-file store and paced producer with
 
 ## Rolling HLS R3l — live Media3 receiver candidate
 Bounded retry ranges locally qualified; debug-only real-time synthetic live HLS DataSource and 72s Media3 test implemented, pending Android execution. Candidate detached while prior PR gates run. No LAN or TDLib changes.
+
+## Rolling HLS R3m — live timing repair and integration gate
+Native TS live replay exact-duration rejection prompted RFC-rounded target policy with unchanged verified timing and hard cap. Local seven timing/range/pacing regression groups passed. R3l live receiver candidate consolidated for actual Android qualification. Native root cause and live playback still require fresh execution.

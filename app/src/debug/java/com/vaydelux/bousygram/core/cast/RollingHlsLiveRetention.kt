@@ -22,7 +22,7 @@ internal class RollingHlsLiveRetention(
     private var bytes = 0L
 
     init {
-        require(targetUs in 1_000_000L..12_000_000L)
+        require(targetUs in 1_000_000L..12_000_000L && targetUs % 1_000_000L == 0L)
         require(capacity in 1..32 && byteCap in 1L..32L * 1024 * 1024)
     }
 
@@ -39,7 +39,7 @@ internal class RollingHlsLiveRetention(
 
     fun append(segment: Segment): Boolean {
         if (clock() == null || ended || segment.sequence != next || next == Long.MAX_VALUE ||
-            segment.durationUs !in 1L..targetUs || segment.bytes !in 1L..8L * 1024 * 1024 ||
+            !acceptsDuration(targetUs, segment.durationUs) || segment.bytes !in 1L..8L * 1024 * 1024 ||
             entries.size >= capacity || segment.bytes > byteCap - bytes) return false
         entries[next] = Entry(segment)
         next++
@@ -116,6 +116,16 @@ internal class RollingHlsLiveRetention(
         if (sequence !in eligible()) return false
         bytes -= checkNotNull(entries.remove(sequence)).segment.bytes
         return true
+    }
+
+    companion object {
+        /** RFC 8216 target duration uses nearest integer seconds. Keep the
+         * exact verified microseconds for pacing and retention; ties round up.
+         * Never exceed the independent 12-second media-unit cap. */
+        fun acceptsDuration(targetUs: Long, durationUs: Long): Boolean =
+            targetUs in 1_000_000L..12_000_000L && targetUs % 1_000_000L == 0L &&
+                durationUs in 1L..12_000_000L &&
+                (durationUs + 500_000L) / 1_000_000L <= targetUs / 1_000_000L
     }
 
     fun retainedBytes() = bytes

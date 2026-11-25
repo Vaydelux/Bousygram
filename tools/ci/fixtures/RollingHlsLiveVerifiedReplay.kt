@@ -47,20 +47,29 @@ private fun replay(file: File, expected: Long) {
                             peak = maxOf(peak, store.retainedBytes())
                             peakSlots = maxOf(peakSlots, store.retainedCount())
                             check(directory.listFiles()!!.sumOf { it.length() } == store.retainedBytes())
-                            if (published >= 3L) {
-                                store.openPlaylist()!!.use { response ->
-                                    val body = response.text()!!
-                                    check(body.contains("#EXT-X-MEDIA-SEQUENCE:${published - 2}\n"))
-                                    check(body.contains("segment/$published.m4s\n"))
-                                    check(!body.contains("#EXT-X-ENDLIST"))
-                                }
+                            // Actual verified durations may differ by a fraction
+                            // of a second; the minimum visible duration is 18s,
+                            // not an unconditional three-segment playlist.
+                            store.openPlaylist()?.use { response ->
+                                val body = response.text()!!
+                                val lines = body.lineSequence().toList()
+                                val first = lines.single { it.startsWith("#EXT-X-MEDIA-SEQUENCE:") }
+                                    .substringAfter(':').toLong()
+                                val visible = lines.filter { it.startsWith("segment/") }
+                                    .map { it.removePrefix("segment/").removeSuffix(".m4s").toLong() }
+                                val duration = lines.filter { it.startsWith("#EXTINF:") }
+                                    .sumOf { java.math.BigDecimal(it.substringAfter(':').substringBefore(','))
+                                        .movePointRight(6).longValueExact() }
+                                check(first > 0 && visible == (first..published).toList())
+                                check(first <= count + 1 && duration >= 3 * SIX_SECONDS)
+                                check(!body.contains("#EXT-X-ENDLIST"))
                                 check(store.initialization()!!.contentEquals(init))
                                 while (count < published) readNext()
                             }
                         }
                         is RollingHlsLiveProducer.Step.Waiting -> {
                             check(step.reason == RollingHlsLiveProducer.Reason.PACING)
-                            check(step.retryAfterUs in 1L..SIX_SECONDS)
+                            check(RollingHlsLiveRetention.acceptsDuration(SIX_SECONDS, step.retryAfterUs))
                             now += step.retryAfterUs
                         }
                         RollingHlsLiveProducer.Step.End -> break

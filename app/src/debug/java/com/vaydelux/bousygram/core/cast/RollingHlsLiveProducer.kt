@@ -35,7 +35,7 @@ internal class RollingHlsLiveProducer(
     private var pending: Unit? = null
     private var lastClock = -1L
 
-    init { require(targetUs in 1_000_000L..12_000_000L) }
+    init { require(targetUs in 1_000_000L..12_000_000L && targetUs % 1_000_000L == 0L) }
 
     private fun access(): Long {
         val now = nowUs()
@@ -65,8 +65,8 @@ internal class RollingHlsLiveProducer(
                 return Step.End
             }
             if (item.sequence != nextSequence || nextSequence == Long.MAX_VALUE || item.startUs != nextStartUs ||
-                item.durationUs !in 1L..targetUs || item.bytes.size !in 1..8 * 1024 * 1024 ||
-                item.startUs > Long.MAX_VALUE - item.durationUs) throw IOException("Invalid verified live unit")
+                !RollingHlsLiveRetention.acceptsDuration(targetUs, item.durationUs) || item.bytes.size !in 1..8 * 1024 * 1024 ||
+                item.startUs > Long.MAX_VALUE - item.durationUs) throw IOException("Invalid verified live unit: sequence=${item.sequence}, startUs=${item.startUs}, durationUs=${item.durationUs}, expectedSequence=$nextSequence, expectedStartUs=$nextStartUs")
             val now = access()
             if (now < dueUs) return Step.Waiting(Reason.PACING, dueUs - now)
             val blocked = blockedSince
