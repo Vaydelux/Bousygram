@@ -76,8 +76,16 @@ class MainActivitySmokeTest {
         )
         assertTrue(realOutput, realOutput.contains("Complete"))
         assertTrue(
-            "Real mode chooser should replace the debug preview after onNewIntent",
-            device.wait(Until.hasObject(By.text("Choose a media experience to get started.")), 10_000)
+            "Real mode chooser should expose its Telegram route after onNewIntent",
+            device.wait(Until.hasObject(By.res("mode-telegram")), 10_000)
+        )
+        assertTrue(
+            "Real mode chooser should expose its Extras route after onNewIntent",
+            device.wait(Until.hasObject(By.res("mode-extras")), 10_000)
+        )
+        assertTrue(
+            "Debug preview must be removed when the real mode chooser is shown",
+            device.wait(Until.gone(By.text("No playable media found in this folder")), 10_000)
         )
 
         val previewOutput = instrumentation.runShellCommand(
@@ -89,7 +97,10 @@ class MainActivitySmokeTest {
             "Debug preview should return after a subsequent preview intent",
             device.wait(Until.hasObject(By.text("No playable media found in this folder")), 10_000)
         )
-    }
+        assertTrue(
+            "Real mode chooser must no longer be present in the debug preview",
+            device.wait(Until.gone(By.res("mode-telegram")), 10_000)
+        )
 
     private fun launchMainActivity(
         instrumentation: android.app.Instrumentation,

@@ -40,6 +40,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,7 +93,11 @@ fun BousygramModeSelection(
     val horizontalCards = compact && metrics.widthDp >= 690.dp
     PremiumGridBackdrop {
         Box(
-            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(
+            // Expose the existing mode-card tags to real-activity UIAutomator tests.
+            // No visible text, layout, styling or focus behavior changes.
+            Modifier.fillMaxSize()
+                .semantics { testTagsAsResourceId = true }
+                .windowInsetsPadding(WindowInsets.safeDrawing).padding(
                 horizontal = if (metrics.isTv) 32.dp else 18.dp,
                 vertical = if (compact) 8.dp else 22.dp
             ),

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertHasClickAction
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
@@ -33,9 +34,9 @@ class ModeSelectionInstrumentedTest {
                 else BousygramModeSelection(onTelegram = {}, onExtras = { extras = true })
             }
         }
-        // The redundant second app-name line was removed from the spacious hero.
-        // Its stable tagline remains present on both compact and wide layouts.
-        composeRule.onNodeWithText("Your screen. Your library.").assertExists()
+        // Assert the actual navigation actions, not mutable brand copy.
+        composeRule.onNodeWithTag("mode-telegram").assertHasClickAction()
+        composeRule.onNodeWithTag("mode-extras").assertHasClickAction()
         writeUiEvidence(composeRule, "mode-selection")
         composeRule.onNodeWithTag("mode-extras").performClick()
         composeRule.onNodeWithText("More to Explore").assertExists()
