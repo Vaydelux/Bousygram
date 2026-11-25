@@ -19,53 +19,61 @@ class BoundedTelegramRemuxInstrumentedTest {
         }
     private fun scratch(): File = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "remux-test-").toFile()
 
-    @Test fun remuxCompatibleMkvAndTsWithoutDroppingTracks() {
-        for (name in listOf("seek-control.mp4", "indexed.mkv", "unindexed.ts")) {
-            val dir = scratch()
-            try {
-                val result = BoundedTelegramRemuxer.convert(fixture(name), dir)
-                // Device/platform extraction may conservatively reject a TS or reordered
-                // stream. Do not mark an unsupported input as a successful conversion.
-                if (result is BoundedTelegramRemuxer.Result.Rejected) {
-                    assertFalse("Baseline MP4 remux must succeed: ${result.reason}", name == "seek-control.mp4")
-                    assertTrue("Unexpected remux failure for $name: ${result.reason}",
-                        result.reason in setOf(BoundedTelegramRemuxer.Failure.UNSUPPORTED_SAMPLE,
-                            BoundedTelegramRemuxer.Failure.UNSUPPORTED_CODEC,
-                            BoundedTelegramRemuxer.Failure.UNSUPPORTED_TRACKS,
-                            BoundedTelegramRemuxer.Failure.UNSUPPORTED_TIMELINE))
-                    assertTrue(dir.listFiles().orEmpty().isEmpty())
-                    android.util.Log.i("CastRemuxFixtures", "$name unavailable: ${result.reason}")
-                    continue
-                }
-                val ready = result as BoundedTelegramRemuxer.Result.Ready
-                ready.output.use { output ->
-                    assertTrue(output.file.length() in 1L..BoundedTelegramRemuxer.MAX_OUTPUT_BYTES)
-                    val extractor = MediaExtractor()
-                    try {
-                        extractor.setDataSource(output.file.absolutePath)
-                        val mimes = (0 until extractor.trackCount).map {
-                            extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)
-                        }.toSet()
-                        assertEquals(setOf("video/avc", "audio/mp4a-latm"), mimes)
-                        for (index in 0 until extractor.trackCount) extractor.selectTrack(index)
-                        val counts = IntArray(extractor.trackCount)
-                        while (extractor.sampleTrackIndex >= 0) {
-                            counts[extractor.sampleTrackIndex]++
-                            if (!extractor.advance()) break
-                        }
-                        assertTrue("All output tracks must contain samples", counts.all { it > 0 })
-                        val videoIndex = (0 until extractor.trackCount).first {
-                            extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME) == "video/avc"
-                        }
-                        assertEquals("Synthetic baseline video frame count", 144, counts[videoIndex])
-                    } finally { extractor.release() }
-                    val busy = BoundedTelegramRemuxer.convert(fixture(name), dir)
-                    assertEquals(BoundedTelegramRemuxer.Result.Rejected(BoundedTelegramRemuxer.Failure.BUSY), busy)
-                    android.util.Log.i("CastRemuxFixtures", "$name remuxed")
-                }
+    @Test fun baselineMp4RetainsEveryVideoSample() = qualify("seek-control.mp4", true)
+    @Test fun mkvReportsConversionOrExplicitRejection() = qualify("indexed.mkv", false)
+    @Test fun tsReportsConversionOrExplicitRejection() = qualify("unindexed.ts", false)
+
+    private fun qualify(name: String, mandatory: Boolean) {
+        val dir = scratch()
+        try {
+            val result = BoundedTelegramRemuxer.convert(fixture(name), dir)
+            if (result is BoundedTelegramRemuxer.Result.Rejected) {
+                assertFalse("Baseline MP4 remux must succeed: ${result.reason}", mandatory)
+                assertTrue("Unexpected remux failure for $name: ${result.reason}",
+                    result.reason in setOf(BoundedTelegramRemuxer.Failure.UNSUPPORTED_SAMPLE,
+                        BoundedTelegramRemuxer.Failure.UNSUPPORTED_CODEC,
+                        BoundedTelegramRemuxer.Failure.UNSUPPORTED_TRACKS,
+                        BoundedTelegramRemuxer.Failure.UNSUPPORTED_TIMELINE,
+                        BoundedTelegramRemuxer.Failure.OUTPUT_VERIFICATION_FAILED))
                 assertTrue(dir.listFiles().orEmpty().isEmpty())
-            } finally { dir.deleteRecursively() }
-        }
+                android.util.Log.i("CastRemuxFixtures", "$name unavailable: ${result.reason}")
+                return
+            }
+            val ready = result as BoundedTelegramRemuxer.Result.Ready
+            ready.output.use { output ->
+                assertTrue(output.file.length() in 1L..BoundedTelegramRemuxer.MAX_OUTPUT_BYTES)
+                val source = sampleCounts(fixture(name))
+                val converted = sampleCounts(output.file)
+                assertEquals("Source track sample counts must be preserved for $name", source, converted)
+                assertEquals("Synthetic fixture video frame count for $name", 144, converted["video/avc"])
+                val busy = BoundedTelegramRemuxer.convert(fixture(name), dir)
+                assertEquals(BoundedTelegramRemuxer.Result.Rejected(BoundedTelegramRemuxer.Failure.BUSY), busy)
+                android.util.Log.i("CastRemuxFixtures", "$name remuxed: $converted")
+            }
+            assertTrue(dir.listFiles().orEmpty().isEmpty())
+        } finally { dir.deleteRecursively() }
+    }
+
+    private fun sampleCounts(file: File): Map<String, Int> {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(file.absolutePath)
+            val mimes = (0 until extractor.trackCount).map {
+                checkNotNull(extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME))
+            }
+            assertEquals(setOf("video/avc", "audio/mp4a-latm"), mimes.toSet())
+            assertEquals(2, mimes.size)
+            for (index in mimes.indices) extractor.selectTrack(index)
+            val counts = IntArray(mimes.size)
+            while (extractor.sampleTrackIndex >= 0) {
+                counts[extractor.sampleTrackIndex]++
+                if (!extractor.advance()) break
+            }
+            assertTrue("All tracks must contain samples", counts.all { it > 0 })
+            val result = mimes.indices.associate { mimes[it] to counts[it] }
+            android.util.Log.i("CastRemuxFixtures", "Sample counts: $result")
+            return result
+        } finally { extractor.release() }
     }
 
     @Test fun cancellationAndSizeRejectionLeaveNoScratchOutput() {
