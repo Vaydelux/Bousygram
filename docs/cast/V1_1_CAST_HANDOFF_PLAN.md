@@ -109,3 +109,6 @@ Mandatory decoded-content conservation and exact Kotlin sample verifier/rolling 
 
 ## Rolling HLS R2p — native AAC clock integrity
 Native decoded PCM hash regression blocks long-duration enablement. Candidate strict LC sample-clock repair, host C test and normalized AAC payload diagnostics added; all strict gates retained. Real Android result pending.
+
+## Rolling HLS R2q — owned sequential source
+Bounded native window renewal, pending-ticket recovery and one-shot source worker integrated into qualification coordinator. Five tests. No live TDLib or duration-cap increase until real media integrity and storage qualification pass.

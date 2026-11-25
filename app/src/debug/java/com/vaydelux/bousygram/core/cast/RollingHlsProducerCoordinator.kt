@@ -40,6 +40,14 @@ internal object RollingHlsProducerCoordinator {
             }
         }
 
+        /** Qualification-only source worker. One sequential reader for the
+         * native invocation; no library load or automatic playback caller. */
+        suspend fun <T> runSourceWorker(block: suspend (RollingHlsSource) -> T): T =
+            runWorker { driver, lease ->
+                val source = RollingHlsOwnedSource(driver, lease, ::active).source()
+                try { block(source) } finally { source.close() }
+            }
+
         fun retire() {
             lifetime.retire(ticket)
             ownership.retire(lease)
@@ -48,6 +56,12 @@ internal object RollingHlsProducerCoordinator {
         suspend fun reconcile(window: RollingHlsDownloadOwnership.Window): Boolean {
             if (window.lease !== lease) return false
             return driver.reconcile(window)
+        }
+
+        /** Recover a ticket lost by a cancelled open/read coroutine. */
+        suspend fun reconcilePending(): Boolean {
+            val pending = ownership.pendingWindow(lease) ?: return ownership.state().reservedBytes == 0L
+            return driver.reconcile(pending)
         }
 
         /** Must be called only on independently confirmed old-client teardown.

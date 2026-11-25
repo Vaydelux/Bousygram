@@ -147,6 +147,12 @@ internal class RollingHlsDownloadOwnership(
         return true
     }
 
+    /** Recover the exact reservation after dispatch cancellation, even when
+     * no Open result was delivered to the caller. Never returns another lease's ticket. */
+    @Synchronized
+    fun pendingWindow(lease: Lease): Window? =
+        window?.takeIf { owner === lease && it.lease === lease }
+
     @Synchronized
     fun state(): State = State(phase, window?.limit?.toLong() ?: 0L, cursor)
 
