@@ -1,0 +1,18 @@
+# Bousygram v1.1 — bounded cast and handoff milestone
+
+Baseline: accepted v1.0.0 debug prerelease, main 37ce0ae406a0bb09cd6f77dc62a209d2fcd6a37c. Retain UNSLOP and all existing media engines. No cloud/VPS/hosted TDLib service. Temporary feature branch until qualified; do not replace the accepted tag.
+
+## Implemented foundation
+- MediaForgeCastPolicy produces in-memory HLS/DASH/MP4 receiver load plans with explicit play intent, VOD resume or live default position, qualified-host policy, no credential query or fragments, stable per-plan text track IDs, and selected VTT/TTML captions. An empty host set denies all; do not automatically trust a WebView-discovered host. The Default Media Receiver fetches its own resources: sender-side checks do not enforce receiver DNS, child manifest/segment, redirect, encryption or CORS policies. Require authorized, receiver-qualified media origins before enabling direct casting.
+- SrtWebVtt is a strict bounded UTF-8 conversion utility, not a subtitle HTTP server. It preserves timestamps and plain text, rejects malformed input and does not transcode video. SRT selection must fail closed until the converted VTT can be delivered via a secure receiver-readable resource.
+- TelegramTvHandoff contains only chat/message reference, position and Play intent; resolves a TV-local file ID after a paired peer is confirmed. It does not treat a phone-local TDLib file ID as globally meaningful. The pairing flag is a contract precondition, NOT authentication. Production wiring must use authenticated pairing plus explicit receiver acceptance and bind lookup and player launch to the same account generation.
+- Tests cover format mapping, rejected origins, selected tracks, SRT parsing/budgets and receiver-local reference resolution. No UI, manifest, dependency, network listener, existing Cast controller or Telegram playback changes.
+
+## Finite remaining gates
+C1: create isolated Extras Cast sender session and lifecycle ownership, device discovery/permission, explicit user Cast action, validated MediaInfo/MediaTrack mapping, load acknowledgement and errors. Do not use Telegram's auto-load-on-connected observer for Extras. No arbitrary receiver URL loads; qualify chosen media origins including manifest children/redirects and CORS, or use the native guarded receiver path.
+C2: wire user-imported SRT and discovered tracks, bounded temporary VTT delivery with authenticated short-lived scoped capability and receiver-compatible secure transport, Off/language switching, style where supported, cleanup; never leak credentials or forward WebView cookies.
+C3: remote state, play/pause/seek/volume, ownership-safe disconnect and resume; avoid duplicate playback or wrong-source takeover.
+C4: Bousygram TV receiver: select Cast Connect configuration or authenticated local pairing, confirm receiver/account authorization; use existing native Media3 guarded transport for Extras, and TV-local TDLib for Telegram. Handle replay, timeout, account switching, unpaired senders and peer identity. Do not expose arbitrary Intent URL or unauthenticated LAN listener.
+C5: actual phone/TV and Chromecast trials with authorized test media, subtitles, VOD/live, network loss, screen off, storage budget, and denied/expired sessions. Production gates remain unchanged. No APK publication or merge until scoped tests pass.
+
+Current state: foundation only; not yet usable as a Cast feature, no Cast SDK session or pairing network implemented. No hosting or new third-party dependencies introduced.
