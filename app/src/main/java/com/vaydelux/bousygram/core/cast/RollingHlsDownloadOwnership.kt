@@ -34,6 +34,7 @@ internal class RollingHlsDownloadOwnership(
     private var phase = Phase.IDLE
     private var cursor = 0L
     private var retired = false
+    private var issueOutstanding = false
 
     @Synchronized
     fun acquire(account: AccountSnapshot, fileId: Int, size: Long): Lease? {
@@ -72,6 +73,7 @@ internal class RollingHlsDownloadOwnership(
             nowMs() !in 0L until ticket.expiresAtMs ||
             !RollingHlsBudget.admits(storage.appBytes, storage.tdLibBytes, storage.freeBytes, ticket.limit.toLong())) return false
         phase = Phase.ISSUING
+        issueOutstanding = true
         return true
     }
 
@@ -82,8 +84,9 @@ internal class RollingHlsDownloadOwnership(
      */
     @Synchronized
     fun acknowledge(ticket: Window, accepted: Boolean): Boolean {
-        if (window !== ticket || phase != Phase.ISSUING) return false
-        val valid = accepted && usable(ticket.lease) && nowMs() in 0L until ticket.expiresAtMs
+        if (window !== ticket || !issueOutstanding) return false
+        issueOutstanding = false
+        val valid = phase == Phase.ISSUING && accepted && usable(ticket.lease) && nowMs() in 0L until ticket.expiresAtMs
         phase = if (valid) Phase.ACTIVE else Phase.QUARANTINED
         return valid
     }
@@ -112,7 +115,7 @@ internal class RollingHlsDownloadOwnership(
     @Synchronized
     fun confirmStopped(ticket: Window, storage: Storage, nativeInactive: Boolean): Boolean {
         if (window !== ticket || phase !in setOf(Phase.ACTIVE, Phase.QUARANTINED) ||
-            !nativeInactive || !current(ticket.lease.owner)) return false
+            issueOutstanding || !nativeInactive || !current(ticket.lease.owner)) return false
         if (!RollingHlsBudget.admits(storage.appBytes, storage.tdLibBytes, storage.freeBytes, 0L)) return false
         // A live producer cannot advance past a partial window. It may reserve
         // the unconsumed range again from the exact observed cursor.
@@ -153,6 +156,7 @@ internal class RollingHlsDownloadOwnership(
         phase = Phase.IDLE
         cursor = 0L
         retired = false
+        issueOutstanding = false
     }
 
     companion object {

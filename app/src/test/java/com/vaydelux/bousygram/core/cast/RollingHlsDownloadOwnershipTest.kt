@@ -67,6 +67,8 @@ class RollingHlsDownloadOwnershipTest {
         val window = gate.reserve(lease, 0, storage)!!
         assertTrue(gate.beginIssue(window, storage))
         gate.retire(lease)
+        // A status read before the in-flight dispatch returns is not a stop proof.
+        assertFalse(gate.confirmStopped(window, storage, true))
         assertFalse(gate.acknowledge(window, true))
         assertFalse(gate.canRead(window, 0, 1))
         assertEquals(RollingHlsDownloadOwnership.Phase.QUARANTINED, gate.state().phase)
