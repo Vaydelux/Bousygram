@@ -61,3 +61,5 @@ for ext in mkv ts; do
 done
 timeout --kill-after=10s 300s python3 "$root/verify_runtime.py" "$out/extended" --extended
 echo "Android x86-64 extended JNI qualification passed"
+timeout --kill-after=10s 240s bash "$root/../ci/qualify_rolling_hls_tls.sh" "$out"
+echo "Mutually authenticated TLS host receiver replay passed"

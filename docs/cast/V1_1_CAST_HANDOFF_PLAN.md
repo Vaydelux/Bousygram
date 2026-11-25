@@ -136,3 +136,6 @@ Connect verified streaming output to private session/dispatcher with separate tr
 
 ## Rolling HLS R2y — final consumption and local priming evidence
 Automatic verified-init handoff and final segment consumption under arbitrary callback boundaries. Exact-blob local C arithmetic tests and independent source metadata inspection passed; Android output and Kotlin integration pending.
+
+## Rolling HLS R2z — native integrity closure and authenticated receiver replay
+All exact-head workflows passed, including six-minute Android JNI integrity, late cancellation and measured process memory. Added ephemeral mTLS loopback actual native media replay with peer pins and byte-consumption acknowledgement. New execution pending; actual player, pairing, LAN TLS and source reclamation remain gates.
