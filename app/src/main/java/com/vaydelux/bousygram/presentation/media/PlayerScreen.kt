@@ -36,6 +36,7 @@ import com.vaydelux.bousygram.core.media.PlaybackFileRecovery
 import com.vaydelux.bousygram.core.cast.CastLanStreamingServer
 import com.vaydelux.bousygram.core.cast.CastPlaybackStatus
 import com.vaydelux.bousygram.core.cast.CastSessionController
+import com.vaydelux.bousygram.core.cast.TelegramCastCompatibility
 import com.vaydelux.bousygram.core.cast.CastRouteButtonFactory
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.data.store.SessionHealthRecord
@@ -549,6 +550,18 @@ fun PlayerScreen(
     var castWasConnected by remember { mutableStateOf(false) }
     var castWasPlaying by remember { mutableStateOf(false) }
     var lastCastPositionMs by remember { mutableLongStateOf(0L) }
+    var castRouteFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(castRouteFailed) {
+        if (castRouteFailed) {
+            CastSessionController.reportRouteFailure()
+            castRouteFailed = false
+        }
+    }
+    LaunchedEffect(castState.errorMessage) {
+        castState.errorMessage?.let { message ->
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
 
     DisposableEffect(context, isAndroidTv) {
         if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED && !isAndroidTv) CastSessionController.initialize(context)
@@ -560,7 +573,7 @@ fun PlayerScreen(
             if (castWasConnected) {
                 castWasConnected = false
                 playerEngine.seekTo(lastCastPositionMs.coerceAtLeast(0L))
-                if (castWasPlaying) {
+                if (castWasPlaying && castState.errorMessage == null) {
                     explicitlyPaused = false
                     playerEngine.play()
                     isPlaying = true
@@ -575,23 +588,28 @@ fun PlayerScreen(
             return@LaunchedEffect
         }
         if (!hasLocalNetworkPermission) {
+            android.widget.Toast.makeText(context, "Cast requires local network permission.", android.widget.Toast.LENGTH_LONG).show()
             CastSessionController.endSession()
             return@LaunchedEffect
         }
         val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
         val name = current.fileName.orEmpty()
         val mime = VideoFormatSupport.httpContentType(current.mimeType, name, current.title)
-        if (!mime.equals("video/mp4", ignoreCase = true) &&
-            !name.endsWith(".mp4", ignoreCase = true) && !name.endsWith(".m4v", ignoreCase = true)
-        ) {
-            android.widget.Toast.makeText(context, "Cast currently supports MP4 media only", android.widget.Toast.LENGTH_LONG).show()
+        val castRejection = TelegramCastCompatibility.rejection(mime, name)
+        if (castRejection != null) {
+            android.widget.Toast.makeText(context, castRejection, android.widget.Toast.LENGTH_LONG).show()
             CastSessionController.endSession()
             return@LaunchedEffect
         }
         val size = current.fileSizeBytes.takeIf { it > 0L } ?: withContext(Dispatchers.IO) {
             com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer.resolveFileSizeWithin(current.fileId, 1_000L)
         }
-        val mediaType = if (mime.equals("application/octet-stream", ignoreCase = true)) "video/mp4" else mime
+        if (size <= 0L) {
+            android.widget.Toast.makeText(context, "Cast unavailable: Telegram file size is not ready. Try again.", android.widget.Toast.LENGTH_LONG).show()
+            CastSessionController.endSession()
+            return@LaunchedEffect
+        }
+        val mediaType = "video/mp4"
         // Preserve local position and Play/Pause intent before loading the receiver.
         val handoffPosition = playerEngine.currentPositionMs.coerceAtLeast(0L)
         val handoffPlay = playerEngine.playWhenReady && !explicitlyPaused
@@ -631,8 +649,9 @@ fun PlayerScreen(
         isPlaying = false
     }
 
-    LaunchedEffect(castState.connected, castState.positionMs, castState.playbackStatus, castWasConnected) {
-        if (!castState.connected || !castWasConnected || castState.playbackStatus == CastPlaybackStatus.Idle) return@LaunchedEffect
+    LaunchedEffect(castState.connected, castState.loading, castState.positionMs, castState.playbackStatus, castWasConnected) {
+        if (!castState.connected || !castWasConnected || castState.loading ||
+            castState.playbackStatus !in setOf(CastPlaybackStatus.Playing, CastPlaybackStatus.Paused, CastPlaybackStatus.Buffering)) return@LaunchedEffect
         lastCastPositionMs = castState.positionMs
         if (castState.durationMs > 0L) duration = castState.durationMs
         position = castState.positionMs
@@ -2836,19 +2855,26 @@ fun PlayerScreen(
                     AndroidView(
                         modifier = Modifier.size(48.dp),
                         factory = { viewContext ->
-                            CastRouteButtonFactory.create(viewContext).also { button ->
-                                com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(
-                                    viewContext.applicationContext,
-                                    button
-                                )
-                                button.contentDescription = "Choose a Cast device"
+                            try {
+                                CastRouteButtonFactory.create(viewContext).also { button ->
+                                    com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(
+                                        viewContext.applicationContext,
+                                        button
+                                    )
+                                    button.contentDescription = "Choose a Cast device"
+                                }
+                            } catch (_: Exception) {
+                                castRouteFailed = true
+                                android.view.View(viewContext)
                             }
                         }
                     )
                 }
                 if (castState.connected && !castState.deviceName.isNullOrBlank()) {
                     Text(
-                        "Casting to ${castState.deviceName}",
+                        if (castState.loading) "Connecting to ${castState.deviceName}…" else
+                            if (castState.playbackStatus == CastPlaybackStatus.Idle) "TV connected" else
+                                "Casting to ${castState.deviceName}",
                         color = Color.White,
                         style = MaterialTheme.typography.labelLarge
                     )

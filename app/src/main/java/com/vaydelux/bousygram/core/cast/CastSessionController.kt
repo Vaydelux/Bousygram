@@ -190,9 +190,10 @@ object CastSessionController {
     fun endSession(stopReceiver: Boolean = true) {
         val manager = castSessionManager()
         val owned = ownedSession
-        if (owned != null && manager?.currentCastSession === owned) {
+        if (owned != null && manager != null && manager.currentCastSession === owned) {
             val remote = remoteClient()
-            val sameMedia = remote?.mediaInfo?.contentId == null || remote.mediaInfo?.contentId == expectedUrl
+            val currentUrl = remote?.mediaInfo?.contentId
+            val sameMedia = currentUrl == null || currentUrl == expectedUrl
             if (stopReceiver && sameMedia) runCatching { remote?.stop() }
             runCatching { manager.endCurrentSession(stopReceiver && sameMedia) }
         }
@@ -283,6 +284,10 @@ object CastSessionController {
         loadTimeout = null
         expectedUrl = null
         loadAccepted = false
+    }
+
+    fun reportRouteFailure() {
+        if (initialized && ownedSession == null) fail("Cast device selection is unavailable on this device.")
     }
 
     private fun rejectLoad(message: String, stopReceiver: Boolean = true) {
