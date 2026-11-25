@@ -163,3 +163,6 @@ Bind paired Keystore identities to TLS1.3 loopback data delivery, inject transpo
 
 ## Rolling HLS R3h — authenticated control and sustained finite playback
 Versioned TLS GET/ACK transport, release-bound encrypted retirement callback, separate control capability and negative checks. Add 36s six-fragment finite receiver gate, keeping previous short gates. No live eviction or LAN; actual execution pending.
+
+## Rolling HLS R3i–R3k — live retention, actual files and paced publication
+Consolidate tested retention planner, scratch-file store and paced producer with verified-input adapter and explicit ENDLIST. Prior exact-head 139 Android tests passed. New host pacing test and regression groups passed; actual native-media verifier replay gate added, fresh qualification pending. No live player route, LAN listener or TDLib source reclamation.

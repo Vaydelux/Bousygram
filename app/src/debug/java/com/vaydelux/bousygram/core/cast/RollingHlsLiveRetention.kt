@@ -18,6 +18,7 @@ internal class RollingHlsLiveRetention(
     private var next = 1L
     private var lastClock = -1L
     private var stopped = false
+    private var ended = false
     private var bytes = 0L
 
     init {
@@ -37,7 +38,7 @@ internal class RollingHlsLiveRetention(
     }
 
     fun append(segment: Segment): Boolean {
-        if (clock() == null || segment.sequence != next || next == Long.MAX_VALUE ||
+        if (clock() == null || ended || segment.sequence != next || next == Long.MAX_VALUE ||
             segment.durationUs !in 1L..targetUs || segment.bytes !in 1L..8L * 1024 * 1024 ||
             entries.size >= capacity || segment.bytes > byteCap - bytes) return false
         entries[next] = Entry(segment)
@@ -51,14 +52,33 @@ internal class RollingHlsLiveRetention(
         if (clock() == null) return null
         val visible = entries.values.filter { it.untilUs == null }
         val duration = visible.sumOf { it.segment.durationUs }
-        if (duration < 3 * targetUs) return null
+        if (visible.isEmpty() || (!ended && duration < 3 * targetUs)) return null
         visible.forEach { it.longestPlaylistUs = maxOf(it.longestPlaylistUs, duration) }
         return visible.map { it.segment }
     }
 
+    /** At startup build the minimum playlist; afterwards require the last
+     * publication to have been advertised before advancing the live edge. */
+    fun canAdvance(): Boolean {
+        if (clock() == null || ended) return false
+        val visible = entries.values.filter { it.untilUs == null }
+        return visible.sumOf { it.segment.durationUs } < 3 * targetUs ||
+            (visible.lastOrNull()?.longestPlaylistUs ?: 0L) > 0L
+    }
+
+    fun finish(lastSequence: Long): Boolean {
+        if (clock() == null || ended || lastSequence <= 0 || lastSequence != next - 1 ||
+            entries[lastSequence]?.untilUs != null || !entries.containsKey(lastSequence)) return false
+        ended = true
+        return true
+    }
+
+    fun isEnded() = ended
+
     /** Withdraw only an advertised oldest entry while preserving 3 targets. */
     fun withdrawOldest(): Boolean {
         val now = clock() ?: return false
+        if (ended) return false
         val visible = entries.values.filter { it.untilUs == null }
         val oldest = visible.firstOrNull() ?: return false
         if (oldest.longestPlaylistUs == 0L ||

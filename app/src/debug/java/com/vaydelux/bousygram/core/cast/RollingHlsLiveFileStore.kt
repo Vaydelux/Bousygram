@@ -44,8 +44,24 @@ internal class RollingHlsLiveFileStore(
         return !revoked
     }
 
+    @Synchronized fun available(): Boolean = active()
+
+    /** Serialized publication and optional withdrawal. Old playlist responses
+     * must be finished before any advancement. A new playlist sees both changes
+     * together. Admission includes all withdrawn files until actual deletion. */
+    @Synchronized fun publishPaced(segment: RollingHlsLiveRetention.Segment, input: InputStream): Boolean {
+        if (!active() || playlist != null || !planner.canAdvance() || !reclaim()) return false
+        if (!publish(segment, input)) return false
+        planner.withdrawOldest()
+        if (!active()) throw IOException("Live publication revoked")
+        return true
+    }
+
+    @Synchronized fun markComplete(lastSequence: Long): Boolean =
+        active() && planner.finish(lastSequence)
+
     @Synchronized fun publish(segment: RollingHlsLiveRetention.Segment, input: InputStream): Boolean {
-        if (!active() || segment.bytes !in 1L..8L * 1024 * 1024 ||
+        if (!active() || planner.isEnded() || segment.bytes !in 1L..8L * 1024 * 1024 ||
             files.size >= capacity || segment.bytes > byteCap - planner.retainedBytes() || !admit(segment.bytes)) return false
         val file = File.createTempFile("live-", ".part", directory)
         var stored = false
@@ -105,6 +121,7 @@ internal class RollingHlsLiveFileStore(
                 append("#EXTINF:").append(String.format(Locale.ROOT, "%.6f", segment.durationUs / 1_000_000.0))
                     .append(",\nsegment/").append(segment.sequence).append(".m4s\n")
             }
+            if (planner.isEnded()) append("#EXT-X-ENDLIST\n")
         }
         if (!active()) return null
         return Playlist(body).also { playlist = it }
