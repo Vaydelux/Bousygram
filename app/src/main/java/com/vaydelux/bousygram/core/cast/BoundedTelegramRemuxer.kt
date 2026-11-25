@@ -30,7 +30,7 @@ internal object BoundedTelegramRemuxer {
 
     enum class Failure {
         BUSY, PLATFORM_UNAVAILABLE, CANCELLED, INPUT_UNAVAILABLE, INPUT_TOO_LARGE, STORAGE_PRESSURE,
-        UNSUPPORTED_TRACKS, UNSUPPORTED_CODEC, UNSUPPORTED_SAMPLE, UNSUPPORTED_TIMELINE,
+        UNSUPPORTED_CONTAINER, UNSUPPORTED_TRACKS, UNSUPPORTED_CODEC, UNSUPPORTED_SAMPLE, UNSUPPORTED_TIMELINE,
         TIME_LIMIT, DURATION_LIMIT, OUTPUT_LIMIT, OUTPUT_VERIFICATION_FAILED, CONVERSION_FAILED, CLEANUP_FAILED
     }
 
@@ -82,6 +82,21 @@ internal object BoundedTelegramRemuxer {
         val inputSize = input.length()
         if (!input.isFile || inputSize <= 0) return reject(Failure.INPUT_UNAVAILABLE)
         if (inputSize > MAX_INPUT_BYTES) return reject(Failure.INPUT_TOO_LARGE)
+        // The platform TS extractor omitted one frame in the reference fixture.
+        // Admit only recognized MP4/EBML headers, not a filename or a claimed MIME.
+        val header = ByteArray(8)
+        val headerSize = input.inputStream().use { stream ->
+            var count = 0
+            while (count < header.size) {
+                val read = stream.read(header, count, header.size - count)
+                if (read <= 0) break
+                count += read
+            }
+            count
+        }
+        if (headerSize != header.size || !RemuxContainerPolicy.permits(header)) {
+            return reject(Failure.UNSUPPORTED_CONTAINER)
+        }
         if (!scratch.isDirectory && !scratch.mkdirs()) return reject(Failure.STORAGE_PRESSURE)
         // Use a dedicated scratch directory. Do not silently delete another owner's file.
         if (scratch.listFiles()?.isNotEmpty() != false) return reject(Failure.STORAGE_PRESSURE)

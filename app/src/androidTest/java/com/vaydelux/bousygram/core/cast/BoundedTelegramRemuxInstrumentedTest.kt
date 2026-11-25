@@ -20,15 +20,23 @@ class BoundedTelegramRemuxInstrumentedTest {
     private fun scratch(): File = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "remux-test-").toFile()
 
     @Test fun baselineMp4RetainsEveryVideoSample() = qualify("seek-control.mp4", true)
-    @Test fun mkvReportsConversionOrExplicitRejection() = qualify("indexed.mkv", false)
-    @Test fun tsReportsConversionOrExplicitRejection() = qualify("unindexed.ts", false)
+    @Test fun mkvRetainsEveryVideoSample() = qualify("indexed.mkv", true)
+
+    @Test fun tsExplicitlyUnavailableAfterExtractorSampleLoss() {
+        val dir = scratch()
+        try {
+            assertEquals(BoundedTelegramRemuxer.Result.Rejected(BoundedTelegramRemuxer.Failure.UNSUPPORTED_CONTAINER),
+                BoundedTelegramRemuxer.convert(fixture("unindexed.ts"), dir))
+            assertTrue(dir.listFiles().orEmpty().isEmpty())
+        } finally { dir.deleteRecursively() }
+    }
 
     private fun qualify(name: String, mandatory: Boolean) {
         val dir = scratch()
         try {
             val result = BoundedTelegramRemuxer.convert(fixture(name), dir)
             if (result is BoundedTelegramRemuxer.Result.Rejected) {
-                assertFalse("Baseline MP4 remux must succeed: ${result.reason}", mandatory)
+                assertFalse("Required $name remux must succeed: ${result.reason}", mandatory)
                 assertTrue("Unexpected remux failure for $name: ${result.reason}",
                     result.reason in setOf(BoundedTelegramRemuxer.Failure.UNSUPPORTED_SAMPLE,
                         BoundedTelegramRemuxer.Failure.UNSUPPORTED_CODEC,

@@ -8,10 +8,10 @@ internal object TelegramCastCompatibility {
         val name = fileName.orEmpty().lowercase(Locale.ROOT)
         val type = mime.orEmpty().substringBefore(';').trim().lowercase(Locale.ROOT)
         if (name.endsWith(".mkv") || type in setOf("video/x-matroska", "video/matroska")) {
-            return "MKV Cast is unavailable: container conversion is not implemented. Play on Bousygram instead."
+            return "MKV Cast is unavailable: remux delivery is not yet qualified. Play on Bousygram instead."
         }
         if (name.endsWith(".ts") || name.endsWith(".m2ts") || type == "video/mp2t") {
-            return "TS Cast is unavailable: compatible HLS packaging is not implemented. Play on Bousygram instead."
+            return "TS Cast is unavailable: the platform extractor lost samples; a qualified HLS packager is required. Play on Bousygram instead."
         }
         if (type == "video/mp4" || name.endsWith(".mp4") || name.endsWith(".m4v")) return null
         return "This container is not supported for direct Telegram Cast. Try an MP4 with H.264/AAC."
