@@ -523,7 +523,8 @@ fun VoiceSearchButton(
             tooltip = if (isListening) "Stop listening" else "Speak a video or title to search",
             icon = BousygramIcons.Mic,
             focused = focused,
-            placement = BousygramTooltipPlacement.AUTO_BELOW
+            placement = BousygramTooltipPlacement.AUTO_BELOW,
+            enabled = isCompact
         ) {
             Box(
                 contentAlignment = Alignment.Center,

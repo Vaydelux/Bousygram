@@ -1165,7 +1165,8 @@ private fun ExtrasVlcAction(
                 tooltip = tooltip,
                 icon = icon,
                 focused = focused,
-                placement = tooltipPlacement
+                placement = tooltipPlacement,
+                enabled = label.isBlank()
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1198,7 +1199,8 @@ private fun ExtrasVlcAction(
                 tooltip = tooltip,
                 icon = icon,
                 focused = focused,
-                placement = tooltipPlacement
+                placement = tooltipPlacement,
+                enabled = label.isBlank()
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

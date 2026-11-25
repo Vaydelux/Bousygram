@@ -127,68 +127,70 @@ private fun SourceTab(
     val halo = LocalBousygramHaloColors.current
     val shape = RoundedCornerShape(BousygramUiTokens.tabCorner)
     val borderColor = when {
-        focused -> halo.focusRing
-        selected -> halo.haloStart
-        emphasized -> halo.haloStart.copy(alpha = 0.55f)
-        else -> halo.glassBorder
+        focused -> MaterialTheme.colorScheme.primary
+        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+        halo.isHighContrast -> MaterialTheme.colorScheme.outline
+        else -> androidx.compose.ui.graphics.Color.Transparent
     }
-    BousygramTooltipBox(
-        tooltip = title,
-        detail = if (archived) "Archived · $category" else category,
-        focused = focused,
-        placement = BousygramTooltipPlacement.AUTO_BELOW
-    ) {
-        Surface(
-            modifier = Modifier
-                .heightIn(min = 56.dp)
-                .semantics {
-                    role = Role.Button
-                    contentDescription = "$title, $category" +
-                        if (selected) ", selected" else ""
-                    this.selected = selected
-                }
-                .clip(shape)
-                .border(if (focused) 2.5.dp else if (selected) 1.5.dp else 1.dp, borderColor, shape)
-                .onFocusChanged { focused = it.isFocused }
-                .clickable(onClick = onClick),
-            shape = shape,
-            color = when {
-                selected -> MaterialTheme.colorScheme.primaryContainer
-                focused -> MaterialTheme.colorScheme.surfaceContainerHighest
-                emphasized -> MaterialTheme.colorScheme.surfaceContainerHigh
-                else -> MaterialTheme.colorScheme.surfaceContainerLow
+    val borderWidth = when {
+        focused -> BousygramUiTokens.tvFocusOutline
+        selected -> 1.5.dp
+        halo.isHighContrast -> 1.dp
+        else -> 0.dp
+    }
+    Surface(
+        modifier = Modifier
+            .heightIn(min = 56.dp)
+            .semantics {
+                role = Role.Button
+                contentDescription = "$title, $category" +
+                    if (selected) ", selected" else ""
+                this.selected = selected
             }
+            .clip(shape)
+            .then(
+                if (borderWidth > 0.dp) Modifier.border(borderWidth, borderColor, shape)
+                else Modifier
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick),
+        shape = shape,
+        color = when {
+            selected -> MaterialTheme.colorScheme.primaryContainer
+            focused -> MaterialTheme.colorScheme.surfaceContainerHighest
+            emphasized -> MaterialTheme.colorScheme.surfaceContainerHigh
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
+        }
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (pinned) {
-                        BousygramIcon(
-                            icon = BousygramIcons.Star,
-                            contentDescription = "Pinned",
-                            tint = halo.goldAccent,
-                            size = 13.dp
-                        )
-                    }
-                    Text(
-                        text = title,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                        fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 210.dp),
-                        style = MaterialTheme.typography.labelLarge
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (pinned) {
+                    BousygramIcon(
+                        icon = BousygramIcons.Star,
+                        contentDescription = "Pinned",
+                        tint = halo.goldAccent,
+                        size = 13.dp
                     )
                 }
                 Text(
-                    text = if (archived) "ARCHIVED · $category" else category,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1
+                    text = title,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 210.dp),
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
+            Text(
+                text = if (archived) "Archived · $category" else category,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1
+            )
         }
     }
 }
