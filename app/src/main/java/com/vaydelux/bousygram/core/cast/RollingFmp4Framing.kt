@@ -117,10 +117,46 @@ internal class RollingFmp4Framing(private val input: InputStream, private val pe
         if (mfhd.first.size != 16 || uint32(mfhd.first, 8) != 0L) throw IOException("Invalid mfhd")
         val tracks = boxes.filter { it.second == "traf" }
         if (tracks.size !in 1..2) throw IOException("Unsupported track fragment count")
+        val trackIds = mutableSetOf<Long>()
         for ((traf, _) in tracks) {
-            val types = children(traf).map { it.second }
-            if (types.count { it == "tfhd" } != 1 || types.count { it == "tfdt" } != 1 ||
-                types.none { it == "trun" }) throw IOException("Missing track fragment fields")
+            val fields = children(traf)
+            val tfhd = fields.filter { it.second == "tfhd" }.singleOrNull()?.first
+                ?: throw IOException("Missing or duplicate tfhd")
+            val tfdt = fields.filter { it.second == "tfdt" }.singleOrNull()?.first
+                ?: throw IOException("Missing or duplicate tfdt")
+            if (tfhd.size < 16 || tfhd[8].toInt() != 0) throw IOException("Invalid tfhd")
+            val flags = uint32(tfhd, 8)
+            // HLS units are standalone resources: absolute base-data-offset
+            // refers to the original continuous file and is not transferable.
+            if (flags and 1L != 0L || flags and 0x020000L == 0L ||
+                flags and 0x010000L != 0L || flags and 0xfffdffc5L != 0L) {
+                throw IOException("Unsupported fragment addressing")
+            }
+            var expectedSize = 16
+            for (flag in listOf(0x02L, 0x08L, 0x10L, 0x20L)) {
+                if (flags and flag != 0L) expectedSize += 4
+            }
+            val trackId = uint32(tfhd, 12)
+            if (tfhd.size != expectedSize || trackId == 0L || !trackIds.add(trackId)) {
+                throw IOException("Invalid or duplicate track ID")
+            }
+            if (tfdt.size !in listOf(16, 20)) throw IOException("Invalid tfdt")
+            val version = uint32(tfdt, 8)
+            if (!((version == 0L && tfdt.size == 16) ||
+                    (version == 0x01000000L && tfdt.size == 20 && tfdt[12].toInt() >= 0))) {
+                throw IOException("Invalid decode time")
+            }
+            val runs = fields.filter { it.second == "trun" }
+            if (runs.isEmpty()) throw IOException("Missing trun")
+            // Require an explicit positive moof-relative data offset for every
+            // run in this strict producer subset; payload ranges need a later
+            // independent semantic verifier.
+            for ((run, _) in runs) {
+                if (run.size < 20 || uint32(run, 8) and 1L == 0L ||
+                    uint32(run, 12) == 0L || uint32(run, 16) !in 1L..Int.MAX_VALUE.toLong()) {
+                    throw IOException("Invalid track run")
+                }
+            }
         }
         return uint32(mfhd.first, 12)
     }

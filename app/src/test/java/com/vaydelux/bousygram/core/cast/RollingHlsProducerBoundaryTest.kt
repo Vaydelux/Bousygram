@@ -53,10 +53,24 @@ class RollingHlsProducerBoundaryTest {
     private fun box(type: String, data: ByteArray = byteArrayOf()): ByteArray =
         ByteBuffer.allocate(8 + data.size).putInt(8 + data.size).put(type.toByteArray(Charsets.US_ASCII)).put(data).array()
     private fun init() = box("ftyp", ByteArray(8)) + box("moov", box("mvex"))
-    private fun frag(seq: Int): ByteArray {
+    private fun frag(seq: Int, flags: Int = 0x020000, timeVersion: Int = 0,
+                     runOffset: Int = 128, duplicateTrack: Boolean = false): ByteArray {
         val mfhd = box("mfhd", ByteBuffer.allocate(8).putInt(0).putInt(seq).array())
-        val traf = box("traf", box("tfhd") + box("tfdt") + box("trun"))
-        return box("styp") + box("sidx") + box("moof", mfhd + traf) + box("mdat", byteArrayOf(1, 2))
+        val tfhd = box("tfhd", ByteBuffer.allocate(8).putInt(flags).putInt(1).array())
+        val tfdt = box("tfdt", ByteBuffer.allocate(8).putInt(timeVersion shl 24).putInt(0).array())
+        val trun = box("trun", ByteBuffer.allocate(12).putInt(1).putInt(1).putInt(runOffset).array())
+        val traf = box("traf", tfhd + tfdt + trun)
+        return box("styp") + box("sidx") + box("moof", mfhd + traf +
+            if (duplicateTrack) traf else byteArrayOf()) + box("mdat", byteArrayOf(1, 2))
+    }
+
+    @Test fun framingRejectsAbsoluteOffsetsAndInvalidDecodeTimes() {
+        for (fragment in listOf(frag(1, flags = 0), frag(1, flags = 0x020001),
+            frag(1, timeVersion = 1), frag(1, runOffset = -1), frag(1, duplicateTrack = true))) {
+            val reader = RollingFmp4Framing(ByteArrayInputStream(init() + fragment)) { true }
+            reader.readInit()
+            assertThrows(IOException::class.java) { reader.readFragment() }
+        }
     }
 
     @Test fun framingReturnsExactInitAndIndependentUnits() {
