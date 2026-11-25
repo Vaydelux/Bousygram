@@ -64,3 +64,6 @@ Added CastRemuxArtifact for verified output + captured account + source file ID,
 
 ## Rolling HLS R2a — producer boundaries
 8df61a4 passed all three workflows. Added bounded observational TDLib input, AAC-LC ADTS normalization, and incremental fMP4 framing with seven JVM regression cases. No actual native muxer/demuxer or rolling HLS delivery yet. See [qualification plan](ROLLING_HLS_QUALIFICATION.md). Keep production and stable playback unchanged.
+
+## Rolling HLS R2b — continuous producer reference
+Pinned Media3 1.10.1 fragmented writer omits tfdt and uses absolute offsets; do not adopt for HLS. Host FFmpeg pipe-to-pipe remux qualified MKV and TS across 12 independently decoded fragments with strict packet and timing gates; delayed moov required to preserve timeline. Added reproducible finite host qualification. Android native build and custom AVIO integration remain pending; no new dependency or playback change. See [qualification plan](ROLLING_HLS_QUALIFICATION.md).
