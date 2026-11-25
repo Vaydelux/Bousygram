@@ -97,3 +97,6 @@ Owner-explicit pre-cache cancel and non-waiting tracked cache deletion fence add
 
 ## Rolling HLS R2l — finite private output/store qualification
 Native callback staging, independent-verifier interface, fMP4 parsing and rolling segment feed integrated in debug qualification path with six tests. No full-length streaming or real semantic verifier yet; no live receiver or native loading. Next actual semantic media verification and real JNI-to-store execution, then streaming backpressure and cleanup qualification.
+
+## Rolling HLS R2m — sample-table verification
+Independent strict fMP4 sample layout, decode continuity and H.264 IDR boundary gate implemented with three synthetic regressions. Real output acceptance and source/codec/presentation semantics remain qualification gates.
