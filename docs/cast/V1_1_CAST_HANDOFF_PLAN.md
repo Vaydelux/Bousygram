@@ -112,3 +112,6 @@ Native decoded PCM hash regression blocks long-duration enablement. Candidate st
 
 ## Rolling HLS R2q — owned sequential source
 Bounded native window renewal, pending-ticket recovery and one-shot source worker integrated into qualification coordinator. Five tests. No live TDLib or duration-cap increase until real media integrity and storage qualification pass.
+
+## Rolling HLS R2r — AAC clock diagnostics
+Address inherited TS quantization with bounded 1ms tolerance and exact rejection logging. MKV status 6 still requires Android evidence. Strict integrity gates retained.

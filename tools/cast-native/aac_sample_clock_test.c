@@ -20,7 +20,9 @@ int main(void) {
     AacSampleClock ts = {0};
     for (int i = 0; i < 20000; i++) {
         int64_t exact = 67200 + 1024LL * i;
-        assert(aac_sample_clock_step(&ts, exact, 1, &corrected) == 0);
+        /* TS copied from quantized MKV can be eight samples early. */
+        int64_t observed = exact - (i % 3 == 0 && i != 0 ? 8 : 0);
+        assert(aac_sample_clock_step(&ts, observed, 48, &corrected) == 0);
         assert(corrected == exact);
     }
     AacSampleClock overflow = {0};
