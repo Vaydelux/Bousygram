@@ -151,3 +151,6 @@ Require trusted observed playback progress on verified source timeline, not just
 
 ## Rolling HLS R3d — finite one-player HLS receiver
 Debug Media3 local HLS DataSource and single-player completed-window qualification, explicit playback/release retirement, pause/resume, and Android Keystore session identity. Actual instrumentation pending; live LAN, continuous rolling retirement, QR UI and source reclamation remain gates.
+
+## Rolling HLS R3e — QR enrollment and release-before-retirement
+Fixed-format invitation QR codec, Android bitmap/Keystore round-trip qualification and successful-player-release/one-shot retirement gate. No actual pairing screen or authenticated remote playback yet.

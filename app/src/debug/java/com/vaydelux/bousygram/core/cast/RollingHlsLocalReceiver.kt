@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * One real Media3 player for a short completed verified HLS window.
@@ -31,6 +32,8 @@ internal class RollingHlsLocalReceiver(
     private val player: ExoPlayer
     @Volatile private var closed = false
     @Volatile private var completed = false
+    @Volatile private var released = false
+    private val retirementAttempted = AtomicBoolean(false)
     private var error: PlaybackException? = null
 
     init {
@@ -100,7 +103,7 @@ internal class RollingHlsLocalReceiver(
      * acknowledgement for incomplete playback or account/route loss. */
     fun retireAfterRelease(): Boolean {
         check(Looper.myLooper() != Looper.getMainLooper())
-        if (!closed || !completed || !session.active()) return false
+        if (!released || !completed || !session.active() || !retirementAttempted.compareAndSet(false, true)) return false
         for (segment in segments.dropLast(1)) {
             if (!session.acknowledge(session.resourceId, session.controlToken, segment.sequence.toString()))
                 return false
@@ -113,6 +116,9 @@ internal class RollingHlsLocalReceiver(
         if (closed) return
         closed = true
         receipt.revoke()
-        try { player.clearVideoSurface() } finally { player.release() }
+        try { player.clearVideoSurface() } finally {
+            player.release()
+            released = true
+        }
     }
 }
