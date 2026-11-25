@@ -155,8 +155,13 @@ internal class RollingHlsDeliverySession(
     @Synchronized fun acknowledge(resource: String?, token: String?, sequence: String): Boolean {
         if (!authorize(resource, token, control = true)) return false
         val number = parseSequence(sequence) ?: return false
+        val snapshot = store.snapshot()
+        // Retain the newest published segment even before ENDLIST. A producer
+        // may be finishing while a receiver acknowledges its latest playback.
+        // This contract needs at least two segment slots to make progress.
         if (number != nextAck || number !in delivered || number == finalSequence ||
-            store.snapshot().firstOrNull()?.sequence != number) return false
+            inFlight?.segment?.sequence == number || snapshot.firstOrNull()?.sequence != number ||
+            snapshot.lastOrNull()?.sequence == number) return false
         if (!authorize(resource, token, control = true)) return false
         try {
             store.retireBefore(number + 1)

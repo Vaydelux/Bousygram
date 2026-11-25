@@ -18,6 +18,8 @@ class RollingHlsDeliveryDispatcherTest {
         val bytes = byteArrayOf(7, 8, 9)
         assertEquals(RollingHlsSegmentStore.PublishResult.STORED,
             store.publish(RollingHlsSegmentStore.Segment(1, 0, 6_000_000, 3), ByteArrayInputStream(bytes)))
+        assertEquals(RollingHlsSegmentStore.PublishResult.STORED,
+            store.publish(RollingHlsSegmentStore.Segment(2, 6_000_000, 6_000_000, 3), ByteArrayInputStream(bytes)))
         return RollingHlsDeliverySession(owner, 7, store, { it == owner }, { allowed }, { 100L })
             .also { assertTrue(it.installInitialization(ByteArray(16))) }
     }

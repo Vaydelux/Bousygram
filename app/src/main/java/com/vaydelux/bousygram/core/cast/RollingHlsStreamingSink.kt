@@ -18,7 +18,8 @@ internal class RollingHlsStreamingSink(
     private val permitted: () -> Boolean,
     private val verifier: RollingHlsVerifiedFeed.Verifier,
     private val acknowledge: (RollingHlsSegmentStore.Segment) -> Boolean,
-    private val nowMs: () -> Long
+    private val nowMs: () -> Long,
+    private val onInitialization: (ByteArray) -> Boolean = { true }
 ) : OutputStream() {
     private val header = ByteArray(8)
     private var headerBytes = 0
@@ -106,6 +107,8 @@ internal class RollingHlsStreamingSink(
             1 -> {
                 val unit = join()
                 if (!verifier.verifyInit(unit.copyOf())) throw IOException("Initialization verification failed")
+                access()
+                if (!onInitialization(unit.copyOf())) throw IOException("Delivery initialization refused")
                 access()
                 init = unit
                 phase = 2

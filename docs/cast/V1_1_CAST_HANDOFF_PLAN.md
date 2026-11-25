@@ -130,3 +130,6 @@ Separate synthetic harness JNI profile with bounded 64 MiB/180s limits, GOP enve
 
 ## Rolling HLS R2w — AAC priming semantics
 Preserve one declared initial AAC frame for decode history while excluding it from presentation using an exact edit-list anchor; independently verify declared Matroska CodecDelay and exact presented PCM. Candidate repair pending Android result; all other media integrity gates retained.
+
+## Rolling HLS R2x — controlled receiver integration qualification
+Connect verified streaming output to private session/dispatcher with separate trusted consumption assertion, two-segment retention and sticky revocation. Three fake-verifier integration tests; no actual player or transport.
