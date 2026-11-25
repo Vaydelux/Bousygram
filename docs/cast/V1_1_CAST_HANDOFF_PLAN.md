@@ -118,3 +118,6 @@ Address inherited TS quantization with bounded 1ms tolerance and exact rejection
 
 ## Rolling HLS R2s — long-duration host reference and retained-source pressure
 Six-minute independent host rolling reference CI plus explicit storage-pressure reconciliation and regression. Native full-length profile and safe source reclamation not enabled; no live route.
+
+## Rolling HLS R2t — controlled receiver delivery contract
+Authenticated private playlist/init/segment lease and explicit control acknowledgement policy implemented. No network route or standard Cast receiver support; transport, RFC retention and native qualification remain gates.
