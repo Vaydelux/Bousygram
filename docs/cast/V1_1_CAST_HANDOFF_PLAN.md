@@ -100,3 +100,6 @@ Native callback staging, independent-verifier interface, fMP4 parsing and rollin
 
 ## Rolling HLS R2m — sample-table verification
 Independent strict fMP4 sample layout, decode continuity and H.264 IDR boundary gate implemented with three synthetic regressions. Real output acceptance and source/codec/presentation semantics remain qualification gates.
+
+## Rolling HLS R2n — direct output streaming
+Bounded synchronous JNI output assembler and private verified rolling store path implemented without converted-file staging. Six regressions. Finite native limits unchanged; real JNI/store fixture qualification and full-length integration remain pending.
