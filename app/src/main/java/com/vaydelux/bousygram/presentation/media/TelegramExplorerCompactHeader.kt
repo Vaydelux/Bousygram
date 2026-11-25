@@ -124,7 +124,6 @@ internal fun TelegramExplorerCompactHeader(
                     BousygramButton(
                         text = "Back",
                         leadingIcon = BousygramIcons.Back,
-                        tooltip = "Go up a folder",
                         onClick = onGoUp,
                         modifier = Modifier.heightIn(min = minControl)
                             .testTag("telegram-explorer-go-up")
@@ -142,8 +141,7 @@ internal fun TelegramExplorerCompactHeader(
                 }
             } else if (isTv || effectiveWidth >= 420.dp) {
                 BousygramBrandMark(
-                    size = if (isTv) 36.dp else 32.dp,
-                    showHalo = true
+                    size = if (isTv) 36.dp else 32.dp
                 )
             }
 
@@ -214,7 +212,6 @@ internal fun TelegramExplorerCompactHeader(
                     } else {
                         BousygramIcons.Library
                     },
-                    tooltip = "Go to $navigationLabel",
                     onClick = onNavigate,
                     modifier = Modifier.heightIn(min = minControl)
                 )
@@ -222,7 +219,6 @@ internal fun TelegramExplorerCompactHeader(
                     BousygramButton(
                         text = "Continue",
                         leadingIcon = BousygramIcons.Continue,
-                        tooltip = "Continue watching",
                         selected = true,
                         onClick = onResume,
                         modifier = Modifier.heightIn(min = minControl)
@@ -231,7 +227,6 @@ internal fun TelegramExplorerCompactHeader(
                 BousygramButton(
                     text = "Search",
                     leadingIcon = BousygramIcons.Search,
-                    tooltip = "Search media",
                     onClick = onSearch,
                     modifier = Modifier.heightIn(min = minControl)
                         .testTag("telegram-explorer-search")

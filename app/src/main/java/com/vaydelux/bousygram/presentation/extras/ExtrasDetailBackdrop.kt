@@ -68,7 +68,10 @@ internal fun ExtrasDetailBackdrop(
             .height((heightDp ?: if (shortViewport) 118 else if (compact) 164 else 218).dp)
             .clip(shape)
             .background(colors.surfaceContainerLow)
-            .border(1.dp, halo.glassBorder, shape)
+            .then(
+                if (halo.isHighContrast) Modifier.border(1.dp, colors.outline, shape)
+                else Modifier
+            )
             .testTag("extras-detail-backdrop")
     ) {
         AsyncImage(

@@ -59,7 +59,6 @@ import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
 import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
-import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -140,7 +139,6 @@ fun SettingsScreen(
 
     // A wide but short landscape window must retain the compact settings header.
     val displaySpec = LocalBousygramDisplaySpec.current
-    val halo = LocalBousygramHaloColors.current
     val showSidebar = !adaptive.isCompact &&
         adaptive.effectiveWidthDp >= 900.dp && adaptive.effectiveHeightDp >= 520.dp
     val contentGutter = displaySpec.horizontalPadding
@@ -162,7 +160,7 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         BousygramPageHeading(
-                            eyebrow = "Bousygram  /  Preferences",
+                            eyebrow = "",
                             title = "Settings",
                             subtitle = "Appearance, playback and privacy controls.",
                             compact = false,
@@ -173,7 +171,6 @@ fun SettingsScreen(
                             text = "Back",
                             onClick = onBack,
                             leadingIcon = BousygramIcons.Back,
-                            tooltip = "Return to previous screen",
                             modifier = Modifier.fillMaxWidth()
                         )
 
@@ -182,7 +179,6 @@ fun SettingsScreen(
                             text = "About & TMDB Notice",
                             onClick = onOpenAbout,
                             leadingIcon = BousygramIcons.Info,
-                            tooltip = "View app info and TMDB attribution",
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -201,7 +197,7 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                BousygramBrandMark(size = 38.dp, showHalo = true)
+                                BousygramBrandMark(size = 36.dp)
                                 Text(
                                     text = "Settings",
                                     modifier = Modifier.weight(1f),
@@ -212,14 +208,13 @@ fun SettingsScreen(
                                 BousygramButton(
                                     text = "Back",
                                     onClick = onBack,
-                                    leadingIcon = BousygramIcons.Back,
-                                    tooltip = "Return to previous screen"
+                                    leadingIcon = BousygramIcons.Back
                                 )
                             }
                         }
                     }
 
-                    // 1. Appearance Studio (Quick Looks, Design Style, Patterned & Cutesy Backgrounds, 16 Themes)
+                    // 1. Appearance Studio (Quick Looks, Design Style, Backdrop Pattern, 16 Themes)
                     item {
                         EnterprisePanel(Modifier.fillMaxWidth()) {
                             Column(
@@ -233,7 +228,7 @@ fun SettingsScreen(
                                     title = "Quick Looks"
                                 )
                                 Text(
-                                    "Switch the full aesthetic in one tap — Material You, iPhone Glass, Cutesy Pastel, or Cinema Halo.",
+                                    "Apply a preset pairing of theme, design style, and background.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
@@ -268,7 +263,7 @@ fun SettingsScreen(
                                     title = "UI Design Style"
                                 )
                                 Text(
-                                    "Choose between Cinema Halo glass, Google Material You pills, iPhone Cupertino squircles & capsule bar, or Cutesy Soft bubbles.",
+                                    "Choose component shape and surface treatment.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
@@ -296,7 +291,7 @@ fun SettingsScreen(
                                     title = "Background Pattern"
                                 )
                                 Text(
-                                    "Native zero-lag vector backgrounds: Polka Dots, Cinema Grid, Silk Waves, iPhone Mesh, Cutesy Stars, and Chow Paws.",
+                                    "Vector backdrop pattern applied across app screens.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
@@ -324,7 +319,7 @@ fun SettingsScreen(
                                     title = "Theme"
                                 )
                                 Text(
-                                    "16 curated color palettes — including Cutesy Pastel, Material Tonal, iOS Cupertino, OLED, and High Contrast.",
+                                    "Choose a color palette, including Daylight and High Contrast.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
@@ -563,7 +558,7 @@ fun SettingsScreen(
                                     BousygramIcon(
                                         icon = if (isAdvancedExpanded) BousygramIcons.ChevronUp else BousygramIcons.ChevronDown,
                                         contentDescription = if (isAdvancedExpanded) "Collapse advanced options" else "Expand advanced options",
-                                        tint = halo.haloStart,
+                                        tint = MaterialTheme.colorScheme.primary,
                                         size = 20.dp
                                     )
                                 }
@@ -585,7 +580,7 @@ fun SettingsScreen(
                                                 BousygramIcon(
                                                     icon = BousygramIcons.Shield,
                                                     contentDescription = null,
-                                                    tint = halo.haloStart,
+                                                    tint = MaterialTheme.colorScheme.primary,
                                                     size = 18.dp
                                                 )
                                                 Text(
@@ -971,7 +966,6 @@ private fun SettingsSectionTitle(
     icon: BousygramIconRef,
     title: String
 ) {
-    val halo = LocalBousygramHaloColors.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -979,7 +973,7 @@ private fun SettingsSectionTitle(
         BousygramIcon(
             icon = icon,
             contentDescription = null,
-            tint = halo.haloStart,
+            tint = MaterialTheme.colorScheme.primary,
             size = 20.dp
         )
         Text(

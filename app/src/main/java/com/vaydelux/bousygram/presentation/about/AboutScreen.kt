@@ -39,11 +39,11 @@ import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
-import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.tabular
 
 /**
- * About screen displaying application information, architectural foundation,
- * and the mandatory TMDB attribution notice as required by The Movie Database API terms.
+ * About screen displaying application version, privacy/storage summary,
+ * and the mandatory TMDB attribution notice required by TMDB API terms.
  * Fully navigable via Android TV D-pad and touch interfaces.
  */
 @Composable
@@ -68,18 +68,17 @@ fun AboutScreen(
                     .widthIn(max = displaySpec.maxReadingWidth)
                     .verticalScroll(scrollState)
                     .padding(horizontal = displaySpec.horizontalPadding, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Screen Top Header with Back action
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     BousygramPageHeading(
-                        eyebrow = "Bousygram  /  System & Attribution",
-                        title = "About BousyGram",
-                        subtitle = "System Information & Attribution",
+                        eyebrow = "",
+                        title = "About Bousygram",
+                        subtitle = "Version, privacy, and attribution",
                         compact = displaySpec.isCompact,
                         icon = BousygramIcons.Info,
                         modifier = Modifier.weight(1f)
@@ -87,40 +86,15 @@ fun AboutScreen(
                     BousygramButton(
                         text = "Back",
                         onClick = onBack,
-                        leadingIcon = BousygramIcons.Back,
-                        tooltip = "Return to previous screen"
+                        leadingIcon = BousygramIcons.Back
                     )
                 }
 
-                // App Banner Header
                 AppHeaderCard()
-
-                // Mandatory TMDB Attribution Notice Card
                 TmdbAttributionCard()
+                PrivacyAndStorageCard()
 
-                // Technology & Architecture Foundation Card
-                ArchitectureDetailsCard()
-
-                // Zero-Configuration Philosophy Notice Card
-                ZeroConfigCard()
-
-                // TV Navigation Action
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.Start
-                ) {
-                    BousygramButton(
-                        text = "Return to Previous Screen",
-                        onClick = onBack,
-                        selected = true,
-                        leadingIcon = BousygramIcons.Back,
-                        tooltip = "Return to previous screen"
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -129,20 +103,18 @@ fun AboutScreen(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AppHeaderCard() {
-    val halo = LocalBousygramHaloColors.current
     val displaySpec = LocalBousygramDisplaySpec.current
     EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(if (displaySpec.isCompact) 16.dp else 24.dp),
+                .padding(if (displaySpec.isCompact) 16.dp else 22.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (displaySpec.isCompact) 14.dp else 20.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (displaySpec.isCompact) 14.dp else 18.dp)
         ) {
             // Same approved Chow mascot shown by Android launcher, sign-in and README.
             BousygramBrandMark(
-                size = if (displaySpec.isCompact) 52.dp else 64.dp,
-                showHalo = true
+                size = if (displaySpec.isCompact) 48.dp else 58.dp
             )
 
             Column(
@@ -155,27 +127,26 @@ private fun AppHeaderCard() {
                     itemVerticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "BousyGram",
+                        text = "Bousygram",
                         color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
                     Surface(
-                        shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder)
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Text(
                             text = "v${BuildConfig.VERSION_NAME}",
-                            color = halo.haloStart,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall.tabular(),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
                 }
                 Text(
-                    text = "Zero-Configuration Video-First Telegram Client for Android TV & Mobile",
+                    text = "Local-first Telegram video player for Android TV, tablet, and phone.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -192,12 +163,11 @@ private fun AppHeaderCard() {
  */
 @Composable
 private fun TmdbAttributionCard() {
-    val halo = LocalBousygramHaloColors.current
     EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // TMDB logo is rendered from the sourced original geometry and gradient.
@@ -223,7 +193,6 @@ private fun TmdbAttributionCard() {
             Surface(
                 shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -237,97 +206,29 @@ private fun TmdbAttributionCard() {
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "All film and television metadata, posters, backdrops, synopses, and ratings displayed within Bousygram are matched automatically against The Movie Database (TMDB).",
+                        text = "Film and television metadata, posters, backdrops, synopses, and ratings in Extras are sourced from The Movie Database (TMDB).",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
             }
 
-            // Caching & Offline Privacy Details
             Text(
-                text = "• Zero-Configuration Matching: Filenames and captions are parsed on-device to resolve titles, years, seasons, and episodes without requiring user setup.\n" +
-                    "• Offline Disk Cache: Metadata and high-definition posters/backdrops are cached locally to ensure instant rendering without network delays.\n" +
-                    "• Seamless Fallback: When no TMDB match exists or while offline, Bousygram automatically falls back to Telegram thumbnails or embedded minithumbnails.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp)
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ArchitectureDetailsCard() {
-    val halo = LocalBousygramHaloColors.current
-    EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                BousygramIcon(
-                    icon = BousygramIcons.Decoder,
-                    contentDescription = null,
-                    tint = halo.haloStart,
-                    size = 20.dp
-                )
-                Text(
-                    text = "Engine & Platform Foundation",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                FoundationChip(title = "Core", value = "TDLib Native C++")
-                FoundationChip(title = "Primary Engine", value = "Media3 ExoPlayer")
-                FoundationChip(title = "Fallback Engine", value = "libmpv")
-                FoundationChip(title = "Local Server", value = "Ktor HTTP Loopback")
-            }
-
-            Text(
-                text = "Protected by Android Keystore hardware-backed encryption. Streaming loopback tokens are scoped per-file with strict origin validation.",
+                text = "Posters and metadata are cached locally for faster browsing. When offline or unmatched, Bousygram falls back to Telegram thumbnails.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp)
             )
         }
     }
 }
 
 @Composable
-private fun FoundationChip(title: String, value: String) {
-    val halo = LocalBousygramHaloColors.current
-    Surface(
-        shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder)
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(title, color = halo.haloStart, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-            Text(value, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
-@Composable
-private fun ZeroConfigCard() {
-    val halo = LocalBousygramHaloColors.current
+private fun PrivacyAndStorageCard() {
     EnterprisePanel(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
@@ -337,20 +238,20 @@ private fun ZeroConfigCard() {
                 BousygramIcon(
                     icon = BousygramIcons.Shield,
                     contentDescription = null,
-                    tint = halo.haloStart,
+                    tint = MaterialTheme.colorScheme.primary,
                     size = 18.dp
                 )
                 Text(
-                    text = "Zero-Configuration Philosophy",
+                    text = "Privacy & local storage",
                     color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
             Text(
-                text = "Bousygram makes automatic playback, caching, and enrichment decisions behind the scenes so viewers never have to configure codecs, network timeouts, or API settings. Everything is designed for an effortless leanback TV experience.",
+                text = "Telegram Media connects directly from this device using TDLib and stores credentials with Android Keystore encryption. Temporary media cache can be pruned anytime in Settings without removing resume positions.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp)
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp)
             )
         }
     }

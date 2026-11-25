@@ -13,9 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,9 +31,12 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.core.media.PlayerBufferConfig
+import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
+import com.vaydelux.bousygram.presentation.theme.tabular
 
 /**
  * Featured in the current provider results, never editorial or sponsored.
@@ -69,12 +70,16 @@ internal fun ExtrasSpotlightCard(
             .build()
     }
     val minHeight = if (isTv) 56.dp else 48.dp
+    val halo = LocalBousygramHaloColors.current
     val shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner)
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = shape,
         modifier = modifier.fillMaxWidth().testTag("extras-spotlight")
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .then(
+                if (halo.isHighContrast) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                else Modifier
+            )
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(if (isTv) 16.dp else 12.dp),
@@ -104,10 +109,10 @@ internal fun ExtrasSpotlightCard(
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 Text(
-                    "SPOTLIGHT · ${item.type.provider} · ${position + 1}/${total.coerceAtLeast(1)}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
+                    "Featured · ${item.type.provider} · ${position + 1}/${total.coerceAtLeast(1)}",
+                    style = MaterialTheme.typography.labelMedium.tabular(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1
                 )
                 Text(
@@ -123,7 +128,7 @@ internal fun ExtrasSpotlightCard(
                 Text(
                     listOf(item.year, item.rating.takeIf { it.isNotBlank() }?.let { "★ $it" })
                         .filterNotNull().filter(String::isNotBlank).joinToString(" · "),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.tabular(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
@@ -140,17 +145,20 @@ internal fun ExtrasSpotlightCard(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(
+                    BousygramButton(
+                        text = "Details",
+                        selected = true,
                         onClick = onOpen,
                         modifier = Modifier.heightIn(min = minHeight)
-                            .extrasFocusOutline().testTag("extras-spotlight-open")
-                    ) { Text("Details") }
-                    OutlinedButton(
-                        onClick = onNext,
+                            .testTag("extras-spotlight-open")
+                    )
+                    BousygramButton(
+                        text = "Next pick",
                         enabled = total > 1,
+                        onClick = onNext,
                         modifier = Modifier.heightIn(min = minHeight)
-                            .extrasFocusOutline().testTag("extras-spotlight-next")
-                    ) { Text("Next pick") }
+                            .testTag("extras-spotlight-next")
+                    )
                 }
             }
         }

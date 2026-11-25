@@ -105,32 +105,19 @@ private fun Modifier.drawBackdropPattern(
     val h = size.height
     val maxDim = maxOf(w, h).coerceAtLeast(1f)
     val light = halo.isLight
-    val boost = if (previewBoost) 2.2f else 1f
 
-    val primaryGlow = Brush.radialGradient(
+    // Default backdrop stays calm and matte so artwork owns visual contrast;
+    // miniature Appearance Studio previews retain boosted contrast for legibility.
+    val ambientWash = Brush.verticalGradient(
         colors = listOf(
-            halo.haloStart.copy(alpha = ((if (light) 0.08f else 0.15f) * boost).coerceAtMost(0.45f)),
-            halo.haloEnd.copy(alpha = ((if (light) 0.03f else 0.06f) * boost).coerceAtMost(0.24f)),
+            halo.haloStart.copy(
+                alpha = if (previewBoost) (if (light) 0.20f else 0.30f)
+                else (if (light) 0.025f else 0.045f)
+            ),
             Color.Transparent
         ),
-        center = Offset(w * 0.84f, h * 0.12f),
-        radius = maxDim * 0.82f
-    )
-    val secondaryGlow = Brush.radialGradient(
-        colors = listOf(
-            halo.haloEnd.copy(alpha = ((if (light) 0.055f else 0.10f) * boost).coerceAtMost(0.36f)),
-            Color.Transparent
-        ),
-        center = Offset(w * 0.08f, h * 0.90f),
-        radius = maxDim * 0.72f
-    )
-    val warmAccent = Brush.radialGradient(
-        colors = listOf(
-            halo.goldAccent.copy(alpha = ((if (light) 0.035f else 0.05f) * boost).coerceAtMost(0.22f)),
-            Color.Transparent
-        ),
-        center = Offset(w * 0.50f, h * 0.04f),
-        radius = maxDim * 0.50f
+        startY = 0f,
+        endY = h * if (previewBoost) 0.85f else 0.42f
     )
 
     // Pre-cache pattern Paths once per layout size so draw frames allocate zero objects.
@@ -203,13 +190,10 @@ private fun Modifier.drawBackdropPattern(
     onDrawBehind {
         when (pattern) {
             BousygramBackdropPattern.AMBIENT_HALO -> {
-                drawRect(primaryGlow)
-                drawRect(secondaryGlow)
-                drawRect(warmAccent)
+                drawRect(ambientWash)
             }
             BousygramBackdropPattern.DOT_MATRIX -> {
-                drawRect(primaryGlow)
-                drawRect(secondaryGlow)
+                drawRect(ambientWash)
                 // Bound primitive count on 4K screens and high-density phones.
                 // Draw calls grow with area; cap density without retaining bitmaps.
                 val step = boundedBackdropPitch(
@@ -240,8 +224,7 @@ private fun Modifier.drawBackdropPattern(
                 }
             }
             BousygramBackdropPattern.GEOMETRIC_GRID -> {
-                drawRect(primaryGlow)
-                drawRect(secondaryGlow)
+                drawRect(ambientWash)
                 val pitch = boundedBackdropPitch(
                     w, h, if (previewBoost) 14.dp.toPx() else 44.dp.toPx(),
                     if (previewBoost) 100 else 320
@@ -280,9 +263,7 @@ private fun Modifier.drawBackdropPattern(
                 }
             }
             BousygramBackdropPattern.TOPO_WAVES -> {
-                drawRect(primaryGlow)
-                drawRect(secondaryGlow)
-                drawRect(warmAccent)
+                drawRect(ambientWash)
                 val strokeW = if (previewBoost) 1.6.dp.toPx() else 1.8.dp.toPx()
                 val alpha = if (previewBoost) 0.44f else if (light) 0.14f else 0.18f
                 wavePaths.forEachIndexed { idx, path ->
@@ -302,9 +283,7 @@ private fun Modifier.drawBackdropPattern(
                 meshBrushes.forEach { brush -> drawRect(brush) }
             }
             BousygramBackdropPattern.CUTESY_KAWAII -> {
-                drawRect(primaryGlow)
-                drawRect(secondaryGlow)
-                drawRect(warmAccent)
+                drawRect(ambientWash)
                 val motifAlpha = if (previewBoost) 0.46f else if (light) 0.14f else 0.17f
                 val bubbleAlpha = if (previewBoost) 0.24f else if (light) 0.08f else 0.10f
                 val heartColor = primary.copy(alpha = motifAlpha)
@@ -379,9 +358,7 @@ private fun Modifier.drawBackdropPattern(
                 }
             }
             BousygramBackdropPattern.CUTESY_PAWS -> {
-                drawRect(primaryGlow)
-                drawRect(secondaryGlow)
-                drawRect(warmAccent)
+                drawRect(ambientWash)
                 val pawAlpha = if (previewBoost) 0.44f else if (light) 0.12f else 0.15f
                 val pawPrimary = primary.copy(alpha = pawAlpha)
                 val pawSecondary = secondary.copy(alpha = pawAlpha * 0.92f)

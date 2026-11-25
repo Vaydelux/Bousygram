@@ -7,8 +7,9 @@ This directory contains **implementation prompts**, not completed code changes. 
 2. [ROADMAP.md](../../ROADMAP.md) and [PHASE_PLAN.md](../../PHASE_PLAN.md)
 3. [Target architecture](../product/ARCHITECTURE_V2.md) and [ADRs](../adr/)
 4. [Master system prompt](MASTER_PROMPT.md)
-5. [Phase prompt chain](PHASE_PROMPTS.md): execute ONE selected phase at a time.
-6. [Per-commit and per-phase review protocol](REVIEW_PROTOCOL.md) and [QA matrix](QA_MATRIX.md).
+5. [Unslop UI design prompt](UNSLOP_DESIGN_PROMPT.md): pair with the Master prompt for any `presentation/**` cleanup or UI feature work.
+6. [Phase prompt chain](PHASE_PROMPTS.md): execute ONE selected phase at a time.
+7. [Per-commit and per-phase review protocol](REVIEW_PROTOCOL.md) and [QA matrix](QA_MATRIX.md).
 
 ## Operating model
 

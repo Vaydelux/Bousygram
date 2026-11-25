@@ -612,14 +612,13 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                 else if (showPersonalLibrary) showPersonalLibrary = false
                                 else onExit()
                             },
-                            leadingIcon = BousygramIcons.Back,
-                            tooltip = if (detailItem != null) "Back to catalog" else "Back to mode selection"
+                            leadingIcon = BousygramIcons.Back
                         )
                     }
                     // On a 320dp phone, the logo plus two actions squeezed the
                     // title to almost zero width. Keep the actions reachable.
                     if (!compactPhoneWindow && metrics.effectiveWidthDp >= 380.dp) {
-                        BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp, showHalo = true)
+                        BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp)
                     }
                     if (landscapeToolbar && detailItem == null && !showPersonalLibrary) {
                         Text(
@@ -1249,22 +1248,17 @@ internal fun ExtrasFilterDisclosure(
             onClick = onToggle,
             selected = active || expanded,
             leadingIcon = BousygramIcons.Options,
-            tooltip = if (expanded) "Hide sort and filter controls" else "Sort, genre, year, and rating filters",
             modifier = modifier.heightIn(min = minHeightDp.dp)
                 .testTag("extras-filter-toggle")
         )
         if (onLibrary != null) {
-            OutlinedButton(
+            BousygramButton(
+                text = if (compactWindow) "Saved" else "My Extras (${libraryCount})",
+                leadingIcon = BousygramIcons.Saved,
                 onClick = onLibrary,
                 modifier = Modifier.heightIn(min = minHeightDp.dp)
-                    .extrasFocusOutline().testTag("extras-open-my-library")
-            ) {
-                BousygramIcon(icon = BousygramIcons.Saved,
-                    contentDescription = null, size = 18.dp)
-                Spacer(Modifier.width(6.dp))
-                Text(if (compactWindow) "Saved" else "My Extras (${libraryCount})",
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+                    .testTag("extras-open-my-library")
+            )
         }
         if (!compactWindow && onLibrary == null) {
             Text(

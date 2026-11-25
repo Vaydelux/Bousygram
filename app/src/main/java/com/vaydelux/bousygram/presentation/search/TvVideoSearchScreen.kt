@@ -195,17 +195,17 @@ fun TvVideoSearchScreen(
                 // Keep the heading for idle/error screens where orientation matters less.
                 if (uiState !is SearchUiState.Success && uiState !is SearchUiState.Loading) {
                     BousygramPageHeading(
-                        eyebrow = "Telegram media  /  Discover",
+                        eyebrow = "",
                         title = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
                             "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
                         } else {
                             "Search Telegram videos"
                         },
-                        subtitle = "Find the right video across your accessible Telegram sources.",
+                        subtitle = "Search across your accessible Telegram sources.",
                         compact = adaptive.isCompact,
                         icon = BousygramIcons.Search
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(10.dp))
                 } else {
                     BousygramCompactPageTitle(
                         title = "Search",

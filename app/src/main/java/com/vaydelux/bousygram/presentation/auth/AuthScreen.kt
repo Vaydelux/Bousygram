@@ -1,11 +1,6 @@
 package com.vaydelux.bousygram.presentation.auth
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -65,7 +59,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vaydelux.bousygram.R
 import com.vaydelux.bousygram.domain.model.AuthMode
@@ -76,20 +69,17 @@ import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
-import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
-import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
+import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
+import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
+import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
-import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import org.drinkless.tdlib.Client
 
 /**
- * Enterprise-grade, modern multi-screen authentication interface.
- * Engineered for Android TV (10-ft D-pad navigation), Tablets (dual pane),
- * and Mobile Phones (ergonomic single pane).
- *
- * Runs exclusively through direct TDLib client-side MTProto with zero third-party relays.
+ * Telegram sign-in flow for Android TV (D-pad dual pane), tablets, and phones.
+ * Runs exclusively through direct TDLib client-side MTProto with no third-party relays.
  */
 @Composable
 fun AuthScreen(
@@ -210,82 +200,54 @@ fun AuthScreen(
 }
 
 /**
- * High-visibility enterprise branding header with live connection status.
+ * Brand header with a calm static TDLib connection indicator.
  */
 @Composable
 private fun EnterpriseBrandHeader(
     state: AuthUiState,
     modifier: Modifier = Modifier
 ) {
-    val halo = LocalBousygramHaloColors.current
-    val motion = rememberBousygramMotionPolicy()
     Column(modifier = modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            BousygramBrandMark(
-                size = 48.dp,
-                showHalo = true
-            )
+            BousygramBrandMark(size = 44.dp)
 
             Column {
                 Text(
                     text = stringResource(R.string.app_name),
                     color = MaterialTheme.colorScheme.onBackground,
                     style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.5).sp
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Private Telegram media player",
-                    color = MaterialTheme.colorScheme.secondary,
+                    text = "Telegram Media",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
 
         Spacer(Modifier.height(10.dp))
 
-        // Enterprise Security & Connection Status Pill
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(BousygramUiTokens.pillCorner))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f))
-                .border(
-                    width = 1.dp,
-                    color = halo.glassBorder,
-                    shape = RoundedCornerShape(BousygramUiTokens.pillCorner)
-                )
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val isReady = state.connectionStatus?.contains("Connected", ignoreCase = true) == true
-            val dotColor = if (isReady) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.tertiary
-
-            val dotAlpha = if (!isReady && motion.animateIndeterminateProgress) {
-                val transition = rememberInfiniteTransition(label = "pulse")
-                val animated by transition.animateFloat(
-                    initialValue = 0.4f,
-                    targetValue = 1.0f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(900),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "alphaPulse"
-                )
-                animated
-            } else {
-                1.0f
-            }
+            val dotColor = if (isReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
 
             Box(
                 modifier = Modifier
-                    .size(8.dp)
+                    .size(7.dp)
                     .clip(CircleShape)
-                    .background(dotColor.copy(alpha = dotAlpha))
+                    .background(dotColor)
             )
 
             Text(
@@ -301,7 +263,7 @@ private fun EnterpriseBrandHeader(
 }
 
 /**
- * Modern dual-mode authentication selector (QR Code vs Phone Number).
+ * Dual-mode authentication selector (QR Code vs Phone Number).
  */
 @Composable
 private fun AuthModeSelector(
@@ -314,9 +276,12 @@ private fun AuthModeSelector(
     Surface(
         modifier = modifier
             .clip(outerShape)
-            .border(1.dp, halo.glassBorder, outerShape),
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f),
-        tonalElevation = 2.dp
+            .then(
+                if (halo.isHighContrast) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, outerShape)
+                else Modifier
+            ),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 1.dp
     ) {
         Row(
             modifier = Modifier.padding(4.dp),
@@ -325,7 +290,6 @@ private fun AuthModeSelector(
             ModeTabItem(
                 label = "QR code",
                 icon = BousygramIcons.QrCode,
-                tooltip = "Scan QR code with Telegram mobile app",
                 selected = currentMode == AuthMode.QR,
                 onClick = { onSelectMode(AuthMode.QR) },
                 modifier = Modifier.weight(1f)
@@ -333,7 +297,6 @@ private fun AuthModeSelector(
             ModeTabItem(
                 label = "Phone number",
                 icon = BousygramIcons.Phone,
-                tooltip = "Sign in with phone number and verification code",
                 selected = currentMode == AuthMode.Phone,
                 onClick = { onSelectMode(AuthMode.Phone) },
                 modifier = Modifier.weight(1f)
@@ -346,13 +309,11 @@ private fun AuthModeSelector(
 private fun ModeTabItem(
     label: String,
     icon: BousygramIconRef,
-    tooltip: String,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val halo = LocalBousygramHaloColors.current
     val shape = RoundedCornerShape(BousygramUiTokens.tabCorner)
     val bgColor by animateColorAsState(
         targetValue = when {
@@ -370,14 +331,12 @@ private fun ModeTabItem(
         modifier = modifier
             .clip(shape)
             .background(bgColor)
-            .border(
-                width = if (isFocused) 2.5.dp else if (selected) 1.dp else 0.dp,
-                color = when {
-                    isFocused -> halo.focusRing
-                    selected -> halo.haloStart
-                    else -> Color.Transparent
-                },
-                shape = shape
+            .then(
+                if (isFocused) Modifier.border(
+                    width = BousygramUiTokens.tvFocusOutline,
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = shape
+                ) else Modifier
             )
             .onFocusChanged { isFocused = it.isFocused }
             .clickable(onClick = onClick)
@@ -385,33 +344,25 @@ private fun ModeTabItem(
             .padding(vertical = 10.dp, horizontal = 6.dp),
         contentAlignment = Alignment.Center
     ) {
-        BousygramTooltipBox(
-            tooltip = label,
-            detail = tooltip,
-            icon = icon,
-            focused = isFocused,
-            placement = BousygramTooltipPlacement.AUTO_BELOW
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                BousygramIcon(
-                    icon = icon,
-                    contentDescription = null,
-                    tint = if (isFocused && !selected) halo.haloStart else contentColor,
-                    size = 17.dp
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (selected || isFocused) FontWeight.Bold else FontWeight.Medium,
-                    color = contentColor,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            BousygramIcon(
+                icon = icon,
+                contentDescription = null,
+                tint = if (isFocused && !selected) MaterialTheme.colorScheme.primary else contentColor,
+                size = 17.dp
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected || isFocused) FontWeight.Bold else FontWeight.Medium,
+                color = contentColor,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -425,19 +376,9 @@ private fun AuthPrimaryCard(
     viewModel: AuthViewModel,
     modifier: Modifier = Modifier
 ) {
-    val halo = LocalBousygramHaloColors.current
-    val motion = rememberBousygramMotionPolicy()
-    val cardShape = RoundedCornerShape(BousygramUiTokens.panelCorner)
-    Surface(
-        modifier = modifier
-            .border(1.dp, halo.glassBorder, cardShape)
-            .shadow(elevation = if (motion.lowRam) 0.dp else 12.dp, shape = cardShape),
-        color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = cardShape
-    ) {
+    EnterprisePanel(modifier = modifier) {
         Column(
-            modifier = Modifier.padding(26.dp),
+            modifier = Modifier.padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(
@@ -446,19 +387,15 @@ private fun AuthPrimaryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    border = androidx.compose.foundation.BorderStroke(
-                        0.5.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.40f)
-                    )
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
                 ) {
                     Text(
                         text = stepBadgeText(state.step),
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
 
@@ -470,7 +407,7 @@ private fun AuthPrimaryCard(
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Text(
                             text = stringResource(R.string.auth_working),
@@ -494,24 +431,10 @@ private fun AuthPrimaryCard(
                 val isError = state.message.contains("error", ignoreCase = true) ||
                     state.message.contains("invalid", ignoreCase = true) ||
                     state.message.contains("wait", ignoreCase = true)
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isError) MaterialTheme.colorScheme.errorContainer
-                    else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = state.message.orEmpty(),
-                        color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-                            else MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
+                BousygramInlineStatus(
+                    message = state.message.orEmpty(),
+                    tone = if (isError) BousygramStatusTone.ERROR else BousygramStatusTone.NEUTRAL
+                )
             }
         }
     }
@@ -660,7 +583,6 @@ private fun CodeVerificationForm(state: AuthUiState, viewModel: AuthViewModel) {
             loading = state.isLoading,
             onClick = viewModel::switchToPhoneLogin,
             leadingIcon = BousygramIcons.Back,
-            tooltip = "Return to phone number entry",
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -733,7 +655,7 @@ private fun ApiKeysForm(state: AuthUiState, viewModel: AuthViewModel) {
 }
 
 /**
- * Dedicated QR Pairing Station for 1-tap instant linking with the official Telegram app.
+ * Dedicated QR pairing panel for linking with the official Telegram app.
  */
 @Composable
 private fun QrPairingStation(
@@ -742,18 +664,9 @@ private fun QrPairingStation(
     onSwitchToPhone: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val halo = LocalBousygramHaloColors.current
-    val motion = rememberBousygramMotionPolicy()
-    val stationShape = RoundedCornerShape(BousygramUiTokens.panelCorner)
-    Surface(
-        modifier = modifier
-            .border(1.dp, halo.glassBorder, stationShape)
-            .shadow(elevation = if (motion.lowRam) 0.dp else 12.dp, shape = stationShape),
-        color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f),
-        shape = stationShape
-    ) {
+    EnterprisePanel(modifier = modifier) {
         Column(
-            modifier = Modifier.padding(26.dp),
+            modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -764,7 +677,7 @@ private fun QrPairingStation(
                 BousygramIcon(
                     icon = BousygramIcons.QrCode,
                     contentDescription = null,
-                    tint = halo.haloStart,
+                    tint = MaterialTheme.colorScheme.primary,
                     size = 22.dp
                 )
                 Text(
@@ -812,7 +725,6 @@ private fun QrPairingStation(
                             loading = state.isLoading,
                             onClick = onRefresh,
                             leadingIcon = BousygramIcons.Refresh,
-                            tooltip = "Generate a fresh Telegram QR code",
                             modifier = Modifier.fillMaxWidth()
                         )
                         SecondaryAction(
@@ -820,7 +732,6 @@ private fun QrPairingStation(
                             loading = false,
                             onClick = onSwitchToPhone,
                             leadingIcon = BousygramIcons.Phone,
-                            tooltip = "Switch to phone number sign-in",
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -834,7 +745,6 @@ private fun QrPairingStation(
                             loading = state.isLoading,
                             onClick = onRefresh,
                             leadingIcon = BousygramIcons.Refresh,
-                            tooltip = "Generate a fresh Telegram QR code",
                             modifier = Modifier.weight(1f)
                         )
 
@@ -843,7 +753,6 @@ private fun QrPairingStation(
                             loading = false,
                             onClick = onSwitchToPhone,
                             leadingIcon = BousygramIcons.Phone,
-                            tooltip = "Switch to phone number sign-in",
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -887,7 +796,6 @@ private fun QrDisplayBox(
     state: AuthUiState,
     onRefresh: () -> Unit,
 ) {
-    val halo = LocalBousygramHaloColors.current
     val hasQr = state.qrCodeBitmap != null
     var isFocused by remember { mutableStateOf(false) }
 
@@ -895,10 +803,10 @@ private fun QrDisplayBox(
         modifier = Modifier
             .size(260.dp)
             .clip(RoundedCornerShape(BousygramUiTokens.cardCorner))
-            .background(if (hasQr) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .background(if (hasQr) Color.White else MaterialTheme.colorScheme.surfaceContainerHigh)
             .border(
-                width = if (isFocused) 3.dp else 1.5.dp,
-                color = if (isFocused) halo.focusRing else halo.haloStart.copy(alpha = 0.65f),
+                width = if (isFocused) BousygramUiTokens.tvFocusOutline else 1.dp,
+                color = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
             )
             .onFocusChanged { isFocused = it.isFocused }
@@ -954,11 +862,10 @@ private fun QrDisplayBox(
 }
 
 /**
- * Enterprise security footer guaranteeing local-only TDLib execution.
+ * Factual privacy footer confirming direct local TDLib execution.
  */
 @Composable
 private fun EnterpriseSecurityFooter(modifier: Modifier = Modifier) {
-    val halo = LocalBousygramHaloColors.current
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -969,13 +876,13 @@ private fun EnterpriseSecurityFooter(modifier: Modifier = Modifier) {
         BousygramIcon(
             icon = BousygramIcons.Shield,
             contentDescription = null,
-            tint = halo.haloStart.copy(alpha = 0.85f),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             size = 14.dp
         )
         Text(
-            text = "100% Local TDLib Engine · Android Keystore AES-256 · Zero Third-Party Relays",
+            text = "Direct local TDLib connection · Credentials encrypted on-device",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
     }
@@ -1078,54 +985,52 @@ private fun SecondaryAction(
     loading: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    leadingIcon: BousygramIconRef? = null,
-    tooltip: String? = null
+    leadingIcon: BousygramIconRef? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val halo = LocalBousygramHaloColors.current
     val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
-    val contentColor = if (isFocused) halo.haloStart else MaterialTheme.colorScheme.onSurface
+    val contentColor = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
 
     OutlinedButton(
         modifier = modifier
             .height(52.dp)
             .onFocusChanged { isFocused = it.isFocused }
-            .border(
-                width = if (isFocused) 2.5.dp else 1.dp,
-                color = if (isFocused) halo.focusRing else halo.glassBorder,
-                shape = shape
+            .then(
+                if (isFocused) Modifier.border(
+                    width = BousygramUiTokens.tvFocusOutline,
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = shape
+                ) else if (halo.isHighContrast) Modifier.border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                    shape = shape
+                ) else Modifier
             ),
         onClick = onClick,
         enabled = !loading,
         shape = shape,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        BousygramTooltipBox(
-            tooltip = tooltip,
-            icon = leadingIcon,
-            focused = isFocused,
-            placement = BousygramTooltipPlacement.AUTO_BELOW
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (leadingIcon != null) {
-                    BousygramIcon(
-                        icon = leadingIcon,
-                        contentDescription = null,
-                        tint = contentColor,
-                        size = 17.dp
-                    )
-                }
-                Text(
-                    text = text,
-                    color = contentColor,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+            if (leadingIcon != null) {
+                BousygramIcon(
+                    icon = leadingIcon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    size = 17.dp
                 )
             }
+            Text(
+                text = text,
+                color = contentColor,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -1142,14 +1047,14 @@ private fun screenTitle(step: AuthStep): String = when (step) {
 }
 
 private fun stepBadgeText(step: AuthStep): String = when (step) {
-    AuthStep.Unavailable -> "NATIVE RUNTIME REQUIRED"
-    AuthStep.EnterApiKeys -> "STEP 1 · API CREDENTIALS"
-    AuthStep.EnterPhone -> "PHONE NUMBER AUTH"
-    AuthStep.ScanQrCode -> "INSTANT QR PAIRING"
-    AuthStep.EnterCode -> "STEP 2 · VERIFICATION CODE"
-    AuthStep.EnterPassword -> "STEP 3 · 2FA CLOUD SECURITY"
-    AuthStep.Authorized -> "TDLIB AUTHORIZED"
-    AuthStep.Loading -> "STARTING TDLIB ENGINE"
+    AuthStep.Unavailable -> "Native runtime required"
+    AuthStep.EnterApiKeys -> "Step 1 · API credentials"
+    AuthStep.EnterPhone -> "Phone sign-in"
+    AuthStep.ScanQrCode -> "QR sign-in"
+    AuthStep.EnterCode -> "Step 2 · Verification code"
+    AuthStep.EnterPassword -> "Step 3 · Cloud password"
+    AuthStep.Authorized -> "Signed in"
+    AuthStep.Loading -> "Starting TDLib"
 }
 
 private fun Modifier.widthInMax(max: Dp): Modifier =

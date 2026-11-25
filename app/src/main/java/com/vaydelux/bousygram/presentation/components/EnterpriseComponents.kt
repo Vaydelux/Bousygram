@@ -8,7 +8,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -69,13 +68,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
@@ -173,17 +168,13 @@ fun ShellNavIcon(
 fun CenteredPlayBadge(
     modifier: Modifier = Modifier
 ) {
-    val halo = LocalBousygramHaloColors.current
     val playBg = MaterialTheme.colorScheme.primary
     val playIcon = MaterialTheme.colorScheme.onPrimary
     Box(
         modifier = modifier
-            .size(40.dp)
+            .size(38.dp)
             .clip(CircleShape)
-            .background(
-                Brush.linearGradient(listOf(halo.haloStart, playBg))
-            )
-            .border(1.5.dp, playIcon.copy(alpha = 0.70f), CircleShape),
+            .background(playBg),
         contentAlignment = Alignment.Center
     ) {
         BousygramIcon(
@@ -344,7 +335,7 @@ fun TabletNavRail(
                         bottom = if (compact) 2.dp else 10.dp
                     )
                 ) {
-                    BousygramBrandMark(size = if (compact) 28.dp else 38.dp, showHalo = !compact)
+                    BousygramBrandMark(size = if (compact) 28.dp else 38.dp)
                 }
             }
         ) {
@@ -364,7 +355,8 @@ fun TabletNavRail(
                     icon = shellDestinationIcon(destination),
                     focused = itemFocused,
                     placement = BousygramTooltipPlacement.AUTO_END,
-                    state = tooltipState
+                    state = tooltipState,
+                    enabled = compact
                 ) {
                     NavigationRailItem(
                         modifier = Modifier
@@ -451,7 +443,7 @@ fun TvTopNavBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    BousygramBrandMark(size = 38.dp, showHalo = true)
+                    BousygramBrandMark(size = 38.dp)
                     Text(
                         text = "Bousygram",
                         color = colors.onSurface,
@@ -515,78 +507,65 @@ fun TvTopNavBar(
                             isSelected -> halo.haloStart.copy(alpha = 0.55f)
                             else -> Color.Transparent
                         }
-                        BousygramTooltipBox(
-                            tooltip = when (dest) {
-                                ShellDestination.Home -> "Home"
-                                ShellDestination.Library -> "Library"
-                                ShellDestination.Search -> "Search media"
-                                else -> dest.label
-                            },
-                            detail = if (isSelected) "Active" else null,
-                            icon = destIcon,
-                            focused = focused,
-                            placement = BousygramTooltipPlacement.AUTO_BELOW
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .then(if (isSelected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                                    .clip(tabShape)
-                                    .background(
-                                        when {
-                                            focused -> colors.primary.copy(alpha = 0.22f)
-                                            isSelected -> selectedFill
-                                            else -> Color.Transparent
-                                        }
-                                    )
-                                    .then(
-                                        if (tabBorderWidth > 0.dp) {
-                                            Modifier.border(
-                                                width = tabBorderWidth,
-                                                color = tabBorderColor,
-                                                shape = tabShape
-                                            )
-                                        } else Modifier
-                                    )
-                                    .semantics {
-                                        contentDescription = dest.label
-                                        this.selected = isSelected
+                        Row(
+                            modifier = Modifier
+                                .then(if (isSelected && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                                .clip(tabShape)
+                                .background(
+                                    when {
+                                        focused -> colors.primary.copy(alpha = 0.22f)
+                                        isSelected -> selectedFill
+                                        else -> Color.Transparent
                                     }
-                                    .onFocusChanged { focused = it.isFocused }
-                                    .clickable(
-                                        interactionSource = interaction,
-                                        indication = ripple(color = colors.primary),
-                                        role = Role.Button,
-                                        onClick = {
-                                            if (dest == ShellDestination.Search) onOpenSearch() else onSelect(dest)
-                                        }
-                                    )
-                                    .heightIn(min = 48.dp)
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                BousygramIcon(
-                                    icon = destIcon,
-                                    contentDescription = null,
-                                    tint = when {
-                                        isSelected -> selectedContent
-                                        focused -> colors.primary
-                                        else -> colors.onSurfaceVariant
-                                    },
-                                    size = spec.iconSizeAction
                                 )
-                                Text(
-                                    text = dest.label,
-                                    color = when {
-                                        isSelected -> if (styleSpec.segmentedTabs && !halo.isHighContrast) colors.onSurface else colors.onPrimaryContainer
-                                        focused -> colors.onSurface
-                                        else -> colors.onSurfaceVariant
-                                    },
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
-                                    maxLines = 1
+                                .then(
+                                    if (tabBorderWidth > 0.dp) {
+                                        Modifier.border(
+                                            width = tabBorderWidth,
+                                            color = tabBorderColor,
+                                            shape = tabShape
+                                        )
+                                    } else Modifier
                                 )
-                            }
+                                .semantics {
+                                    contentDescription = dest.label
+                                    this.selected = isSelected
+                                }
+                                .onFocusChanged { focused = it.isFocused }
+                                .clickable(
+                                    interactionSource = interaction,
+                                    indication = ripple(color = colors.primary),
+                                    role = Role.Button,
+                                    onClick = {
+                                        if (dest == ShellDestination.Search) onOpenSearch() else onSelect(dest)
+                                    }
+                                )
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            BousygramIcon(
+                                icon = destIcon,
+                                contentDescription = null,
+                                tint = when {
+                                    isSelected -> selectedContent
+                                    focused -> colors.primary
+                                    else -> colors.onSurfaceVariant
+                                },
+                                size = spec.iconSizeAction
+                            )
+                            Text(
+                                text = dest.label,
+                                color = when {
+                                    isSelected -> if (styleSpec.segmentedTabs && !halo.isHighContrast) colors.onSurface else colors.onPrimaryContainer
+                                    focused -> colors.onSurface
+                                    else -> colors.onSurfaceVariant
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1
+                            )
                         }
                     }
                 }
@@ -635,7 +614,7 @@ fun PhoneTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            BousygramBrandMark(size = 34.dp, showHalo = true)
+            BousygramBrandMark(size = 34.dp)
             Text(
                 text = "Bousygram",
                 color = colors.onSurface,
@@ -759,7 +738,8 @@ private fun GlassBottomBar(
         halo.isHighContrast -> 1.5.dp
         styleSpec.useTonalSurfaces -> 0.dp
         styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> 1.5.dp
-        else -> 1.dp
+        styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> 0.75.dp
+        else -> 0.dp
     }
     Box(
         modifier = modifier
@@ -794,29 +774,15 @@ private fun GlassBottomBar(
                         ShellDestination.Me -> selected == ShellDestination.Me || selected == ShellDestination.Settings
                         else -> destination == selected
                     }
-                    val tooltipState = rememberBousygramTooltipState()
-                    var focused by remember { mutableStateOf(false) }
                     NavigationBarItem(
-                        modifier = Modifier.onFocusChanged { focused = it.isFocused },
                         selected = isSelected,
-                        onClick = {
-                            tooltipState.flashSelection()
-                            onSelect(destination)
-                        },
+                        onClick = { onSelect(destination) },
                         icon = {
-                            BousygramTooltipBox(
-                                tooltip = if (destination == ShellDestination.Me) "Settings & Profile" else destination.label,
-                                icon = shellDestinationIcon(destination),
-                                focused = focused,
-                                placement = BousygramTooltipPlacement.AUTO_ABOVE,
-                                state = tooltipState
-                            ) {
-                                ShellNavIcon(
-                                    destination = destination,
-                                    tint = if (isSelected) colors.onPrimaryContainer else colors.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            ShellNavIcon(
+                                destination = destination,
+                                tint = if (isSelected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
                         },
                         label = {
                             Text(
@@ -962,11 +928,13 @@ fun BousygramButton(
                 else BousygramUiTokens.touchTarget
         )
     ) { focused ->
+        // Only pop tooltips for icon-only buttons; labeled controls speak for themselves.
         BousygramTooltipBox(
             tooltip = tooltip,
             icon = leadingIcon,
             focused = focused,
-            placement = tooltipPlacement
+            placement = tooltipPlacement,
+            enabled = text.isBlank()
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1224,8 +1192,11 @@ fun MediaPosterCard(
                 onFocusChanged(it.isFocused)
             }
             .semantics {
+                val resumeText = if (!privacyMode && !isWatched && resumeFraction != null && resumeFraction in 0.05f..0.95f) {
+                    "Resume ${(resumeFraction * 100).toInt()}%"
+                } else null
                 contentDescription = if (privacyMode) "Private video, details hidden"
-                    else listOfNotNull(labels.title, labels.subtitle, labels.fileSizeLabel)
+                    else listOfNotNull(labels.title, labels.subtitle, labels.fileSizeLabel, resumeText)
                         .filter { it.isNotBlank() }.joinToString(", ")
             }
     ) {
@@ -1249,11 +1220,11 @@ fun MediaPosterCard(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(76.dp)
+                            .height(44.dp)
                             .align(Alignment.BottomCenter)
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.90f))
+                                    listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.58f))
                                 )
                             )
                     )
@@ -1263,6 +1234,8 @@ fun MediaPosterCard(
                 if (focused) {
                     CenteredPlayBadge()
                 }
+                // Resting overlay budget (<= 2): at most one corner status/format chip
+                // when no progress bar is shown, or bottom-right duration + progress bar.
                 if (isWatched) {
                     GlassPill(
                         text = "Watched",
@@ -1270,7 +1243,7 @@ fun MediaPosterCard(
                         gold = true,
                         modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
                     )
-                } else {
+                } else if (resumeFraction == null) {
                     val displayBadge = badge ?: when (media.type) {
                         com.vaydelux.bousygram.domain.model.MediaType.Audio -> media.docType ?: "AUDIO"
                         com.vaydelux.bousygram.domain.model.MediaType.Document -> media.docType ?: "DOC"
@@ -1287,14 +1260,7 @@ fun MediaPosterCard(
                         )
                     }
                 }
-                if (!isWatched && resumeFraction != null && resumeFraction in 0.05f..0.95f) {
-                    GlassPill(
-                        text = "Resume ${(resumeFraction * 100).toInt()}%",
-                        icon = BousygramIcons.Play,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)
-                    )
-                }
-                if (!privacyMode) {
+                if (!privacyMode && labels.durationLabel.isNotBlank()) {
                     GlassPill(
                         text = labels.durationLabel,
                         modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
@@ -1306,8 +1272,8 @@ fun MediaPosterCard(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .height(3.5.dp),
-                        color = LocalBousygramHaloColors.current.haloStart,
+                            .height(3.dp),
+                        color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
                     )
                 }
@@ -1432,11 +1398,11 @@ fun SeriesPosterCard(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(76.dp)
+                            .height(44.dp)
                             .align(Alignment.BottomCenter)
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.90f))
+                                    listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.58f))
                                 )
                             )
                     )
@@ -1480,26 +1446,25 @@ internal fun GlassPill(
 ) {
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
+    val shape = RoundedCornerShape(6.dp)
     val pillBg = when {
-        gold -> halo.goldContainer.copy(alpha = 0.94f)
-        accent -> colors.primary.copy(alpha = 0.90f)
-        else -> colors.background.copy(alpha = 0.84f)
-    }
-    val pillBorder = when {
-        gold -> halo.goldAccent.copy(alpha = 0.72f)
-        accent -> halo.haloStart.copy(alpha = 0.70f)
-        else -> colors.outlineVariant.copy(alpha = 0.75f)
+        gold -> halo.goldContainer.copy(alpha = 0.96f)
+        accent -> colors.primary.copy(alpha = 0.94f)
+        else -> colors.surfaceContainerHighest.copy(alpha = 0.92f)
     }
     val pillFg = when {
         gold -> halo.onGoldContainer
         accent -> colors.onPrimary
-        else -> colors.onBackground
+        else -> colors.onSurface
     }
     Row(
         modifier = modifier
-            .background(pillBg, RoundedCornerShape(BousygramUiTokens.pillCorner))
-            .border(1.dp, pillBorder, RoundedCornerShape(BousygramUiTokens.pillCorner))
-            .padding(horizontal = 9.dp, vertical = 4.dp),
+            .background(pillBg, shape)
+            .then(
+                if (halo.isHighContrast) Modifier.border(1.dp, colors.outline, shape)
+                else Modifier
+            )
+            .padding(horizontal = 7.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -1524,46 +1489,18 @@ internal fun GlassPill(
 @Composable
 private fun PosterFallback(privacyMode: Boolean = false) {
     val colors = MaterialTheme.colorScheme
-    val halo = LocalBousygramHaloColors.current
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        colors.surfaceContainerHigh,
-                        halo.haloStart.copy(alpha = if (halo.isHighContrast) 0f else 0.14f),
-                        colors.surfaceContainerLow
-                    )
-                )
-            ),
+            .background(colors.surfaceContainerHigh),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(colors.surfaceContainer.copy(alpha = 0.85f))
-                    .border(1.dp, halo.glassBorder, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                BousygramIcon(
-                    icon = if (privacyMode) BousygramIcons.PrivacyHidden else BousygramIcons.Film,
-                    contentDescription = null,
-                    tint = colors.primary,
-                    size = 18.dp
-                )
-            }
-            Text(
-                if (privacyMode) "Hidden preview" else "Telegram Video",
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
+        BousygramIcon(
+            icon = if (privacyMode) BousygramIcons.PrivacyHidden else BousygramIcons.Film,
+            contentDescription = null,
+            tint = colors.onSurfaceVariant.copy(alpha = 0.72f),
+            size = 24.dp
+        )
     }
 }
 
@@ -1572,121 +1509,20 @@ fun NoResultsIllustration(
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
-    val primary = colors.primary
-    val secondary = colors.secondary
-    val surfaceVariant = colors.surfaceVariant
-    val outline = colors.outlineVariant
-
     Box(
         modifier = modifier
-            .size(96.dp)
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(colors.surfaceContainerHigh)
             .testTag("no_results_illustration"),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val center = Offset(w * 0.5f, h * 0.5f)
-
-            // Soft radial glow aura
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        primary.copy(alpha = 0.24f),
-                        secondary.copy(alpha = 0.08f),
-                        Color.Transparent
-                    ),
-                    center = center,
-                    radius = w * 0.48f
-                ),
-                radius = w * 0.48f,
-                center = center
-            )
-
-            // Film slate / media frame in background
-            val frameLeft = w * 0.16f
-            val frameTop = h * 0.22f
-            val frameWidth = w * 0.54f
-            val frameHeight = h * 0.44f
-            val corner = CornerRadius(w * 0.08f, w * 0.08f)
-
-            drawRoundRect(
-                color = surfaceVariant.copy(alpha = 0.85f),
-                topLeft = Offset(frameLeft, frameTop),
-                size = Size(frameWidth, frameHeight),
-                cornerRadius = corner
-            )
-            drawRoundRect(
-                color = outline.copy(alpha = 0.75f),
-                topLeft = Offset(frameLeft, frameTop),
-                size = Size(frameWidth, frameHeight),
-                cornerRadius = corner,
-                style = Stroke(width = w * 0.025f)
-            )
-
-            // Film sprocket dots along top and bottom of media frame
-            val dotRadius = w * 0.018f
-            for (i in 0..3) {
-                val dotX = frameLeft + frameWidth * (0.18f + i * 0.21f)
-                drawCircle(
-                    color = primary.copy(alpha = 0.45f),
-                    radius = dotRadius,
-                    center = Offset(dotX, frameTop + frameHeight * 0.16f)
-                )
-                drawCircle(
-                    color = primary.copy(alpha = 0.45f),
-                    radius = dotRadius,
-                    center = Offset(dotX, frameTop + frameHeight * 0.84f)
-                )
-            }
-
-            // Magnifying glass overlapping bottom-right of the media frame
-            val lensCenter = Offset(w * 0.60f, h * 0.56f)
-            val lensRadius = w * 0.19f
-
-            drawCircle(
-                color = surfaceVariant,
-                radius = lensRadius,
-                center = lensCenter
-            )
-            drawCircle(
-                color = primary,
-                radius = lensRadius,
-                center = lensCenter,
-                style = Stroke(width = w * 0.042f, cap = StrokeCap.Round)
-            )
-
-            // Magnifying glass handle
-            val handleStart = Offset(
-                lensCenter.x + lensRadius * 0.72f,
-                lensCenter.y + lensRadius * 0.72f
-            )
-            val handleEnd = Offset(w * 0.86f, h * 0.82f)
-            drawLine(
-                color = primary,
-                start = handleStart,
-                end = handleEnd,
-                strokeWidth = w * 0.055f,
-                cap = StrokeCap.Round
-            )
-
-            // "X" inside magnifying glass lens indicating no matching media
-            val crossSpan = lensRadius * 0.36f
-            drawLine(
-                color = secondary,
-                start = Offset(lensCenter.x - crossSpan, lensCenter.y - crossSpan),
-                end = Offset(lensCenter.x + crossSpan, lensCenter.y + crossSpan),
-                strokeWidth = w * 0.036f,
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = secondary,
-                start = Offset(lensCenter.x + crossSpan, lensCenter.y - crossSpan),
-                end = Offset(lensCenter.x - crossSpan, lensCenter.y + crossSpan),
-                strokeWidth = w * 0.036f,
-                cap = StrokeCap.Round
-            )
-        }
+        BousygramIcon(
+            icon = BousygramIcons.Search,
+            contentDescription = null,
+            tint = colors.onSurfaceVariant,
+            size = 22.dp
+        )
     }
 }
 
@@ -1710,9 +1546,9 @@ fun NoSearchResultsEmptyState(
     val colors = MaterialTheme.colorScheme
     val resolvedMessage = message ?: if (query.isNotBlank()) {
         val scopeSuffix = if (!scopeLabel.isNullOrBlank()) " in $scopeLabel" else ""
-        "We couldn't find any videos matching \"$query\"$scopeSuffix. Check your spelling, try shorter keywords, or search across all Telegram channels."
+        "No videos matched \"$query\"$scopeSuffix. Try shorter keywords or switch sources."
     } else {
-        "No matching media items were found. Try searching with different keywords or switching sources."
+        "No matching media items found. Try different keywords or another source."
     }
     Box(
         modifier = modifier
@@ -1720,85 +1556,85 @@ fun NoSearchResultsEmptyState(
             .testTag("no_results_empty_state"),
         contentAlignment = Alignment.Center
     ) {
-        EnterprisePanel(modifier = Modifier.widthIn(max = 520.dp)) {
-            Column(
-                modifier = Modifier.padding(horizontal = 30.dp, vertical = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+        Column(
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            NoResultsIllustration()
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = title,
+                color = colors.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.testTag("no_results_title")
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = resolvedMessage,
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("no_results_message")
+            )
+            if ((primaryActionText != null && onPrimaryAction != null) ||
+                (secondaryActionText != null && onSecondaryAction != null)
             ) {
-                NoResultsIllustration()
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    text = title,
-                    color = colors.onSurface,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("no_results_title")
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = resolvedMessage,
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("no_results_message")
-                )
-                if ((primaryActionText != null && onPrimaryAction != null) ||
-                    (secondaryActionText != null && onSecondaryAction != null)
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Spacer(Modifier.height(20.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (primaryActionText != null && onPrimaryAction != null) {
-                            BousygramButton(
-                                text = primaryActionText,
-                                onClick = onPrimaryAction,
-                                selected = true,
-                                modifier = Modifier.testTag("no_results_primary_action")
-                            )
-                        }
-                        if (secondaryActionText != null && onSecondaryAction != null) {
-                            BousygramButton(
-                                text = secondaryActionText,
-                                onClick = onSecondaryAction,
-                                selected = false,
-                                modifier = Modifier.testTag("no_results_secondary_action")
-                            )
-                        }
+                    if (primaryActionText != null && onPrimaryAction != null) {
+                        BousygramButton(
+                            text = primaryActionText,
+                            onClick = onPrimaryAction,
+                            selected = true,
+                            modifier = Modifier.testTag("no_results_primary_action")
+                        )
+                    }
+                    if (secondaryActionText != null && onSecondaryAction != null) {
+                        BousygramButton(
+                            text = secondaryActionText,
+                            onClick = onSecondaryAction,
+                            selected = false,
+                            modifier = Modifier.testTag("no_results_secondary_action")
+                        )
                     }
                 }
-                val filteredSuggestions = remember(suggestedSearches, query) {
-                    suggestedSearches
-                        .filter { it.isNotBlank() && !it.equals(query.trim(), ignoreCase = true) }
-                        .distinctBy { it.lowercase() }
-                        .take(4)
-                }
-                if (filteredSuggestions.isNotEmpty() && onSelectSuggestion != null) {
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        text = "Try a recent search:",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        items(filteredSuggestions, key = { it.lowercase() }) { suggestion ->
-                            BousygramChip(
-                                text = suggestion,
-                                selected = false,
-                                onClick = { onSelectSuggestion(suggestion) },
-                                modifier = Modifier.testTag("no_results_suggestion_${suggestion.lowercase()}")
-                            )
-                        }
+            }
+            val filteredSuggestions = remember(suggestedSearches, query) {
+                suggestedSearches
+                    .filter { it.isNotBlank() && !it.equals(query.trim(), ignoreCase = true) }
+                    .distinctBy { it.lowercase() }
+                    .take(4)
+            }
+            if (filteredSuggestions.isNotEmpty() && onSelectSuggestion != null) {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "Recent searches",
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp)
+                ) {
+                    items(filteredSuggestions, key = { it.lowercase() }) { suggestion ->
+                        BousygramChip(
+                            text = suggestion,
+                            selected = false,
+                            onClick = { onSelectSuggestion(suggestion) },
+                            modifier = Modifier.testTag("no_results_suggestion_${suggestion.lowercase()}")
+                        )
                     }
                 }
             }
@@ -1821,47 +1657,47 @@ fun EmptyStateView(
             .testTag("bousygram-empty-state"),
         contentAlignment = Alignment.Center
     ) {
-        EnterprisePanel(modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(
-                        horizontal = if (shortWindow) 14.dp else 24.dp,
-                        vertical = if (shortWindow) 10.dp else 22.dp
-                    ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                if (illustration != null) {
-                    illustration()
-                    Spacer(Modifier.height(12.dp))
-                }
-                Text(
-                    title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = if (shortWindow) MaterialTheme.typography.titleMedium
-                        else MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("bousygram-empty-state-title")
+        Column(
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    horizontal = if (shortWindow) 12.dp else 20.dp,
+                    vertical = if (shortWindow) 8.dp else 16.dp
+                ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            if (illustration != null) {
+                illustration()
+                Spacer(Modifier.height(10.dp))
+            }
+            Text(
+                title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = if (shortWindow) MaterialTheme.typography.titleMedium
+                    else MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.testTag("bousygram-empty-state-title")
+            )
+            Spacer(Modifier.height(if (shortWindow) 4.dp else 6.dp))
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                maxLines = if (shortWindow) 3 else 5,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("bousygram-empty-state-message")
+            )
+            if (actionText != null && onAction != null) {
+                Spacer(Modifier.height(if (shortWindow) 8.dp else 14.dp))
+                BousygramButton(
+                    actionText, onAction, selected = true,
+                    modifier = Modifier.testTag("bousygram-empty-state-action")
                 )
-                Spacer(Modifier.height(if (shortWindow) 4.dp else 8.dp))
-                Text(
-                    message,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    maxLines = if (shortWindow) 3 else 5,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("bousygram-empty-state-message")
-                )
-                if (actionText != null && onAction != null) {
-                    Spacer(Modifier.height(if (shortWindow) 8.dp else 14.dp))
-                    BousygramButton(
-                        actionText, onAction, selected = true,
-                        modifier = Modifier.testTag("bousygram-empty-state-action")
-                    )
-                }
             }
         }
     }
@@ -2382,7 +2218,7 @@ fun EnterprisePanel(
         styleSpec.useTonalSurfaces -> colors.surfaceContainer
         styleSpec.style == BousygramDesignStyle.IPHONE_GLASS -> colors.surface.copy(alpha = if (halo.isLight) 0.96f else 0.90f)
         styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.surfaceContainerLow.copy(alpha = 0.95f)
-        else -> halo.glassFill
+        else -> colors.surfaceContainerLow
     }
     val borderWidth = if (halo.isHighContrast) 1.5.dp else styleSpec.panelBorderWidth
     val borderColor = when {

@@ -33,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -120,11 +119,7 @@ internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifi
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(
-                MaterialTheme.colorScheme.background,
-                MaterialTheme.colorScheme.surfaceVariant,
-                MaterialTheme.colorScheme.background
-            )))
+            .background(MaterialTheme.colorScheme.background)
             .testTag("player_opening_skeleton")
             .semantics { contentDescription = "Preparing playback" },
         contentAlignment = Alignment.Center
@@ -144,8 +139,7 @@ internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifi
                 contentAlignment = Alignment.Center
             ) {
                 BousygramBrandMark(
-                    size = if (shortWindow) 34.dp else if (compact) 44.dp else 56.dp,
-                    showHalo = true
+                    size = if (shortWindow) 34.dp else if (compact) 44.dp else 56.dp
                 )
             }
             Row(
@@ -246,7 +240,7 @@ internal fun PlayerLoadingBanner(
                 shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = MaterialTheme.colorScheme.onSurface,
-                border = BorderStroke(1.dp, halo.glassBorder),
+                border = if (halo.isHighContrast) BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline) else null,
                 shadowElevation = if (motion.lowRam) 0.dp else 6.dp
             ) {
                 Column {

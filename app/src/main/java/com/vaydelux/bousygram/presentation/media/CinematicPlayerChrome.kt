@@ -303,12 +303,12 @@ internal fun CinematicScrubber(
                     cornerRadius = radius
                 )
             }
-            // Drag-only glowing thumb; omitted at rest to satisfy accessibility contract.
+            // Drag-only thumb; omitted at rest to satisfy accessibility contract.
             if (dragging) {
                 val center = Offset(fillWidth, h / 2f)
-                drawCircle(cinemaAccent.copy(alpha = 0.34f), 11.dp.toPx(), center)
+                drawCircle(cinemaAccent.copy(alpha = 0.20f), 10.dp.toPx(), center)
                 drawCircle(playback.thumb, 6.dp.toPx(), center)
-                drawCircle(cinemaAccentEnd, 4.dp.toPx(), center)
+                drawCircle(cinemaAccentEnd, 3.5.dp.toPx(), center)
             }
         }
     }
@@ -332,6 +332,7 @@ private fun CinemaHudButton(
     tooltipPlacement: BousygramTooltipPlacement = BousygramTooltipPlacement.AUTO_ABOVE
 ) {
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
     val styleSpec = LocalBousygramStyleSpec.current
     val motion = rememberBousygramMotionPolicy()
@@ -357,7 +358,7 @@ private fun CinemaHudButton(
     }
 
     val scale by animateFloatAsState(
-        targetValue = if (focused && motion.animateFocusScale) 1.06f else 1f,
+        targetValue = if (focused && motion.animateFocusScale) 1.04f else 1f,
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "cinemaBtnScale"
     )
@@ -374,7 +375,14 @@ private fun CinemaHudButton(
     val borderColor = when {
         focused && hero -> colors.onPrimary
         focused || selected -> colors.primary
-        else -> colors.outlineVariant
+        halo.isHighContrast -> colors.outline
+        else -> Color.Transparent
+    }
+    val borderWidth = when {
+        focused -> BousygramUiTokens.tvFocusOutline
+        selected -> 1.5.dp
+        halo.isHighContrast -> 1.dp
+        else -> 0.dp
     }
     val fgColor = when {
         hero && focused -> colors.onPrimary
@@ -392,10 +400,12 @@ private fun CinemaHudButton(
             }
             .clip(shape)
             .background(bgColor)
-            .border(
-                width = if (focused) 2.5.dp else if (hero || selected) 1.5.dp else 1.dp,
-                color = borderColor,
-                shape = shape
+            .then(
+                if (borderWidth > 0.dp) Modifier.border(
+                    width = borderWidth,
+                    color = borderColor,
+                    shape = shape
+                ) else Modifier
             )
             .onFocusChanged { focused = it.isFocused }
             .semantics {
@@ -424,7 +434,8 @@ private fun CinemaHudButton(
             focused = focused,
             placement = tooltipPlacement,
             dwellMs = if (label == null) 0L else BousygramUiTokens.tooltipDwellMs,
-            state = tooltipState
+            state = tooltipState,
+            enabled = label == null
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -457,10 +468,11 @@ private fun CinemaMetaBadge(
     accent: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
     Surface(
-        shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+        shape = RoundedCornerShape(6.dp),
         color = if (accent) colors.secondaryContainer else colors.surfaceContainerHigh,
-        border = BorderStroke(1.dp, colors.outlineVariant)
+        border = if (halo.isHighContrast) BorderStroke(1.dp, colors.outline) else null
     ) {
         Text(
             text = text,
@@ -468,7 +480,7 @@ private fun CinemaMetaBadge(
             style = MaterialTheme.typography.labelSmall.tabular(),
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
         )
     }
 }
@@ -541,11 +553,11 @@ internal fun CinematicPlayerChrome(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(116.dp)
+                        .height(72.dp)
                         .align(Alignment.TopCenter)
                         .background(
                             Brush.verticalGradient(
-                                listOf(halo.scrimTop, Color.Transparent)
+                                listOf(halo.scrimTop.copy(alpha = 0.60f), Color.Transparent)
                             )
                         )
                 )
@@ -632,11 +644,11 @@ internal fun CinematicPlayerChrome(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(if (isTv) 182.dp else 164.dp)
+                        .height(if (isTv) 120.dp else 108.dp)
                         .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, halo.scrimBottom.copy(alpha = 0.72f), halo.scrimBottom)
+                                listOf(Color.Transparent, halo.scrimBottom.copy(alpha = 0.65f))
                             )
                         )
                 )
@@ -656,7 +668,11 @@ internal fun CinematicPlayerChrome(
                             bottom = if (isTv) 16.dp else 10.dp
                         )
                         .background(hudSurface, dockShape)
-                        .border(1.dp, colors.outlineVariant, dockShape)
+                        .then(
+                            if (halo.isHighContrast) Modifier.border(1.5.dp, colors.outline, dockShape)
+                            else if (styleSpec.panelBorderWidth > 0.dp) Modifier.border(styleSpec.panelBorderWidth, colors.outlineVariant.copy(alpha = 0.55f), dockShape)
+                            else Modifier
+                        )
                         .padding(horizontal = if (isTv) 18.dp else 10.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {

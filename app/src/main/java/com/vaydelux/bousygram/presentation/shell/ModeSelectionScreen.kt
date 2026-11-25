@@ -50,8 +50,6 @@ import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
-import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
-import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
@@ -113,7 +111,7 @@ fun BousygramModeSelection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        BousygramBrandMark(size = 56.dp, showHalo = true)
+                        BousygramBrandMark(size = 56.dp)
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 "Bousygram",
@@ -134,22 +132,15 @@ fun BousygramModeSelection(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        BousygramBrandMark(size = 86.dp, showHalo = true)
+                        BousygramBrandMark(size = 80.dp)
                         Text(
                             "Bousygram",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             "Your screen. Your library.",
-                            style = MaterialTheme.typography.headlineLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            "Choose a media experience to get started.",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -160,7 +151,6 @@ fun BousygramModeSelection(
                     text = "Change appearance",
                     onClick = { appearanceOpen = true },
                     leadingIcon = BousygramIcons.Theme,
-                    tooltip = "Choose a theme, design style and background for every screen",
                     modifier = Modifier.widthIn(min = 232.dp).testTag("startup-change-appearance")
                 )
                 if (horizontalCards) {
@@ -175,7 +165,6 @@ fun BousygramModeSelection(
                             primary = true,
                             modeTag = "mode-telegram",
                             icon = BousygramIcons.Telegram,
-                            tooltip = "Browse and stream videos from your Telegram chats and channels",
                             modifier = Modifier.weight(1f)
                         )
                         ModeOption(
@@ -185,7 +174,6 @@ fun BousygramModeSelection(
                             primary = false,
                             modeTag = "mode-extras",
                             icon = BousygramIcons.Anime,
-                            tooltip = "Discover trending Movies, TV Shows, and Anime catalogs",
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -200,8 +188,7 @@ fun BousygramModeSelection(
                         onClick = onTelegram,
                         primary = true,
                         modeTag = "mode-telegram",
-                        icon = BousygramIcons.Telegram,
-                        tooltip = "Browse and stream videos from your Telegram chats and channels"
+                        icon = BousygramIcons.Telegram
                     )
                     ModeOption(
                         title = "Movies, TV Shows & Anime",
@@ -209,8 +196,7 @@ fun BousygramModeSelection(
                         onClick = onExtras,
                         primary = false,
                         modeTag = "mode-extras",
-                        icon = BousygramIcons.Anime,
-                        tooltip = "Discover trending Movies, TV Shows, and Anime catalogs"
+                        icon = BousygramIcons.Anime
                     )
                     }
                 }
@@ -235,8 +221,7 @@ private fun ModeOption(
     modeTag: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    icon: BousygramIconRef = if (primary) BousygramIcons.Telegram else BousygramIcons.Anime,
-    tooltip: String = subtitle
+    icon: BousygramIconRef = if (primary) BousygramIcons.Telegram else BousygramIcons.Anime
 ) {
     var focused by remember { mutableStateOf(false) }
     val motion = rememberBousygramMotionPolicy()
@@ -255,77 +240,68 @@ private fun ModeOption(
     )
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(BousygramUiTokens.panelCorner)
+    val borderWidth = when {
+        focused -> BousygramUiTokens.tvFocusOutline
+        halo.isHighContrast -> 1.5.dp
+        else -> 0.dp
+    }
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .testTag(modeTag)
             .graphicsLayer { scaleX = focusScale; scaleY = focusScale }
-            .border(
-                width = if (focused) 2.5.dp else 1.dp,
-                color = when {
-                    focused -> halo.focusRing
-                    primary -> halo.haloStart.copy(alpha = 0.55f)
-                    else -> halo.glassBorder
-                },
-                shape = shape
+            .then(
+                if (borderWidth > 0.dp) Modifier.border(
+                    width = borderWidth,
+                    color = if (focused) colors.primary else colors.outline,
+                    shape = shape
+                ) else Modifier
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(role = Role.Button, onClick = onClick),
         shape = shape,
-        color = if (focused) colors.surfaceContainerHighest else colors.surfaceContainer.copy(alpha = 0.94f),
-        tonalElevation = if (focused) 6.dp else 1.dp
+        color = if (focused) colors.surfaceContainerHighest else colors.surfaceContainer,
+        tonalElevation = if (focused) 4.dp else 1.dp
     ) {
-        BousygramTooltipBox(
-            tooltip = title,
-            detail = tooltip,
-            icon = icon,
-            focused = focused,
-            placement = BousygramTooltipPlacement.AUTO_BELOW
+        Row(
+            Modifier.fillMaxWidth()
+                .heightIn(min = if (isShortWindow) 112.dp else 140.dp)
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                Modifier.fillMaxWidth()
-                    .heightIn(min = if (isShortWindow) 112.dp else 140.dp)
-                    .padding(horizontal = 18.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            Surface(
+                shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                color = if (primary) colors.primaryContainer else colors.secondaryContainer
             ) {
-                Surface(
-                    shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
-                    color = if (primary) colors.primaryContainer else colors.secondaryContainer,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (primary) halo.haloStart.copy(alpha = 0.45f) else halo.glassBorder
-                    )
-                ) {
-                    Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
-                        BousygramIcon(
-                            icon = icon,
-                            contentDescription = null,
-                            tint = if (primary) colors.onPrimaryContainer else colors.onSecondaryContainer,
-                            size = 26.dp
-                        )
-                    }
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(
-                        title, style = MaterialTheme.typography.titleLarge,
-                        color = colors.onSurface, fontWeight = FontWeight.SemiBold,
-                        minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        subtitle, style = MaterialTheme.typography.bodyMedium,
-                        color = colors.onSurfaceVariant,
-                        minLines = subtitleLines, maxLines = subtitleLines,
-                        overflow = TextOverflow.Ellipsis
+                Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+                    BousygramIcon(
+                        icon = icon,
+                        contentDescription = null,
+                        tint = if (primary) colors.onPrimaryContainer else colors.onSecondaryContainer,
+                        size = 24.dp
                     )
                 }
-                BousygramIcon(
-                    icon = BousygramIcons.ChevronRight,
-                    contentDescription = null,
-                    tint = if (focused) halo.focusRing else colors.onSurfaceVariant,
-                    size = 22.dp
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    title, style = MaterialTheme.typography.titleLarge,
+                    color = colors.onSurface, fontWeight = FontWeight.SemiBold,
+                    minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    subtitle, style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    minLines = subtitleLines, maxLines = subtitleLines,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
+            BousygramIcon(
+                icon = BousygramIcons.ChevronRight,
+                contentDescription = null,
+                tint = if (focused) colors.primary else colors.onSurfaceVariant,
+                size = 22.dp
+            )
         }
     }
 }
@@ -345,7 +321,7 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    BousygramBrandMark(size = 80.dp, showHalo = true)
+                    BousygramBrandMark(size = 72.dp)
                     Text(
                         "More to Explore",
                         style = MaterialTheme.typography.headlineMedium,
@@ -370,7 +346,6 @@ fun ExtrasMaintenanceScreen(onBack: () -> Unit) {
                         onClick = onBack,
                         selected = true,
                         leadingIcon = BousygramIcons.Back,
-                        tooltip = "Return to experience picker",
                         modifier = Modifier.padding(top = 6.dp)
                     )
                 }
@@ -394,7 +369,7 @@ fun TelegramStartupLoadingScreen(connectionStatus: String?) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    BousygramBrandMark(size = 88.dp, showHalo = true)
+                    BousygramBrandMark(size = 76.dp)
                     Text(
                         "Preparing Telegram Media",
                         style = MaterialTheme.typography.headlineSmall,

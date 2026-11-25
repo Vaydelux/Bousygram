@@ -15,10 +15,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
@@ -65,7 +62,7 @@ internal fun bousygramControlLabelStyle(isTv: Boolean) =
     (if (isTv) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge)
         .copy(lineHeight = if (isTv) 22.sp else 20.sp)
 
-/** Shared information hierarchy for Telegram Library, Favorites and Extras. */
+/** Direct, content-first screen heading without decorative gradient bars or ALL-CAPS eyebrow kickers. */
 @Composable
 fun BousygramPageHeading(
     eyebrow: String,
@@ -75,51 +72,36 @@ fun BousygramPageHeading(
     modifier: Modifier = Modifier,
     icon: BousygramIconRef? = null
 ) {
-    val halo = LocalBousygramHaloColors.current
+    // Keep eyebrow parameter source-compatible for callers and UI tests without
+    // painting decorative gradient bars or noisy ALL-CAPS breadcrumb kickers.
+    @Suppress("UNUSED_VARIABLE")
+    val ignoredEyebrow = eyebrow
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)
+        verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(
-                Modifier
-                    .width(24.dp)
-                    .height(3.dp)
-                    .background(
-                        Brush.horizontalGradient(listOf(halo.haloStart, halo.haloEnd)),
-                        RoundedCornerShape(3.dp)
-                    )
-            )
             if (icon != null) {
                 BousygramIcon(
                     icon = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    size = 14.dp
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    size = if (compact) 18.dp else 22.dp
                 )
             }
             Text(
-                eyebrow.uppercase(),
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.labelMedium,
+                title,
+                color = MaterialTheme.colorScheme.onBackground,
+                style = if (compact) MaterialTheme.typography.headlineSmall
+                    else MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.7.sp,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Text(
-            title,
-            color = MaterialTheme.colorScheme.onBackground,
-            style = if (compact) MaterialTheme.typography.headlineSmall
-                else MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
         if (subtitle.isNotBlank()) {
             Text(
                 subtitle,
@@ -187,15 +169,18 @@ fun BousygramStatusPill(
         else -> colors.onSurface
     }
     val borderColor = when {
-        gold -> halo.goldAccent.copy(alpha = 0.45f)
-        accent -> colors.primary.copy(alpha = 0.42f)
-        else -> colors.outlineVariant.copy(alpha = 0.65f)
+        halo.isHighContrast -> colors.outline
+        gold -> halo.goldAccent.copy(alpha = 0.35f)
+        accent -> colors.primary.copy(alpha = 0.30f)
+        else -> Color.Transparent
     }
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
         color = containerColor,
-        border = BorderStroke(1.dp, borderColor)
+        border = if (halo.isHighContrast || borderColor != Color.Transparent) {
+            BorderStroke(1.dp, borderColor)
+        } else null
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -338,7 +323,8 @@ fun BousygramSectionTab(
             focused = focused,
             placement = tooltipPlacement,
             dwellMs = if (iconOnly) 0L else BousygramUiTokens.tooltipDwellMs,
-            state = tooltipState
+            state = tooltipState,
+            enabled = !showLabel
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

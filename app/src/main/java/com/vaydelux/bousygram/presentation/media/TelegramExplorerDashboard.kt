@@ -1,8 +1,6 @@
 package com.vaydelux.bousygram.presentation.media
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,7 +37,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,14 +53,11 @@ import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
 import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
-import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
-import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
-import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.bousygramResponsiveTokens
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.media.vm.BrowseRestoration
@@ -542,7 +536,6 @@ private fun ExplorerFolderCard(
     onClick: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val halo = LocalBousygramHaloColors.current
     val accent = colors.primary
     TvFocusSurface(
         onClick = onClick,
@@ -553,82 +546,70 @@ private fun ExplorerFolderCard(
             .semantics { contentDescription = "$title, $subtitle. $detail" }
             .onFocusChanged { if (it.isFocused) onFocused() }
     ) { focused ->
-        BousygramTooltipBox(
-            tooltip = title,
-            detail = subtitle,
-            icon = icon,
-            focused = focused,
-            placement = BousygramTooltipPlacement.AUTO_ABOVE
+        Column(
+            modifier = Modifier.padding(if (isTv) 18.dp else 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(if (isTv) 18.dp else 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Surface(
+                    shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
+                    color = if (focused) colors.primary else colors.primaryContainer
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
-                        color = if (focused) colors.primary else colors.primaryContainer,
-                        border = BorderStroke(
-                            1.dp,
-                            if (focused) halo.haloStart else colors.primary.copy(alpha = 0.25f)
-                        )
-                    ) {
-                        Box(
-                            modifier = Modifier.size(42.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            BousygramIcon(
-                                icon = icon,
-                                contentDescription = null,
-                                tint = if (focused) colors.onPrimary else colors.onPrimaryContainer,
-                                size = 20.dp
-                            )
-                        }
-                    }
                     Box(
-                        modifier = Modifier.weight(1f),
-                        contentAlignment = Alignment.CenterStart
+                        modifier = Modifier.size(40.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        BousygramStatusPill(
-                            label = badge,
-                            accent = focused || accentBadge
+                        BousygramIcon(
+                            icon = icon,
+                            contentDescription = null,
+                            tint = if (focused) colors.onPrimary else colors.onPrimaryContainer,
+                            size = 20.dp
                         )
                     }
-                    BousygramIcon(
-                        icon = BousygramIcons.ChevronRight,
-                        contentDescription = null,
-                        tint = if (focused) accent else colors.onSurfaceVariant,
-                        size = 18.dp
+                }
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    BousygramStatusPill(
+                        label = badge,
+                        accent = focused || accentBadge
                     )
                 }
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = colors.onSurface,
-                    fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = accent,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                BousygramIcon(
+                    icon = BousygramIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = if (focused) accent else colors.onSurfaceVariant,
+                    size = 18.dp
                 )
             }
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.onSurface,
+                fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                color = accent,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

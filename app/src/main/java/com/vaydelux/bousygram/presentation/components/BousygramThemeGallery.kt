@@ -119,56 +119,48 @@ fun BousygramDesignStyleGallery(
                                 .heightIn(min = if (metrics.isTv) 114.dp else 104.dp)
                                 .testTag("design-style-${style.id}")
                         ) { focused ->
-                            BousygramTooltipBox(
-                                tooltip = style.displayName,
-                                detail = style.description,
-                                icon = icon,
-                                focused = focused,
-                                placement = BousygramTooltipPlacement.AUTO_ABOVE
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(11.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(11.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                DesignStyleMiniMockup(style = style)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    DesignStyleMiniMockup(style = style)
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
+                                    BousygramIcon(
+                                        icon = icon,
+                                        contentDescription = null,
+                                        tint = if (isSelected) colors.onPrimaryContainer else colors.primary,
+                                        size = 15.dp
+                                    )
+                                    Text(
+                                        text = style.displayName,
+                                        color = if (isSelected) colors.onPrimaryContainer else colors.onSurface,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isSelected) {
                                         BousygramIcon(
-                                            icon = icon,
-                                            contentDescription = null,
-                                            tint = if (isSelected) colors.onPrimaryContainer else colors.primary,
+                                            icon = BousygramIcons.Check,
+                                            contentDescription = "Selected",
+                                            tint = colors.onPrimaryContainer,
                                             size = 15.dp
                                         )
-                                        Text(
-                                            text = style.displayName,
-                                            color = if (isSelected) colors.onPrimaryContainer else colors.onSurface,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        if (isSelected) {
-                                            BousygramIcon(
-                                                icon = BousygramIcons.Check,
-                                                contentDescription = "Selected",
-                                                tint = colors.onPrimaryContainer,
-                                                size = 15.dp
-                                            )
-                                        }
                                     }
-                                    Text(
-                                        text = style.shortTagline,
-                                        color = if (isSelected) colors.onPrimaryContainer.copy(alpha = 0.85f)
-                                            else colors.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
                                 }
+                                Text(
+                                    text = style.shortTagline,
+                                    color = if (isSelected) colors.onPrimaryContainer.copy(alpha = 0.85f)
+                                        else colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -270,15 +262,6 @@ fun BousygramBackdropGallery(
                 ) {
                     patterns.forEach { pattern ->
                         val isSelected = selected == pattern
-                        val icon = when (pattern) {
-                            BousygramBackdropPattern.AMBIENT_HALO -> BousygramIcons.Theme
-                            BousygramBackdropPattern.DOT_MATRIX,
-                            BousygramBackdropPattern.GEOMETRIC_GRID -> BousygramIcons.GridPattern
-                            BousygramBackdropPattern.TOPO_WAVES -> BousygramIcons.Waves
-                            BousygramBackdropPattern.IOS_MESH -> BousygramIcons.Smartphone
-                            BousygramBackdropPattern.CUTESY_KAWAII -> BousygramIcons.Flower
-                            BousygramBackdropPattern.CUTESY_PAWS -> BousygramIcons.PawPrint
-                        }
                         TvFocusSurface(
                             onClick = { onSelect(pattern) },
                             selected = isSelected,
@@ -287,61 +270,53 @@ fun BousygramBackdropGallery(
                                 .heightIn(min = if (metrics.isTv) 102.dp else 94.dp)
                                 .testTag("backdrop-pattern-${pattern.id}")
                         ) { focused ->
-                            BousygramTooltipBox(
-                                tooltip = pattern.displayName,
-                                detail = pattern.shortTagline,
-                                icon = icon,
-                                focused = focused,
-                                placement = BousygramTooltipPlacement.AUTO_ABOVE
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(9.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(9.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    BousygramBackdropPreviewCanvas(
-                                        pattern = pattern,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(38.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .border(
-                                                width = 1.dp,
-                                                color = if (isSelected) colors.primary else colors.outlineVariant.copy(alpha = 0.6f),
-                                                shape = RoundedCornerShape(8.dp)
-                                            )
-                                    )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            text = pattern.displayName,
-                                            color = if (isSelected) colors.onPrimaryContainer else colors.onSurface,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
+                                BousygramBackdropPreviewCanvas(
+                                    pattern = pattern,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(38.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isSelected) colors.primary else colors.outlineVariant.copy(alpha = 0.6f),
+                                            shape = RoundedCornerShape(8.dp)
                                         )
-                                        if (isSelected) {
-                                            BousygramIcon(
-                                                icon = BousygramIcons.Check,
-                                                contentDescription = "Selected",
-                                                tint = colors.onPrimaryContainer,
-                                                size = 14.dp
-                                            )
-                                        }
-                                    }
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
                                     Text(
-                                        text = pattern.shortTagline,
-                                        color = if (isSelected) colors.onPrimaryContainer.copy(alpha = 0.85f)
-                                            else colors.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall,
+                                        text = pattern.displayName,
+                                        color = if (isSelected) colors.onPrimaryContainer else colors.onSurface,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold else FontWeight.SemiBold,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
                                     )
+                                    if (isSelected) {
+                                        BousygramIcon(
+                                            icon = BousygramIcons.Check,
+                                            contentDescription = "Selected",
+                                            tint = colors.onPrimaryContainer,
+                                            size = 14.dp
+                                        )
+                                    }
                                 }
+                                Text(
+                                    text = pattern.shortTagline,
+                                    color = if (isSelected) colors.onPrimaryContainer.copy(alpha = 0.85f)
+                                        else colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -405,96 +380,88 @@ fun BousygramThemeGallery(
                                 .heightIn(min = if (metrics.isTv) 76.dp else 58.dp)
                                 .testTag("theme-preset-" + preset.id)
                         ) { focused ->
-                            BousygramTooltipBox(
-                                tooltip = preset.displayName,
-                                detail = if (isSelected) "Active" else tagline,
-                                icon = BousygramIcons.Theme,
-                                focused = focused,
-                                placement = BousygramTooltipPlacement.AUTO_ABOVE
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = if (compactCard) 8.dp else 10.dp, vertical = 6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Column(
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = if (compactCard) 8.dp else 10.dp, vertical = 6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        .heightIn(min = 22.dp)
+                                        .background(preset.background, RoundedCornerShape(7.dp))
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isSelected) preset.primary
+                                                else preset.outline.copy(alpha = 0.65f),
+                                            shape = RoundedCornerShape(7.dp)
+                                        )
                                 ) {
-                                    Box(
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(min = 22.dp)
-                                            .background(preset.background, RoundedCornerShape(7.dp))
-                                            .border(
-                                                width = 1.dp,
-                                                color = if (isSelected) preset.primary
-                                                    else preset.outline.copy(alpha = 0.65f),
-                                                shape = RoundedCornerShape(7.dp)
-                                            )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 6.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            for (color in listOf(preset.primary, preset.secondary, preset.tertiary)) {
-                                                Box(Modifier.size(9.dp).background(color, CircleShape))
-                                            }
-                                            Spacer(Modifier.weight(1f))
-                                            Box(
-                                                modifier = Modifier
-                                                    .background(
-                                                        previewScheme.surfaceContainerHigh,
-                                                        RoundedCornerShape(4.dp)
-                                                    )
-                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Aa",
-                                                    color = previewScheme.onSurface,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
+                                            .padding(horizontal = 6.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Text(
-                                            text = preset.displayName,
-                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                                                else MaterialTheme.colorScheme.onSurface,
-                                            style = if (metrics.isTv) MaterialTheme.typography.titleSmall
-                                                else MaterialTheme.typography.labelMedium,
-                                            fontWeight = if (isSelected || focused) FontWeight.Bold
-                                                else FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        if (isSelected) {
-                                            BousygramIcon(
-                                                icon = BousygramIcons.Check,
-                                                contentDescription = "Selected",
-                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                size = 14.dp
+                                        for (color in listOf(preset.primary, preset.secondary, preset.tertiary)) {
+                                            Box(Modifier.size(9.dp).background(color, CircleShape))
+                                        }
+                                        Spacer(Modifier.weight(1f))
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    previewScheme.surfaceContainerHigh,
+                                                    RoundedCornerShape(4.dp)
+                                                )
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = "Aa",
+                                                color = previewScheme.onSurface,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1
                                             )
                                         }
                                     }
-                                    if (!compactCard) {
-                                        Text(
-                                            text = tagline,
-                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = preset.displayName,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                                            else MaterialTheme.colorScheme.onSurface,
+                                        style = if (metrics.isTv) MaterialTheme.typography.titleSmall
+                                            else MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected || focused) FontWeight.Bold
+                                            else FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isSelected) {
+                                        BousygramIcon(
+                                            icon = BousygramIcons.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            size = 14.dp
                                         )
                                     }
+                                }
+                                if (!compactCard) {
+                                    Text(
+                                        text = tagline,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                             }
                         }

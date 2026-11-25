@@ -154,7 +154,7 @@ fun FavoritesScreen(
                     )
                 } else {
                     BousygramPageHeading(
-                        eyebrow = "Telegram media  /  Your collection",
+                        eyebrow = "",
                         title = "Favorites",
                         subtitle = if (state.isLoading) "Loading your saved videos…"
                             else if (state.items.isEmpty()) "No saved videos"
@@ -172,7 +172,6 @@ fun FavoritesScreen(
                         text = "Back",
                         onClick = { if (!launcher.cancel()) onBack() },
                         leadingIcon = BousygramIcons.Back,
-                        tooltip = "Return to previous screen",
                         modifier = Modifier.focusRequester(emptyFocus)
                     )
                     if (state.hasPrevious) {

@@ -118,9 +118,9 @@ private fun MenuAction(
         )
         if (!badge.isNullOrBlank()) {
             Surface(
-                shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
-                color = if (focused) colors.primary.copy(alpha = 0.24f) else colors.surfaceContainerHighest,
-                border = BorderStroke(1.dp, if (focused) halo.haloStart.copy(alpha = 0.6f) else colors.outlineVariant)
+                shape = RoundedCornerShape(6.dp),
+                color = if (focused) colors.primary.copy(alpha = 0.22f) else colors.surfaceContainerHighest,
+                border = if (halo.isHighContrast) BorderStroke(1.dp, colors.outline) else null
             ) {
                 Text(
                     text = badge,
@@ -128,7 +128,7 @@ private fun MenuAction(
                     style = MaterialTheme.typography.labelSmall.tabular(),
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                 )
             }
         }
@@ -194,15 +194,16 @@ internal fun CinematicNavigationMenu(
 
     val styleSpec = LocalBousygramStyleSpec.current
     val panelShape = RoundedCornerShape(styleSpec.panelCorner)
+    val menuBorderWidth = if (halo.isHighContrast) 1.5.dp else styleSpec.panelBorderWidth
     Surface(
         shape = panelShape,
-        color = colors.surfaceContainerHigh.copy(alpha = if (halo.isHighContrast) 0.99f else 0.95f),
+        color = colors.surfaceContainerHigh.copy(alpha = if (halo.isHighContrast) 0.99f else 0.96f),
         contentColor = colors.onSurface,
-        border = BorderStroke(
-            width = if (halo.isHighContrast) 1.5.dp else styleSpec.panelBorderWidth.coerceAtLeast(0.75.dp),
-            color = halo.glassBorder
-        ),
-        shadowElevation = if (motion.lowRam) 0.dp else 14.dp,
+        border = if (menuBorderWidth > 0.dp) BorderStroke(
+            width = menuBorderWidth,
+            color = if (halo.isHighContrast) colors.outline else halo.glassBorder
+        ) else null,
+        shadowElevation = if (motion.lowRam) 0.dp else 10.dp,
         modifier = modifier
             .widthIn(min = 240.dp, max = 320.dp)
             .animateContentSize(animationSpec = tween(durationMillis = motion.duration(170)))

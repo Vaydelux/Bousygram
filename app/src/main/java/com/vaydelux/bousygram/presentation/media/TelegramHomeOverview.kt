@@ -25,7 +25,6 @@ import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramCompactPageTitle
 import com.vaydelux.bousygram.presentation.components.BousygramIconButton
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
-import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
@@ -85,22 +84,11 @@ internal fun TelegramHomeOverview(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (shortWindow) {
-                    BousygramCompactPageTitle(
-                        title = "Home",
-                        status = status,
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    BousygramPageHeading(
-                        eyebrow = "Telegram media",
-                        title = "Home",
-                        subtitle = "Your latest saved videos",
-                        compact = true,
-                        icon = BousygramIcons.Home,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                BousygramCompactPageTitle(
+                    title = "Home",
+                    status = status,
+                    modifier = Modifier.weight(1f)
+                )
                 BousygramIconButton(
                     icon = BousygramIcons.Search,
                     contentDescription = "Search",

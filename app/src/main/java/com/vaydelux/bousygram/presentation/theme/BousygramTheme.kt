@@ -469,35 +469,35 @@ private val BousygramTypography = Typography(
         fontWeight = FontWeight.Bold,
         fontSize = 56.sp,
         lineHeight = 64.sp,
-        letterSpacing = (-1.6).sp
+        letterSpacing = (-0.75).sp
     ),
     displayMedium = TextStyle(
         fontFamily = HeadingFont,
         fontWeight = FontWeight.Bold,
         fontSize = 44.sp,
         lineHeight = 52.sp,
-        letterSpacing = (-1.2).sp
+        letterSpacing = (-0.5).sp
     ),
     displaySmall = TextStyle(
         fontFamily = HeadingFont,
         fontWeight = FontWeight.Bold,
         fontSize = 34.sp,
         lineHeight = 42.sp,
-        letterSpacing = (-0.7).sp
+        letterSpacing = (-0.35).sp
     ),
     headlineLarge = TextStyle(
         fontFamily = HeadingFont,
         fontWeight = FontWeight.Bold,
         fontSize = 30.sp,
         lineHeight = 38.sp,
-        letterSpacing = (-0.4).sp
+        letterSpacing = (-0.25).sp
     ),
     headlineMedium = TextStyle(
         fontFamily = HeadingFont,
         fontWeight = FontWeight.SemiBold,
         fontSize = 26.sp,
         lineHeight = 34.sp,
-        letterSpacing = (-0.2).sp
+        letterSpacing = (-0.15).sp
     ),
     headlineSmall = TextStyle(
         fontFamily = HeadingFont,
@@ -624,8 +624,8 @@ internal fun haloColorsFor(preset: BousygramThemePreset, scheme: ColorScheme): B
             goldAccent = scheme.tertiary,
             goldContainer = if (preset == BousygramThemePreset.LIGHT) Color(0xFFFFF0D4) else scheme.tertiaryContainer,
             onGoldContainer = if (preset == BousygramThemePreset.LIGHT) Color(0xFF4A2E07) else scheme.onTertiaryContainer,
-            glassFill = scheme.surface.copy(alpha = 0.94f),
-            glassBorder = scheme.outlineVariant.copy(alpha = 0.85f),
+            glassFill = scheme.surface,
+            glassBorder = scheme.outlineVariant.copy(alpha = 0.65f),
             tooltipFill = Color(0xFF0E2236),
             tooltipContent = Color(0xFFF5FAFF),
             tooltipBorder = brandCyan.copy(alpha = 0.65f),
@@ -641,11 +641,11 @@ internal fun haloColorsFor(preset: BousygramThemePreset, scheme: ColorScheme): B
             goldAccent = chowGold,
             goldContainer = Color(0xFF3D2A15),
             onGoldContainer = Color(0xFFFFE4BE),
-            glassFill = scheme.surfaceContainer.copy(alpha = 0.90f),
-            glassBorder = brandCyan.copy(alpha = 0.24f),
+            glassFill = scheme.surfaceContainer,
+            glassBorder = scheme.outlineVariant.copy(alpha = 0.55f),
             tooltipFill = scheme.surfaceContainerHighest.copy(alpha = 0.97f),
             tooltipContent = scheme.onSurface,
-            tooltipBorder = brandCyan.copy(alpha = 0.62f),
+            tooltipBorder = scheme.outlineVariant.copy(alpha = 0.85f),
             scrimTop = Color(0xBA040A14),
             scrimBottom = Color(0xE0040A14),
             isHighContrast = false,
@@ -658,11 +658,11 @@ internal fun haloColorsFor(preset: BousygramThemePreset, scheme: ColorScheme): B
             goldAccent = scheme.tertiary,
             goldContainer = scheme.tertiaryContainer,
             onGoldContainer = scheme.onTertiaryContainer,
-            glassFill = scheme.surfaceContainer.copy(alpha = 0.90f),
-            glassBorder = scheme.outlineVariant.copy(alpha = 0.72f),
+            glassFill = scheme.surfaceContainer,
+            glassBorder = scheme.outlineVariant.copy(alpha = 0.50f),
             tooltipFill = scheme.surfaceContainerHighest.copy(alpha = 0.97f),
             tooltipContent = scheme.onSurface,
-            tooltipBorder = scheme.primary.copy(alpha = 0.58f),
+            tooltipBorder = scheme.outlineVariant.copy(alpha = 0.85f),
             scrimTop = Color(0xB8050A12),
             scrimBottom = Color(0xDF050A12),
             isHighContrast = false,
