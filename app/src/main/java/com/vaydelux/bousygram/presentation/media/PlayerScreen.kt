@@ -38,6 +38,8 @@ import com.vaydelux.bousygram.core.cast.CastPlaybackStatus
 import com.vaydelux.bousygram.core.cast.CastSessionController
 import com.vaydelux.bousygram.core.cast.TelegramCastCompatibility
 import com.vaydelux.bousygram.core.cast.TelegramCastPreparation
+import com.vaydelux.bousygram.core.cast.TelegramCastTarget
+import com.vaydelux.bousygram.core.cast.TelegramCastSelection
 import com.vaydelux.bousygram.core.cast.CastRouteButtonFactory
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.data.store.SessionHealthRecord
@@ -552,7 +554,10 @@ fun PlayerScreen(
     var castWasPlaying by remember { mutableStateOf(false) }
     var lastCastPositionMs by remember { mutableLongStateOf(0L) }
     var castPreparing by remember { mutableStateOf(false) }
-    var castFileId by remember { mutableIntStateOf(0) }
+    var castTarget by remember { mutableStateOf<TelegramCastTarget?>(null) }
+    val selectedCastTarget = queue.getOrNull(queueIndex)?.let {
+        TelegramCastTarget(it.chatId, it.messageId, it.fileId)
+    }
     var castRouteFailed by remember { mutableStateOf(false) }
     LaunchedEffect(castRouteFailed) {
         if (castRouteFailed) {
@@ -571,12 +576,12 @@ fun PlayerScreen(
         onDispose { CastSessionController.shutdown() }
     }
 
-    LaunchedEffect(castState.connected, queueIndex) {
+    LaunchedEffect(castState.connected, selectedCastTarget, hasLocalNetworkPermission) {
         if (!castState.connected) {
+            val sameFile = castTarget != null && selectedCastTarget == castTarget
+            castTarget = null
             if (castWasConnected) {
                 castWasConnected = false
-                val sameFile = queue.getOrNull(queueIndex)?.fileId == castFileId
-                castFileId = 0
                 if (!sameFile || playbackSession.isStopped()) return@LaunchedEffect
                 playerEngine.seekTo(lastCastPositionMs.coerceAtLeast(0L))
                 if (castWasPlaying && castState.errorMessage == null) {
@@ -598,12 +603,19 @@ fun PlayerScreen(
             CastSessionController.endSession()
             return@LaunchedEffect
         }
-        val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
-        // A queue change must not load another private source into an existing Cast session.
-        if (castWasConnected) {
-            if (current.fileId != castFileId) CastSessionController.endSession()
-            return@LaunchedEffect
+        // Pin the message before any suspension: a queue change during remux
+        // must disconnect, not silently prepare a different private video.
+        when (TelegramCastSelection.decide(castTarget, selectedCastTarget)) {
+            TelegramCastSelection.Decision.KEEP -> return@LaunchedEffect
+            TelegramCastSelection.Decision.DISCONNECT -> {
+                CastSessionController.endSession()
+                return@LaunchedEffect
+            }
+            TelegramCastSelection.Decision.PREPARE -> Unit
         }
+        val target = selectedCastTarget ?: return@LaunchedEffect
+        val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
+        castTarget = target
         val name = current.fileName.orEmpty()
         val mime = VideoFormatSupport.httpContentType(current.mimeType, name, current.title)
         val remux = TelegramCastCompatibility.requiresRemux(mime, name)
@@ -625,9 +637,13 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
             val owner = playbackAccountOwner
+            val liveTarget = queue.getOrNull(playbackSession.currentIndex.value)?.let {
+                TelegramCastTarget(it.chatId, it.messageId, it.fileId)
+            }
+            if (!CastSessionController.state.value.connected) return@LaunchedEffect
             if (owner == null || !com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) ||
-                playbackSession.isStopped() || queue.getOrNull(queueIndex)?.fileId != current.fileId ||
-                !CastSessionController.state.value.connected) {
+                playbackSession.isStopped() || liveTarget != target || castTarget != target) {
+                CastSessionController.endSession()
                 return@LaunchedEffect
             }
             val lanUrl = (result as TelegramCastPreparation.Result.Ready).url
@@ -644,7 +660,6 @@ fun PlayerScreen(
                 android.widget.Toast.makeText(context, "TV could not start Cast playback.", android.widget.Toast.LENGTH_LONG).show()
                 CastSessionController.endSession()
             } else {
-                castFileId = current.fileId
                 castWasConnected = true
                 playerEngine.pause()
                 loaded = true
