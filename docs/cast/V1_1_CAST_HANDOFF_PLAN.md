@@ -67,3 +67,6 @@ Added CastRemuxArtifact for verified output + captured account + source file ID,
 
 ## Rolling HLS R2b — continuous producer reference
 Pinned Media3 1.10.1 fragmented writer omits tfdt and uses absolute offsets; do not adopt for HLS. Host FFmpeg pipe-to-pipe remux qualified MKV and TS across 12 independently decoded fragments with strict packet and timing gates; delayed moov required to preserve timeline. Added reproducible finite host qualification. Android native build and custom AVIO integration remain pending; no new dependency or playback change. See [qualification plan](ROLLING_HLS_QUALIFICATION.md).
+
+## Rolling HLS R2c — isolated native qualification candidate
+Added custom-AVIO JNI remux source, signed upstream source build recipe and ARM32/ARM64 qualification workflow. Fixed previous Enterprise documentation whitespace failure. Native compile, runtime, media conservation, licensing and security review pending. No app packaging or production changes.
