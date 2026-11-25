@@ -37,13 +37,23 @@ ffmpeg -hide_banner -nostdin -loglevel error -y \
   -movflags +delay_moov+empty_moov+default_base_moof+frag_keyframe+skip_trailer \
   -min_frag_duration 4000000 "$output_dir/rolling-receiver.mp4"
 
-for file in "$output_dir/seek-control.mp4" "$output_dir/indexed.mkv" "$output_dir/unindexed.ts" "$output_dir/rolling-receiver.mp4"; do
+# Six six-second fragments, still a completed finite qualification window.
+ffmpeg -hide_banner -nostdin -loglevel error -y \
+  -f lavfi -i 'testsrc2=size=160x90:rate=12' \
+  -f lavfi -i 'sine=frequency=440:sample_rate=48000' \
+  -t 36 -c:v libx264 -preset ultrafast -profile:v baseline -pix_fmt yuv420p \
+  -g 72 -keyint_min 72 -sc_threshold 0 -bf 0 -threads 1 \
+  -c:a aac -b:a 48k -ac 1 \
+  -movflags +delay_moov+empty_moov+default_base_moof+frag_keyframe+skip_trailer \
+  -min_frag_duration 4000000 "$output_dir/rolling-receiver-long.mp4"
+
+for file in "$output_dir/seek-control.mp4" "$output_dir/indexed.mkv" "$output_dir/unindexed.ts" "$output_dir/rolling-receiver.mp4" "$output_dir/rolling-receiver-long.mp4"; do
   test -s "$file" || { echo "::error::Missing decoder fixture $file" >&2; exit 1; }
   ffprobe -v error -select_streams v:0 -show_entries stream=codec_name \
     -of default=noprint_wrappers=1:nokey=1 "$file" | grep -qx h264 \
     || { echo "::error::Fixture is not a playable H.264 stream: $file" >&2; exit 1; }
 done
 
-( cd "$output_dir" && sha256sum seek-control.mp4 indexed.mkv unindexed.ts rolling-receiver.mp4 > SHA256SUMS.txt )
+( cd "$output_dir" && sha256sum seek-control.mp4 indexed.mkv unindexed.ts rolling-receiver.mp4 rolling-receiver-long.mp4 > SHA256SUMS.txt )
 ( cd "$output_dir" && sha256sum --check SHA256SUMS.txt )
 echo "Generated reproducible 12-second MP4/MKV/TS decoder fixtures in $output_dir"

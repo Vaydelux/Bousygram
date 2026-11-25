@@ -160,3 +160,6 @@ Bind paired Keystore identities to TLS1.3 loopback data delivery, inject transpo
 
 ## Rolling HLS R3g — Android TLS compatibility repair
 137/138 prior Android instrumentation tests passed; only Android encrypted playback handshake failed. Dedicated ephemeral Keystore raw ECDSA support, signing/transport preflight, negative pin gate, diagnostics and bounded deadlines added. Actual repair unverified; no live LAN or feature expansion until exact-head integration passes.
+
+## Rolling HLS R3h — authenticated control and sustained finite playback
+Versioned TLS GET/ACK transport, release-bound encrypted retirement callback, separate control capability and negative checks. Add 36s six-fragment finite receiver gate, keeping previous short gates. No live eviction or LAN; actual execution pending.

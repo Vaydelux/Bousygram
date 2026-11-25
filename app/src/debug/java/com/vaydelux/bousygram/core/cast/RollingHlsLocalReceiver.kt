@@ -16,7 +16,7 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * One real Media3 player for a short completed verified HLS window.
+ * One real Media3 player for a bounded completed verified HLS window.
  * No live playback route, receiver Activity or LAN transport. All player
  * calls occur on the main looper; no store retirement occurs there.
  * Retirement is deliberately deferred until whole-window completion since
@@ -27,10 +27,13 @@ internal class RollingHlsLocalReceiver(
     context: Context,
     private val session: RollingHlsDeliverySession,
     surface: Surface,
-    dataSource: DataSource.Factory = RollingHlsLocalDataSource.factory(session)
+    dataSource: DataSource.Factory = RollingHlsLocalDataSource.factory(session),
+    private val acknowledge: (Long) -> Boolean = { sequence ->
+        session.acknowledge(session.resourceId, session.controlToken, sequence.toString())
+    }
 ) : AutoCloseable {
     private val segments = checkNotNull(session.completedSnapshot())
-    private val receipt = RollingHlsPlaybackReceipt(session::active)
+    private val receipt = RollingHlsPlaybackReceipt(MAX_COMPLETED_WINDOW_US, session::active)
     private val player: ExoPlayer
     @Volatile private var closed = false
     @Volatile private var completed = false
@@ -42,7 +45,8 @@ internal class RollingHlsLocalReceiver(
         main()
         require(segments.first().sequence == 1L && segments.first().startUs == 0L)
         val end = segments.last().let { it.startUs + it.durationUs }
-        require(end in 1_000L..RollingHlsBudget.MAX_SEGMENT_DURATION_US)
+        require(segments.size <= RollingHlsBudget.MAX_WINDOW_SEGMENTS)
+        require(end in 1_000L..MAX_COMPLETED_WINDOW_US)
         check(receipt.begin(1L, end))
         player = ExoPlayer.Builder(context).build()
         try {
@@ -107,10 +111,15 @@ internal class RollingHlsLocalReceiver(
         check(Looper.myLooper() != Looper.getMainLooper())
         if (!released || !completed || !session.active() || !retirementAttempted.compareAndSet(false, true)) return false
         for (segment in segments.dropLast(1)) {
-            if (!session.acknowledge(session.resourceId, session.controlToken, segment.sequence.toString()))
+            if (!acknowledge(segment.sequence))
                 return false
         }
         return session.active()
+    }
+
+    companion object {
+        // Finite qualification only. Never increase the per-segment cap.
+        private const val MAX_COMPLETED_WINDOW_US = 36_000_000L
     }
 
     override fun close() {

@@ -40,12 +40,16 @@ class RollingHlsLocalReceiverInstrumentedTest {
 
     @Test fun pairedKeystoreTlsCarriesActualMedia3HlsPlayback() = qualifyPlayback(true)
 
-    private fun qualifyPlayback(encrypted: Boolean) {
+    @Test fun sustainedEncryptedSixFragmentWindowRetiresOverTlsAfterPlayback() =
+        qualifyPlayback(true, 6)
+
+    private fun qualifyPlayback(encrypted: Boolean, fragments: Int = 2) {
         val context = instrumentation.targetContext
-        val file = File(context.getExternalFilesDir("decoder-fixtures"), "rolling-receiver.mp4")
+        val file = File(context.getExternalFilesDir("decoder-fixtures"),
+            if (fragments == 6) "rolling-receiver-long.mp4" else "rolling-receiver.mp4")
         assertTrue(file.isFile)
         val dir = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "local-hls-").toFile()
-        val store = RollingHlsSegmentStore(dir, { true }, { true }, firstSequence = 1, capacitySegments = 2)
+        val store = RollingHlsSegmentStore(dir, { true }, { true }, firstSequence = 1, capacitySegments = fragments)
         val session = RollingHlsDeliverySession(owner, 7, store, { it == owner }, { true },
             SystemClock::elapsedRealtime)
         try {
@@ -60,8 +64,8 @@ class RollingHlsLocalReceiverInstrumentedTest {
                     }
                 }
                 sink.finish()
-                assertTrue(session.markComplete(2))
-                assertEquals(2, store.snapshot().size)
+                assertTrue(session.markComplete(fragments.toLong()))
+                assertEquals(fragments, store.snapshot().size)
                 val texture = main { SurfaceTexture(10) }
                 val surface = main { Surface(texture) }
                 try {
@@ -98,6 +102,9 @@ class RollingHlsLocalReceiverInstrumentedTest {
                             assertEquals(0, wrong.diagnostics().responses)
                         }
                         transport = RollingHlsTlsLoopback(session, server, client)
+                        assertFalse(transport.acknowledge(1, session.readToken))
+                        assertFalse(transport.acknowledge(1)) // not transmitted
+                        assertEquals(fragments, store.snapshot().size)
                         // Isolate the handshake/data path from the decoder.
                         val uri = RollingHlsLocalDataSource.playlistUri(session)
                         val source = transport.factory().createDataSource()
@@ -118,7 +125,13 @@ class RollingHlsLocalReceiverInstrumentedTest {
                         } finally { source.close() }
                     }
                     val factory = transport?.factory() ?: RollingHlsLocalDataSource.factory(session)
-                    val receiver = main { RollingHlsLocalReceiver(context, session, surface, factory) }
+                    val receiver = main {
+                        val encryptedTransport = transport
+                        if (encryptedTransport == null) RollingHlsLocalReceiver(context, session, surface, factory)
+                        else RollingHlsLocalReceiver(context, session, surface, factory) { sequence ->
+                            encryptedTransport.acknowledge(sequence)
+                        }
+                    }
                     try {
                         main { receiver.play() }
                         await(receiver) { it.playing && it.positionMs in 300..3000 }
@@ -127,19 +140,27 @@ class RollingHlsLocalReceiverInstrumentedTest {
                         SystemClock.sleep(350)
                         assertFalse(main { receiver.poll() }.playing)
                         assertTrue(main { receiver.poll() }.positionMs - paused < 250)
-                        assertEquals(2, store.snapshot().size)
+                        assertEquals(fragments, store.snapshot().size)
                         assertFalse(receiver.retireAfterRelease())
                         main { receiver.play() }
                         await(receiver) { it.playing && it.positionMs in 6500..11000 }
+                        if (fragments == 6) {
+                            await(receiver) { it.playing && it.positionMs in 25_000..34_000 }
+                        }
                         await(receiver) { it.completed }
-                        assertEquals(2, store.snapshot().size)
+                        assertEquals(fragments, store.snapshot().size)
                     } finally { main { receiver.close() } }
                     assertTrue(receiver.retireAfterRelease())
                     assertFalse(receiver.retireAfterRelease())
-                    assertEquals(listOf(2L), store.snapshot().map { it.sequence })
+                    assertEquals(listOf(fragments.toLong()), store.snapshot().map { it.sequence })
+                    transport?.let {
+                        assertFalse(it.acknowledge(1)) // no duplicate retirement
+                        assertFalse(it.acknowledge(fragments.toLong())) // preserve final
+                        assertEquals(fragments - 1, it.diagnostics().acknowledgements)
+                    }
                     transport?.diagnostics()?.let { diagnostics ->
                         assertTrue("Expected playlist, init and two media transfers: $diagnostics",
-                            diagnostics.handshakes >= 4 && diagnostics.responses >= 4)
+                            diagnostics.handshakes >= fragments + 2 && diagnostics.responses >= fragments + 2)
                     }
                     } finally {
                         try { transport?.close() }

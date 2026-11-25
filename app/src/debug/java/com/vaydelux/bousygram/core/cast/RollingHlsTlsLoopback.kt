@@ -22,7 +22,8 @@ import javax.net.ssl.SSLSocket
 /**
  * Synthetic, loopback-only Android receiver transport. Each GET uses a fresh
  * mutually authenticated TLS1.3 socket and one bounded binary response.
- * Not HTTP/HLS over LAN; no remote ACK, arbitrary host, redirects or range.
+ * Not HTTP/HLS over LAN; control ACK is a separate authenticated operation.
+ * No arbitrary host, redirects or range.
  * The caller retains the session and must close this transport before keys.
  */
 @UnstableApi
@@ -45,10 +46,12 @@ internal class RollingHlsTlsLoopback(
     private val clients = mutableMapOf<SSLSocket, ScheduledFuture<*>>()
     private val handshakes = AtomicInteger()
     private val responses = AtomicInteger()
+    private val acknowledgements = AtomicInteger()
     private val lastFailure = AtomicReference<String?>(null)
 
-    data class Diagnostics(val handshakes: Int, val responses: Int, val lastFailure: String?)
-    fun diagnostics() = Diagnostics(handshakes.get(), responses.get(), lastFailure.get())
+    data class Diagnostics(val handshakes: Int, val responses: Int, val lastFailure: String?,
+                           val acknowledgements: Int)
+    fun diagnostics() = Diagnostics(handshakes.get(), responses.get(), lastFailure.get(), acknowledgements.get())
 
     private fun record(stage: String, error: Exception) {
         // Never include provider messages, URIs, tokens, pins or cert bytes.
@@ -87,12 +90,17 @@ internal class RollingHlsTlsLoopback(
                     val input = DataInputStream(it.inputStream)
                     val output = DataOutputStream(it.outputStream)
                     if (input.readInt() != MAGIC) throw IOException("Invalid transport version")
+                    val operation = input.readUnsignedByte()
+                    if (operation != GET && operation != ACK) throw IOException("Invalid transport operation")
                     val resource = readField(input, 24)
                     val token = readField(input, 43)
                     val path = readField(input, 64)
                     if (!active()) throw IOException("Receiver revoked")
                     stage = "server-response"
-                    dispatcher.dispatch(RollingHlsDeliveryDispatcher.Request("GET", resource, path, token)).use { response ->
+                    val request = if (operation == GET)
+                        RollingHlsDeliveryDispatcher.Request("GET", resource, path, token)
+                    else RollingHlsDeliveryDispatcher.Request("POST", resource, path, controlToken = token)
+                    dispatcher.dispatch(request).use { response ->
                         val length = response.length ?: 0L
                         if (length !in 0L..RollingHlsBudget.MAX_SEGMENT_BYTES) throw IOException("Invalid response length")
                         output.writeInt(response.status)
@@ -106,6 +114,7 @@ internal class RollingHlsTlsLoopback(
                         }
                         output.flush()
                         if (response.status == 200) responses.incrementAndGet()
+                        if (operation == ACK && response.status == 204) acknowledgements.incrementAndGet()
                     }
                 }
             } catch (error: Exception) {
@@ -126,6 +135,26 @@ internal class RollingHlsTlsLoopback(
             requested.encodedFragment != null) throw IOException("Invalid receiver resource")
         val path = requested.encodedPath?.takeIf { it.startsWith("/") }?.drop(1)
             ?: throw IOException("Missing receiver resource")
+        return request(GET, session.readToken, path)
+    }
+
+    /** Only trusted receiver lifecycle code calls this after actual playback
+     * and player release. A trusted peer's ACK is not cryptographic playback
+     * attestation; server still checks complete delivery and contiguous order.
+     * A lost response is terminal for this attempt; never retry blindly. */
+    fun acknowledge(sequence: Long, controlToken: String = session.controlToken): Boolean {
+        if (sequence !in 1L until Long.MAX_VALUE || !active()) return false
+        val (socket, input) = request(ACK, controlToken, "ack/$sequence")
+        try {
+            val status = input.readInt()
+            val length = input.readLong()
+            if (length != 0L) throw IOException("Invalid control response")
+            return status == 204 && active()
+        } finally { release(socket) }
+    }
+
+    private fun request(operation: Int, token: String, path: String): Pair<SSLSocket, DataInputStream> {
+        if (!active()) throw IOException("Receiver revoked")
         val socket = clientPeer.context.socketFactory.createSocket() as SSLSocket
         synchronized(lock) {
             if (stopped || clients.size >= 2) { socket.close(); throw IOException("Receiver busy") }
@@ -152,8 +181,9 @@ internal class RollingHlsTlsLoopback(
             if (!active()) throw IOException("Receiver revoked")
             val output = DataOutputStream(socket.outputStream)
             output.writeInt(MAGIC)
+            output.writeByte(operation)
             writeField(output, session.resourceId, 24)
-            writeField(output, session.readToken, 43)
+            writeField(output, token, 43)
             writeField(output, path, 64)
             output.flush()
             return socket to DataInputStream(socket.inputStream)
@@ -243,7 +273,9 @@ internal class RollingHlsTlsLoopback(
     }
 
     companion object {
-        private const val MAGIC = 0x42475231
+        private const val MAGIC = 0x42475232
+        private const val GET = 1
+        private const val ACK = 2
         private const val TIMEOUT = 5_000
         private fun readField(input: DataInputStream, cap: Int): String {
             val n = input.readUnsignedByte()

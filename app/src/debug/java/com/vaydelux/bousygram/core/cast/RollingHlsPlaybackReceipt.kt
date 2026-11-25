@@ -6,7 +6,13 @@ package com.vaydelux.bousygram.core.cast
  * buffering, READY, position alone or an arbitrary seek never suffice.
  * This does not attest hardware output or provide a remote security proof.
  */
-internal class RollingHlsPlaybackReceipt(private val permitted: () -> Boolean) {
+internal class RollingHlsPlaybackReceipt(
+    private val maximumDurationUs: Long,
+    private val permitted: () -> Boolean
+) {
+    constructor(permitted: () -> Boolean) : this(RollingHlsBudget.MAX_SEGMENT_DURATION_US, permitted)
+
+    init { require(maximumDurationUs in 1_000L..36_000_000L) }
     private var sequence = 0L
     private var startMs = 0L
     private var endMs = 0L
@@ -20,7 +26,7 @@ internal class RollingHlsPlaybackReceipt(private val permitted: () -> Boolean) {
 
     fun begin(sequence: Long, durationUs: Long, startUs: Long = 0L): Boolean {
         if (failed || started || completed || !permitted() || sequence <= 0 ||
-            durationUs !in 1_000L..RollingHlsBudget.MAX_SEGMENT_DURATION_US ||
+            durationUs !in 1_000L..maximumDurationUs ||
             startUs < 0L || startUs > Long.MAX_VALUE - durationUs) return false
         this.sequence = sequence
         startMs = startUs / 1000

@@ -35,7 +35,7 @@ test -s "$fixture_dir/SHA256SUMS.txt" || fail 'Decoder fixtures were not generat
 ( cd "$fixture_dir" && sha256sum --check SHA256SUMS.txt ) || fail 'Decoder fixture checksum mismatch'
 remote_fixture_dir='/sdcard/Android/data/com.vaydelux.bousygram/files/decoder-fixtures'
 adb shell mkdir -p "$remote_fixture_dir" || fail 'Could not create decoder fixture sandbox'
-for name in seek-control.mp4 indexed.mkv unindexed.ts rolling-receiver.mp4; do
+for name in seek-control.mp4 indexed.mkv unindexed.ts rolling-receiver.mp4 rolling-receiver-long.mp4; do
   adb push "$fixture_dir/$name" "$remote_fixture_dir/$name" >/dev/null \
     || fail "Could not push $name to the emulator"
 done
