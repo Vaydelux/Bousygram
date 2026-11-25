@@ -35,6 +35,17 @@ class CastAccessRegistryTest {
     }
 
     @Test
+    fun activeWriterMustStopAfterRevocationOrAccountChange() {
+        val grant = CastAccessRegistry.issue(7)
+        assertTrue(CastAccessRegistry.isActive(grant))
+        CastAccessRegistry.revoke(grant.resourceId)
+        assertTrue(!CastAccessRegistry.isActive(grant))
+        val next = CastAccessRegistry.issue(8)
+        AccountSession.invalidate()
+        assertTrue(!CastAccessRegistry.isActive(next))
+    }
+
+    @Test
     fun revokedCapabilityCannotBeReused() {
         val grant = CastAccessRegistry.issue(7)
         assertTrue(CastAccessRegistry.authorize(grant.resourceId, grant.token) == 7)

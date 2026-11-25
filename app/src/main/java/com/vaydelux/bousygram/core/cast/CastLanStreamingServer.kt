@@ -119,13 +119,14 @@ object CastLanStreamingServer {
 
     @Synchronized
     fun stop() {
-        server?.let { runCatching { it.stop(500, 1_500) } }
-        server = null
-        serverContextRef = null
+        // Revoke before draining connections so in-flight writers fail closed.
         capability?.let { CastAccessRegistry.revoke(it.resourceId) }
         capability = null
         CastAccessRegistry.revokeAll()
         publicUrl = null
+        serverContextRef = null
+        server?.let { runCatching { it.stop(0, 1_000) } }
+        server = null
         runCatching { CastStreamingService.stop(com.vaydelux.bousygram.app.BousygramApp.instance) }
     }
 
@@ -147,26 +148,31 @@ object CastLanStreamingServer {
     ) {
         val fileId = authorize(call, grant) ?: return
         val range = parseRange(call, size) ?: return
-        val isPartial = range.isPartial
-        val length = range.endInclusive - range.start + 1L
-        call.response.header(HttpHeaders.AcceptRanges, "bytes")
-        call.response.header(HttpHeaders.ContentLength, length.toString())
-        call.response.header(HttpHeaders.ContentType, safeContentType(mimeType).toString())
-        call.response.header("Cache-Control", "private, no-store")
-        call.response.header("X-Content-Type-Options", "nosniff")
-        if (isPartial) call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
-        val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
+        // A busy response must not advertise the media body's length.
         if (!clientPermit.tryAcquire()) {
+            call.response.header(HttpHeaders.RetryAfter, "1")
+            call.response.header("Cache-Control", "no-store")
             call.respond(HttpStatusCode.ServiceUnavailable, "Cast stream is busy")
             return
         }
         try {
+            val isPartial = range.isPartial
+            val length = range.endInclusive - range.start + 1L
+            call.response.header(HttpHeaders.AcceptRanges, "bytes")
+            call.response.header(HttpHeaders.ContentLength, length.toString())
+            call.response.header(HttpHeaders.ContentType, safeContentType(mimeType).toString())
+            call.response.header("Cache-Control", "private, no-store")
+            call.response.header("X-Content-Type-Options", "nosniff")
+            if (isPartial) call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
+            val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
             call.respondBytesWriter(contentType = safeContentType(mimeType), status = status) {
                 coroutineScope {
                     TelegramProxyManager.streamTelegramFileSequentially(
                         fileId,
                         HttpByteRange(range.start, range.endInclusive),
-                        this@respondBytesWriter
+                        this@respondBytesWriter,
+                        mayContinue = { CastAccessRegistry.isActive(grant) &&
+                            serverContextRef?.get()?.let(::hasLanPermission) == true }
                     )
                 }
             }

@@ -13,6 +13,7 @@ internal object CastAccessRegistry {
     private const val MAX_GRANTS = 8
     // Capabilities are session-scoped and fail closed after two hours even if teardown is missed.
     private const val SESSION_TTL_MS = 2L * 60L * 60L * 1000L
+    private fun elapsedMs(): Long = System.nanoTime() / 1_000_000L
     private val random = SecureRandom()
     private val grants = ConcurrentHashMap<String, Grant>()
     private data class Grant(val fileId: Int, val token: String, val expiresAtMs: Long, val owner: AccountSnapshot)
@@ -27,7 +28,7 @@ internal object CastAccessRegistry {
         val resourceId = randomToken(18)
         val token = randomToken(TOKEN_BYTES)
         check(AccountSession.isCurrent(owner)) { "Telegram account changed during Cast authorization" }
-        grants[resourceId] = Grant(fileId, token, System.currentTimeMillis() + SESSION_TTL_MS, owner)
+        grants[resourceId] = Grant(fileId, token, elapsedMs() + SESSION_TTL_MS, owner)
         return Capability(resourceId, token, fileId)
     }
 
@@ -38,7 +39,7 @@ internal object CastAccessRegistry {
             grants.remove(resourceId, grant)
             return null
         }
-        if (grant.expiresAtMs <= System.currentTimeMillis()) {
+        if (grant.expiresAtMs <= elapsedMs()) {
             grants.remove(resourceId, grant)
             return null
         }
@@ -54,9 +55,13 @@ internal object CastAccessRegistry {
     @Synchronized
     fun revokeAll() = grants.clear()
 
+    /** Recheck the same account-scoped capability throughout a long transfer. */
+    fun isActive(capability: Capability): Boolean =
+        authorize(capability.resourceId, capability.token) == capability.fileId
+
     @Synchronized
     private fun purgeExpired() {
-        val now = System.currentTimeMillis()
+        val now = elapsedMs()
         grants.entries.removeIf { it.value.expiresAtMs <= now }
     }
 
