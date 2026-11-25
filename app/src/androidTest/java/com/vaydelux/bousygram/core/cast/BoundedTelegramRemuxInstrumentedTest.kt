@@ -31,7 +31,8 @@ class BoundedTelegramRemuxInstrumentedTest {
                     assertTrue("Unexpected remux failure for $name: ${result.reason}",
                         result.reason in setOf(BoundedTelegramRemuxer.Failure.UNSUPPORTED_SAMPLE,
                             BoundedTelegramRemuxer.Failure.UNSUPPORTED_CODEC,
-                            BoundedTelegramRemuxer.Failure.UNSUPPORTED_TRACKS))
+                            BoundedTelegramRemuxer.Failure.UNSUPPORTED_TRACKS,
+                            BoundedTelegramRemuxer.Failure.UNSUPPORTED_TIMELINE))
                     assertTrue(dir.listFiles().orEmpty().isEmpty())
                     android.util.Log.i("CastRemuxFixtures", "$name unavailable: ${result.reason}")
                     continue

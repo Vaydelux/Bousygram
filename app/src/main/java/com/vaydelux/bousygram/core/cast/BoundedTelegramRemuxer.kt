@@ -6,6 +6,8 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.Build
 import android.os.SystemClock
+import android.os.StatFs
+import android.util.Log
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
@@ -28,7 +30,7 @@ internal object BoundedTelegramRemuxer {
 
     enum class Failure {
         BUSY, PLATFORM_UNAVAILABLE, CANCELLED, INPUT_UNAVAILABLE, INPUT_TOO_LARGE, STORAGE_PRESSURE,
-        UNSUPPORTED_TRACKS, UNSUPPORTED_CODEC, UNSUPPORTED_SAMPLE,
+        UNSUPPORTED_TRACKS, UNSUPPORTED_CODEC, UNSUPPORTED_SAMPLE, UNSUPPORTED_TIMELINE,
         TIME_LIMIT, DURATION_LIMIT, OUTPUT_LIMIT, CONVERSION_FAILED, CLEANUP_FAILED
     }
 
@@ -83,18 +85,26 @@ internal object BoundedTelegramRemuxer {
         if (!scratch.isDirectory && !scratch.mkdirs()) return reject(Failure.STORAGE_PRESSURE)
         // Use a dedicated scratch directory. Do not silently delete another owner's file.
         if (scratch.listFiles()?.isNotEmpty() != false) return reject(Failure.STORAGE_PRESSURE)
-        if (scratch.usableSpace < MIN_FREE_BYTES + MAX_OUTPUT_BYTES) return reject(Failure.STORAGE_PRESSURE)
+        // Actual available filesystem bytes, not potentially reclaimable cache.
+        // Do not request Android to evict unrelated app data for a Cast attempt.
+        if (StatFs(scratch.absolutePath).availableBytes < MIN_FREE_BYTES + MAX_OUTPUT_BYTES) {
+            return reject(Failure.STORAGE_PRESSURE)
+        }
         val deadline = SystemClock.elapsedRealtime() + DEADLINE_MS
         fun check(): Failure? = when {
             cancelled() -> Failure.CANCELLED
             SystemClock.elapsedRealtime() >= deadline -> Failure.TIME_LIMIT
             else -> null
         }
+        val inputModified = input.lastModified()
+        val descriptor = input.inputStream()
         val extractor = MediaExtractor()
+        var reader: MediaExtractor? = null
         var muxer: MediaMuxer? = null
         try {
-            // File descriptor avoids path-based native lookup and remote URLs.
-            input.inputStream().use { extractor.setDataSource(it.fd) }
+            // Retain the same open descriptor through both passes. No path-based
+            // native lookup or remote URLs, and no seek into an incomplete file.
+            extractor.setDataSource(descriptor.fd, 0L, inputSize)
             check()?.let { return reject(it) }
             if (extractor.trackCount !in 1..2) return reject(Failure.UNSUPPORTED_TRACKS)
             val formats = (0 until extractor.trackCount).map(extractor::getTrackFormat)
@@ -108,45 +118,78 @@ internal object BoundedTelegramRemuxer {
                 if (format.containsKey(MediaFormat.KEY_DURATION) &&
                     format.getLong(MediaFormat.KEY_DURATION) > MAX_DURATION_US) return reject(Failure.DURATION_LIMIT)
             }
+            // Extractor interleaving is not globally timestamp sorted. AAC priming
+            // may also have a small negative PTS. Use ONE common origin for both
+            // tracks rather than assuming the first interleaved sample is earliest.
+            val timeline = RemuxTimeline(formats.size, MAX_DURATION_US, MAX_SAMPLES)
+            for (index in formats.indices) extractor.selectTrack(index)
+            while (extractor.sampleTrackIndex >= 0) {
+                check()?.let { return reject(it) }
+                val index = extractor.sampleTrackIndex
+                val flags = extractor.sampleFlags
+                if (flags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0 ||
+                    flags and MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME != 0) {
+                    Log.i("CastRemux", "Rejected encrypted or partial sample during scan")
+                    return reject(Failure.UNSUPPORTED_SAMPLE)
+                }
+                if (!timeline.observe(index, extractor.sampleTime)) {
+                    Log.i("CastRemux", "Rejected timestamp order or range during scan")
+                    return reject(Failure.UNSUPPORTED_TIMELINE)
+                }
+                if (!extractor.advance()) break
+            }
+            val origin = timeline.origin() ?: return reject(Failure.UNSUPPORTED_TIMELINE)
+            if (input.length() != inputSize || input.lastModified() != inputModified) return reject(Failure.INPUT_UNAVAILABLE)
+            check()?.let { return reject(it) }
+            val sampleReader = MediaExtractor().also { reader = it }
+            sampleReader.setDataSource(descriptor.fd, 0L, inputSize)
+            if (sampleReader.trackCount != formats.size || formats.indices.any {
+                    sampleReader.getTrackFormat(it).getString(MediaFormat.KEY_MIME) != formats[it].getString(MediaFormat.KEY_MIME)
+                }) return reject(Failure.INPUT_UNAVAILABLE)
             val file = File.createTempFile("cast-remux-", ".mp4", scratch)
             allocated(file)
             val writer = MediaMuxer(file.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             muxer = writer
             val tracks = formats.map(writer::addTrack)
-            for (index in formats.indices) extractor.selectTrack(index)
+            for (index in formats.indices) sampleReader.selectTrack(index)
             writer.start()
             val buffer = ByteBuffer.allocateDirect(MAX_SAMPLE_BYTES)
             val info = MediaCodec.BufferInfo()
             val counts = IntArray(formats.size)
             val lastPts = LongArray(formats.size) { -1L }
-            var firstPts = -1L
             var payloadBytes = 0L
             var sampleCount = 0
             while (true) {
                 check()?.let { return reject(it) }
-                val index = extractor.sampleTrackIndex
+                val index = sampleReader.sampleTrackIndex
                 if (index < 0) break
                 if (index !in tracks.indices || ++sampleCount > MAX_SAMPLES) return reject(Failure.OUTPUT_LIMIT)
-                val sampleSize = extractor.sampleSize
-                if (sampleSize !in 1L..MAX_SAMPLE_BYTES.toLong()) return reject(Failure.UNSUPPORTED_SAMPLE)
-                val flags = extractor.sampleFlags
+                val sampleSize = sampleReader.sampleSize
+                if (sampleSize !in 1L..MAX_SAMPLE_BYTES.toLong()) {
+                    Log.i("CastRemux", "Rejected sample size")
+                    return reject(Failure.UNSUPPORTED_SAMPLE)
+                }
+                val flags = sampleReader.sampleFlags
                 if (flags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0 ||
                     flags and MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME != 0) return reject(Failure.UNSUPPORTED_SAMPLE)
-                val pts = extractor.sampleTime
-                if (pts < 0L) return reject(Failure.UNSUPPORTED_SAMPLE)
-                if (firstPts < 0L) firstPts = pts
-                val normalized = pts - firstPts
-                if (normalized < 0L || normalized < lastPts[index]) return reject(Failure.UNSUPPORTED_SAMPLE)
-                if (normalized > MAX_DURATION_US) return reject(Failure.DURATION_LIMIT)
+                val normalized = RemuxTimeline.normalize(sampleReader.sampleTime, origin, MAX_DURATION_US)
+                    ?: return reject(Failure.UNSUPPORTED_TIMELINE)
+                if (normalized < lastPts[index]) return reject(Failure.UNSUPPORTED_TIMELINE)
                 // A complete first video sample must be independently decodable.
                 if (index == video.single() && counts[index] == 0 &&
-                    flags and MediaExtractor.SAMPLE_FLAG_SYNC == 0) return reject(Failure.UNSUPPORTED_SAMPLE)
+                    flags and MediaExtractor.SAMPLE_FLAG_SYNC == 0) {
+                    Log.i("CastRemux", "Rejected initial non-sync video sample")
+                    return reject(Failure.UNSUPPORTED_SAMPLE)
+                }
                 if (payloadBytes + sampleSize > MAX_INPUT_BYTES || file.length() > MAX_OUTPUT_BYTES) {
                     return reject(Failure.OUTPUT_LIMIT)
                 }
                 buffer.clear()
-                val read = extractor.readSampleData(buffer, 0)
-                if (read.toLong() != sampleSize) return reject(Failure.UNSUPPORTED_SAMPLE)
+                val read = sampleReader.readSampleData(buffer, 0)
+                if (read.toLong() != sampleSize) {
+                    Log.i("CastRemux", "Rejected inconsistent extractor sample size")
+                    return reject(Failure.UNSUPPORTED_SAMPLE)
+                }
                 buffer.position(0)
                 buffer.limit(read)
                 val outputFlags = if (flags and MediaExtractor.SAMPLE_FLAG_SYNC != 0)
@@ -156,20 +199,22 @@ internal object BoundedTelegramRemuxer {
                 counts[index]++
                 lastPts[index] = normalized
                 payloadBytes += read
-                if (!extractor.advance()) break
+                if (!sampleReader.advance()) break
             }
             check()?.let { return reject(it) }
-            if (counts.any { it == 0 }) return reject(Failure.UNSUPPORTED_SAMPLE)
+            if (!timeline.matches(counts)) return reject(Failure.UNSUPPORTED_TIMELINE)
             writer.stop()
             writer.release()
             muxer = null
             if (file.length() !in 1L..MAX_OUTPUT_BYTES) return reject(Failure.OUTPUT_LIMIT)
-            if (input.length() != inputSize) return reject(Failure.INPUT_UNAVAILABLE)
+            if (input.length() != inputSize || input.lastModified() != inputModified) return reject(Failure.INPUT_UNAVAILABLE)
             check()?.let { return reject(it) }
             return Result.Ready(Output(file))
         } finally {
             runCatching { muxer?.release() }
-            extractor.release()
+            runCatching { reader?.release() }
+            runCatching { extractor.release() }
+            descriptor.close()
         }
     }
 }
