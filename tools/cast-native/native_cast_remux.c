@@ -12,6 +12,7 @@
 #include <libavutil/time.h>
 #include <libavutil/error.h>
 #include "aac_sample_clock.h"
+#include "aac_priming.h"
 
 #define IO_BYTES (32 * 1024)
 #define INPUT_MAX (16LL * 1024 * 1024)
@@ -198,6 +199,11 @@ static int remux(Session *s, int kind) {
     if (video < 0 || audio < 0) { result = UNSUPPORTED; goto done; }
     const AVCodecParameters *audio_par = in->streams[audio]->codecpar;
     int sample_rate = audio_par->sample_rate;
+    int padding = audio_par->initial_padding;
+    if ((padding != 0 && (kind != 1 || padding != 1024)) || audio_par->trailing_padding != 0) {
+        fprintf(stderr, "AAC_PRIMING_REJECT padding=%d trailing=%d\n", padding, audio_par->trailing_padding);
+        result = UNSUPPORTED; goto done;
+    }
     if (sample_rate < 7350 || sample_rate > 96000) {
         fprintf(stderr, "AAC_CLOCK_REJECT rate=%d\n", sample_rate);
         result = UNSUPPORTED; goto done;
@@ -241,6 +247,7 @@ static int remux(Session *s, int kind) {
     out->io_open = deny_open;
     out->interrupt_callback = (AVIOInterruptCB){interrupt, s};
     out->max_interleave_delta = 1000000;
+    if (padding) out->avoid_negative_ts = AVFMT_AVOID_NEG_TS_DISABLED;
     for (unsigned i = 0; i < in->nb_streams; i++) {
         AVStream *track = avformat_new_stream(out, NULL);
         const AVCodecParameters *parameters = aac_bsf && (int)i == audio
@@ -251,6 +258,7 @@ static int remux(Session *s, int kind) {
     }
     if (av_dict_set(&options, "movflags", "+delay_moov+empty_moov+default_base_moof+frag_keyframe+skip_trailer", 0) < 0 ||
         av_dict_set(&options, "min_frag_duration", "4000000", 0) < 0 ||
+        (padding && av_dict_set(&options, "use_editlist", "1", 0) < 0) ||
         avformat_write_header(out, &options) < 0 || av_dict_count(options) != 0 || !alive(s)) goto done;
     if (av_cmp_q(out->streams[audio]->time_base, (AVRational){1, sample_rate}) != 0) goto done;
     int64_t source_tick = av_rescale_q_rnd(1, in->streams[audio]->time_base,
@@ -277,7 +285,8 @@ static int remux(Session *s, int kind) {
         if (packet->flags & (AV_PKT_FLAG_CORRUPT | AV_PKT_FLAG_DISCARD) ||
             packet->pts == AV_NOPTS_VALUE || packet->dts == AV_NOPTS_VALUE ||
             (last[i] != AV_NOPTS_VALUE && packet->dts <= last[i])) goto done;
-        if (!counts[i] && i == video && !(packet->flags & AV_PKT_FLAG_KEY)) goto done;
+        if (!counts[i] && i == video && (!(packet->flags & AV_PKT_FLAG_KEY) ||
+            (padding && (packet->dts != 0 || packet->pts != 0)))) goto done;
         if (first[i] == AV_NOPTS_VALUE) first[i] = packet->dts;
         int64_t current_us = av_rescale_q(packet->dts, in->streams[i]->time_base, AV_TIME_BASE_Q);
         int64_t origin_us = av_rescale_q(first[i], in->streams[i]->time_base, AV_TIME_BASE_Q);
@@ -311,21 +320,22 @@ static int remux(Session *s, int kind) {
             int64_t corrected;
             size_t skip_size = 0;
             const uint8_t *skip = av_packet_get_side_data(packet, AV_PKT_DATA_SKIP_SAMPLES, &skip_size);
-            /* FFmpeg may attach a zero-valued skip record. It conveys no
-             * trimming. A real skip/discard record is still unsupported:
-             * silently removing it could change decoded PCM. */
-            int trims = skip && (skip_size != 10 ||
-                skip[0] || skip[1] || skip[2] || skip[3] || skip[4] || skip[5] || skip[6] || skip[7]);
-            if (packet->pts != packet->dts || trims ||
+            int64_t anchor;
+            if (packet->pts != packet->dts ||
+                aac_priming_anchor(padding, counts[i], skip, skip_size, packet->dts,
+                                   audio_tolerance, &anchor) < 0 ||
                 (kind == 2 && (rates[(aac_config >> 7) & 15] != sample_rate ||
                  ((aac_config >> 3) & 15) != audio_par->ch_layout.nb_channels)) ||
-                aac_sample_clock_step(&audio_clock, packet->dts, audio_tolerance, &corrected) < 0) {
+                aac_sample_clock_step(&audio_clock, anchor, audio_tolerance, &corrected) < 0) {
                 fprintf(stderr, "AAC_CLOCK_REJECT packet=%d pts=%" PRId64 " dts=%" PRId64
-                    " next=%" PRId64 " tolerance=%" PRId64 " skip_size=%zu trims=%d config=%d\n",
+                    " next=%" PRId64 " tolerance=%" PRId64 " skip_size=%zu padding=%d config=%d\n",
                     counts[i], packet->pts, packet->dts, audio_clock.next, audio_tolerance,
-                    skip_size, trims, aac_config);
+                    skip_size, padding, aac_config);
                 result = UNSUPPORTED; goto done;
             }
+            if (padding && counts[i] == 1)
+                fprintf(stderr, "AAC_PRIMING_ACCEPT source=%" PRId64 " anchor=%" PRId64 "\n",
+                    packet->dts, corrected);
             // Keep the exact first source clock anchor, then conserve the
             // 1024-sample AAC duration rather than accumulating coarse ticks.
             packet->dts = packet->pts = corrected;

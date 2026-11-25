@@ -1,4 +1,5 @@
 #include "aac_sample_clock.h"
+#include "aac_priming.h"
 #include <assert.h>
 #include <stdio.h>
 
@@ -29,6 +30,19 @@ int main(void) {
     assert(aac_sample_clock_step(&overflow, INT64_MAX, 1, &corrected) < 0);
     assert(aac_sample_clock_step(&overflow, INT64_MIN, 1, &corrected) < 0);
     assert(aac_sample_clock_step(&overflow, 0, 129, &corrected) < 0);
+    uint8_t skip[10] = {0, 4};
+    int64_t anchor = 0;
+    assert(aac_priming_anchor(1024, 1, skip, sizeof(skip), -1008, 48, &anchor) == 0);
+    assert(anchor == -1024);
+    assert(aac_priming_anchor(1024, 2, NULL, 0, 0, 48, &anchor) == 0);
+    assert(anchor == 0);
+    assert(aac_priming_anchor(1024, 2, skip, sizeof(skip), 0, 48, &anchor) < 0);
+    assert(aac_priming_anchor(1024, 1, NULL, 0, -1008, 48, &anchor) < 0);
+    assert(aac_priming_anchor(1024, 1, skip, sizeof(skip), -800, 48, &anchor) < 0);
+    skip[4] = 1;
+    assert(aac_priming_anchor(1024, 1, skip, sizeof(skip), -1008, 48, &anchor) < 0);
+    assert(aac_priming_anchor(0, 1, NULL, 0, 67200, 48, &anchor) == 0);
+    assert(anchor == 67200);
     puts("AAC_SAMPLE_CLOCK_PASS");
     return 0;
 }

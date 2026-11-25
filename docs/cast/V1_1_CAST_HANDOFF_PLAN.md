@@ -127,3 +127,6 @@ Strict request routing, private headers, bounded body transfer and sticky route 
 
 ## Rolling HLS R2v — isolated extended native qualification
 Separate synthetic harness JNI profile with bounded 64 MiB/180s limits, GOP envelope, late cancellation, VmHWM telemetry and exact long-media integrity gate conditional on finite gate success. Existing app bridge unchanged; native repair and extended execution pending.
+
+## Rolling HLS R2w — AAC priming semantics
+Preserve one declared initial AAC frame for decode history while excluding it from presentation using an exact edit-list anchor; independently verify declared Matroska CodecDelay and exact presented PCM. Candidate repair pending Android result; all other media integrity gates retained.

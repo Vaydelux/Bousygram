@@ -7,6 +7,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from matroska_priming import priming_samples
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / 'ci'))
 from qualify_rolling_hls_pipe import box, probe, require_box, validate_moof, MAX_INIT, MAX_UNIT
@@ -23,13 +24,31 @@ def decoded_hash(file, track):
     return result
 
 
-def aac_payload_hash(file):
+def aac_payload(file):
     # Normalize all containers to the same ADTS encapsulation without decoding.
     # Finite qualification only: output is bounded by the fixture size.
     data = subprocess.check_output(['ffmpeg', '-v', 'error', '-xerror', '-i', str(file),
                                     '-map', '0:a:0', '-c:a', 'copy', '-f', 'adts', '-'], timeout=30)
     assert 0 < len(data) <= 20 * 1024 * 1024
-    return hashlib.sha256(data).hexdigest()
+    return data
+
+
+def presented_pcm_hash(source, payload):
+    info = json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','a:0',
+        '-show_entries','stream=sample_rate,channels','-of','json',str(source)],timeout=15))
+    track, = info['streams']
+    rate, channels = int(track['sample_rate']), int(track['channels'])
+    assert 7350 <= rate <= 96000 and channels in (1,2)
+    # Decode identical raw AAC independently of host MKV priming support,
+    # then remove only the independently parsed declared CodecDelay.
+    pcm = subprocess.check_output(['ffmpeg','-v','error','-xerror','-f','aac','-i','pipe:0',
+        '-map','0:a:0','-c:a','pcm_s16le','-f','s16le','-'],input=payload,timeout=30)
+    assert 0 < len(pcm) <= 192*1024*1024
+    samples = priming_samples(source,rate)
+    trim = samples*channels*2
+    assert trim < len(pcm)
+    print(source.name,'declared priming samples',samples,'decoded bytes',len(pcm),'presented bytes',len(pcm)-trim)
+    return 'SHA256='+hashlib.sha256(memoryview(pcm)[trim:]).hexdigest()
 
 
 def audio_diagnostics(file):
@@ -91,14 +110,15 @@ def verify(root, ext, extended=False):
     assert count == expected_fragments
     for file in (source, converted):
         audio_diagnostics(file)
-    expected_payload = aac_payload_hash(source)
-    actual_payload = aac_payload_hash(converted)
-    print(ext, 'normalized AAC payload SHA256', expected_payload, actual_payload)
+    expected_payload = aac_payload(source)
+    actual_payload = aac_payload(converted)
+    print(ext, 'normalized AAC payload SHA256', hashlib.sha256(expected_payload).hexdigest(),
+          hashlib.sha256(actual_payload).hexdigest())
     assert expected_payload == actual_payload, (ext, 'AAC payload mismatch')
     # Count/timestamp equality does not prove payload conservation. Compare
     # decoded pixels and PCM on the entire synthetic clip as a separate gate.
     for track in ('video', 'audio'):
-        expected = decoded_hash(source, track)
+        expected = presented_pcm_hash(source, expected_payload) if track == 'audio' else decoded_hash(source, track)
         actual = decoded_hash(converted, track)
         assert expected == actual, (ext, track, 'decoded content mismatch', expected, actual)
         print(ext, track, 'decoded content', actual)
