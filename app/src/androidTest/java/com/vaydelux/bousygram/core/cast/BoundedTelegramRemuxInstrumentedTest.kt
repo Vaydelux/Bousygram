@@ -1,0 +1,72 @@
+package com.vaydelux.bousygram.core.cast
+
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import java.io.RandomAccessFile
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class BoundedTelegramRemuxInstrumentedTest {
+    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+    private fun fixture(name: String): File =
+        File(context.getExternalFilesDir("decoder-fixtures"), name).also {
+            assertTrue("Missing decoder fixture", it.isFile)
+        }
+    private fun scratch(): File = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "remux-test-").toFile()
+
+    @Test fun remuxCompatibleMkvAndTsWithoutDroppingTracks() {
+        for (name in listOf("indexed.mkv", "unindexed.ts")) {
+            val dir = scratch()
+            try {
+                val result = BoundedTelegramRemuxer.convert(fixture(name), dir)
+                // Device/platform extraction may conservatively reject a TS or reordered
+                // stream. Do not mark an unsupported input as a successful conversion.
+                if (result is BoundedTelegramRemuxer.Result.Rejected) {
+                    assertTrue("Unexpected remux failure for $name: ${result.reason}",
+                        result.reason in setOf(BoundedTelegramRemuxer.Failure.UNSUPPORTED_SAMPLE,
+                            BoundedTelegramRemuxer.Failure.UNSUPPORTED_CODEC,
+                            BoundedTelegramRemuxer.Failure.UNSUPPORTED_TRACKS))
+                    assertTrue(dir.listFiles().orEmpty().isEmpty())
+                    android.util.Log.i("CastRemuxFixtures", "$name unavailable: ${result.reason}")
+                    continue
+                }
+                val ready = result as BoundedTelegramRemuxer.Result.Ready
+                ready.output.use { output ->
+                    assertTrue(output.file.length() in 1L..BoundedTelegramRemuxer.MAX_OUTPUT_BYTES)
+                    val extractor = MediaExtractor()
+                    try {
+                        extractor.setDataSource(output.file.absolutePath)
+                        val mimes = (0 until extractor.trackCount).map {
+                            extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)
+                        }.toSet()
+                        assertEquals(setOf("video/avc", "audio/mp4a-latm"), mimes)
+                        for (index in 0 until extractor.trackCount) extractor.selectTrack(index)
+                        assertTrue(extractor.sampleTrackIndex >= 0)
+                    } finally { extractor.release() }
+                    val busy = BoundedTelegramRemuxer.convert(fixture(name), dir)
+                    assertEquals(BoundedTelegramRemuxer.Result.Rejected(BoundedTelegramRemuxer.Failure.BUSY), busy)
+                    android.util.Log.i("CastRemuxFixtures", "$name remuxed")
+                }
+                assertTrue(dir.listFiles().orEmpty().isEmpty())
+            } finally { dir.deleteRecursively() }
+        }
+    }
+
+    @Test fun cancellationAndSizeRejectionLeaveNoScratchOutput() {
+        val dir = scratch()
+        val input = File.createTempFile("oversized-", ".mkv", context.cacheDir)
+        try {
+            assertEquals(BoundedTelegramRemuxer.Result.Rejected(BoundedTelegramRemuxer.Failure.CANCELLED),
+                BoundedTelegramRemuxer.convert(fixture("indexed.mkv"), dir) { true })
+            RandomAccessFile(input, "rw").use { it.setLength(BoundedTelegramRemuxer.MAX_INPUT_BYTES + 1L) }
+            assertEquals(BoundedTelegramRemuxer.Result.Rejected(BoundedTelegramRemuxer.Failure.INPUT_TOO_LARGE),
+                BoundedTelegramRemuxer.convert(input, dir))
+            assertTrue(dir.listFiles().orEmpty().isEmpty())
+        } finally { input.delete(); dir.deleteRecursively() }
+    }
+}
