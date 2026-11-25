@@ -10,8 +10,10 @@ cast="$root/app/src/main/java/com/vaydelux/bousygram/core/cast"
 debug="$root/app/src/debug/java/com/vaydelux/bousygram/core/cast"
 kotlinc -Werror "$debug/RollingHlsLiveRetention.kt" "$debug/RollingHlsLiveFileStore.kt" \
     "$debug/RollingHlsLiveProducer.kt" "$root/tools/ci/fixtures/RollingHlsLiveProducerSmoke.kt" \
+    "$root/tools/ci/fixtures/RollingHlsLiveRangeSmoke.kt" \
     -include-runtime -d "$scratch/producer.jar"
-java -jar "$scratch/producer.jar" "$fixtures/converted.mkv.mp4"
+java -cp "$scratch/producer.jar" com.vaydelux.bousygram.core.cast.RollingHlsLiveRangeSmokeKt
+java -cp "$scratch/producer.jar" com.vaydelux.bousygram.core.cast.RollingHlsLiveProducerSmokeKt "$fixtures/converted.mkv.mp4"
 kotlinc "$cast/RollingHlsBudget.kt" "$cast/RollingFmp4Framing.kt" \
     "$cast/RollingHlsSegmentStore.kt" "$cast/RollingHlsVerifiedFeed.kt" \
     "$cast/RollingFmp4SampleVerifier.kt" \

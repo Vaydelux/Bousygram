@@ -166,3 +166,6 @@ Versioned TLS GET/ACK transport, release-bound encrypted retirement callback, se
 
 ## Rolling HLS R3i–R3k — live retention, actual files and paced publication
 Consolidate tested retention planner, scratch-file store and paced producer with verified-input adapter and explicit ENDLIST. Prior exact-head 139 Android tests passed. New host pacing test and regression groups passed; actual native-media verifier replay gate added, fresh qualification pending. No live player route, LAN listener or TDLib source reclamation.
+
+## Rolling HLS R3l — live Media3 receiver candidate
+Bounded retry ranges locally qualified; debug-only real-time synthetic live HLS DataSource and 72s Media3 test implemented, pending Android execution. Candidate detached while prior PR gates run. No LAN or TDLib changes.

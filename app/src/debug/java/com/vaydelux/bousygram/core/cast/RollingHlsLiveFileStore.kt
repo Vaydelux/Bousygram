@@ -138,15 +138,25 @@ internal class RollingHlsLiveFileStore(
 
     @Synchronized fun withdrawOldest(): Boolean = active() && playlist == null && planner.withdrawOldest()
 
-    @Synchronized fun open(sequence: Long): Lease? {
-        if (!active() || !planner.acquire(sequence)) return null
+    /** Retry a bounded range of an already advertised immutable segment.
+     * Only the exact retained resource can be reopened; expiry and lease
+     * pinning rules still apply. No arbitrary file path or HTTP range parser. */
+    @Synchronized fun open(sequence: Long, offset: Long = 0L, length: Long? = null): Lease? {
+        if (!active()) return null
+        val entry = files[sequence] ?: return null
+        if (offset !in 0L until entry.size) return null
+        val count = length ?: (entry.size - offset)
+        if (count !in 1L..(entry.size - offset) || !planner.acquire(sequence)) return null
+        var input: FileInputStream? = null
         try {
-            val entry = checkNotNull(files[sequence])
             if (!entry.file.isFile || entry.file.length() != entry.size) throw IOException("Live segment size changed")
-            val input = FileInputStream(entry.file)
+            input = FileInputStream(entry.file)
+            input.channel.position(offset)
+            if (!active()) throw IOException("Live segment revoked")
             readers.add(sequence)
-            return Lease(sequence, input, entry.size)
+            return Lease(sequence, input, count)
         } catch (error: Exception) {
+            try { input?.close() } catch (cleanup: Exception) { error.addSuppressed(cleanup) }
             planner.release(sequence)
             revoked = true
             throw error
@@ -154,19 +164,21 @@ internal class RollingHlsLiveFileStore(
     }
 
     inner class Lease internal constructor(val sequence: Long, private val input: FileInputStream,
-                                           private var left: Long) : AutoCloseable {
+                                           val length: Long) : AutoCloseable {
         private var closed = false
-        fun read(buffer: ByteArray): Int = synchronized(this@RollingHlsLiveFileStore) {
-            require(buffer.size in 1..32 * 1024)
+        private var left = length
+        fun read(buffer: ByteArray): Int = read(buffer, 0, buffer.size)
+        fun read(buffer: ByteArray, offset: Int, count: Int): Int = synchronized(this@RollingHlsLiveFileStore) {
+            require(offset >= 0 && count in 1..32 * 1024 && offset <= buffer.size - count)
             try {
                 if (closed || !active()) throw IOException("Live lease revoked")
                 if (left == 0L) return@synchronized -1
-                val n = input.read(buffer, 0, minOf(left, buffer.size.toLong()).toInt())
+                val n = input.read(buffer, offset, minOf(left, count.toLong()).toInt())
                 if (n <= 0 || !active()) throw IOException("Live segment truncated or revoked")
                 left -= n
                 n
             } catch (error: Exception) {
-                buffer.fill(0)
+                buffer.fill(0, offset, offset + count)
                 revoked = true
                 throw error
             }
