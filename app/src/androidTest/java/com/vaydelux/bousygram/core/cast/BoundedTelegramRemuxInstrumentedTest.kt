@@ -20,13 +20,14 @@ class BoundedTelegramRemuxInstrumentedTest {
     private fun scratch(): File = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "remux-test-").toFile()
 
     @Test fun remuxCompatibleMkvAndTsWithoutDroppingTracks() {
-        for (name in listOf("indexed.mkv", "unindexed.ts")) {
+        for (name in listOf("seek-control.mp4", "indexed.mkv", "unindexed.ts")) {
             val dir = scratch()
             try {
                 val result = BoundedTelegramRemuxer.convert(fixture(name), dir)
                 // Device/platform extraction may conservatively reject a TS or reordered
                 // stream. Do not mark an unsupported input as a successful conversion.
                 if (result is BoundedTelegramRemuxer.Result.Rejected) {
+                    assertFalse("Baseline MP4 remux must succeed: ${result.reason}", name == "seek-control.mp4")
                     assertTrue("Unexpected remux failure for $name: ${result.reason}",
                         result.reason in setOf(BoundedTelegramRemuxer.Failure.UNSUPPORTED_SAMPLE,
                             BoundedTelegramRemuxer.Failure.UNSUPPORTED_CODEC,
@@ -46,7 +47,16 @@ class BoundedTelegramRemuxInstrumentedTest {
                         }.toSet()
                         assertEquals(setOf("video/avc", "audio/mp4a-latm"), mimes)
                         for (index in 0 until extractor.trackCount) extractor.selectTrack(index)
-                        assertTrue(extractor.sampleTrackIndex >= 0)
+                        val counts = IntArray(extractor.trackCount)
+                        while (extractor.sampleTrackIndex >= 0) {
+                            counts[extractor.sampleTrackIndex]++
+                            if (!extractor.advance()) break
+                        }
+                        assertTrue("All output tracks must contain samples", counts.all { it > 0 })
+                        val videoIndex = (0 until extractor.trackCount).first {
+                            extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME) == "video/avc"
+                        }
+                        assertEquals("Synthetic baseline video frame count", 144, counts[videoIndex])
                     } finally { extractor.release() }
                     val busy = BoundedTelegramRemuxer.convert(fixture(name), dir)
                     assertEquals(BoundedTelegramRemuxer.Result.Rejected(BoundedTelegramRemuxer.Failure.BUSY), busy)
