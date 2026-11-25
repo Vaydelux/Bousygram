@@ -45,13 +45,17 @@ def audio_diagnostics(file):
     print(file.name, 'packet side data', [p.get('side_data_list') for p in packets if p.get('side_data_list')][:8])
 
 
-def verify(root, ext):
+def verify(root, ext, extended=False):
     source = root / f'source.{ext}'
     converted = root / f'converted.{ext}.mp4'
-    assert 0 < converted.stat().st_size <= 20 * 1024 * 1024
+    limit = (64 if extended else 20) * 1024 * 1024
+    expected_fragments = 60 if extended else 12
+    assert (20 * 1024 * 1024 if extended else 0) < converted.stat().st_size <= limit
+    if extended:
+        assert 20 * 1024 * 1024 < source.stat().st_size <= 64 * 1024 * 1024
     original = probe(source)
-    assert len(original['video']) == 864
-    assert len(original['audio']) == 3376
+    assert len(original['video']) == (8640 if extended else 864)
+    assert len(original['audio']) == (16876 if extended else 3376)
     observed = collections.defaultdict(list)
     count = 0
     with converted.open('rb') as stream, tempfile.TemporaryDirectory() as temp:
@@ -68,7 +72,7 @@ def verify(root, ext):
             kind, moof = head
             assert kind == b'moof'
             count += 1
-            assert count <= 12
+            assert count <= expected_fragments
             validate_moof(moof, count)
             kind, mdat = box(stream, MAX_UNIT - len(moof))
             assert kind == b'mdat' and len(mdat) > 8
@@ -84,7 +88,7 @@ def verify(root, ext):
                            timeout=15, check=True)
             for track, packets in values.items():
                 observed[track].extend(packets)
-    assert count == 12
+    assert count == expected_fragments
     for file in (source, converted):
         audio_diagnostics(file)
     expected_payload = aac_payload_hash(source)
@@ -114,7 +118,7 @@ def verify(root, ext):
 
 
 if __name__ == '__main__':
-    if not __debug__ or len(sys.argv) != 2:
-        raise SystemExit('Use assertions enabled: verify_runtime.py fixture-directory')
+    if not __debug__ or len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != '--extended'):
+        raise SystemExit('Use assertions enabled: verify_runtime.py fixture-directory [--extended]')
     for extension in ('mkv', 'ts'):
-        verify(pathlib.Path(sys.argv[1]), extension)
+        verify(pathlib.Path(sys.argv[1]), extension, len(sys.argv) == 3)

@@ -20,6 +20,14 @@
 #define PACKETS_MAX 20000
 #define WALL_US (60LL * 1000000)
 #define TIMELINE_MAX_US (120LL * 1000000)
+/* Isolated harness profile. Never selected by the app bridge entry point. */
+#define EXT_INPUT_MAX (64LL * 1024 * 1024)
+#define EXT_OUTPUT_MAX (64LL * 1024 * 1024)
+#define EXT_PACKETS_MAX 60000
+#define EXT_WALL_US (180LL * 1000000)
+#define EXT_TIMELINE_MAX_US (420LL * 1000000)
+#define EXT_GOP_BYTES (4LL * 1024 * 1024)
+#define EXT_GOP_US (12LL * 1000000)
 
 enum { OK = 0, BAD_INPUT = 1, IO_FAILED = 2, MEDIA_FAILED = 3, LIMIT = 4, CANCELLED = 5, UNSUPPORTED = 6 };
 
@@ -29,7 +37,7 @@ typedef struct {
     jmethodID read, write, active;
     jbyteArray in_array, out_array;
     int64_t size, offset, written, deadline;
-    int status;
+    int status, extended;
 } Session;
 
 static int fail(Session *s, int code) {
@@ -67,7 +75,8 @@ static int read_packet(void *opaque, uint8_t *buffer, int length) {
 
 static int write_packet(void *opaque, const uint8_t *buffer, int length) {
     Session *s = opaque;
-    if (length <= 0 || length > OUTPUT_MAX - s->written) return fail(s, LIMIT);
+    int64_t output_limit = s->extended ? EXT_OUTPUT_MAX : OUTPUT_MAX;
+    if (length <= 0 || length > output_limit - s->written) return fail(s, LIMIT);
     for (int pos = 0; pos < length;) {
         if (!alive(s)) return AVERROR_EXIT;
         int n = length - pos > IO_BYTES ? IO_BYTES : length - pos;
@@ -144,6 +153,9 @@ static int remux(Session *s, int kind) {
     int64_t first[2] = {AV_NOPTS_VALUE, AV_NOPTS_VALUE};
     int64_t last[2] = {AV_NOPTS_VALUE, AV_NOPTS_VALUE};
     int counts[2] = {0, 0};
+    const int packet_limit = s->extended ? EXT_PACKETS_MAX : PACKETS_MAX;
+    const int64_t timeline_limit = s->extended ? EXT_TIMELINE_MAX_US : TIMELINE_MAX_US;
+    int64_t gop_bytes = 0, last_key_us = AV_NOPTS_VALUE;
     AVFormatContext *in = NULL, *out = NULL;
     AVIOContext *reader = NULL, *writer = NULL;
     AVPacket *packet = NULL, *filtered = NULL;
@@ -261,7 +273,7 @@ static int remux(Session *s, int kind) {
         if (rc < 0) goto done;
         int i = packet->stream_index;
         if (i < 0 || i >= 2 || packet->size <= 0 || packet->size > PACKET_MAX ||
-            ++packets > PACKETS_MAX) { result = LIMIT; goto done; }
+            ++packets > packet_limit) { result = LIMIT; goto done; }
         if (packet->flags & (AV_PKT_FLAG_CORRUPT | AV_PKT_FLAG_DISCARD) ||
             packet->pts == AV_NOPTS_VALUE || packet->dts == AV_NOPTS_VALUE ||
             (last[i] != AV_NOPTS_VALUE && packet->dts <= last[i])) goto done;
@@ -269,9 +281,27 @@ static int remux(Session *s, int kind) {
         if (first[i] == AV_NOPTS_VALUE) first[i] = packet->dts;
         int64_t current_us = av_rescale_q(packet->dts, in->streams[i]->time_base, AV_TIME_BASE_Q);
         int64_t origin_us = av_rescale_q(first[i], in->streams[i]->time_base, AV_TIME_BASE_Q);
-        if (current_us < -TIMELINE_MAX_US || current_us > TIMELINE_MAX_US ||
-            origin_us < -TIMELINE_MAX_US || origin_us > TIMELINE_MAX_US ||
-            current_us - origin_us > TIMELINE_MAX_US) { result = LIMIT; goto done; }
+        if (current_us < -timeline_limit || current_us > timeline_limit ||
+            origin_us < -timeline_limit || origin_us > timeline_limit ||
+            current_us - origin_us > timeline_limit) { result = LIMIT; goto done; }
+        if (s->extended) {
+            int64_t presentation_us = av_rescale_q(packet->pts, in->streams[i]->time_base, AV_TIME_BASE_Q);
+            if (presentation_us < -timeline_limit || presentation_us > timeline_limit ||
+                presentation_us - current_us < -EXT_GOP_US || presentation_us - current_us > EXT_GOP_US) {
+                result = LIMIT; goto done;
+            }
+            if (i == video && (packet->flags & AV_PKT_FLAG_KEY)) {
+                if (last_key_us != AV_NOPTS_VALUE && current_us - last_key_us > EXT_GOP_US) {
+                    result = LIMIT; goto done;
+                }
+                last_key_us = current_us;
+                gop_bytes = 0;
+            }
+            /* Input packet envelope, not a guarantee of FFmpeg heap size. */
+            if ((last_key_us != AV_NOPTS_VALUE && current_us - last_key_us > EXT_GOP_US) ||
+                packet->size > EXT_GOP_BYTES - gop_bytes) { result = LIMIT; goto done; }
+            gop_bytes += packet->size;
+        }
         if (aac_bsf && i == audio &&
             normalize_aac(aac_bsf, packet, filtered, &aac_config, !counts[i]) < 0) goto done;
         last[i] = packet->dts;
@@ -326,11 +356,13 @@ done:
     return s->status ? s->status : result;
 }
 
-JNIEXPORT jint JNICALL Java_com_vaydelux_bousygram_core_cast_NativeCastRemuxBridge_run(
-    JNIEnv *env, jclass type, jint kind, jlong size, jobject callbacks) {
-    (void)type;
-    if ((kind != 1 && kind != 2) || size <= 0 || size > INPUT_MAX || !callbacks) return BAD_INPUT;
-    Session s = {.env=env, .callbacks=callbacks, .size=size, .deadline=av_gettime_relative()+WALL_US};
+static jint run_profile(JNIEnv *env, jint kind, jlong size, jobject callbacks, int extended) {
+    int64_t input_limit = extended ? EXT_INPUT_MAX : INPUT_MAX;
+    int64_t wall = extended ? EXT_WALL_US : WALL_US;
+    if ((kind != 1 && kind != 2) || size <= 0 || size > input_limit || !callbacks) return BAD_INPUT;
+    int64_t now = av_gettime_relative();
+    if (now < 0 || now > INT64_MAX - wall) return LIMIT;
+    Session s = {.env=env, .callbacks=callbacks, .size=size, .deadline=now+wall, .extended=extended};
     jclass cls = (*env)->GetObjectClass(env, callbacks);
     if (!cls) return IO_FAILED;
     s.read = (*env)->GetMethodID(env, cls, "read", "(J[BI)I");
@@ -345,4 +377,17 @@ JNIEXPORT jint JNICALL Java_com_vaydelux_bousygram_core_cast_NativeCastRemuxBrid
     if (!s.out_array) return IO_FAILED;
     /* All callbacks are synchronous on the invoking JNI thread. No global references. */
     return remux(&s, kind);
+}
+
+JNIEXPORT jint JNICALL Java_com_vaydelux_bousygram_core_cast_NativeCastRemuxBridge_run(
+    JNIEnv *env, jclass type, jint kind, jlong size, jobject callbacks) {
+    (void)type;
+    return run_profile(env, kind, size, callbacks, 0);
+}
+
+/* Export belongs to the standalone synthetic harness, not the debug app ABI. */
+JNIEXPORT jint JNICALL Java_com_vaydelux_bousygram_core_cast_NativeCastRuntimeSmoke_runExtended(
+    JNIEnv *env, jclass type, jint kind, jlong size, jobject callbacks) {
+    (void)type;
+    return run_profile(env, kind, size, callbacks, 1);
 }

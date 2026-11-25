@@ -124,3 +124,6 @@ Authenticated private playlist/init/segment lease and explicit control acknowled
 
 ## Rolling HLS R2u — transport-neutral dispatcher
 Strict request routing, private headers, bounded body transfer and sticky route revocation implemented. Four tests; no network registration. Hosted six-minute reference emitted both success markers before workflow cancellation. Native integrity unverified.
+
+## Rolling HLS R2v — isolated extended native qualification
+Separate synthetic harness JNI profile with bounded 64 MiB/180s limits, GOP envelope, late cancellation, VmHWM telemetry and exact long-media integrity gate conditional on finite gate success. Existing app bridge unchanged; native repair and extended execution pending.

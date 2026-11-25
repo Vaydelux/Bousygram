@@ -19,7 +19,9 @@ run_case() {
     shift
     local args="$*"
     local log="$out/runtime-$suffix.log"
-    if ! timeout --kill-after=10s 180s adb shell -T "CLASSPATH=$remote/runtime.jar app_process /system/bin com.vaydelux.bousygram.core.cast.NativeCastRuntimeSmoke $remote $args" 2>&1 | tr -d '\r' | tee "$log"; then
+    local case_root="$remote" case_timeout=180s
+    if [[ "$suffix" == extended-* ]]; then case_root="$remote/extended"; case_timeout=210s; fi
+    if ! timeout --kill-after=10s "$case_timeout" adb shell -T "CLASSPATH=$remote/runtime.jar app_process /system/bin com.vaydelux.bousygram.core.cast.NativeCastRuntimeSmoke $case_root $args" 2>&1 | tr -d '\r' | tee "$log"; then
         echo "::error::JNI runtime case failed: $suffix"
         adb shell 'cat /proc/meminfo; ps -A' || true
         adb logcat -d -t 3000 -v threadtime | tail -n 500 || true
@@ -39,3 +41,23 @@ for ext in mkv ts; do adb pull "$remote/converted.$ext.mp4" "$out/converted.$ext
 timeout --kill-after=10s 180s python3 "$root/verify_runtime.py" "$out"
 timeout --kill-after=10s 180s bash "$root/../ci/qualify_rolling_hls_samples.sh" "$out"
 echo "Android x86-64 JNI runtime, decoded media conservation and Kotlin rolling store qualification passed"
+
+# Only after every finite integrity and replay gate has passed. Full synthetic
+# output files are test evidence, not the rolling production storage path.
+mkdir "$out/extended"
+ffmpeg -v error -f lavfi -i testsrc2=size=320x180:rate=24 \
+    -f lavfi -i sine=frequency=440:sample_rate=48000 -t 360 \
+    -c:v libx264 -preset ultrafast -threads 2 -b:v 650k -minrate 650k -maxrate 650k \
+    -bufsize 1300k -x264-params nal-hrd=cbr -g 144 -keyint_min 144 -sc_threshold 0 -bf 0 \
+    -c:a aac -b:a 96k "$out/extended/source.mkv"
+ffmpeg -v error -i "$out/extended/source.mkv" -c copy -f mpegts "$out/extended/source.ts"
+adb shell mkdir -m 700 "$remote/extended"
+adb push "$lib" "$remote/extended/libbousygram_cast_remux.so" >/dev/null
+for ext in mkv ts; do
+    adb push "$out/extended/source.$ext" "$remote/extended/source.$ext" >/dev/null
+    run_case "extended-$ext-CANCEL_LATE" NATIVE_EXTENDED_CASE_PASS "$ext" CANCEL_LATE EXTENDED
+    run_case "extended-$ext-GOOD" NATIVE_EXTENDED_CASE_PASS "$ext" GOOD EXTENDED
+    adb pull "$remote/extended/converted.$ext.mp4" "$out/extended/converted.$ext.mp4" >/dev/null
+done
+timeout --kill-after=10s 300s python3 "$root/verify_runtime.py" "$out/extended" --extended
+echo "Android x86-64 extended JNI qualification passed"
