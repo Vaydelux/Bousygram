@@ -23,6 +23,8 @@ class RollingHlsOwnedWindowDriverTest {
         var starts = 0
         var lastLimit = 0
         var returnedId = 7
+        var startReturnedId: Int? = null
+        var cancelRead = false
         var nullStart = false
         var cancel = false
         var revokeOnRead = false
@@ -41,11 +43,13 @@ class RollingHlsOwnedWindowDriverTest {
             active = true
             if (cancel) throw CancellationException("lost native callback")
             if (nullStart) return null
-            return status(owner, fileId)
+            return startReturnedId?.let { RollingHlsOwnedWindowDriver.Status(it, 8, active) }
+                ?: status(owner, fileId)
         }
         override suspend fun read(owner: AccountSnapshot, fileId: Int, offset: Long, count: Int): ByteArray? {
             assertTrue(lock.isLocked)
             assertEquals(this@RollingHlsOwnedWindowDriverTest.owner, owner)
+            if (cancelRead) throw CancellationException("Interrupted source read")
             if (revokeOnRead) account = null
             return bytes
         }
@@ -85,6 +89,31 @@ class RollingHlsOwnedWindowDriverTest {
         assertNull(gate.acquire(owner, 8, 8))
     }
 
+    @Test fun mismatchedStartResponseNeverClearsOutstandingIssue() = runBlocking {
+        val lease = lease()
+        gateway.startReturnedId = 9
+        val ticket = (driver.open(lease, 0) as RollingHlsOwnedWindowDriver.Open.Uncertain).window
+        gateway.active = false
+        assertFalse(driver.reconcile(ticket))
+        assertEquals(8L, gate.state().reservedBytes)
+        assertEquals(RollingHlsDownloadOwnership.Phase.QUARANTINED, gate.state().phase)
+    }
+
+    @Test fun interruptedReadRetiresLeaseBeforeAnyRetry() = runBlocking {
+        val ticket = (driver.open(lease(), 0) as RollingHlsOwnedWindowDriver.Open.Ready).window
+        gateway.cancelRead = true
+        try {
+            driver.read(ticket, 0, 2)
+            fail("Expected cancellation")
+        } catch (_: CancellationException) { }
+        gateway.cancelRead = false
+        assertFalse(gate.canRead(ticket, 0, 2))
+        assertEquals(8L, gate.state().reservedBytes)
+        gateway.active = false
+        assertTrue(driver.reconcile(ticket))
+        assertEquals(0L, gate.state().reservedBytes)
+    }
+
     @Test fun cancellationDuringDispatchDoesNotFreeOwnership() = runBlocking {
         gateway.cancel = true
         val lease = lease()
@@ -116,6 +145,8 @@ class RollingHlsOwnedWindowDriverTest {
             driver.read(ticket, 0, 2)
             fail("Expected conflict")
         } catch (_: IOException) { }
+        busy = false
+        assertFalse(gate.canRead(ticket, 0, 2))
         assertEquals(0L, gate.state().nextOffset)
     }
 }

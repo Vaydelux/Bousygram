@@ -139,3 +139,6 @@ Automatic verified-init handoff and final segment consumption under arbitrary ca
 
 ## Rolling HLS R2z — native integrity closure and authenticated receiver replay
 All exact-head workflows passed, including six-minute Android JNI integrity, late cancellation and measured process memory. Added ephemeral mTLS loopback actual native media replay with peer pins and byte-consumption acknowledgement. New execution pending; actual player, pairing, LAN TLS and source reclamation remain gates.
+
+## Rolling HLS R3a — source ownership closure
+Mismatched start responses retain quarantine; failed/cancelled reads revoke the lease permanently and wipe returned bytes. Added regression cases. Native partial source reclamation and live source integration remain pending.

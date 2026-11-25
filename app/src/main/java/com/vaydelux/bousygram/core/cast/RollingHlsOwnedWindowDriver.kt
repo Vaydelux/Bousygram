@@ -2,6 +2,8 @@ package com.vaydelux.bousygram.core.cast
 
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
@@ -61,12 +63,14 @@ internal class RollingHlsOwnedWindowDriver(
                 ownership.retire(lease)
                 return@withLock Open.Uncertain(ticket)
             }
-            // A null response cannot prove the command returned at native level.
-            if (response == null) {
+            // A null, mismatched, or stale response cannot prove that the
+            // exact native command finished dispatching. Do not clear the
+            // outstanding issue flag even if a later GetFile is inactive.
+            if (!matches(ticket, response)) {
                 ownership.retire(lease)
                 return@withLock Open.Uncertain(ticket)
             }
-            if (!ownership.acknowledge(ticket, matches(ticket, response))) {
+            if (!ownership.acknowledge(ticket, true)) {
                 ownership.retire(lease)
                 return@withLock Open.Uncertain(ticket)
             }
@@ -76,19 +80,26 @@ internal class RollingHlsOwnedWindowDriver(
     /** Missing data stays pending. Never expose bytes after revoke/takeover. */
     suspend fun read(ticket: RollingHlsDownloadOwnership.Window, offset: Long, count: Int): ByteArray? =
         commandLock.withLock(owner = commandOwner) {
-            if (!ownership.canRead(ticket, offset, count)) throw IOException("Producer window unavailable")
-            val bytes = gateway.read(ticket.lease.owner, ticket.lease.fileId, offset, count)
-            if (!ownership.canRead(ticket, offset, count)) {
+            var bytes: ByteArray? = null
+            try {
+                currentCoroutineContext().ensureActive()
+                if (!ownership.canRead(ticket, offset, count)) throw IOException("Producer window unavailable")
+                val received = gateway.read(ticket.lease.owner, ticket.lease.fileId, offset, count)
+                bytes = received
+                currentCoroutineContext().ensureActive()
+                if (!ownership.canRead(ticket, offset, count)) throw IOException("Producer ownership changed")
+                if (received == null) return@withLock null
+                if (received.size !in 1..count || !ownership.consumed(ticket, offset, received.size))
+                    throw IOException("Invalid producer source response")
+                currentCoroutineContext().ensureActive()
+                received
+            } catch (error: Exception) {
                 bytes?.fill(0)
-                throw IOException("Producer ownership changed")
-            }
-            if (bytes == null) return@withLock null
-            if (bytes.size !in 1..count || !ownership.consumed(ticket, offset, bytes.size)) {
-                bytes.fill(0)
+                // A failed or cancelled read must never resume this lease after
+                // playback conflict clears or a consumed cursor was not delivered.
                 ownership.retire(ticket.lease)
-                throw IOException("Invalid producer source response")
+                throw error
             }
-            bytes
         }
 
     /** Never cancel a potentially shared native download. Inactive evidence

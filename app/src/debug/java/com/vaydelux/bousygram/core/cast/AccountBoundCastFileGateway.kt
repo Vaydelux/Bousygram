@@ -3,6 +3,7 @@ package com.vaydelux.bousygram.core.cast
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
 import org.drinkless.tdlib.TdApi
+import java.io.IOException
 import com.vaydelux.bousygram.core.tdlib.server.TelegramFileMutationFence
 import com.vaydelux.bousygram.core.tdlib.server.SharedTelegramFileMutationFence
 
@@ -56,10 +57,11 @@ internal class AccountBoundCastFileGateway(private val claim: TelegramFileMutati
             TdApi.ReadFilePart(fileId, offset, count.toLong()),
             expectedOwner = owner, timeoutMs = 5_000L) as? TdApi.Data ?: return null
         val bytes = response.data ?: return null
-        if (!permitted(owner, fileId) || bytes.size !in 1..count) {
+        if (!permitted(owner, fileId) || bytes.size > count) {
             bytes.fill(0)
-            return null
+            throw IOException("Invalid or revoked native file response")
         }
-        return bytes
+        // Empty data means the requested prefix is not available yet.
+        return bytes.takeIf { it.isNotEmpty() }
     }
 }
