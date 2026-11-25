@@ -18,6 +18,7 @@ internal class RollingHlsControlledQualification(
     routeAllowed: () -> Boolean,
     nowMs: () -> Long,
     admitsAdditionalBytes: (Long) -> Boolean,
+    private val acceptInitialization: (ByteArray, Int) -> Unit,
     private val consume: (RollingHlsSegmentStore.Segment, ByteArray, Int) -> Unit,
     private val consumed: (RollingHlsSegmentStore.Segment) -> Boolean,
     verifier: RollingHlsVerifiedFeed.Verifier = RollingFmp4SampleVerifier()
@@ -34,10 +35,14 @@ internal class RollingHlsControlledQualification(
     private val dispatcher = RollingHlsDeliveryDispatcher(delivery)
     private val sink = RollingHlsStreamingSink(store, { delivery.active() }, verifier,
         { incoming -> consumeOldest(incoming.sequence) }, nowMs,
-        { bytes -> try { delivery.installInitialization(bytes) } finally { bytes.fill(0) } })
+        { bytes ->
+            try { delivery.installInitialization(bytes) && receiveInitialization(acceptInitialization) }
+            finally { bytes.fill(0) }
+        })
     private var finished = false
     private var initialized = false
     private var acknowledged = 0L
+    private var finalConsumed = false
 
     private fun readRequest(path: String) =
         RollingHlsDeliveryDispatcher.Request("GET", delivery.resourceId, path, delivery.readToken)
@@ -47,18 +52,7 @@ internal class RollingHlsControlledQualification(
         if (!delivery.active() || !initialized) return false
         val first = store.snapshot().firstOrNull() ?: return false
         if (first.sequence >= before || store.snapshot().size < 2) return false
-        dispatcher.dispatch(readRequest("segment/${first.sequence}.m4s")).use { response ->
-            if (response.status != 200 || response.length != first.size) return false
-            var received = 0L
-            response.transmit { bytes, count ->
-                consume(first, bytes, count)
-                received += count
-            }
-            if (received != first.size) return false
-        }
-        // The callback is a separate trusted assertion of completed consumption,
-        // not a consequence of the GET or successful transmission.
-        if (!consumed(first) || !delivery.active()) return false
+        if (!transferAndConsume(first)) return false
         val result = dispatcher.dispatch(RollingHlsDeliveryDispatcher.Request(
             "POST", delivery.resourceId, "ack/${first.sequence}", controlToken = delivery.controlToken))
         result.use {
@@ -68,10 +62,22 @@ internal class RollingHlsControlledQualification(
         return true
     }
 
-    /** Exact assembler bytes may arrive at arbitrary callback boundaries.
-     * Before the first publication, the caller must separately consume init.
-     * To keep this harness deterministic, initialization is copied to the
-     * consumer immediately after the assembler accepts it. */
+    private fun transferAndConsume(segment: RollingHlsSegmentStore.Segment): Boolean {
+        dispatcher.dispatch(readRequest("segment/${segment.sequence}.m4s")).use { response ->
+            if (response.status != 200 || response.length != segment.size) return false
+            var received = 0L
+            response.transmit { bytes, count ->
+                consume(segment, bytes, count)
+                received += count
+            }
+            if (received != segment.size) return false
+        }
+        // A separate trusted assertion of consumption, not GET completion.
+        return consumed(segment) && delivery.active()
+    }
+
+    /** Arbitrary callback boundaries, including init and multiple fragments
+     * in one write. Init is delivered synchronously from its verified hook. */
     fun write(bytes: ByteArray, offset: Int, count: Int) {
         if (stopped || finished) throw IOException("Qualification is closed")
         try { sink.write(bytes, offset, count) }
@@ -81,9 +87,8 @@ internal class RollingHlsControlledQualification(
         }
     }
 
-    /** Separate initialization delivery before the first segment backpressure.
-     * The caller can call after an init boundary has been supplied. */
-    fun receiveInitialization(accept: (ByteArray, Int) -> Unit): Boolean {
+    /** Separate initialization delivery before first segment backpressure. */
+    private fun receiveInitialization(accept: (ByteArray, Int) -> Unit): Boolean {
         if (initialized || !delivery.active()) return false
         dispatcher.dispatch(readRequest("init.mp4")).use { response ->
             if (response.status != 200 || response.length == null) return false
@@ -115,6 +120,17 @@ internal class RollingHlsControlledQualification(
         while (store.snapshot().size > 1) {
             if (!consumeOldest(Long.MAX_VALUE)) return false
         }
+        return true
+    }
+
+    /** Deliver the final segment once after draining all earlier segments.
+     * Keep it in the store for the completed playlist until session close.
+     * A failed assertion never falsely reports completed consumption. */
+    fun consumeFinal(): Boolean {
+        if (!finished || finalConsumed || !delivery.active() || !drainAcknowledged()) return false
+        val last = store.snapshot().singleOrNull() ?: return false
+        if (!transferAndConsume(last)) return false
+        finalConsumed = true
         return true
     }
 

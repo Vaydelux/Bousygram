@@ -30,10 +30,10 @@ class RollingHlsControlledQualificationTest {
         val initReceived = ByteArrayOutputStream()
         var lastConsumed = 0L
         RollingHlsControlledQualification(owner, 7, dir, { it == owner }, { true }, { 100L },
-            { true }, { _, bytes, count -> received.write(bytes, 0, count) },
+            { true }, { bytes, count -> initReceived.write(bytes, 0, count) },
+            { _, bytes, count -> received.write(bytes, 0, count) },
             { segment -> assertEquals(lastConsumed + 1, segment.sequence); lastConsumed++; true }, verifier).use { q ->
             for (byte in init) q.write(byteArrayOf(byte), 0, 1)
-            assertTrue(q.receiveInitialization { bytes, count -> initReceived.write(bytes, 0, count) })
             assertArrayEquals(init, initReceived.toByteArray())
             repeat(60) {
                 q.write(media, 0, media.size)
@@ -46,7 +46,11 @@ class RollingHlsControlledQualificationTest {
             assertTrue(q.drainAcknowledged())
             assertEquals(59L, q.acknowledgedCount())
             assertEquals(60L, q.snapshot().single().sequence)
-            val expected = ByteArrayOutputStream().apply { repeat(59) { write(media) } }.toByteArray()
+            assertTrue(q.consumeFinal())
+            assertFalse(q.consumeFinal())
+            assertEquals(60L, lastConsumed)
+            assertEquals(60L, q.snapshot().single().sequence)
+            val expected = ByteArrayOutputStream().apply { repeat(60) { write(media) } }.toByteArray()
             assertArrayEquals(expected, received.toByteArray())
         }
         assertEquals(0, dir.listFiles()!!.size)
@@ -55,10 +59,9 @@ class RollingHlsControlledQualificationTest {
     @Test fun successfulTransmissionWithoutConsumptionStopsAndRevokes() {
         val dir = temp.newFolder()
         RollingHlsControlledQualification(owner, 7, dir, { it == owner }, { true }, { 100L },
-            { true }, { _, _, _ -> }, { false }, verifier).use { q ->
-            q.write(init, 0, init.size)
-            assertTrue(q.receiveInitialization { _, _ -> })
-            repeat(2) { q.write(media, 0, media.size) }
+            { true }, { _, _ -> }, { _, _, _ -> }, { false }, verifier).use { q ->
+            val first = init + media + media
+            q.write(first, 0, first.size)
             assertThrows(IOException::class.java) { q.write(media, 0, media.size) }
             assertEquals(0L, q.acknowledgedCount())
             assertNull(q.playlist())
@@ -70,10 +73,9 @@ class RollingHlsControlledQualificationTest {
         val dir = temp.newFolder()
         var current = owner
         RollingHlsControlledQualification(owner, 7, dir, { it == current }, { true }, { 100L },
-            { true }, { _, _, _ -> current = AccountSnapshot(2, 2) }, { true }, verifier).use { q ->
-            q.write(init, 0, init.size)
-            assertTrue(q.receiveInitialization { _, _ -> })
-            repeat(2) { q.write(media, 0, media.size) }
+            { true }, { _, _ -> }, { _, _, _ -> current = AccountSnapshot(2, 2) }, { true }, verifier).use { q ->
+            val first = init + media + media
+            q.write(first, 0, first.size)
             assertThrows(IOException::class.java) { q.write(media, 0, media.size) }
             assertEquals(0L, q.acknowledgedCount())
             assertNull(q.playlist())

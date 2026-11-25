@@ -133,3 +133,6 @@ Preserve one declared initial AAC frame for decode history while excluding it fr
 
 ## Rolling HLS R2x — controlled receiver integration qualification
 Connect verified streaming output to private session/dispatcher with separate trusted consumption assertion, two-segment retention and sticky revocation. Three fake-verifier integration tests; no actual player or transport.
+
+## Rolling HLS R2y — final consumption and local priming evidence
+Automatic verified-init handoff and final segment consumption under arbitrary callback boundaries. Exact-blob local C arithmetic tests and independent source metadata inspection passed; Android output and Kotlin integration pending.
