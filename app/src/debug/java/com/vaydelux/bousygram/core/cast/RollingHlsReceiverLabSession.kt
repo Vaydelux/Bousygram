@@ -5,9 +5,16 @@ import android.os.SystemClock
 import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.utils.QrCodeGenerator
 import java.util.Locale
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLServerSocket
+import javax.net.ssl.SSLSocket
 
 /** Synthetic receiver lab; all methods on a single IO owner. No real account,
- * remote sender, scanner, listener or user media. A simulated sender still
+ * remote sender, scanner, LAN listener or user media. A simulated sender still
  * needs a separate explicit local approval. No persistence of invitations. */
 internal class RollingHlsReceiverLabSession(
     private val current: () -> Boolean,
@@ -48,20 +55,68 @@ internal class RollingHlsReceiverLabSession(
         val invitation = checkNotNull(offer)
         val identity = RollingHlsKeystoreIdentity.create(owner, permitted).also { sender = it }
         val pin = identity.fingerprint()
-        val proof = checkNotNull(RollingHlsPeerPairing.proofFor(invitation, pin))
         try {
-            pending = checkNotNull(pairing.receive(pin, proof))
-            check(active())
+            val request = exchange(invitation, identity)
+            pending = request.pending
+            check(active() && request.certificate.encoded.contentEquals(identity.certificate().encoded))
             return pin.joinToString(":") { String.format(Locale.ROOT, "%02X", it.toInt() and 255) }
         } finally {
-            proof.fill(0)
             invitation.close()
             offer = null
         }
     }
 
-    /** Verify enrolled identities and TLS signing compatibility; this is not
-     * a handshake and never starts any network listener. */
+    /** One-shot synthetic enrollment on loopback. Both endpoints are
+     * independent Keystore identities. Only pending status crosses the wire;
+     * no media capability or approval is sent. Deadline closes both sockets. */
+    private fun exchange(invitation: RollingHlsPeerPairing.Offer,
+                         identity: RollingHlsKeystoreIdentity): RollingHlsEnrollment.Request {
+        val receiver = checkNotNull(tv)
+        val serverContext = RollingHlsPairedTls.bootstrapServer(owner, receiver, permitted)
+        val local = InetAddress.getByName("127.0.0.1")
+        val listener = serverContext.serverSocketFactory.createServerSocket(0, 1, local) as SSLServerSocket
+        val worker = Executors.newSingleThreadExecutor()
+        val watchdog = Executors.newSingleThreadScheduledExecutor()
+        val accepted = AtomicReference<SSLSocket?>()
+        val client = AtomicReference<SSLSocket?>()
+        val stop = java.util.concurrent.atomic.AtomicBoolean()
+        fun allowed() = !stop.get() && active()
+        fun closeSockets() {
+            stop.set(true)
+            runCatching { listener.close() }
+            runCatching { accepted.get()?.close() }
+            runCatching { client.get()?.close() }
+        }
+        try {
+            listener.soTimeout = 5000
+            watchdog.schedule({ closeSockets() }, 8, TimeUnit.SECONDS)
+            val response = worker.submit<RollingHlsEnrollment.Request?> {
+                (listener.accept() as SSLSocket).use { socket ->
+                    accepted.set(socket)
+                    check(allowed())
+                    RollingHlsEnrollment.receive(socket, pairing, ::allowed)
+                }
+            }
+            val ctx = RollingHlsEnrollment.clientContext(invitation.receiverPin)
+            val ok = (ctx.socketFactory.createSocket() as SSLSocket).use { socket ->
+                client.set(socket)
+                check(allowed())
+                socket.connect(InetSocketAddress(local, listener.localPort), 5000)
+                RollingHlsEnrollment.send(socket, invitation, identity.certificate(), identity.privateKey(), ::allowed)
+            }
+            check(ok && allowed())
+            return checkNotNull(response.get(8, TimeUnit.SECONDS))
+        } finally {
+            closeSockets()
+            watchdog.shutdownNow()
+            worker.shutdownNow()
+            check(worker.awaitTermination(2, TimeUnit.SECONDS) && watchdog.awaitTermination(2, TimeUnit.SECONDS))
+        }
+    }
+
+    /** Verify enrolled identities and mutual TLS signing compatibility;
+     * bootstrap enrollment already used a real pinned TLS handshake, but
+     * this confirmation does not start media delivery or a LAN listener. */
     fun confirm(accept: Boolean): Boolean {
         check(active())
         val ticket = checkNotNull(pending)

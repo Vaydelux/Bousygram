@@ -64,7 +64,29 @@ internal object RollingHlsPairedTls {
         }
         val tm = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
         tm.init(trust)
-        val manager = object : X509KeyManager {
+        val manager = keyManager(owner, identity, current)
+        val context = SSLContext.getInstance("TLS").apply {
+            init(arrayOf(manager), tm.trustManagers, null)
+        }
+        check(current(owner))
+        return Peer(context, peerPin)
+    }
+
+    /** Bootstrap server authenticates itself to a QR-pinned client.
+     * Sender authentication occurs in the signed enrollment exchange.
+     * Never use this context for media delivery. */
+    fun bootstrapServer(owner: AccountSnapshot, identity: RollingHlsKeystoreIdentity,
+                        current: (AccountSnapshot) -> Boolean): SSLContext {
+        check(current(owner))
+        identity.certificate().checkValidity()
+        return SSLContext.getInstance("TLS").apply {
+            init(arrayOf(keyManager(owner, identity, current)), null, null)
+        }
+    }
+
+    private fun keyManager(owner: AccountSnapshot, identity: RollingHlsKeystoreIdentity,
+                           current: (AccountSnapshot) -> Boolean): X509KeyManager {
+        return object : X509KeyManager {
             private fun aliases(type: String?): Array<String>? =
                 if (current(owner) && type in listOf("EC", "EC_EC", "EC_RSA")) arrayOf("session") else null
             override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?) = aliases(keyType)
@@ -78,10 +100,6 @@ internal object RollingHlsPairedTls {
             override fun getPrivateKey(alias: String?): PrivateKey? =
                 if (alias == "session" && current(owner)) identity.privateKey() else null
         }
-        val context = SSLContext.getInstance("TLS").apply {
-            init(arrayOf(manager), tm.trustManagers, null)
-        }
-        check(current(owner))
-        return Peer(context, peerPin)
     }
+
 }

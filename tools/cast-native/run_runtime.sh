@@ -65,3 +65,5 @@ timeout --kill-after=10s 240s bash "$root/../ci/qualify_rolling_hls_tls.sh" "$ou
 echo "Mutually authenticated TLS host receiver replay passed"
 timeout --kill-after=10s 240s bash "$root/../ci/qualify_rolling_hls_live.sh" "$out"
 echo "Verified live producer file replay passed"
+timeout --kill-after=10s 120s bash "$root/../ci/qualify_rolling_hls_enrollment.sh"
+echo "Pinned TLS enrollment and consent qualification passed"

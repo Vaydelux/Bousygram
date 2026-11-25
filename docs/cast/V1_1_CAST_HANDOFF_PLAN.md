@@ -178,3 +178,6 @@ Prior 140/140 instrumentation and 144 native live replay units passed. Add paire
 
 ## R3o — debug TV receiver lab and orphan credential cleanup
 Actual synthetic QR/consent UI, debug launcher entry, off-main identity operations, expiry and stop revocation, exact-namespace unowned Keystore sweep and instrumentation. Detached pending existing encrypted live gate. No remote phone pairing, no LAN or TDLib media.
+
+## R3p — consolidated receiver enrollment qualification
+Integrate debug TV launcher, explicit consent, credential orphan cleanup and real QR-pinned TLS enrollment with certificate possession proof. Prior 141/141 Android tests passed. New host enrollment negative and approval gates passed locally against equivalent dependencies; actual Android integration pending. No LAN, real remote receiver or source reclamation.
