@@ -154,3 +154,6 @@ Debug Media3 local HLS DataSource and single-player completed-window qualificati
 
 ## Rolling HLS R3e — QR enrollment and release-before-retirement
 Fixed-format invitation QR codec, Android bitmap/Keystore round-trip qualification and successful-player-release/one-shot retirement gate. No actual pairing screen or authenticated remote playback yet.
+
+## Rolling HLS R3f — actual Android TLS receiver qualification
+Bind paired Keystore identities to TLS1.3 loopback data delivery, inject transport into real Media3 HLS receiver and exercise playback and release before retirement. No LAN or remote ACK; finite completed-window only. Exact-head checks pending.

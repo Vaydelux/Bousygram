@@ -32,7 +32,11 @@ class RollingHlsLocalReceiverInstrumentedTest {
         return checkNotNull(result).getOrThrow()
     }
 
-    @Test fun continuousHlsPlaybackPauseResumeAndRetireOnlyAfterRelease() {
+    @Test fun continuousHlsPlaybackPauseResumeAndRetireOnlyAfterRelease() = qualifyPlayback(false)
+
+    @Test fun pairedKeystoreTlsCarriesActualMedia3HlsPlayback() = qualifyPlayback(true)
+
+    private fun qualifyPlayback(encrypted: Boolean) {
         val context = instrumentation.targetContext
         val file = File(context.getExternalFilesDir("decoder-fixtures"), "rolling-receiver.mp4")
         assertTrue(file.isFile)
@@ -57,7 +61,30 @@ class RollingHlsLocalReceiverInstrumentedTest {
                 val texture = main { SurfaceTexture(10) }
                 val surface = main { Surface(texture) }
                 try {
-                    val receiver = main { RollingHlsLocalReceiver(context, session, surface) }
+                    val keys = mutableListOf<RollingHlsKeystoreIdentity>()
+                    var transport: RollingHlsTlsLoopback? = null
+                    try {
+                    if (encrypted) {
+                        val tv = RollingHlsKeystoreIdentity.create(owner) { it == owner }.also(keys::add)
+                        val sender = RollingHlsKeystoreIdentity.create(owner) { it == owner }.also(keys::add)
+                        val pins = RollingHlsPeerPairing({ it == owner }, SystemClock::elapsedRealtime).use { pairing ->
+                            pairing.issue(owner, tv.fingerprint())!!.use { offer ->
+                                val proof = RollingHlsPeerPairing.proofFor(offer, sender.fingerprint())!!
+                                try {
+                                    val pending = pairing.receive(sender.fingerprint(), proof)!!
+                                    pairing.confirm(pending, true)!!
+                                } finally { proof.fill(0) }
+                            }
+                        }
+                        assertThrows(IllegalStateException::class.java) {
+                            RollingHlsPairedTls.create(owner, pins, sender, sender.certificate(), false) { it == owner }
+                        }
+                        val server = RollingHlsPairedTls.create(owner, pins, sender, tv.certificate(), false) { it == owner }
+                        val client = RollingHlsPairedTls.create(owner, pins, tv, sender.certificate(), true) { it == owner }
+                        transport = RollingHlsTlsLoopback(session, server, client)
+                    }
+                    val factory = transport?.factory() ?: RollingHlsLocalDataSource.factory(session)
+                    val receiver = main { RollingHlsLocalReceiver(context, session, surface, factory) }
                     try {
                         main { receiver.play() }
                         await(receiver) { it.playing && it.positionMs in 300..3000 }
@@ -76,6 +103,10 @@ class RollingHlsLocalReceiverInstrumentedTest {
                     assertTrue(receiver.retireAfterRelease())
                     assertFalse(receiver.retireAfterRelease())
                     assertEquals(listOf(2L), store.snapshot().map { it.sequence })
+                    } finally {
+                        try { transport?.close() }
+                        finally { keys.asReversed().forEach { it.close() } }
+                    }
                 } finally { main { surface.release(); texture.release() } }
             }
         } finally {

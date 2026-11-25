@@ -9,6 +9,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import java.io.IOException
@@ -25,7 +26,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class RollingHlsLocalReceiver(
     context: Context,
     private val session: RollingHlsDeliverySession,
-    surface: Surface
+    surface: Surface,
+    dataSource: DataSource.Factory = RollingHlsLocalDataSource.factory(session)
 ) : AutoCloseable {
     private val segments = checkNotNull(session.completedSnapshot())
     private val receipt = RollingHlsPlaybackReceipt(session::active)
@@ -60,7 +62,7 @@ internal class RollingHlsLocalReceiver(
             })
             val item = MediaItem.Builder().setUri(RollingHlsLocalDataSource.playlistUri(session))
                 .setMimeType(MimeTypes.APPLICATION_M3U8).build()
-            player.setMediaSource(HlsMediaSource.Factory(RollingHlsLocalDataSource.factory(session))
+            player.setMediaSource(HlsMediaSource.Factory(dataSource)
                 .createMediaSource(item))
             player.prepare()
         } catch (problem: Exception) {
