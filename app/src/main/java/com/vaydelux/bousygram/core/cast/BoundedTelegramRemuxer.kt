@@ -31,7 +31,7 @@ internal object BoundedTelegramRemuxer {
     enum class Failure {
         BUSY, PLATFORM_UNAVAILABLE, CANCELLED, INPUT_UNAVAILABLE, INPUT_TOO_LARGE, STORAGE_PRESSURE,
         UNSUPPORTED_TRACKS, UNSUPPORTED_CODEC, UNSUPPORTED_SAMPLE, UNSUPPORTED_TIMELINE,
-        TIME_LIMIT, DURATION_LIMIT, OUTPUT_LIMIT, CONVERSION_FAILED, CLEANUP_FAILED
+        TIME_LIMIT, DURATION_LIMIT, OUTPUT_LIMIT, OUTPUT_VERIFICATION_FAILED, CONVERSION_FAILED, CLEANUP_FAILED
     }
 
     sealed interface Result {
@@ -139,6 +139,7 @@ internal object BoundedTelegramRemuxer {
                 if (!extractor.advance()) break
             }
             val origin = timeline.origin() ?: return reject(Failure.UNSUPPORTED_TIMELINE)
+            Log.i("CastRemux", "Input sample counts: ${timeline.sampleCounts().contentToString()}")
             if (input.length() != inputSize || input.lastModified() != inputModified) return reject(Failure.INPUT_UNAVAILABLE)
             check()?.let { return reject(it) }
             val sampleReader = MediaExtractor().also { reader = it }
@@ -203,11 +204,57 @@ internal object BoundedTelegramRemuxer {
             }
             check()?.let { return reject(it) }
             if (!timeline.matches(counts)) return reject(Failure.UNSUPPORTED_TIMELINE)
+            // Android MediaMuxer documents an empty EOS sample as the way to
+            // specify the final sample duration in MP4. Use each track's last
+            // measured positive delta; never invent a common video/audio rate.
+            for (index in tracks.indices) {
+                check()?.let { return reject(it) }
+                val end = timeline.endOfTrackUs(index) ?: return reject(Failure.UNSUPPORTED_TIMELINE)
+                info.set(0, 0, end, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                buffer.clear()
+                writer.writeSampleData(tracks[index], buffer, info)
+            }
             writer.stop()
             writer.release()
             muxer = null
             if (file.length() !in 1L..MAX_OUTPUT_BYTES) return reject(Failure.OUTPUT_LIMIT)
             if (input.length() != inputSize || input.lastModified() != inputModified) return reject(Failure.INPUT_UNAVAILABLE)
+            check()?.let { return reject(it) }
+            // Never publish a container that loses samples or changes track timing.
+            // Match by MIME (this narrow profile has one video and at most one audio).
+            val outputTimeline = RemuxTimeline(formats.size, MAX_DURATION_US, MAX_SAMPLES)
+            val outputReader = MediaExtractor()
+            try {
+                file.inputStream().use { outputReader.setDataSource(it.fd, 0L, file.length()) }
+                if (outputReader.trackCount != formats.size) return reject(Failure.OUTPUT_VERIFICATION_FAILED)
+                val mapping = (0 until outputReader.trackCount).map { index ->
+                    val mime = outputReader.getTrackFormat(index).getString(MediaFormat.KEY_MIME)
+                    formats.indexOfFirst { it.getString(MediaFormat.KEY_MIME) == mime }
+                }
+                if (mapping.any { it < 0 } || mapping.toSet().size != formats.size) {
+                    return reject(Failure.OUTPUT_VERIFICATION_FAILED)
+                }
+                for (index in mapping.indices) outputReader.selectTrack(index)
+                var firstVideo = true
+                while (outputReader.sampleTrackIndex >= 0) {
+                    check()?.let { return reject(it) }
+                    val index = outputReader.sampleTrackIndex
+                    if (index !in mapping.indices || outputReader.sampleSize !in 1L..MAX_SAMPLE_BYTES.toLong()) {
+                        return reject(Failure.OUTPUT_VERIFICATION_FAILED)
+                    }
+                    val track = mapping[index]
+                    if (firstVideo && track == video.single()) {
+                        if (outputReader.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC == 0) {
+                            return reject(Failure.OUTPUT_VERIFICATION_FAILED)
+                        }
+                        firstVideo = false
+                    }
+                    if (!outputTimeline.observe(track, outputReader.sampleTime)) return reject(Failure.OUTPUT_VERIFICATION_FAILED)
+                    if (!outputReader.advance()) break
+                }
+                Log.i("CastRemux", "Output sample counts: ${outputTimeline.sampleCounts().contentToString()}")
+                if (firstVideo || !timeline.preserves(outputTimeline)) return reject(Failure.OUTPUT_VERIFICATION_FAILED)
+            } finally { outputReader.release() }
             check()?.let { return reject(it) }
             return Result.Ready(Output(file))
         } finally {

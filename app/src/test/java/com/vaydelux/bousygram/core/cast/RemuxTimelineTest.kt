@@ -25,6 +25,28 @@ class RemuxTimelineTest {
         assertNull(timeline.origin())
     }
 
+    @Test fun finalDurationAndOutputConservation() {
+        val input = RemuxTimeline(2, 1_000_000, 20)
+        assertTrue(input.observe(0, 0))
+        assertTrue(input.observe(1, -20_000))
+        assertTrue(input.observe(0, 80_000))
+        assertTrue(input.observe(1, 20_000))
+        assertEquals(180_000L, input.endOfTrackUs(0))
+        assertEquals(80_000L, input.endOfTrackUs(1))
+        val shifted = RemuxTimeline(2, 1_000_000, 20)
+        shifted.observe(0, 25_000); shifted.observe(1, 5_000)
+        shifted.observe(0, 105_000); shifted.observe(1, 45_000)
+        assertTrue(input.preserves(shifted))
+        val lost = RemuxTimeline(2, 1_000_000, 20)
+        lost.observe(0, 25_000); lost.observe(1, 5_000); lost.observe(1, 45_000)
+        assertFalse(input.preserves(lost))
+        assertNull(lost.endOfTrackUs(0))
+        val drift = RemuxTimeline(2, 1_000_000, 20)
+        drift.observe(0, 25_000); drift.observe(1, 5_000)
+        drift.observe(0, 105_000); drift.observe(1, 50_000)
+        assertFalse(input.preserves(drift))
+    }
+
     @Test fun boundsTimelineSpanAndArithmetic() {
         val timeline = RemuxTimeline(2, 100L, 2)
         assertTrue(timeline.observe(0, -50))
