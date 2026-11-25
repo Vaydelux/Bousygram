@@ -172,3 +172,6 @@ Bounded retry ranges locally qualified; debug-only real-time synthetic live HLS 
 
 ## Rolling HLS R3m — live timing repair and integration gate
 Native TS live replay exact-duration rejection prompted RFC-rounded target policy with unchanged verified timing and hard cap. Local seven timing/range/pacing regression groups passed. R3l live receiver candidate consolidated for actual Android qualification. Native root cause and live playback still require fresh execution.
+
+## Rolling HLS R3n — encrypted live receiver
+Prior 140/140 instrumentation and 144 native live replay units passed. Add paired TLS1.3 live loopback with bounded range retries, dynamic Media3 regression and revocation cleanup. New execution pending; separate-device LAN, pairing UI and source reclamation remain gates.
