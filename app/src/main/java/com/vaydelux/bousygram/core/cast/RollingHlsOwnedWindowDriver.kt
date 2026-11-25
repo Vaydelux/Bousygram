@@ -93,11 +93,25 @@ internal class RollingHlsOwnedWindowDriver(
 
     /** Never cancel a potentially shared native download. Inactive evidence
      * and refreshed accounting must be collected inside the command fence. */
+    enum class Reconciliation { RECONCILED, WAITING, STORAGE_PRESSURE, UNPROVEN }
+
     suspend fun reconcile(ticket: RollingHlsDownloadOwnership.Window): Boolean =
+        reconcileOutcome(ticket) == Reconciliation.RECONCILED
+
+    /** Distinguish a temporarily active download from a storage limit or
+     * uncertain command. Consumed bytes are NOT assumed reclaimed by TDLib. */
+    suspend fun reconcileOutcome(ticket: RollingHlsDownloadOwnership.Window): Reconciliation =
         commandLock.withLock(owner = commandOwner) {
-            if (!current(ticket.lease.owner)) return@withLock false
+            if (!current(ticket.lease.owner) || ownership.pendingWindow(ticket.lease) !== ticket)
+                return@withLock Reconciliation.UNPROVEN
             val status = gateway.status(ticket.lease.owner, ticket.lease.fileId)
-            if (!matches(ticket, status) || status!!.active) return@withLock false
-            ownership.confirmStopped(ticket, measure(), nativeInactive = true)
+            if (!matches(ticket, status)) return@withLock Reconciliation.UNPROVEN
+            if (status!!.active) return@withLock Reconciliation.WAITING
+            val storage = measure()
+            if (!RollingHlsBudget.admits(storage.appBytes, storage.tdLibBytes, storage.freeBytes, 0L))
+                return@withLock Reconciliation.STORAGE_PRESSURE
+            if (ownership.confirmStopped(ticket, storage, nativeInactive = true))
+                Reconciliation.RECONCILED
+            else Reconciliation.UNPROVEN
         }
 }

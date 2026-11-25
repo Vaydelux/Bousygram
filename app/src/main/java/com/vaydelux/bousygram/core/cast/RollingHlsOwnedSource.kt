@@ -43,9 +43,16 @@ internal class RollingHlsOwnedSource(
                 var reconciled = false
                 for (attempt in 0 until ATTEMPTS) {
                     access()
-                    if (driver.reconcile(previous)) {
-                        reconciled = true
-                        break
+                    when (driver.reconcileOutcome(previous)) {
+                        RollingHlsOwnedWindowDriver.Reconciliation.RECONCILED -> {
+                            reconciled = true
+                            break
+                        }
+                        RollingHlsOwnedWindowDriver.Reconciliation.WAITING -> Unit
+                        RollingHlsOwnedWindowDriver.Reconciliation.STORAGE_PRESSURE ->
+                            throw IOException("Retained source bytes exceed shared storage budget")
+                        RollingHlsOwnedWindowDriver.Reconciliation.UNPROVEN ->
+                            throw IOException("Previous native window cannot be proven inactive")
                     }
                     if (attempt + 1 < ATTEMPTS) waitForData(RETRY_MS)
                 }

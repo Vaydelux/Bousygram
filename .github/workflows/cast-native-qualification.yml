@@ -10,6 +10,7 @@ on:
       - 'app/src/main/java/com/vaydelux/bousygram/core/cache/TvStorageBudget.kt'
       - 'tools/ci/qualify_rolling_hls_*.sh'
       - 'tools/ci/qualify_rolling_hls_pipe.py'
+      - 'tools/ci/qualify_rolling_hls_long.py'
       - 'tools/ci/fixtures/RollingHls*'
       - 'tools/ci/provision_emulator_image.sh'
       - '.github/workflows/cast-native-qualification.yml'
@@ -19,6 +20,19 @@ concurrency:
   group: cast-native-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  long-host-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install synthetic media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg python3
+      - name: Six-minute bounded rolling output qualification
+        run: bash tools/ci/qualify_rolling_hls_long.sh
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 60

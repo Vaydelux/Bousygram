@@ -115,3 +115,6 @@ Bounded native window renewal, pending-ticket recovery and one-shot source worke
 
 ## Rolling HLS R2r — AAC clock diagnostics
 Address inherited TS quantization with bounded 1ms tolerance and exact rejection logging. MKV status 6 still requires Android evidence. Strict integrity gates retained.
+
+## Rolling HLS R2s — long-duration host reference and retained-source pressure
+Six-minute independent host rolling reference CI plus explicit storage-pressure reconciliation and regression. Native full-length profile and safe source reclamation not enabled; no live route.

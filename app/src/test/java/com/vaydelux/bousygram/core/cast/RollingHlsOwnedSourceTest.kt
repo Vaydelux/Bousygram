@@ -15,7 +15,7 @@ class RollingHlsOwnedSourceTest {
     private val gate = RollingHlsDownloadOwnership({ it == account }, { 100L }, { !allowed })
     private val lease = gate.acquire(account, 7, size)!!
     private val gateway = Fake()
-    private val storage = RollingHlsDownloadOwnership.Storage(0, 0, 1024L * 1024 * 1024)
+    private var storage = RollingHlsDownloadOwnership.Storage(0, 0, 1024L * 1024 * 1024)
     private val driver = RollingHlsOwnedWindowDriver(gate, gateway, Mutex(), { storage }, { it == account })
     private var waits = 0
 
@@ -86,6 +86,25 @@ class RollingHlsOwnedSourceTest {
         assertEquals(1, gateway.requests.size)
         assertEquals(windowBytes, gate.state().reservedBytes)
         assertNotNull(gate.pendingWindow(lease))
+        source.close()
+    }
+
+    @Test fun retainedSourcePressureStopsRenewalWithoutPollingOrDeletion() = runBlocking {
+        val source = source()
+        var offset = 0L
+        while (offset < windowBytes) {
+            offset += (source.readAt(offset, 32 * 1024) as RollingHlsSource.Read.Ready).bytes.size
+        }
+        storage = RollingHlsDownloadOwnership.Storage(24L * 1024 * 1024, 180L * 1024 * 1024, 1024L * 1024 * 1024)
+        try { source.readAt(offset, 1); fail("Expected shared storage refusal") }
+        catch (error: IOException) { assertTrue(error.message!!.contains("storage budget")) }
+        assertEquals(0, waits)
+        assertEquals(1, gateway.requests.size)
+        val ticket = gate.pendingWindow(lease)!!
+        assertEquals(windowBytes, gate.state().reservedBytes)
+        storage = RollingHlsDownloadOwnership.Storage(0, 0, 1024L * 1024 * 1024)
+        assertTrue(driver.reconcile(ticket))
+        assertEquals(0L, gate.state().reservedBytes)
         source.close()
     }
 
