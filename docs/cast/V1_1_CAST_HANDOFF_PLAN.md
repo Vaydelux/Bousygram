@@ -175,3 +175,6 @@ Native TS live replay exact-duration rejection prompted RFC-rounded target polic
 
 ## Rolling HLS R3n — encrypted live receiver
 Prior 140/140 instrumentation and 144 native live replay units passed. Add paired TLS1.3 live loopback with bounded range retries, dynamic Media3 regression and revocation cleanup. New execution pending; separate-device LAN, pairing UI and source reclamation remain gates.
+
+## R3o — debug TV receiver lab and orphan credential cleanup
+Actual synthetic QR/consent UI, debug launcher entry, off-main identity operations, expiry and stop revocation, exact-namespace unowned Keystore sweep and instrumentation. Detached pending existing encrypted live gate. No remote phone pairing, no LAN or TDLib media.

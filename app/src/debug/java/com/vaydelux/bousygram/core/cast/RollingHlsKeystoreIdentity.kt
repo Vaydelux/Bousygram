@@ -15,7 +15,7 @@ import javax.security.auth.x500.X500Principal
 
 /** Debug-only per-session Android Keystore identity. No private key export,
  * trust-manager bypass, persistent pairing registry or automatic LAN use.
- * Caller owns close; process-death orphan cleanup remains a release gate. */
+ * Caller owns close; unowned exact-namespace aliases are swept before new identities. */
 internal class RollingHlsKeystoreIdentity private constructor(
     private val owner: AccountSnapshot,
     private val current: (AccountSnapshot) -> Boolean,
@@ -44,15 +44,47 @@ internal class RollingHlsKeystoreIdentity private constructor(
     @Synchronized override fun close() {
         closed = true
         // Retry deletion if a previous close failed.
-        if (store.containsAlias(alias)) store.deleteEntry(alias)
-        check(!store.containsAlias(alias))
+        synchronized(registryLock) {
+            activeAliases.remove(alias)
+            if (store.containsAlias(alias)) store.deleteEntry(alias)
+            check(!store.containsAlias(alias))
+        }
     }
 
     companion object {
-        fun create(owner: AccountSnapshot, current: (AccountSnapshot) -> Boolean): RollingHlsKeystoreIdentity {
+        private const val PREFIX = "bousygram.qualification.receiver."
+        private val registryLock = Any()
+        private val activeAliases = mutableSetOf<String>()
+
+        private fun ownedAlias(alias: String): Boolean {
+            if (!alias.startsWith(PREFIX)) return false
+            val suffix = alias.removePrefix(PREFIX)
+            return runCatching { UUID.fromString(suffix).toString() == suffix }.getOrDefault(false)
+        }
+
+        /** Single application process only (no remote process is registered).
+         * Never touch unrelated aliases or any currently owned identity. */
+        internal fun sweepOrphans(): Int = synchronized(registryLock) {
+            sweep(KeyStore.getInstance("AndroidKeyStore").apply { load(null) })
+        }
+
+        private fun sweep(store: KeyStore): Int {
+            val stale = store.aliases().toList().filter { ownedAlias(it) && it !in activeAliases }
+            for (alias in stale) {
+                store.deleteEntry(alias)
+                check(!store.containsAlias(alias))
+            }
+            return stale.size
+        }
+
+        fun create(owner: AccountSnapshot, current: (AccountSnapshot) -> Boolean): RollingHlsKeystoreIdentity =
+            synchronized(registryLock) {
             check(current(owner))
             val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            val alias = "bousygram.qualification.receiver." + UUID.randomUUID()
+            sweep(store)
+            check(current(owner))
+            val alias = PREFIX + UUID.randomUUID()
+            check(activeAliases.add(alias))
             val result = RollingHlsKeystoreIdentity(owner, current, alias, store)
             try {
                 val now = System.currentTimeMillis()
@@ -75,7 +107,7 @@ internal class RollingHlsKeystoreIdentity private constructor(
                 certificate.verify(certificate.publicKey)
                 result.privateKey()
                 check(current(owner))
-                return result
+                result
             } catch (error: Exception) {
                 try { result.close() } catch (cleanup: Exception) { error.addSuppressed(cleanup) }
                 throw error
