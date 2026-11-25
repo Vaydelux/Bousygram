@@ -12,7 +12,7 @@ trap 'adb shell rm -rf "$remote" >/dev/null || true' EXIT
 adb shell chmod 700 "$remote"
 adb push "$lib" "$remote/libbousygram_cast_remux.so" >/dev/null
 for name in source.mkv source.ts runtime.jar; do adb push "$out/$name" "$remote/$name" >/dev/null; done
-timeout --kill-after=10s 180s adb shell "CLASSPATH=$remote/runtime.jar app_process /system/bin com.vaydelux.bousygram.core.cast.NativeCastRuntimeSmoke $remote" | tee "$out/runtime.log"
+timeout --kill-after=10s 180s adb shell -T "CLASSPATH=$remote/runtime.jar app_process /system/bin com.vaydelux.bousygram.core.cast.NativeCastRuntimeSmoke $remote" | tr -d '\r' | tee "$out/runtime.log"
 grep -qx NATIVE_RUNTIME_CALLBACKS_PASS "$out/runtime.log"
 for ext in mkv ts; do adb pull "$remote/converted.$ext.mp4" "$out/converted.$ext.mp4" >/dev/null; done
 timeout --kill-after=10s 180s python3 "$root/verify_runtime.py" "$out"

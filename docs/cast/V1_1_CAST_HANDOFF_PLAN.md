@@ -73,3 +73,6 @@ Added custom-AVIO JNI remux source, signed upstream source build recipe and ARM3
 
 ## Rolling HLS R2d — JNI runtime gate
 b769557 all four workflows passed including signed source ARM64/ARM32 native cross-compilation. Added source digest pin, exact ELF alignment validation, x86-64 Android ART runtime harness and independent media/timestamp verification. Fresh qualification pending; no APK integration or publication. See [qualification plan](ROLLING_HLS_QUALIFICATION.md).
+
+## Rolling HLS R2e — runtime preflight and debug callback adapter
+73f6e2e three app workflows passed; three native ABIs compiled, but runtime harness blocked by obsolete Java 8 target warning. Fixed target, canonical debug-only JNI declaration, bounded TDLib callback adapter and six tests. No live download ownership or production wiring. Fresh gates pending.
