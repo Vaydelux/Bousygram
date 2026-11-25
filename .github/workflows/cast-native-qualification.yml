@@ -38,6 +38,10 @@ jobs:
           sudo apt-get install --no-install-recommends -y make curl gnupg xz-utils shellcheck python3 ffmpeg
           command -v kotlinc
           kotlinc -version
+      - name: Qualify AAC clock arithmetic on host
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 tools/cast-native/aac_sample_clock_test.c -o "$RUNNER_TEMP/aac-clock-test"
+          "$RUNNER_TEMP/aac-clock-test"
       - name: Generate synthetic native fixtures and DEX harness
         run: |
           bash tools/cast-native/prepare_runtime.sh "$RUNNER_TEMP/cast-runtime" "$ANDROID_HOME/build-tools/35.0.0/d8"

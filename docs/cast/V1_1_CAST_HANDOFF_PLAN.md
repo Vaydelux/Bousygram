@@ -106,3 +106,6 @@ Bounded synchronous JNI output assembler and private verified rolling store path
 
 ## Rolling HLS R2o — real native fixture gate
 Mandatory decoded-content conservation and exact Kotlin sample verifier/rolling store replay of actual Android output added to native workflow. Local FFmpeg reference hashes match for both formats; latest CI gate pending. No live conversion or physical-device certification.
+
+## Rolling HLS R2p — native AAC clock integrity
+Native decoded PCM hash regression blocks long-duration enablement. Candidate strict LC sample-clock repair, host C test and normalized AAC payload diagnostics added; all strict gates retained. Real Android result pending.

@@ -9,6 +9,7 @@
 #include <libavcodec/bsf.h>
 #include <libavutil/time.h>
 #include <libavutil/error.h>
+#include "aac_sample_clock.h"
 
 #define IO_BYTES (32 * 1024)
 #define INPUT_MAX (16LL * 1024 * 1024)
@@ -146,6 +147,8 @@ static int remux(Session *s, int kind) {
     AVPacket *packet = NULL, *filtered = NULL;
     AVBSFContext *aac_bsf = NULL;
     int aac_config = -1;
+    AacSampleClock audio_clock = {0};
+    static const int rates[] = {96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350};
     AVDictionary *options = NULL;
     const AVInputFormat *format = av_find_input_format(kind == 1 ? "matroska" : "mpegts");
     if (!format) return UNSUPPORTED;
@@ -179,6 +182,20 @@ static int remux(Session *s, int kind) {
         if (par->extradata_size > 256 * 1024) { result = LIMIT; goto done; }
     }
     if (video < 0 || audio < 0) { result = UNSUPPORTED; goto done; }
+    const AVCodecParameters *audio_par = in->streams[audio]->codecpar;
+    int sample_rate = audio_par->sample_rate;
+    if (sample_rate < 7350 || sample_rate > 96000) { result = UNSUPPORTED; goto done; }
+    if (kind == 1) {
+        /* AudioSpecificConfig: LC, indexed rate, mono/stereo, 1024-sample
+         * frameLengthFlag, no core-coder dependency or extension flag. */
+        const uint8_t *extra = audio_par->extradata;
+        if (!extra || audio_par->extradata_size < 2 || (extra[0] >> 3) != 2 ||
+            (extra[1] & 7) != 0) { result = UNSUPPORTED; goto done; }
+        int index = ((extra[0] & 7) << 1) | (extra[1] >> 7);
+        int channels = (extra[1] >> 3) & 15;
+        if (index > 12 || rates[index] != sample_rate ||
+            channels != audio_par->ch_layout.nb_channels) { result = UNSUPPORTED; goto done; }
+    }
     if (kind == 2) {
         const AVBitStreamFilter *filter = av_bsf_get_by_name("aac_adtstoasc");
         if (!filter || av_bsf_alloc(filter, &aac_bsf) < 0 ||
@@ -203,11 +220,17 @@ static int remux(Session *s, int kind) {
             ? aac_bsf->par_out : in->streams[i]->codecpar;
         if (!track || avcodec_parameters_copy(track->codecpar, parameters) < 0) goto done;
         track->codecpar->codec_tag = 0;
-        track->time_base = in->streams[i]->time_base;
+        track->time_base = (int)i == audio ? (AVRational){1, sample_rate} : in->streams[i]->time_base;
     }
     if (av_dict_set(&options, "movflags", "+delay_moov+empty_moov+default_base_moof+frag_keyframe+skip_trailer", 0) < 0 ||
         av_dict_set(&options, "min_frag_duration", "4000000", 0) < 0 ||
         avformat_write_header(out, &options) < 0 || av_dict_count(options) != 0 || !alive(s)) goto done;
+    if (av_cmp_q(out->streams[audio]->time_base, (AVRational){1, sample_rate}) != 0) goto done;
+    int64_t audio_tolerance = av_rescale_q_rnd(1, in->streams[audio]->time_base,
+        out->streams[audio]->time_base, AV_ROUND_UP);
+    if (audio_tolerance < 1 || audio_tolerance > (sample_rate + 999) / 1000) {
+        result = UNSUPPORTED; goto done;
+    }
     packet = av_packet_alloc();
     filtered = av_packet_alloc();
     if (!packet || !filtered) goto done;
@@ -234,6 +257,21 @@ static int remux(Session *s, int kind) {
         last[i] = packet->dts;
         counts[i]++;
         av_packet_rescale_ts(packet, in->streams[i]->time_base, out->streams[i]->time_base);
+        if (i == audio) {
+            int64_t corrected;
+            size_t skip_size = 0;
+            if (packet->pts != packet->dts ||
+                av_packet_get_side_data(packet, AV_PKT_DATA_SKIP_SAMPLES, &skip_size) ||
+                (kind == 2 && (rates[(aac_config >> 7) & 15] != sample_rate ||
+                 ((aac_config >> 3) & 15) != audio_par->ch_layout.nb_channels)) ||
+                aac_sample_clock_step(&audio_clock, packet->dts, audio_tolerance, &corrected) < 0) {
+                result = UNSUPPORTED; goto done;
+            }
+            // Keep the exact first source clock anchor, then conserve the
+            // 1024-sample AAC duration rather than accumulating coarse ticks.
+            packet->dts = packet->pts = corrected;
+            packet->duration = 1024;
+        }
         packet->pos = -1;
         if (av_interleaved_write_frame(out, packet) < 0 || !alive(s)) goto done;
         av_packet_unref(packet);
