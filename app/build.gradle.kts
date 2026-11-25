@@ -147,6 +147,8 @@ android {
         // Private-media Cast uses cleartext LAN HTTP until receiver-trusted TLS is verified.
         // Keep it available for development only; production variants stay fail-closed.
         buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "false")
+        // No default receiver origins. Only explicitly qualified debug hosts may opt in.
+        buildConfigField("String", "EXTRAS_CAST_QUALIFIED_HOSTS", "\"\"")
         buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "false")
         // Native LibVLC does not use MediaForge's guarded Media3 HTTP client.
         // No arbitrary third-party LibVLC playback in production builds.
@@ -182,6 +184,12 @@ android {
             // Use the Android Gradle Plugin's generated debug keystore. A clean
             // checkout must not depend on a repository-root debug.keystore.
             buildConfigField("boolean", "PRIVATE_MEDIA_CAST_ENABLED", "true")
+            val extrasCastHosts = providers.gradleProperty("extrasCastQualifiedHosts").orElse("").get()
+                .split(",").map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotBlank() }.distinct()
+            require(extrasCastHosts.size <= 20 && extrasCastHosts.all {
+                it.length <= 253 && it.matches(Regex("[a-z0-9]([a-z0-9.-]*[a-z0-9])?")) && it.contains('.')
+            }) { "extrasCastQualifiedHosts must contain at most 20 exact DNS hostnames" }
+            buildConfigField("String", "EXTRAS_CAST_QUALIFIED_HOSTS", "\"" + extrasCastHosts.joinToString(",") + "\"")
             buildConfigField("boolean", "MEDIAFORGE_EXTRAS_LIBVLC_ENABLED", "true")
             // Explicit debug-only opt-in; normal CI, debug releases and production
             // retain the proven open-ended foreground behavior.
