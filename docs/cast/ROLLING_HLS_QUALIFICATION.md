@@ -50,3 +50,6 @@ Test actual Chromecast and Android TV with authorized full-length MKV/TS,
 long playback, seek both directions, network interruption, cancellation, low storage
 and cache reclamation. Measure sustained disk usage and thermal behavior. Retain
 the accepted stable release until exact-head regression and hardware evidence.
+
+## Host reference experiment — 2026-11-25
+FFmpeg 7.1.5 host test: synthetic 72-second 320x180 H.264/AAC MKV and TS generated from the same samples, converted without video re-encoding to fMP4 HLS, 12 segments each. Both retained 1,728 video packets and 3,376 audio packets and decoded with -xerror. Largest segment: MKV 540,241 bytes; TS 540,016 bytes. TS initially failed because AAC carried ADTS headers; explicit aac_adtstoasc bitstream filtering resolved it. This is evidence for a native producer design, not Android runtime, exact timestamps, device decode, rolling eviction, full-length seeking or receiver qualification. Host test intentionally writes a complete temporary 72-second reference playlist, not production rolling storage. Reproduce with bash tools/ci/qualify_rolling_hls_reference.sh; FFmpeg with libx264, ffprobe and Python 3 required on host.
