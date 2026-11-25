@@ -38,6 +38,15 @@ internal class TelegramFileMutationFence(private val current: (AccountSnapshot) 
 
     fun isCurrent(claim: Claim): Boolean = current(claim.owner) && stripe(claim.fileId).claim === claim
 
+    /** A stopped producer may inspect native status after legacy takeover,
+     * but only while holding its exact mutex token and with no ambiguous
+     * legacy command for this account. No mutation/read capability is restored. */
+    fun canInspectForReconciliation(claim: Claim): Boolean {
+        val slot = stripe(claim.fileId)
+        return claim.lock.holdsLock(claim) && current(claim.owner) &&
+            slot.uncertainOwner != claim.owner && (slot.claim == null || slot.claim === claim)
+    }
+
     /** A stale close must never remove a later producer's claim. */
     suspend fun release(claim: Claim) {
         val slot = stripe(claim.fileId)

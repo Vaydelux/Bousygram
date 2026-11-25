@@ -88,3 +88,6 @@ Implemented isolated account-bound exclusive lease/window state machine, 2 MiB r
 
 ## Rolling HLS R2i — shared gateway mutation fence
 5ca21c9 all four gates passed. Real TDLib gateway start/cancel and offline pin commands now share account-fenced striped serialization; debug producer gateway requires a claim. Five regression cases added. No live producer binding: remaining raw mutation audit, lifetime/teardown and cache integration outstanding.
+
+## Rolling HLS R2j — global producer lifecycle
+Added single process-wide lifetime, debug shared-claim binding, exact mutex owner tokens and stop reconciliation after takeover; four lifecycle tests. Pre-cache cancellation, deletion/eviction, confirmed native teardown, actual rolling output and live integration remain pending.

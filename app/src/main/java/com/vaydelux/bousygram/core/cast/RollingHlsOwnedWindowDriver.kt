@@ -17,7 +17,8 @@ internal class RollingHlsOwnedWindowDriver(
     private val gateway: Gateway,
     private val commandLock: Mutex,
     private val measure: () -> RollingHlsDownloadOwnership.Storage,
-    private val current: (AccountSnapshot) -> Boolean
+    private val current: (AccountSnapshot) -> Boolean,
+    private val commandOwner: Any? = null
 ) {
     data class Status(val fileId: Int, val size: Long, val active: Boolean)
     interface Gateway {
@@ -38,7 +39,7 @@ internal class RollingHlsOwnedWindowDriver(
             current(ticket.lease.owner)
 
     suspend fun open(lease: RollingHlsDownloadOwnership.Lease, offset: Long): Open =
-        commandLock.withLock {
+        commandLock.withLock(owner = commandOwner) {
             if (!current(lease.owner)) return@withLock Open.Rejected
             // Never replace an existing native request, even without a scheduler lease.
             val before = gateway.status(lease.owner, lease.fileId)
@@ -74,7 +75,7 @@ internal class RollingHlsOwnedWindowDriver(
 
     /** Missing data stays pending. Never expose bytes after revoke/takeover. */
     suspend fun read(ticket: RollingHlsDownloadOwnership.Window, offset: Long, count: Int): ByteArray? =
-        commandLock.withLock {
+        commandLock.withLock(owner = commandOwner) {
             if (!ownership.canRead(ticket, offset, count)) throw IOException("Producer window unavailable")
             val bytes = gateway.read(ticket.lease.owner, ticket.lease.fileId, offset, count)
             if (!ownership.canRead(ticket, offset, count)) {
@@ -93,7 +94,7 @@ internal class RollingHlsOwnedWindowDriver(
     /** Never cancel a potentially shared native download. Inactive evidence
      * and refreshed accounting must be collected inside the command fence. */
     suspend fun reconcile(ticket: RollingHlsDownloadOwnership.Window): Boolean =
-        commandLock.withLock {
+        commandLock.withLock(owner = commandOwner) {
             if (!current(ticket.lease.owner)) return@withLock false
             val status = gateway.status(ticket.lease.owner, ticket.lease.fileId)
             if (!matches(ticket, status) || status!!.active) return@withLock false

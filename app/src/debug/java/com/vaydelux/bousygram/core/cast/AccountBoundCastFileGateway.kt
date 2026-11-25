@@ -13,22 +13,28 @@ import com.vaydelux.bousygram.core.tdlib.server.SharedTelegramFileMutationFence
  */
 internal class AccountBoundCastFileGateway(private val claim: TelegramFileMutationFence.Claim) : RollingHlsOwnedWindowDriver.Gateway {
     private fun permitted(owner: AccountSnapshot, fileId: Int): Boolean =
-        claim.owner == owner && claim.fileId == fileId && claim.lock.isLocked &&
+        claim.owner == owner && claim.fileId == fileId && claim.lock.holdsLock(claim) &&
             SharedTelegramFileMutationFence.instance.isCurrent(claim)
 
-    private fun statusOf(owner: AccountSnapshot, fileId: Int, response: TdApi.Object?):
+    private fun statusPermitted(owner: AccountSnapshot, fileId: Int): Boolean =
+        claim.owner == owner && claim.fileId == fileId &&
+            SharedTelegramFileMutationFence.instance.canInspectForReconciliation(claim)
+
+    private fun statusOf(owner: AccountSnapshot, fileId: Int, response: TdApi.Object?,
+                         reconciliation: Boolean = false):
         RollingHlsOwnedWindowDriver.Status? {
         val file = response as? TdApi.File ?: return null
         val local = file.local ?: return null
-        if (!permitted(owner, fileId) || file.id != fileId || file.size <= 0L) return null
+        val allowed = if (reconciliation) statusPermitted(owner, fileId) else permitted(owner, fileId)
+        if (!allowed || file.id != fileId || file.size <= 0L) return null
         return RollingHlsOwnedWindowDriver.Status(file.id, file.size, local.isDownloadingActive)
     }
 
     override suspend fun status(owner: AccountSnapshot, fileId: Int): RollingHlsOwnedWindowDriver.Status? {
         require(fileId > 0)
-        if (!permitted(owner, fileId)) return null
+        if (!statusPermitted(owner, fileId)) return null
         return statusOf(owner, fileId, TdLibClient.awaitAccountResponse(
-            TdApi.GetFile(fileId), expectedOwner = owner, timeoutMs = 5_000L))
+            TdApi.GetFile(fileId), expectedOwner = owner, timeoutMs = 5_000L), reconciliation = true)
     }
 
     override suspend fun start(owner: AccountSnapshot, fileId: Int, offset: Long, limit: Int):
