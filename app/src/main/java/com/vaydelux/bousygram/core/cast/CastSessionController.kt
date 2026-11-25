@@ -1,6 +1,10 @@
 package com.vaydelux.bousygram.core.cast
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import com.google.android.gms.cast.MediaStatus
+import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import android.util.Log
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
@@ -21,6 +25,7 @@ enum class CastPlaybackStatus { Idle, Buffering, Playing, Paused, Ended, Error }
 data class CastSessionState(
     val supported: Boolean = false,
     val connected: Boolean = false,
+    val loading: Boolean = false,
     val deviceName: String? = null,
     val playbackStatus: CastPlaybackStatus = CastPlaybackStatus.Idle,
     val positionMs: Long = 0L,
@@ -36,7 +41,13 @@ object CastSessionController {
 
     @Volatile private var applicationContextRef: WeakReference<Context>? = null
     @Volatile private var initialized = false
-    private var ownedSession: CastSession? = null
+    private var ownedSessionRef: WeakReference<CastSession>? = null
+    private val ownedSession: CastSession? get() = ownedSessionRef?.get()
+    private val handler = Handler(Looper.getMainLooper())
+    private var loadGeneration = 0L
+    private var expectedUrl: String? = null
+    private var loadAccepted = false
+    private var loadTimeout: Runnable? = null
 
     private val mediaCallback = object : com.google.android.gms.cast.framework.media.RemoteMediaClient.Callback() {
         override fun onStatusUpdated() = refreshRemoteState()
@@ -48,7 +59,9 @@ object CastSessionController {
             mutableState.value = mutableState.value.copy(errorMessage = null)
         }
         override fun onSessionStarted(session: CastSession, sessionId: String) {
-            if (initialized && session.remoteMediaClient?.mediaInfo == null) attach(session)
+            if (!initialized) return
+            if (session.remoteMediaClient != null && session.remoteMediaClient?.mediaInfo == null) attach(session)
+            else fail("TV already has media or cannot accept playback. Disconnect it first.")
         }
         override fun onSessionStartFailed(session: CastSession, error: Int) = fail("Cast session could not start ($error)")
         override fun onSessionEnding(session: CastSession) = Unit
@@ -103,6 +116,24 @@ object CastSessionController {
         // token to a receiver by mistake.
         if (!CastLanStreamingServer.canServeCurrentUrl(url)) return false
         val client = remoteClient() ?: return false
+        val owner = ownedSession ?: return false
+        // Never replace media that another sender loaded on the receiver.
+        if (client.mediaInfo != null && client.mediaInfo?.contentId != expectedUrl) {
+            rejectLoad("TV is already playing another source. Disconnect before casting.", stopReceiver = false)
+            return false
+        }
+        clearLoad()
+        val generation = loadGeneration
+        expectedUrl = url
+        mutableState.value = mutableState.value.copy(loading = true, playbackStatus = CastPlaybackStatus.Idle,
+            positionMs = positionMs.coerceAtLeast(0L), errorMessage = null)
+        val timeout = Runnable {
+            if (generation == loadGeneration && ownedSession === owner && mutableState.value.loading) {
+                rejectLoad("TV did not confirm playback. Check Wi-Fi, container and codec compatibility.")
+            }
+        }
+        loadTimeout = timeout
+        handler.postDelayed(timeout, 25_000L)
         val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
             putString(MediaMetadata.KEY_TITLE, title.take(256))
         }
@@ -119,27 +150,56 @@ object CastSessionController {
                     .setCurrentTime(positionMs.coerceAtLeast(0L))
                     .setAutoplay(playRequested)
                     .build()
-            )
+            ).setResultCallback { result ->
+                if (generation != loadGeneration || ownedSession !== owner) return@setResultCallback
+                if (!result.status.isSuccess) {
+                    rejectLoad("TV rejected playback (Cast ${result.status.statusCode}). Check format and network.")
+                } else {
+                    loadAccepted = true
+                    refreshRemoteState()
+                }
+            }
             true
-        }.onFailure { Log.w(TAG, "Cast media load request failed", it) }.getOrDefault(false)
+        }.onFailure { rejectLoad("Could not send the stream to the TV.") }.getOrDefault(false)
     }
 
-    fun play(): Boolean = remoteClient()?.let { runCatching { it.play(); true }.getOrDefault(false) } ?: false
-    fun pause(): Boolean = remoteClient()?.let { runCatching { it.pause(); true }.getOrDefault(false) } ?: false
-    fun seekTo(positionMs: Long): Boolean = remoteClient()?.let {
-        runCatching { it.seek(positionMs.coerceAtLeast(0L)); true }.getOrDefault(false)
-    } ?: false
-    fun stopPlayback(): Boolean = remoteClient()?.let { runCatching { it.stop(); true }.getOrDefault(false) } ?: false
+    private fun command(action: (RemoteMediaClient) -> com.google.android.gms.common.api.PendingResult<RemoteMediaClient.MediaChannelResult>): Boolean {
+        val client = controlledClient() ?: return false
+        val generation = loadGeneration
+        return runCatching {
+            action(client).setResultCallback { result ->
+                if (generation == loadGeneration && controlledClient() === client && !result.status.isSuccess) {
+                    mutableState.value = mutableState.value.copy(errorMessage = "TV rejected the command (Cast ${result.status.statusCode}).")
+                }
+            }
+            true
+        }.onFailure {
+            mutableState.value = mutableState.value.copy(errorMessage = "Could not send the TV command.")
+        }.getOrDefault(false)
+    }
+
+    fun play(): Boolean = command { it.play() }
+    fun pause(): Boolean = command { it.pause() }
+    fun seekTo(positionMs: Long): Boolean = command { it.seek(positionMs.coerceAtLeast(0L)) }
+    fun stopPlayback(): Boolean = command { it.stop() }
+
+    private fun controlledClient(): RemoteMediaClient? = remoteClient()?.takeIf {
+        loadAccepted && !mutableState.value.loading && expectedUrl != null && it.mediaInfo?.contentId == expectedUrl
+    }
 
     fun endSession(stopReceiver: Boolean = true) {
-        val manager = castSessionManager() ?: return
-        val owned = ownedSession ?: return
-        if (manager.currentCastSession === owned) {
-            if (stopReceiver) remoteClient()?.stop()
-            CastLanStreamingServer.stop()
-            manager.endCurrentSession(stopReceiver)
+        val manager = castSessionManager()
+        val owned = ownedSession
+        if (owned != null && manager?.currentCastSession === owned) {
+            val remote = remoteClient()
+            val sameMedia = remote?.mediaInfo?.contentId == null || remote.mediaInfo?.contentId == expectedUrl
+            if (stopReceiver && sameMedia) runCatching { remote?.stop() }
+            runCatching { manager.endCurrentSession(stopReceiver && sameMedia) }
         }
-        detach(owned)
+        if (owned != null) detach(owned) else {
+            clearLoad()
+            CastLanStreamingServer.stop()
+        }
     }
 
     private fun castSessionManager() = applicationContextRef?.get()?.let { context ->
@@ -153,7 +213,7 @@ object CastSessionController {
     fun shutdown() {
         if (!initialized) return
         endSession()
-        castSessionManager()?.removeSessionManagerListener(listener, CastSession::class.java)
+        runCatching { castSessionManager()?.removeSessionManagerListener(listener, CastSession::class.java) }
         initialized = false
         applicationContextRef = null
         mutableState.value = CastSessionState()
@@ -161,7 +221,7 @@ object CastSessionController {
 
     private fun attach(session: CastSession) {
         if (ownedSession != null && ownedSession !== session) return
-        ownedSession = session
+        ownedSessionRef = WeakReference(session)
         session.remoteMediaClient?.unregisterCallback(mediaCallback)
         session.remoteMediaClient?.registerCallback(mediaCallback)
         mutableState.value = mutableState.value.copy(connected = true, deviceName = session.castDevice?.friendlyName, errorMessage = null)
@@ -170,15 +230,31 @@ object CastSessionController {
 
     private fun detach(session: CastSession) {
         if (ownedSession !== session) return
-        ownedSession = null
-        session.remoteMediaClient?.unregisterCallback(mediaCallback)
+        ownedSessionRef = null
+        clearLoad()
+        runCatching { session.remoteMediaClient?.unregisterCallback(mediaCallback) }
         CastLanStreamingServer.stop()
-        mutableState.value = mutableState.value.copy(connected = false, deviceName = null, playbackStatus = CastPlaybackStatus.Idle, positionMs = 0L, durationMs = 0L)
+        mutableState.value = mutableState.value.copy(connected = false, loading = false, deviceName = null, playbackStatus = CastPlaybackStatus.Idle, positionMs = 0L, durationMs = 0L)
     }
 
     private fun refreshRemoteState() {
         val client = remoteClient() ?: return
-        val mediaStatus = client.mediaStatus
+        val expected = expectedUrl ?: return
+        if (!loadAccepted) return
+        val actual = client.mediaInfo?.contentId
+        if (actual != expected) {
+            if (!mutableState.value.loading) rejectLoad("TV changed media. Casting stopped.", stopReceiver = false)
+            return
+        }
+        val mediaStatus = client.mediaStatus ?: return
+        if (mediaStatus.playerState == MediaStatus.PLAYER_STATE_IDLE) {
+            if (mediaStatus.idleReason == MediaStatus.IDLE_REASON_ERROR) {
+                rejectLoad("TV could not decode or retrieve this media. Try a compatible MP4.")
+            } else if (!mutableState.value.loading) {
+                endSession()
+            }
+            return
+        }
         val playbackStatus = when (mediaStatus?.playerState) {
             com.google.android.gms.cast.MediaStatus.PLAYER_STATE_BUFFERING -> CastPlaybackStatus.Buffering
             com.google.android.gms.cast.MediaStatus.PLAYER_STATE_PLAYING -> CastPlaybackStatus.Playing
@@ -186,11 +262,32 @@ object CastSessionController {
             com.google.android.gms.cast.MediaStatus.PLAYER_STATE_IDLE -> CastPlaybackStatus.Idle
             else -> CastPlaybackStatus.Idle
         }
+        if (playbackStatus == CastPlaybackStatus.Idle) return
+        // BUFFERING alone does not confirm successful startup.
+        val confirmed = playbackStatus == CastPlaybackStatus.Playing || playbackStatus == CastPlaybackStatus.Paused
+        if (confirmed) {
+            loadTimeout?.let(handler::removeCallbacks)
+            loadTimeout = null
+        }
         mutableState.value = mutableState.value.copy(
+            loading = mutableState.value.loading && !confirmed,
             playbackStatus = playbackStatus,
             positionMs = client.approximateStreamPosition.coerceAtLeast(0L),
             durationMs = client.streamDuration.coerceAtLeast(0L)
         )
+    }
+
+    private fun clearLoad() {
+        loadGeneration++
+        loadTimeout?.let(handler::removeCallbacks)
+        loadTimeout = null
+        expectedUrl = null
+        loadAccepted = false
+    }
+
+    private fun rejectLoad(message: String, stopReceiver: Boolean = true) {
+        endSession(stopReceiver)
+        fail(message)
     }
 
     private fun fail(message: String) {
