@@ -82,3 +82,6 @@ Android runtime reached JNI at e3ed843 but TS malformed AAC and process exit 137
 
 ## Rolling HLS R2g — producer download ownership policy
 Implemented isolated account-bound exclusive lease/window state machine, 2 MiB request limit, shared admission and uncertain-command quarantine with seven JVM regressions. No live commands or existing scheduler behavior changes. Next shared command lock/gateway fencing and runtime integration; native repair verification remains pending.
+
+## Rolling HLS R2h — owner-bound window command driver
+0ccc831 passed all four workflows; native Android x86-64 MKV/TS sample and timestamp conservation qualified. Added account-explicit debug TDLib gateway, mutex-injected bounded window command driver and six fake-gateway tests. Still no live caller; shared scheduler mutation fencing and safe cache integration remain pending.
