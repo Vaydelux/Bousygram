@@ -6,6 +6,7 @@
 #include <string.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavcodec/bsf.h>
 #include <libavutil/time.h>
 #include <libavutil/error.h>
 
@@ -96,6 +97,45 @@ static void free_io(AVIOContext **io) {
     if (*io) { av_freep(&(*io)->buffer); avio_context_free(io); }
 }
 
+/* Strict ADTS subset: MPEG-4 AAC-LC, one raw block, no CRC, mono/stereo.
+ * Check each packet because the filter only emits initial configuration. */
+static int adts_config(const AVPacket *p, int *config) {
+    const uint8_t *b = p->data;
+    if (p->size < 8 || p->size > 8191 || b[0] != 0xff || b[1] != 0xf1 ||
+        (b[2] >> 6) != 1 || (b[6] & 3) != 0) return AVERROR_INVALIDDATA;
+    int index = (b[2] >> 2) & 15;
+    int channels = ((b[2] & 1) << 2) | (b[3] >> 6);
+    int length = ((b[3] & 3) << 11) | (b[4] << 3) | (b[5] >> 5);
+    if (index > 12 || channels < 1 || channels > 2 || length != p->size)
+        return AVERROR_INVALIDDATA;
+    int asc = (2 << 11) | (index << 7) | (channels << 3);
+    if (*config >= 0 && *config != asc) return AVERROR_INVALIDDATA;
+    *config = asc;
+    return 0;
+}
+
+/* aac_adtstoasc is a one-to-one filter for this admitted subset. Refuse
+ * buffered, missing, extra or retimed packets rather than silently dropping. */
+static int normalize_aac(AVBSFContext *bsf, AVPacket *packet, AVPacket *filtered,
+                         int *config, int first) {
+    if (adts_config(packet, config) < 0) return AVERROR_INVALIDDATA;
+    int64_t pts = packet->pts, dts = packet->dts, duration = packet->duration;
+    int size = packet->size, track = packet->stream_index;
+    if (av_bsf_send_packet(bsf, packet) < 0 ||
+        av_bsf_receive_packet(bsf, filtered) < 0) return AVERROR_INVALIDDATA;
+    if (filtered->size != size - 7 || filtered->pts != pts || filtered->dts != dts ||
+        filtered->duration != duration) return AVERROR_INVALIDDATA;
+    size_t extra_size = 0;
+    const uint8_t *extra = av_packet_get_side_data(filtered, AV_PKT_DATA_NEW_EXTRADATA, &extra_size);
+    if ((first || extra) && (!extra || extra_size != 2 ||
+        extra[0] != (uint8_t)(*config >> 8) || extra[1] != (uint8_t)*config))
+        return AVERROR_INVALIDDATA;
+    filtered->stream_index = track;
+    av_packet_move_ref(packet, filtered);
+    if (av_bsf_receive_packet(bsf, filtered) != AVERROR(EAGAIN)) return AVERROR_INVALIDDATA;
+    return 0;
+}
+
 static int remux(Session *s, int kind) {
     int result = MEDIA_FAILED, opened = 0, video = -1, audio = -1, packets = 0;
     int64_t first[2] = {AV_NOPTS_VALUE, AV_NOPTS_VALUE};
@@ -103,7 +143,9 @@ static int remux(Session *s, int kind) {
     int counts[2] = {0, 0};
     AVFormatContext *in = NULL, *out = NULL;
     AVIOContext *reader = NULL, *writer = NULL;
-    AVPacket *packet = NULL;
+    AVPacket *packet = NULL, *filtered = NULL;
+    AVBSFContext *aac_bsf = NULL;
+    int aac_config = -1;
     AVDictionary *options = NULL;
     const AVInputFormat *format = av_find_input_format(kind == 1 ? "matroska" : "mpegts");
     if (!format) return UNSUPPORTED;
@@ -137,17 +179,29 @@ static int remux(Session *s, int kind) {
         if (par->extradata_size > 256 * 1024) { result = LIMIT; goto done; }
     }
     if (video < 0 || audio < 0) { result = UNSUPPORTED; goto done; }
+    if (kind == 2) {
+        const AVBitStreamFilter *filter = av_bsf_get_by_name("aac_adtstoasc");
+        if (!filter || av_bsf_alloc(filter, &aac_bsf) < 0 ||
+            avcodec_parameters_copy(aac_bsf->par_in, in->streams[audio]->codecpar) < 0) goto done;
+        aac_bsf->time_base_in = in->streams[audio]->time_base;
+        if (av_bsf_init(aac_bsf) < 0 ||
+            av_cmp_q(aac_bsf->time_base_out, in->streams[audio]->time_base) != 0) goto done;
+    }
     if (avformat_alloc_output_context2(&out, NULL, "mp4", NULL) < 0 || !out) goto done;
     writer = new_io(s, 1);
     if (!writer) goto done;
     out->pb = writer;
-    out->flags |= AVFMT_FLAG_CUSTOM_IO | AVFMT_FLAG_AUTO_BSF;
+    /* empty_moov explicitly disables AUTO_BSF in movenc; TS AAC is filtered here. */
+    out->flags |= AVFMT_FLAG_CUSTOM_IO;
+    out->flags &= ~AVFMT_FLAG_AUTO_BSF;
     out->io_open = deny_open;
     out->interrupt_callback = (AVIOInterruptCB){interrupt, s};
     out->max_interleave_delta = 1000000;
     for (unsigned i = 0; i < in->nb_streams; i++) {
         AVStream *track = avformat_new_stream(out, NULL);
-        if (!track || avcodec_parameters_copy(track->codecpar, in->streams[i]->codecpar) < 0) goto done;
+        const AVCodecParameters *parameters = aac_bsf && (int)i == audio
+            ? aac_bsf->par_out : in->streams[i]->codecpar;
+        if (!track || avcodec_parameters_copy(track->codecpar, parameters) < 0) goto done;
         track->codecpar->codec_tag = 0;
         track->time_base = in->streams[i]->time_base;
     }
@@ -155,7 +209,8 @@ static int remux(Session *s, int kind) {
         av_dict_set(&options, "min_frag_duration", "4000000", 0) < 0 ||
         avformat_write_header(out, &options) < 0 || av_dict_count(options) != 0 || !alive(s)) goto done;
     packet = av_packet_alloc();
-    if (!packet) goto done;
+    filtered = av_packet_alloc();
+    if (!packet || !filtered) goto done;
     for (;;) {
         if (!alive(s)) goto done;
         int rc = av_read_frame(in, packet);
@@ -174,6 +229,8 @@ static int remux(Session *s, int kind) {
         if (current_us < -TIMELINE_MAX_US || current_us > TIMELINE_MAX_US ||
             origin_us < -TIMELINE_MAX_US || origin_us > TIMELINE_MAX_US ||
             current_us - origin_us > TIMELINE_MAX_US) { result = LIMIT; goto done; }
+        if (aac_bsf && i == audio &&
+            normalize_aac(aac_bsf, packet, filtered, &aac_config, !counts[i]) < 0) goto done;
         last[i] = packet->dts;
         counts[i]++;
         av_packet_rescale_ts(packet, in->streams[i]->time_base, out->streams[i]->time_base);
@@ -182,6 +239,9 @@ static int remux(Session *s, int kind) {
         av_packet_unref(packet);
     }
     if (!counts[video] || !counts[audio] || s->offset != s->size || !alive(s)) goto done;
+    if (aac_bsf && (av_bsf_send_packet(aac_bsf, NULL) < 0 ||
+                    av_bsf_receive_packet(aac_bsf, filtered) != AVERROR_EOF)) goto done;
+    if (reader->error < 0 && reader->error != AVERROR_EOF) goto done;
     if (av_write_trailer(out) < 0 || !alive(s)) goto done;
     avio_flush(writer);
     if (writer->error < 0 || !alive(s) || s->written <= 0) goto done;
@@ -189,6 +249,8 @@ static int remux(Session *s, int kind) {
 done:
     av_dict_free(&options);
     av_packet_free(&packet);
+    av_packet_free(&filtered);
+    av_bsf_free(&aac_bsf);
     if (out) avformat_free_context(out);
     if (opened) avformat_close_input(&in);
     else if (in) avformat_free_context(in);

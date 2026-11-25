@@ -12,8 +12,29 @@ trap 'adb shell rm -rf "$remote" >/dev/null || true' EXIT
 adb shell chmod 700 "$remote"
 adb push "$lib" "$remote/libbousygram_cast_remux.so" >/dev/null
 for name in source.mkv source.ts runtime.jar; do adb push "$out/$name" "$remote/$name" >/dev/null; done
-timeout --kill-after=10s 180s adb shell -T "CLASSPATH=$remote/runtime.jar app_process /system/bin com.vaydelux.bousygram.core.cast.NativeCastRuntimeSmoke $remote" | tr -d '\r' | tee "$out/runtime.log"
-grep -qx NATIVE_RUNTIME_CALLBACKS_PASS "$out/runtime.log"
+run_case() {
+    local suffix="$1"
+    shift
+    local marker="$1"
+    shift
+    local args="$*"
+    local log="$out/runtime-$suffix.log"
+    if ! timeout --kill-after=10s 180s adb shell -T "CLASSPATH=$remote/runtime.jar app_process /system/bin com.vaydelux.bousygram.core.cast.NativeCastRuntimeSmoke $remote $args" 2>&1 | tr -d '\r' | tee "$log"; then
+        echo "::error::JNI runtime case failed: $suffix"
+        adb shell 'cat /proc/meminfo; ps -A' || true
+        adb logcat -d -t 3000 -v threadtime | tail -n 500 || true
+        return 1
+    fi
+    grep -qx "$marker" "$log"
+}
+# Run each format/case separately for exact attribution, then retain the
+# original same-process recovery gate. A crash in either is still a failure.
+for ext in mkv ts; do
+    for mode in GOOD ZERO_READ OVERSIZED_READ THROW_READ REFUSE_WRITE CANCEL; do
+        run_case "$ext-$mode" NATIVE_SINGLE_CASE_PASS "$ext" "$mode"
+    done
+done
+run_case reentry NATIVE_RUNTIME_CALLBACKS_PASS
 for ext in mkv ts; do adb pull "$remote/converted.$ext.mp4" "$out/converted.$ext.mp4" >/dev/null; done
 timeout --kill-after=10s 180s python3 "$root/verify_runtime.py" "$out"
 echo "Android x86-64 JNI runtime and independent media verification passed"

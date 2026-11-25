@@ -77,6 +77,8 @@ public final class NativeCastRuntimeSmoke {
     }
 
     private static void test(File root, String extension, int kind, Mode mode) throws IOException {
+        System.out.println("START " + extension + " " + mode);
+        System.out.flush();
         File source = new File(root, "source." + extension);
         File output = new File(root, mode == Mode.GOOD ? "converted." + extension + ".mp4" : "negative.tmp");
         require(source.isFile() && source.length() > 0, "Missing synthetic source");
@@ -110,9 +112,19 @@ public final class NativeCastRuntimeSmoke {
     }
 
     public static void main(String[] args) throws IOException {
-        require(args.length == 1, "Expected private test directory");
+        require(args.length == 1 || args.length == 3, "Expected private test directory [format mode]");
         File root = new File(args[0]);
         System.load(new File(root, "libbousygram_cast_remux.so").getAbsolutePath());
+        if (args.length == 3) {
+            String extension = args[1];
+            require("mkv".equals(extension) || "ts".equals(extension), "Unknown fixture");
+            Mode mode = Mode.valueOf(args[2]);
+            System.out.println("BEGIN " + extension + " " + mode);
+            System.out.flush();
+            test(root, extension, "mkv".equals(extension) ? 1 : 2, mode);
+            System.out.println("NATIVE_SINGLE_CASE_PASS");
+            return;
+        }
         require(NativeCastRemuxBridge.run(0, 1, null) == 1, "Invalid kind accepted");
         require(NativeCastRemuxBridge.run(1, 16L * 1024 * 1024 + 1, null) == 1, "Oversize input accepted");
         for (Mode mode : new Mode[]{Mode.ZERO_READ, Mode.OVERSIZED_READ, Mode.THROW_READ, Mode.REFUSE_WRITE, Mode.CANCEL}) {

@@ -76,3 +76,6 @@ b769557 all four workflows passed including signed source ARM64/ARM32 native cro
 
 ## Rolling HLS R2e — runtime preflight and debug callback adapter
 73f6e2e three app workflows passed; three native ABIs compiled, but runtime harness blocked by obsolete Java 8 target warning. Fixed target, canonical debug-only JNI declaration, bounded TDLib callback adapter and six tests. No live download ownership or production wiring. Fresh gates pending.
+
+## Rolling HLS R2f — native runtime repair
+Android runtime reached JNI at e3ed843 but TS malformed AAC and process exit 137 blocked qualification; seven negative cases passed. Explicit TS ADTS-to-ASC filter with stable configuration and one-to-one packet checks added; isolated runtime cases and failure diagnostics added without removing recovery or media gates. Enterprise dependency download HTTP 429 also pending. No app integration or production changes.
