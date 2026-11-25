@@ -142,3 +142,6 @@ All exact-head workflows passed, including six-minute Android JNI integrity, lat
 
 ## Rolling HLS R3a — source ownership closure
 Mismatched start responses retain quarantine; failed/cancelled reads revoke the lease permanently and wipe returned bytes. Added regression cases. Native partial source reclamation and live source integration remain pending.
+
+## Rolling HLS R3b — trusted pairing and Media3 playback gate
+Ephemeral certificate pin enrollment and independent forward-only playback receipt policy, plus real Media3 synthetic fMP4 fragment instrumentation. Five unit tests and one decoder test; no live receiver or pairing UI. Fresh verification pending.
