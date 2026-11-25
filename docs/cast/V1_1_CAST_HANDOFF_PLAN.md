@@ -145,3 +145,6 @@ Mismatched start responses retain quarantine; failed/cancelled reads revoke the 
 
 ## Rolling HLS R3b — trusted pairing and Media3 playback gate
 Ephemeral certificate pin enrollment and independent forward-only playback receipt policy, plus real Media3 synthetic fMP4 fragment instrumentation. Five unit tests and one decoder test; no live receiver or pairing UI. Fresh verification pending.
+
+## Rolling HLS R3c — actual playback interval
+Require trusted observed playback progress on verified source timeline, not just first frame/ENDED; reject seeks and protect pending pairing pins. Local two-fragment decode passed, Android receipt qualification pending.

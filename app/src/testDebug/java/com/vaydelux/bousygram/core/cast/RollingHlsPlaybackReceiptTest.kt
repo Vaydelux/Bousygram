@@ -9,10 +9,26 @@ class RollingHlsPlaybackReceiptTest {
         assertTrue(receipt.begin(4, 6_000_000))
         assertNull(receipt.observe(6000, false, false))
         receipt.renderedFirstFrame()
+        assertNull(receipt.observe(100, true, false))
         assertNull(receipt.observe(3000, true, false))
+        assertNull(receipt.observe(5800, true, false))
         assertEquals(4L, receipt.observe(6000, false, true))
         assertNull(receipt.observe(6000, false, true))
     }
+    @Test fun sourceTimelineAndActualProgressAreRequired() {
+        val receipt = RollingHlsPlaybackReceipt { true }
+        assertTrue(receipt.begin(2, 6_000_000, 6_000_000))
+        receipt.renderedFirstFrame()
+        assertNull(receipt.observe(6100, true, false))
+        assertNull(receipt.observe(11_800, true, false))
+        assertEquals(2L, receipt.observe(12_020, false, true))
+        val jump = RollingHlsPlaybackReceipt { true }
+        assertTrue(jump.begin(1, 6_000_000))
+        jump.renderedFirstFrame()
+        assertNull(jump.observe(100, true, false))
+        assertNull(jump.observe(6000, false, true))
+    }
+
     @Test fun earlyEndSeekAndRevocationCannotAcknowledge() {
         for (reason in 0..3) {
             var active = true

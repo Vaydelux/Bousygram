@@ -43,7 +43,7 @@ class RollingHlsReceiverPlaybackInstrumentedTest {
                     try {
                         file.outputStream().use { it.write(init); it.write(fragment.bytes) }
                         assertTrue(file.length() <= RollingHlsBudget.MAX_SEGMENT_BYTES + 512L * 1024)
-                        play(file, fragment.sequence, timing.durationUs)
+                        play(file, fragment.sequence, timing.startUs, timing.durationUs)
                     } finally {
                         assertTrue(file.delete())
                     }
@@ -56,7 +56,7 @@ class RollingHlsReceiverPlaybackInstrumentedTest {
         } finally { directory.deleteRecursively() }
     }
 
-    private fun play(file: File, sequence: Long, durationUs: Long) {
+    private fun play(file: File, sequence: Long, startUs: Long, durationUs: Long) {
         val receipt = RollingHlsPlaybackReceipt { true }
         val result = AtomicReference<Long?>(null)
         val error = AtomicReference<Throwable?>(null)
@@ -64,7 +64,7 @@ class RollingHlsReceiverPlaybackInstrumentedTest {
         lateinit var surface: Surface
         lateinit var texture: SurfaceTexture
         instrumentation.runOnMainSync {
-            assertTrue(receipt.begin(sequence, durationUs))
+            assertTrue(receipt.begin(sequence, durationUs, startUs))
             texture = SurfaceTexture(10)
             surface = Surface(texture)
             player = ExoPlayer.Builder(instrumentation.targetContext).build()
@@ -72,6 +72,11 @@ class RollingHlsReceiverPlaybackInstrumentedTest {
             player.setVideoSurface(surface)
             player.addListener(object : Player.Listener {
                 override fun onRenderedFirstFrame() { receipt.renderedFirstFrame() }
+                override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo,
+                                                     newPosition: Player.PositionInfo, reason: Int) {
+                    if (reason == Player.DISCONTINUITY_REASON_SEEK ||
+                        reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) receipt.revoke()
+                }
                 override fun onPlayerError(problem: PlaybackException) {
                     receipt.revoke()
                     error.set(problem)

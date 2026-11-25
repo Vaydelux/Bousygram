@@ -21,8 +21,12 @@ internal class RollingHlsPeerPairing(
         override fun close() { secret.fill(0) }
     }
     class Pending internal constructor(internal val owner: AccountSnapshot,
-                                      internal val senderPin: ByteArray,
-                                      internal val receiverPin: ByteArray)
+                                      senderPin: ByteArray, receiverPin: ByteArray) {
+        private val sender = senderPin.copyOf()
+        private val receiver = receiverPin.copyOf()
+        fun senderPin() = sender.copyOf()
+        internal fun confirmedPins() = Pins(owner, sender, receiver)
+    }
     class Pins internal constructor(val owner: AccountSnapshot, sender: ByteArray, receiver: ByteArray) {
         private val sender = sender.copyOf()
         private val receiver = receiver.copyOf()
@@ -83,7 +87,7 @@ internal class RollingHlsPeerPairing(
     @Synchronized fun confirm(ticket: Pending, acceptedOnTv: Boolean): Pins? {
         if (!valid() || pending !== ticket) return null
         val result = if (acceptedOnTv && current(ticket.owner))
-            Pins(ticket.owner, ticket.senderPin, ticket.receiverPin) else null
+            ticket.confirmedPins() else null
         close()
         return result
     }
