@@ -85,3 +85,6 @@ Implemented isolated account-bound exclusive lease/window state machine, 2 MiB r
 
 ## Rolling HLS R2h — owner-bound window command driver
 0ccc831 passed all four workflows; native Android x86-64 MKV/TS sample and timestamp conservation qualified. Added account-explicit debug TDLib gateway, mutex-injected bounded window command driver and six fake-gateway tests. Still no live caller; shared scheduler mutation fencing and safe cache integration remain pending.
+
+## Rolling HLS R2i — shared gateway mutation fence
+5ca21c9 all four gates passed. Real TDLib gateway start/cancel and offline pin commands now share account-fenced striped serialization; debug producer gateway requires a claim. Five regression cases added. No live producer binding: remaining raw mutation audit, lifetime/teardown and cache integration outstanding.

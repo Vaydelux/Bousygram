@@ -15,6 +15,9 @@ import com.vaydelux.bousygram.core.tdlib.prefetch.FocusPrefetchManager
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.tdlib.server.TelegramPreCacheEngine
+import com.vaydelux.bousygram.core.tdlib.server.TdLibTelegramFileGateway
+import com.vaydelux.bousygram.core.tdlib.server.TelegramGatewayResult
+import kotlinx.coroutines.CancellationException
 import com.vaydelux.bousygram.core.tdlib.utils.PlaybackProgressTracker
 import com.vaydelux.bousygram.data.database.AppDatabase
 import com.vaydelux.bousygram.data.store.EnterprisePreferences
@@ -167,10 +170,17 @@ object CacheManager {
         pinnedFiles.add(fileId)
         savePinned()
         Log.i(TAG, "Pinning file $fileId for offline playback")
-        TdLibClient.client.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { result ->
-            if (!AccountSession.isCurrent(account)) return@send
-            if (result is TdApi.Error) {
-                Log.w(TAG, "Offline download failed fileId=$fileId code=${result.code} message=${result.message}")
+        scope.launch {
+            if (!AccountSession.isCurrent(account) || !isPinned(fileId)) return@launch
+            try {
+                val result = TdLibTelegramFileGateway.downloadForOwner(account, fileId, 32, 0, 0)
+                if (AccountSession.isCurrent(account) && result is TelegramGatewayResult.Failure) {
+                    Log.w(TAG, "Offline download failed fileId=$fileId code=${result.code} message=${result.message}")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "Offline download command failed", error)
             }
         }
     }

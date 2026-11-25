@@ -1,6 +1,9 @@
 package com.vaydelux.bousygram.core.tdlib.server
 
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
+import kotlinx.coroutines.CancellationException
 import org.drinkless.tdlib.TdApi
 
 internal data class TelegramGatewayFile(
@@ -68,12 +71,18 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
         // All file requests are tied to the *same* verified account + native generation.
         // A native restart or logout cancels the suspension rather than leaving the
         // caller waiting on a response that TDLib will never deliver.
-        val response = TdLibClient.awaitAccountResponse(
-            TdApi.DownloadFile(
-                fileId, priority, offset.coerceAtLeast(0L), limit.toLong(), synchronous
-            ),
-            timeoutMs = if (synchronous) 45_000L else 15_000L
-        )
+        val owner = AccountSession.current() ?: throw CancellationException("No active Telegram account")
+        return downloadForOwner(owner, fileId, priority, offset, limit, synchronous)
+    }
+
+    internal suspend fun downloadForOwner(owner: AccountSnapshot, fileId: Int, priority: Int,
+        offset: Long, limit: Int, synchronous: Boolean = false): TelegramGatewayResult<TelegramGatewayFile?> {
+        val response = SharedTelegramFileMutationFence.instance.legacy(owner, fileId) {
+            TdLibClient.awaitAccountResponse(
+                TdApi.DownloadFile(fileId, priority, offset.coerceAtLeast(0L), limit.toLong(), synchronous),
+                expectedOwner = owner, timeoutMs = if (synchronous) 45_000L else 15_000L
+            ) ?: throw CancellationException("Uncertain Telegram download response")
+        }
         return when (response) {
             is TdApi.File -> TelegramGatewayResult.Success(response.toGatewayFile())
             is TdApi.Error -> {
@@ -123,9 +132,11 @@ internal object TdLibTelegramFileGateway : TelegramFileGateway {
     }
 
     override suspend fun cancelDownloadFile(fileId: Int, onlyIfPending: Boolean): Boolean {
-        val response = TdLibClient.awaitAccountResponse(
-            TdApi.CancelDownloadFile(fileId, onlyIfPending)
-        )
+        val owner = AccountSession.current() ?: throw CancellationException("No active Telegram account")
+        val response = SharedTelegramFileMutationFence.instance.legacy(owner, fileId) {
+            TdLibClient.awaitAccountResponse(TdApi.CancelDownloadFile(fileId, onlyIfPending),
+                expectedOwner = owner) ?: throw CancellationException("Uncertain Telegram cancellation response")
+        }
         return response is TdApi.Ok
     }
 
