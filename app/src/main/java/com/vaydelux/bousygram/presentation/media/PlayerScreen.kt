@@ -550,8 +550,9 @@ fun PlayerScreen(
     var castWasPlaying by remember { mutableStateOf(false) }
     var lastCastPositionMs by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(context) {
-        if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) CastSessionController.initialize(context)
+    DisposableEffect(context, isAndroidTv) {
+        if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED && !isAndroidTv) CastSessionController.initialize(context)
+        onDispose { CastSessionController.shutdown() }
     }
 
     LaunchedEffect(castState.connected, queueIndex) {
@@ -573,7 +574,6 @@ fun PlayerScreen(
             }
             return@LaunchedEffect
         }
-        castWasConnected = true
         if (!hasLocalNetworkPermission) {
             CastSessionController.endSession()
             return@LaunchedEffect
@@ -592,6 +592,11 @@ fun PlayerScreen(
             com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer.resolveFileSizeWithin(current.fileId, 1_000L)
         }
         val mediaType = if (mime.equals("application/octet-stream", ignoreCase = true)) "video/mp4" else mime
+        // Preserve local position and Play/Pause intent before loading the receiver.
+        val handoffPosition = playerEngine.currentPositionMs.coerceAtLeast(0L)
+        val handoffPlay = playerEngine.playWhenReady && !explicitlyPaused
+        lastCastPositionMs = handoffPosition
+        castWasPlaying = handoffPlay
         val lanUrl = withContext(Dispatchers.IO) {
             CastLanStreamingServer.start(context, current.fileId, size, mediaType)
         }
@@ -600,11 +605,15 @@ fun PlayerScreen(
                 title = current.title,
                 contentType = mediaType,
                 durationMs = duration,
-                positionMs = playerEngine.currentPositionMs
+                positionMs = handoffPosition,
+                playRequested = handoffPlay
             )
         ) {
             android.widget.Toast.makeText(context, "Could not start Cast streaming on this network", android.widget.Toast.LENGTH_LONG).show()
             CastSessionController.endSession()
+        } else {
+            castWasConnected = true
+            playerEngine.pause()
         }
     }
 
@@ -622,8 +631,8 @@ fun PlayerScreen(
         isPlaying = false
     }
 
-    LaunchedEffect(castState.connected, castState.positionMs, castState.playbackStatus) {
-        if (!castState.connected) return@LaunchedEffect
+    LaunchedEffect(castState.connected, castState.positionMs, castState.playbackStatus, castWasConnected) {
+        if (!castState.connected || !castWasConnected || castState.playbackStatus == CastPlaybackStatus.Idle) return@LaunchedEffect
         lastCastPositionMs = castState.positionMs
         if (castState.durationMs > 0L) duration = castState.durationMs
         position = castState.positionMs
@@ -2250,7 +2259,8 @@ fun PlayerScreen(
             override fun togglePlayPause() {
                 hudInteractionTick++
                 if (castState.connected) {
-                    if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
+                    if (castState.playbackStatus == CastPlaybackStatus.Playing ||
+                        castState.playbackStatus == CastPlaybackStatus.Buffering) CastSessionController.pause()
                     else CastSessionController.play()
                 } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
                     pauseLocalPlayback()
@@ -2676,7 +2686,8 @@ fun PlayerScreen(
                 onPlayPause = {
                     hudInteractionTick++
                     if (castState.connected) {
-                        if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
+                        if (castState.playbackStatus == CastPlaybackStatus.Playing ||
+                        castState.playbackStatus == CastPlaybackStatus.Buffering) CastSessionController.pause()
                         else CastSessionController.play()
                     } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
                         pauseLocalPlayback()

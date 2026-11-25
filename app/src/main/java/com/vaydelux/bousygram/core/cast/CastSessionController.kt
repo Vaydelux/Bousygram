@@ -28,7 +28,7 @@ data class CastSessionState(
     val errorMessage: String? = null
 )
 
-/** Owns Cast listeners and remote media commands for the process lifetime. */
+/** Owns Telegram Cast listeners only while its player is mounted. */
 object CastSessionController {
     private const val TAG = "CastSessionController"
     private val mutableState = MutableStateFlow(CastSessionState())
@@ -36,6 +36,7 @@ object CastSessionController {
 
     @Volatile private var applicationContextRef: WeakReference<Context>? = null
     @Volatile private var initialized = false
+    private var ownedSession: CastSession? = null
 
     private val mediaCallback = object : com.google.android.gms.cast.framework.media.RemoteMediaClient.Callback() {
         override fun onStatusUpdated() = refreshRemoteState()
@@ -46,15 +47,22 @@ object CastSessionController {
         override fun onSessionStarting(session: CastSession) {
             mutableState.value = mutableState.value.copy(errorMessage = null)
         }
-        override fun onSessionStarted(session: CastSession, sessionId: String) = attach(session)
+        override fun onSessionStarted(session: CastSession, sessionId: String) {
+            if (initialized && session.remoteMediaClient?.mediaInfo == null) attach(session)
+        }
         override fun onSessionStartFailed(session: CastSession, error: Int) = fail("Cast session could not start ($error)")
         override fun onSessionEnding(session: CastSession) = Unit
         override fun onSessionEnded(session: CastSession, error: Int) = detach(session)
         override fun onSessionResuming(session: CastSession, sessionId: String) = Unit
-        override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) = attach(session)
+        override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
+            if (initialized && ownedSession === session) attach(session)
+        }
         override fun onSessionResumeFailed(session: CastSession, error: Int) = fail("Cast session could not resume ($error)")
         override fun onSessionSuspended(session: CastSession, reason: Int) {
-            mutableState.value = mutableState.value.copy(errorMessage = "Cast connection interrupted")
+            if (ownedSession === session) {
+                detach(session)
+                mutableState.value = mutableState.value.copy(errorMessage = "Cast connection interrupted")
+            }
         }
     }
 
@@ -75,7 +83,7 @@ object CastSessionController {
             applicationContextRef = WeakReference(appContext)
             castContext.sessionManager.also {
                 it.addSessionManagerListener(listener, CastSession::class.java)
-                (it.currentCastSession)?.let(::attach)
+                // Never adopt an existing Extras or another sender's route.
             }
             initialized = true
             mutableState.value = mutableState.value.copy(supported = true)
@@ -87,7 +95,8 @@ object CastSessionController {
         }
     }
 
-    fun loadMedia(url: String, title: String, contentType: String, durationMs: Long, positionMs: Long = 0L): Boolean {
+    fun loadMedia(url: String, title: String, contentType: String, durationMs: Long, positionMs: Long = 0L,
+                  playRequested: Boolean = true): Boolean {
         if (!BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) return false
         // Only the short-lived Ktor capability for the active private media
         // session is valid. Never hand a WebView embed, public URL or stale
@@ -108,7 +117,7 @@ object CastSessionController {
                 MediaLoadRequestData.Builder()
                     .setMediaInfo(media)
                     .setCurrentTime(positionMs.coerceAtLeast(0L))
-                    .setAutoplay(true)
+                    .setAutoplay(playRequested)
                     .build()
             )
             true
@@ -124,18 +133,35 @@ object CastSessionController {
 
     fun endSession(stopReceiver: Boolean = true) {
         val manager = castSessionManager() ?: return
-        if (stopReceiver) remoteClient()?.stop()
-        CastLanStreamingServer.stop()
-        manager.endCurrentSession(stopReceiver)
+        val owned = ownedSession ?: return
+        if (manager.currentCastSession === owned) {
+            if (stopReceiver) remoteClient()?.stop()
+            CastLanStreamingServer.stop()
+            manager.endCurrentSession(stopReceiver)
+        }
+        detach(owned)
     }
 
     private fun castSessionManager() = applicationContextRef?.get()?.let { context ->
         runCatching { CastContext.getSharedInstance(context).sessionManager }.getOrNull()
     }
 
-    private fun remoteClient() = castSessionManager()?.currentCastSession?.remoteMediaClient
+    private fun remoteClient() = ownedSession?.takeIf { castSessionManager()?.currentCastSession === it }
+        ?.remoteMediaClient
+
+    /** Player composition owns the Telegram listener, not the process lifetime. */
+    fun shutdown() {
+        if (!initialized) return
+        endSession()
+        castSessionManager()?.removeSessionManagerListener(listener, CastSession::class.java)
+        initialized = false
+        applicationContextRef = null
+        mutableState.value = CastSessionState()
+    }
 
     private fun attach(session: CastSession) {
+        if (ownedSession != null && ownedSession !== session) return
+        ownedSession = session
         session.remoteMediaClient?.unregisterCallback(mediaCallback)
         session.remoteMediaClient?.registerCallback(mediaCallback)
         mutableState.value = mutableState.value.copy(connected = true, deviceName = session.castDevice?.friendlyName, errorMessage = null)
@@ -143,6 +169,8 @@ object CastSessionController {
     }
 
     private fun detach(session: CastSession) {
+        if (ownedSession !== session) return
+        ownedSession = null
         session.remoteMediaClient?.unregisterCallback(mediaCallback)
         CastLanStreamingServer.stop()
         mutableState.value = mutableState.value.copy(connected = false, deviceName = null, playbackStatus = CastPlaybackStatus.Idle, positionMs = 0L, durationMs = 0L)
