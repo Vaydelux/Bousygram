@@ -74,8 +74,9 @@ internal class RollingFmp4SampleVerifier : RollingHlsVerifiedFeed.Verifier {
             val top = boxes(init, 0, init.size)
             requireMedia(top.map { it.type } == listOf("ftyp", "moov"))
             val moov = children(init, top[1])
-            val defaults = children(init, one(moov, "mvex")).filter { it.type == "trex" }
-                .associate { box ->
+            val trex = children(init, one(moov, "mvex")).filter { it.type == "trex" }
+            requireMedia(trex.size == 2)
+            val defaults = trex.associate { box ->
                     requireMedia(box.end - box.payload == 24 && field(init, box, 0) == 0L &&
                         field(init, box, 8) == 1L)
                     field(init, box, 4) to Defaults(field(init, box, 12), field(init, box, 16), field(init, box, 20))

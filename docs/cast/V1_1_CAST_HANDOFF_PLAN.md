@@ -103,3 +103,6 @@ Independent strict fMP4 sample layout, decode continuity and H.264 IDR boundary 
 
 ## Rolling HLS R2n — direct output streaming
 Bounded synchronous JNI output assembler and private verified rolling store path implemented without converted-file staging. Six regressions. Finite native limits unchanged; real JNI/store fixture qualification and full-length integration remain pending.
+
+## Rolling HLS R2o — real native fixture gate
+Mandatory decoded-content conservation and exact Kotlin sample verifier/rolling store replay of actual Android output added to native workflow. Local FFmpeg reference hashes match for both formats; latest CI gate pending. No live conversion or physical-device certification.

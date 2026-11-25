@@ -10,6 +10,17 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / 'ci'))
 from qualify_rolling_hls_pipe import box, probe, require_box, validate_moof, MAX_INIT, MAX_UNIT
 
 
+def decoded_hash(file, track):
+    command = ['ffmpeg', '-v', 'error', '-xerror', '-i', str(file)]
+    if track == 'video':
+        command += ['-map', '0:v:0', '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-fps_mode', 'passthrough']
+    else:
+        command += ['-map', '0:a:0', '-c:a', 'pcm_s16le']
+    result = subprocess.check_output(command + ['-f', 'hash', '-hash', 'sha256', '-'], timeout=30).decode().strip()
+    assert result.startswith('SHA256=') and len(result) == 71, (file, track, result)
+    return result
+
+
 def verify(root, ext):
     source = root / f'source.{ext}'
     converted = root / f'converted.{ext}.mp4'
@@ -50,6 +61,13 @@ def verify(root, ext):
             for track, packets in values.items():
                 observed[track].extend(packets)
     assert count == 12
+    # Count/timestamp equality does not prove payload conservation. Compare
+    # decoded pixels and PCM on the entire synthetic clip as a separate gate.
+    for track in ('video', 'audio'):
+        expected = decoded_hash(source, track)
+        actual = decoded_hash(converted, track)
+        assert expected == actual, (ext, track, 'decoded content mismatch', expected, actual)
+        print(ext, track, 'decoded content', actual)
     for column in (0, 1):
         src = original['video'][0][column] - original['audio'][0][column]
         dst = observed['video'][0][column] - observed['audio'][0][column]

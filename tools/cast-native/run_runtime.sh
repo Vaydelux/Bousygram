@@ -37,4 +37,5 @@ done
 run_case reentry NATIVE_RUNTIME_CALLBACKS_PASS
 for ext in mkv ts; do adb pull "$remote/converted.$ext.mp4" "$out/converted.$ext.mp4" >/dev/null; done
 timeout --kill-after=10s 180s python3 "$root/verify_runtime.py" "$out"
-echo "Android x86-64 JNI runtime and independent media verification passed"
+timeout --kill-after=10s 180s bash "$root/../ci/qualify_rolling_hls_samples.sh" "$out"
+echo "Android x86-64 JNI runtime, decoded media conservation and Kotlin rolling store qualification passed"

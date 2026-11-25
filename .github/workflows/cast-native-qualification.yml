@@ -5,7 +5,13 @@ on:
       - 'tools/cast-native/**'
       - 'app/src/debug/java/com/vaydelux/bousygram/core/cast/**'
       - 'app/src/testDebug/java/com/vaydelux/bousygram/core/cast/**'
-      - 'app/src/main/java/com/vaydelux/bousygram/core/cast/RollingHlsSource.kt'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/test/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/cache/TvStorageBudget.kt'
+      - 'tools/ci/qualify_rolling_hls_*.sh'
+      - 'tools/ci/qualify_rolling_hls_pipe.py'
+      - 'tools/ci/fixtures/RollingHls*'
+      - 'tools/ci/provision_emulator_image.sh'
       - '.github/workflows/cast-native-qualification.yml'
 permissions:
   contents: read
@@ -30,6 +36,8 @@ jobs:
           sdkmanager 'ndk;28.2.13676358' 'build-tools;35.0.0'
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y make curl gnupg xz-utils shellcheck python3 ffmpeg
+          command -v kotlinc
+          kotlinc -version
       - name: Generate synthetic native fixtures and DEX harness
         run: |
           bash tools/cast-native/prepare_runtime.sh "$RUNNER_TEMP/cast-runtime" "$ANDROID_HOME/build-tools/35.0.0/d8"
