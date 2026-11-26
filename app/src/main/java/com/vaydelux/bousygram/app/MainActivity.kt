@@ -179,8 +179,10 @@ private fun BousygramAppRoot(
     // Observe incoming Cast requests before selecting a mode. A genuine Cast
     // target must initialize Telegram, even if Extras or the chooser is visible.
     val pendingCast by CastReceiverManager.pendingCastRequest.collectAsState()
-    LaunchedEffect(pendingCast) {
-        val requested = TelegramRuntimePolicy.routeForPendingCast(mode, pendingCast != null)
+    val handoffInbox = com.vaydelux.bousygram.core.cast.TelegramHandoffNavigation.inbox
+    val pendingHandoff by handoffInbox.state.collectAsState()
+    LaunchedEffect(pendingCast, pendingHandoff) {
+        val requested = TelegramRuntimePolicy.routeForPendingCast(mode, pendingCast != null || pendingHandoff != null)
         if (requested != mode) modeName = requested.name
     }
 
@@ -291,6 +293,35 @@ private fun BousygramAppRoot(
             if (authState.step != AuthStep.Loading) {
                 CastReceiverManager.clearPendingRequest()
             }
+        }
+    }
+
+    LaunchedEffect(pendingHandoff, authState.step) {
+        val entry = pendingHandoff ?: return@LaunchedEffect
+        if (authState.step == AuthStep.Loading) return@LaunchedEffect
+        if (authState.step != AuthStep.Authorized || !AccountSession.isCurrent(entry.owner)) {
+            handoffInbox.discard(entry)
+            return@LaunchedEffect
+        }
+        val request = entry.media.request
+        val localId = try {
+            withContext(Dispatchers.IO) {
+                com.vaydelux.bousygram.core.cast.TelegramHandoffAuthorization.resolve(entry.owner, request)
+            }
+        } catch (cancel: CancellationException) { throw cancel }
+          catch (_: Exception) { null }
+        if (localId == null || localId != entry.media.localFileId) {
+            handoffInbox.discard(entry)
+            return@LaunchedEffect
+        }
+        if (handoffInbox.take(entry) == null) return@LaunchedEffect
+        AccountSession.runIfCurrent(entry.owner) {
+            val payload = com.vaydelux.bousygram.core.cast.CastMediaPayload(
+                request.chatId, request.messageId, localId, "Telegram video")
+            val playback = CastReceiverManager.toPlaybackRequest(payload, null).copy(
+                initialHandoffPositionMs = request.positionMs, initialHandoffPlay = request.playRequested)
+            appScreen = AppScreen.Player(playback, returnTo = AppScreen.Home)
+            modeName = BousygramMode.TELEGRAM.name
         }
     }
 

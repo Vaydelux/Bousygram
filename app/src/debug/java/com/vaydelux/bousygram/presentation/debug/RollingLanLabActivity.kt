@@ -1,6 +1,14 @@
 package com.vaydelux.bousygram.presentation.debug
 
 import android.graphics.Bitmap
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
+import com.vaydelux.bousygram.core.cast.TelegramTvHandoff
+import com.vaydelux.bousygram.core.cast.TelegramTvAccountHandoff
+import com.vaydelux.bousygram.core.cast.TelegramHandoffAuthorization
+import com.vaydelux.bousygram.core.cast.TelegramHandoffNavigation
+import com.vaydelux.bousygram.core.cast.RollingLanTelegramHandoff
+import kotlinx.coroutines.runBlocking
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.media3.common.util.UnstableApi
@@ -95,6 +103,9 @@ class RollingLanLabActivity : ComponentActivity() {
     private var permissionRole: Boolean? = null
     private var externalPicker = false
     private var liveMode by mutableStateOf(false)
+    private var telegramMode by mutableStateOf(false)
+    private var outgoing: TelegramTvHandoff? = null
+    private var outgoingOwner: AccountSnapshot? = null
     private var localClip by mutableStateOf(false)
     private var fixture by mutableStateOf<Uri?>(null)
     private var player by mutableStateOf<ExoPlayer?>(null)
@@ -136,6 +147,19 @@ class RollingLanLabActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val owner = AccountSession.current()
+        if (owner != null && owner.accountId == intent.getLongExtra("handoff_account", 0L) &&
+            owner.generation == intent.getLongExtra("handoff_generation", -1L)) {
+            val request = TelegramTvHandoff(intent.getLongExtra("handoff_chat", 0L),
+                intent.getLongExtra("handoff_message", 0L), intent.getLongExtra("handoff_position", -1L),
+                intent.getBooleanExtra("handoff_play", false))
+            if (request.isValid()) {
+                outgoing = request
+                outgoingOwner = owner
+                telegramMode = true
+            }
+        }
+        intent.replaceExtras(android.os.Bundle())
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             BousygramTheme {
@@ -144,7 +168,7 @@ class RollingLanLabActivity : ComponentActivity() {
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.widthIn(max = 600.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("Two-device LAN test", style = MaterialTheme.typography.headlineMedium)
-                            Text("Debug only · connectivity, synthetic playback or compatible local fMP4 · no Telegram media")
+                            Text("Debug only · secure Telegram reference handoff or LAN playback tests")
                             Text(message, style = MaterialTheme.typography.bodyLarge)
                             if (expires > 0) Text("Time remaining: ${seconds}s")
                             qr?.let { Image(it.asImageBitmap(), "Private LAN invitation QR", Modifier.align(Alignment.CenterHorizontally).size(256.dp)) }
@@ -167,10 +191,17 @@ class RollingLanLabActivity : ComponentActivity() {
                             }
                             if (!busy) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = telegramMode, enabled = outgoing == null,
+                                        onCheckedChange = { telegramMode = it; liveMode = false; localClip = false; fixture = null })
+                                    Text("Telegram player handoff")
+                                }
+                                if (telegramMode) Text(if (outgoing != null) "Selected video from the player. Scan the TV invitation."
+                                    else "Receiver must already be signed in to Telegram and have access to the selected video.")
+                                if (!telegramMode) Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = liveMode, onCheckedChange = { liveMode = it; localClip = false; fixture = null })
                                     Text("Encrypted live playback")
                                 }
-                                if (liveMode) {
+                                if (!telegramMode && liveMode) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(checked = localClip, onCheckedChange = { localClip = it; fixture = null })
                                         Text("Use compatible local fragmented MP4")
@@ -180,7 +211,8 @@ class RollingLanLabActivity : ComponentActivity() {
                                     }
                                     Text(if (localClip) "Both devices must enable local clip mode. H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments. Other formats are rejected." else "Both devices must choose the same test mode. Only the official clip is accepted.")
                                 }
-                                Button(onClick = { requestStart(true) }, modifier = Modifier.fillMaxWidth()) { Text("Receive on this device") }
+                                Button(onClick = { requestStart(true) }, enabled = outgoing == null,
+                                    modifier = Modifier.fillMaxWidth()) { Text("Receive on this device") }
                                 if (Build.VERSION.SDK_INT >= 33) {
                                     OutlinedButton(onClick = { if (browsing) stopDiscovery() else browseReceivers() },
                                         modifier = Modifier.fillMaxWidth()) { Text(if (browsing) "Stop finding receivers" else "Find nearby receivers") }
@@ -197,8 +229,8 @@ class RollingLanLabActivity : ComponentActivity() {
                                     launchPicker { camera.launch(null) }
                                 }, modifier = Modifier.fillMaxWidth()) { Text("Capture QR photo") }
                                 OutlinedButton(onClick = { launchPicker { photo.launch("image/*") } }, modifier = Modifier.fillMaxWidth()) { Text("Import QR photo") }
-                                Button(onClick = { requestStart(false) }, enabled = input.isNotBlank() && (!liveMode || fixture != null),
-                                    modifier = Modifier.fillMaxWidth()) { Text(if (liveMode) "Send live test clip" else "Send connectivity test") }
+                                Button(onClick = { requestStart(false) }, enabled = input.isNotBlank() && (if (telegramMode) outgoing != null else !liveMode || fixture != null),
+                                    modifier = Modifier.fillMaxWidth()) { Text(if (telegramMode) "Send Telegram video reference" else if (liveMode) "Send live test clip" else "Send connectivity test") }
                             } else OutlinedButton(onClick = { reset("Test cancelled.") }, modifier = Modifier.fillMaxWidth()) { Text("Cancel test") }
                             OutlinedButton(onClick = { finish() }, modifier = Modifier.fillMaxWidth()) { Text("Close LAN test") }
                         }
@@ -320,16 +352,30 @@ class RollingLanLabActivity : ComponentActivity() {
         val token = generation.incrementAndGet()
         val raw = input
         val selected = fixture
-        val live = liveMode
+        val telegram = telegramMode
+        val account = if (telegram) AccountSession.current() else null
+        if (telegram && (account == null || (!receiver && (outgoing == null || outgoingOwner != account)))) {
+            message = "Sign in to Telegram first or reopen the selected video."
+            return
+        }
+        val live = !telegram && liveMode
         val local = live && localClip
+        val reference = outgoing
+        val handoff = TelegramTvAccountHandoff()
+        var prepared: TelegramTvAccountHandoff.Prepared? = null
+        var referenceAccepted = false
         input = ""
         busy = true
         message = "Preparing temporary identity…"
-        val active = RollingHlsLanSession(route.address, route.prefix, { token == generation.get() && route.current() })
+        val active = RollingHlsLanSession(route.address, route.prefix, { token == generation.get() && route.current() && (account == null || AccountSession.isCurrent(account)) })
         session = active
         io.execute {
             val result = runCatching {
                 active.use {
+                    if (telegram && !receiver) {
+                        checkNotNull(runBlocking { TelegramHandoffAuthorization.resolve(checkNotNull(account), checkNotNull(reference)) })
+                        check(active.active())
+                    }
                     if (receiver) active.receive(
                         onInvitation = { text, deadline ->
                             val bitmap = checkNotNull(QrCodeGenerator.generate(text, 640, 640))
@@ -373,7 +419,12 @@ class RollingLanLabActivity : ComponentActivity() {
                             approved
                         },
                         onApproved = { post(token) { expires = 0L; message = if (live) "Waiting for live stream…" else "Receiving authenticated synthetic bytes…" } },
-                        live = if (!live) null else { socket, peer, remote ->
+                        live = if (telegram) ({ socket, peer, _ ->
+                            referenceAccepted = RollingLanTelegramHandoff.receive(socket, peer, active::active) { request ->
+                                prepared = runBlocking { handoff.prepare(request, true) }
+                                prepared?.owner == account && active.active()
+                            }
+                        }) else if (!live) null else { socket, peer, remote ->
                             RollingHlsLanLiveBridge.receive(socket, peer, route.address, remote, active::active, localClip = local) { client ->
                                 RollingHlsLanPlayback.play(this@RollingLanLabActivity, client, active::active,
                                     { engine -> if (token == generation.get()) player = engine },
@@ -384,7 +435,9 @@ class RollingLanLabActivity : ComponentActivity() {
                         active.send(decoded,
                             { post(token) { message = "Waiting for approval on the receiver." } },
                             { post(token) { message = if (live) "Preparing verified live stream…" else "Sending authenticated synthetic bytes…" } },
-                            live = if (!live) null else { socket, peer, remote ->
+                            live = if (telegram) ({ socket, peer, _ ->
+                                referenceAccepted = RollingLanTelegramHandoff.send(socket, peer, checkNotNull(reference), active::active)
+                            }) else if (!live) null else { socket, peer, remote ->
                                 if (local) {
                                     val uri = checkNotNull(selected)
                                     check(uri.scheme == "content")
@@ -414,6 +467,31 @@ class RollingLanLabActivity : ComponentActivity() {
                 }
             }
             post(token) {
+                if (telegram && receiver && referenceAccepted && result.getOrNull() == RollingHlsLanSession.Result.VERIFIED) {
+                    val accepted = prepared
+                    var entry: com.vaydelux.bousygram.core.cast.TelegramHandoffInbox.Entry? = null
+                    if (accepted != null) handoff.publish(accepted) { media ->
+                        entry = TelegramHandoffNavigation.inbox.offer(accepted.owner, media)
+                    }
+                    val launch = entry
+                    if (launch != null) {
+                        try {
+                            startActivity(android.content.Intent(this@RollingLanLabActivity,
+                                com.vaydelux.bousygram.app.MainActivity::class.java)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                            finish()
+                            return@post
+                        } catch (_: Exception) { TelegramHandoffNavigation.inbox.discard(launch) }
+                    }
+                    reset("Telegram handoff could not open the player.")
+                    return@post
+                }
+                if (telegram) {
+                    reset(if (referenceAccepted && result.getOrNull() == RollingHlsLanSession.Result.VERIFIED)
+                        "TV authorized the reference. Playback is not yet confirmed."
+                        else "Telegram handoff declined or unavailable.")
+                    return@post
+                }
                 reset(result.fold(
                     { if (it == RollingHlsLanSession.Result.VERIFIED)
                         if (live) "Verified: encrypted live playback completed. Temporary credentials closed." else "Verified: 1 MiB transferred over mutual TLS. Temporary credentials closed."

@@ -343,7 +343,9 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(true) }
     // This state is explicit user intent, not the decoder's isPlaying output.
     // A buffering/reconnect preparation must not override a manual Pause.
-    var explicitlyPaused by remember(request, queueIndex) { mutableStateOf(false) }
+    var explicitlyPaused by remember(request, queueIndex) {
+        mutableStateOf(queueIndex == initialIndex && request.initialHandoffPlay == false)
+    }
     var isBuffering by remember { mutableStateOf(false) }
     val activePlaybackClock = remember { ActivePlaybackClock().apply {
         reset(android.os.SystemClock.elapsedRealtime())
@@ -377,7 +379,9 @@ fun PlayerScreen(
     var activeLocalStreamUrl by remember { mutableStateOf<String?>(null) }
     var pendingResumeMs by remember { mutableLongStateOf(0L) }
     // Nullable: zero means an intentional rewind, null means no handoff override.
-    var handoffResumePositionMs by remember(request, queueIndex) { mutableStateOf<Long?>(null) }
+    var handoffResumePositionMs by remember(request, queueIndex) {
+        mutableStateOf(request.initialHandoffPositionMs?.takeIf { queueIndex == initialIndex })
+    }
     var seekPreviewPositionMs by remember { mutableLongStateOf(-1L) }
     var pendingSeekTargetMs by remember { mutableLongStateOf(-1L) }
     var pendingSeekStartedAtMs by remember { mutableLongStateOf(0L) }
@@ -2867,6 +2871,27 @@ fun PlayerScreen(
                 .padding(top = if (compactHud) 70.dp else 26.dp)
         )
 
+        if (BuildConfig.DEBUG && !isAndroidTv && hudVisible && !castState.connected) {
+            androidx.compose.material3.TextButton(
+                modifier = Modifier.align(Alignment.TopStart).padding(top = if (compactHud) 104.dp else 82.dp, start = 12.dp),
+                onClick = {
+                    val item = queue.getOrNull(queueIndex) ?: return@TextButton
+                    val owner = playbackAccountOwner ?: return@TextButton
+                    if (!com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner)) return@TextButton
+                    val handoff = com.vaydelux.bousygram.core.cast.TelegramTvHandoff(item.chatId, item.messageId,
+                        playerEngine.currentPositionMs.coerceAtLeast(0L), playerEngine.playWhenReady)
+                    if (!handoff.isValid()) return@TextButton
+                    val launch = android.content.Intent().setClassName(context.packageName,
+                        "com.vaydelux.bousygram.presentation.debug.RollingLanLabActivity")
+                        .putExtra("handoff_chat", handoff.chatId).putExtra("handoff_message", handoff.messageId)
+                        .putExtra("handoff_position", handoff.positionMs).putExtra("handoff_play", handoff.playRequested)
+                        .putExtra("handoff_account", owner.accountId).putExtra("handoff_generation", owner.generation)
+                    runCatching { context.startActivity(launch) }.onFailure {
+                        toastFeedbackText = "Secure TV handoff unavailable."
+                    }
+                }
+            ) { Text("Send to Bousygram TV") }
+        }
         if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED && !isAndroidTv && castState.supported) {
             Row(
                 // Cast and Smart Resume both occupied TopEnd (the cinematic HUD

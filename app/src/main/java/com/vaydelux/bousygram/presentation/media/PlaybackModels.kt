@@ -22,7 +22,9 @@ data class PlaybackRequest(
     val fileSizeBytes: Long = 0L,
     val alternativeVideos: List<com.vaydelux.bousygram.domain.model.MediaAlternativeVideo> = emptyList(),
     /** Real TDLib message topic/thread identity; null is not an inferred topic. */
-    val topicId: Long? = null
+    val topicId: Long? = null,
+    val initialHandoffPositionMs: Long? = null,
+    val initialHandoffPlay: Boolean? = null
 )
 
 data class PlaybackQueueItem(
