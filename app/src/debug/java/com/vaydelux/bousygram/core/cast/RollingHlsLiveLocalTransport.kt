@@ -59,7 +59,10 @@ internal class RollingHlsLiveLocalTransport(private val store: RollingHlsLiveFil
                 if (length != null && length <= 0) throw IOException("Invalid live range")
                 when (val path = requested.encodedPath) {
                     "/index.m3u8", "/init.mp4" -> {
-                        if (dataSpec.position != 0L) throw IOException("Invalid metadata offset")
+                        // The initialization bytes are immutable for this authority.
+                        // A mutable playlist must still be fetched as a whole.
+                        if (path == "/index.m3u8" && dataSpec.position != 0L)
+                            throw IOException("Invalid playlist offset")
                         memory = if (path == "/index.m3u8") {
                             val response = store.openPlaylist() ?: throw IOException("Live playlist unavailable")
                             playlist = response
@@ -67,8 +70,17 @@ internal class RollingHlsLiveLocalTransport(private val store: RollingHlsLiveFil
                             finalPlaylist = text.endsWith("#EXT-X-ENDLIST\n")
                             text.toByteArray(Charsets.UTF_8)
                         } else store.initialization() ?: throw IOException("Live initialization unavailable")
-                        remaining = checkNotNull(memory).size.toLong()
-                        if (length != null && length != remaining) throw IOException("Metadata range refused")
+                        val size = checkNotNull(memory).size.toLong()
+                        if (dataSpec.position !in 0L until size) throw IOException("Invalid metadata offset")
+                        cursor = dataSpec.position.toInt()
+                        val available = size - dataSpec.position
+                        if (path == "/index.m3u8") {
+                            if (length != null && length != available) throw IOException("Playlist range refused")
+                            remaining = available
+                        } else {
+                            remaining = length ?: available
+                            if (remaining !in 1L..available) throw IOException("Initialization range refused")
+                        }
                     }
                     else -> {
                         if (path == null || !path.startsWith("/segment/") || !path.endsWith(".m4s") ||

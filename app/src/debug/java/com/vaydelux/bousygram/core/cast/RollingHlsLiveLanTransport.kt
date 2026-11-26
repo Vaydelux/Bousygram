@@ -32,6 +32,9 @@ internal class RollingHlsLiveLanServer(
     private val store: RollingHlsLiveFileStore,
     private val resources: RollingHlsLiveLocalTransport,
     private val serverPeer: RollingHlsPairedTls.Peer,
+    // Debug instrumentation only: deterministically truncate one response
+    // after actual bytes have been sent, never configured by an intent or peer.
+    private val interruptAfterWrite: ((String, Long) -> Boolean)? = null,
     private val permitted: () -> Boolean
 ) : AutoCloseable {
     init { require(RollingHlsLanInvitation.isPrivate(local) && RollingHlsLanInvitation.isPrivate(remote) && permitted()) }
@@ -121,10 +124,15 @@ internal class RollingHlsLiveLanServer(
                         var left = length
                         while (left > 0) {
                             if (!active()) throw IOException("Live transport revoked")
-                            val n = source.read(buffer, 0, minOf(left, buffer.size.toLong()).toInt())
+                            val chunk = if (interruptAfterWrite == null) buffer.size else 256
+                            val n = source.read(buffer, 0, minOf(left, chunk.toLong()).toInt())
                             if (n <= 0 || n > left || !active()) throw IOException("Live response incomplete")
                             output.write(buffer, 0, n)
                             left -= n
+                            if (left > 0 && interruptAfterWrite?.invoke(path, length - left) == true) {
+                                output.flush()
+                                return@use
+                            }
                         }
                         output.flush()
                         if (!active()) throw IOException("Live transport revoked")

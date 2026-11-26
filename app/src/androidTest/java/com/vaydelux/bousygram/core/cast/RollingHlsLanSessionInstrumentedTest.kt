@@ -129,6 +129,85 @@ class RollingHlsLanSessionInstrumentedTest {
         } finally { worker.shutdownNow(); assertTrue(workersTerminated(worker)) }
     }
 
+    @androidx.annotation.OptIn(UnstableApi::class)
+    @Test fun authenticatedRangeRecoveryAfterMidBodyDisconnect() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val route = checkNotNull(RollingHlsLanRoute.capture(context))
+        val directory = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "lan-retry-").toFile()
+        val active = java.util.concurrent.atomic.AtomicBoolean(true)
+        val owner = com.vaydelux.bousygram.core.account.AccountSnapshot(1, 1)
+        val current: (com.vaydelux.bousygram.core.account.AccountSnapshot) -> Boolean = { it == owner && active.get() }
+        try {
+            RollingHlsLiveFileStore(directory, 6_000_000, 8, 32L * 1024 * 1024,
+                { android.os.SystemClock.elapsedRealtime() * 1000L }, active::get, { true }).use { store ->
+                val fixture = File(context.getExternalFilesDir("decoder-fixtures"), "rolling-receiver.mp4")
+                RollingHlsLiveVerifiedInput(fixture.inputStream(), active::get).use { verified ->
+                    val init = verified.initialization()
+                    assertTrue(init.size > 256)
+                    assertTrue(store.installInitialization(init))
+                    init.fill(0)
+                    val fragment = checkNotNull(verified.next())
+                    assertTrue(fragment.bytes.size > 256)
+                    assertTrue(store.publish(RollingHlsLiveRetention.Segment(fragment.sequence,
+                        fragment.durationUs, fragment.bytes.size.toLong()), fragment.bytes.inputStream()))
+                    fragment.bytes.fill(0)
+                    assertTrue(store.markComplete(fragment.sequence))
+                }
+                val resources = RollingHlsLiveLocalTransport(store)
+                RollingHlsKeystoreIdentity.create(owner, current).use { receiver ->
+                    RollingHlsKeystoreIdentity.create(owner, current).use { sender ->
+                        val pins = RollingHlsPeerPairing(current, android.os.SystemClock::elapsedRealtime).use { pairing ->
+                            checkNotNull(pairing.issue(owner, receiver.fingerprint())).use { offer ->
+                                val proof = checkNotNull(RollingHlsPeerPairing.proofFor(offer, sender.fingerprint()))
+                                try { checkNotNull(pairing.confirm(checkNotNull(pairing.receive(sender.fingerprint(), proof)), true)) }
+                                finally { proof.fill(0) }
+                            }
+                        }
+                        val serverPeer = RollingHlsPairedTls.create(owner, pins, sender, receiver.certificate(), false, current)
+                        val clientPeer = RollingHlsPairedTls.create(owner, pins, receiver, sender.certificate(), true, current)
+                        val drops = mutableSetOf<String>() // server worker only
+                        val droppedCount = java.util.concurrent.atomic.AtomicInteger()
+                        RollingHlsLiveLanServer(route.address, route.address, store, resources, serverPeer,
+                            interruptAfterWrite = { path, _ ->
+                                if (path != "/index.m3u8" && drops.add(path)) {
+                                    droppedCount.incrementAndGet()
+                                    true
+                                } else false
+                            }, permitted = active::get).use { server ->
+                            RollingHlsLiveLanClient(route.address, RollingHlsLanInvitation.Endpoint(route.address, server.port),
+                                checkNotNull(server.uri().encodedAuthority), clientPeer, active::get).use { client ->
+                                fun read(factory: androidx.media3.datasource.DataSource.Factory, path: String): ByteArray {
+                                    val spec = androidx.media3.datasource.DataSpec(server.uri().buildUpon().encodedPath(path).build())
+                                    val source = factory.createDataSource()
+                                    try {
+                                        val length = source.open(spec)
+                                        val output = java.io.ByteArrayOutputStream()
+                                        val buffer = ByteArray(128)
+                                        while (true) {
+                                            val count = source.read(buffer, 0, buffer.size)
+                                            if (count < 0) break
+                                            output.write(buffer, 0, count)
+                                        }
+                                        assertEquals(length, output.size().toLong())
+                                        return output.toByteArray()
+                                    } finally { source.close() }
+                                }
+                                read(client.factory(), "/index.m3u8")
+                                for (path in listOf("/init.mp4", "/segment/1.m4s")) {
+                                    assertArrayEquals(read(resources.factory(), path), read(client.factory(), path))
+                                }
+                                assertEquals(2, droppedCount.get())
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            active.set(false)
+            assertTrue(directory.listFiles()?.isEmpty() == true && directory.delete())
+        }
+    }
+
     private fun workersTerminated(worker: java.util.concurrent.ExecutorService) = worker.awaitTermination(10, TimeUnit.SECONDS)
 
     @Test fun cancellationClosesPendingInvitation() {

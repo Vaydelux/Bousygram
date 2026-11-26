@@ -95,7 +95,7 @@ internal object RollingHlsLanLiveBridge {
                 }
             }, "lan-synthetic-producer")
             try {
-                RollingHlsLiveLanServer(local, remote, store, resources, peer, ::active).use { server ->
+                RollingHlsLiveLanServer(local, remote, store, resources, peer, permitted = ::active).use { server ->
                     worker.start()
                     val deadline = SystemClock.elapsedRealtime() + 25_000
                     while (published.get() < 3 && !done.get() && active() && SystemClock.elapsedRealtime() < deadline) {
