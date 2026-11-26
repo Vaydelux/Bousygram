@@ -3,15 +3,13 @@ package com.vaydelux.bousygram.core.cast
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.account.AccountSessionController
 import com.vaydelux.bousygram.core.account.AccountSnapshot
-import com.vaydelux.bousygram.core.tdlib.server.TdLibTelegramFileGateway
 import kotlinx.coroutines.CancellationException
 
 /** Hold receiver account identity from acceptance through final publication. */
 internal class TelegramTvAccountHandoff(
     private val accounts: AccountSessionController = AccountSession,
-    private val resolveFile: suspend (Long, Long) -> Int? = { chat, message ->
-        TdLibTelegramFileGateway.reResolveFile(chat, message)?.fileId
-    }
+    private val resolveFile: suspend (AccountSnapshot, TelegramTvHandoff) -> Int? =
+        TelegramHandoffAuthorization::resolve
 ) {
     internal class Prepared internal constructor(
         internal val owner: AccountSnapshot,
@@ -24,8 +22,8 @@ internal class TelegramTvAccountHandoff(
         if (!acceptedOnTv || !request.isValid()) return null
         val owner = accounts.current() ?: return null
         val resolved = try {
-            TelegramTvHandoffPolicy.resolve(request, true) { chat, message ->
-                if (!accounts.isCurrent(owner)) null else resolveFile(chat, message)
+            TelegramTvHandoffPolicy.resolve(request, true) { _, _ ->
+                if (!accounts.isCurrent(owner)) null else resolveFile(owner, request)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled

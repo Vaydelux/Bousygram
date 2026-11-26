@@ -94,6 +94,41 @@ class RollingHlsLanSessionInstrumentedTest {
         } finally { worker.shutdownNow(); assertTrue(workersTerminated(worker)) }
     }
 
+    @Test fun authenticatedTelegramReferenceAndReceiverDenial() {
+        val route = checkNotNull(RollingHlsLanRoute.capture(InstrumentationRegistry.getInstrumentation().targetContext))
+        val worker = Executors.newSingleThreadExecutor()
+        val request = TelegramTvHandoff(-100123, 44, 5000, false)
+        try {
+            for (approved in listOf(false, true)) {
+                val invitation = CompletableFuture<String>()
+                val received = CompletableFuture<Boolean>()
+                RollingHlsLanSession(route.address, route.prefix, route::current).use { receiver ->
+                    val result = worker.submit<RollingHlsLanSession.Result> {
+                        receiver.receive({ text, _ -> invitation.complete(text) }, { _, _ -> true }, {},
+                            live = { socket, peer, _ ->
+                                received.complete(RollingLanTelegramHandoff.receive(socket, peer, receiver::active) {
+                                    assertEquals(request, it)
+                                    approved
+                                })
+                            })
+                    }
+                    checkNotNull(RollingHlsLanInvitation.decode(invitation.get(15, TimeUnit.SECONDS))).use { decoded ->
+                        RollingHlsLanSession(route.address, route.prefix, route::current).use { sender ->
+                            var accepted: Boolean? = null
+                            val sent = sender.send(decoded, {}, {}, live = { socket, peer, _ ->
+                                accepted = RollingLanTelegramHandoff.send(socket, peer, request, sender::active)
+                            })
+                            assertEquals(approved, accepted)
+                            assertEquals(approved, received.get(15, TimeUnit.SECONDS))
+                            assertEquals(RollingHlsLanSession.Result.VERIFIED, sent)
+                            assertEquals(RollingHlsLanSession.Result.VERIFIED, result.get(15, TimeUnit.SECONDS))
+                        }
+                    }
+                }
+            }
+        } finally { worker.shutdownNow(); assertTrue(workersTerminated(worker)) }
+    }
+
     private fun workersTerminated(worker: java.util.concurrent.ExecutorService) = worker.awaitTermination(10, TimeUnit.SECONDS)
 
     @Test fun cancellationClosesPendingInvitation() {
