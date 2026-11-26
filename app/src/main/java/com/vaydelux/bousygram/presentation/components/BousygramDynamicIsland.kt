@@ -64,6 +64,7 @@ import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramAppearanceController
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
@@ -162,7 +163,7 @@ fun BousygramDynamicIsland(
     val islandBg = if (halo.isHighContrast) {
         colors.surfaceContainerHighest
     } else {
-        Color(0xFF090D16).copy(alpha = if (reduceTransparency) 0.98f else 0.92f)
+        Color(0xFF090D16).copy(alpha = if (reduceTransparency) 1f else 0.92f)
     }
     val islandFg = if (halo.isHighContrast) colors.onSurface else Color(0xFFF5F8FF)
     val islandMuted = if (halo.isHighContrast) colors.onSurfaceVariant else Color(0xFF9FB0C8)
@@ -371,7 +372,7 @@ private fun DynamicIslandLiveSheetDialog(
                 val innerCardBg = if (halo.isHighContrast) {
                     colors.surfaceContainerHigh
                 } else {
-                    Color(0xFF131A28).copy(alpha = if (reduceTransparency) 0.96f else 0.82f)
+                    Color(0xFF131A28).copy(alpha = if (reduceTransparency) 1f else 0.82f)
                 }
                 val innerCardBorder = if (halo.isHighContrast) {
                     colors.outline
@@ -580,14 +581,18 @@ private fun IslandActionPill(
     val bg by animateColorAsState(
         targetValue = when {
             action.emphasized && focused -> colors.primary
-            action.emphasized -> accent.copy(alpha = 0.90f)
+            action.emphasized -> accent.copy(alpha = 1f)
             focused -> Color.White.copy(alpha = 0.18f)
             else -> Color(0xFF172032)
         },
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "islandActionBg"
     )
-    val fg = if (action.emphasized) Color(0xFF06131A) else Color(0xFFF3F7FF)
+    val fg = if (action.emphasized) {
+        val opaqueBackground = if (focused) colors.primary else accent
+        if (glassTextContrast(Color.Black, opaqueBackground.copy(alpha = 1f)) >=
+            glassTextContrast(Color.White, opaqueBackground.copy(alpha = 1f))) Color.Black else Color.White
+    } else Color(0xFFF3F7FF)
     val border = when {
         focused -> colors.primary
         action.emphasized -> Color.White.copy(alpha = 0.35f)
@@ -683,14 +688,16 @@ fun BousygramPlayerDynamicIsland(
     val motion = rememberBousygramMotionPolicy()
     val colors = MaterialTheme.colorScheme
     val accent = dynamicIslandToneColor(tone)
-    val pillShape = RoundedCornerShape(BousygramUiTokens.pillCorner)
-    val bg = if (halo.isHighContrast) {
+    val style = LocalBousygramStyleSpec.current
+    val themed = halo.isHighContrast || !style.isLiquidGlass
+    val pillShape = RoundedCornerShape(if (style.isLiquidGlass) BousygramUiTokens.pillCorner else style.panelCorner)
+    val bg = if (themed) {
         colors.surfaceContainerHighest
     } else {
-        Color(0xFF080C15).copy(alpha = if (reduceTransparency) 0.98f else 0.92f)
+        Color(0xFF080C15).copy(alpha = if (reduceTransparency) 1f else 0.92f)
     }
-    val fg = if (halo.isHighContrast) colors.onSurface else Color(0xFFF5F8FF)
-    val muted = if (halo.isHighContrast) colors.onSurfaceVariant else Color(0xFFA7B7CE)
+    val fg = if (themed) colors.onSurface else Color(0xFFF5F8FF)
+    val muted = if (themed) colors.onSurfaceVariant else Color(0xFFA7B7CE)
 
     Surface(
         modifier = modifier
@@ -700,8 +707,8 @@ fun BousygramPlayerDynamicIsland(
                 width = if (halo.isHighContrast) 1.5.dp else 1.dp,
                 brush = Brush.verticalGradient(
                     listOf(
-                        if (halo.isHighContrast) colors.outline else Color.White.copy(alpha = 0.28f),
-                        if (halo.isHighContrast) colors.outline else Color.White.copy(alpha = 0.08f)
+                        if (themed) colors.outline else Color.White.copy(alpha = 0.28f),
+                        if (themed) colors.outline else Color.White.copy(alpha = 0.08f)
                     )
                 ),
                 shape = pillShape
@@ -718,7 +725,7 @@ fun BousygramPlayerDynamicIsland(
         Row(
             modifier = Modifier
                 .liquidGlassSheen(
-                    enabled = !halo.isHighContrast && !reduceTransparency,
+                    enabled = style.isLiquidGlass && !halo.isHighContrast && !reduceTransparency,
                     topColor = Color.White.copy(alpha = 0.11f),
                     coverageFraction = 0.45f
                 )
