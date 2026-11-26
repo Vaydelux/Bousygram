@@ -208,6 +208,76 @@ class RollingHlsLanSessionInstrumentedTest {
         }
     }
 
+    @androidx.annotation.OptIn(UnstableApi::class)
+    @Test fun directSelectedMp4MkvAndTsPlayback() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val route = checkNotNull(RollingHlsLanRoute.capture(context))
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            for (name in listOf("seek-control.mp4", "indexed.mkv", "unindexed.ts")) {
+                val fixture = File(context.getExternalFilesDir("decoder-fixtures"), name)
+                assertTrue(fixture.isFile && fixture.length() > 8192)
+                val invitation = CompletableFuture<String>()
+                var texture: SurfaceTexture? = null
+                var surface: Surface? = null
+                RollingHlsLanSession(route.address, route.prefix, route::current).use { receiver ->
+                    val result = worker.submit<RollingHlsLanSession.Result> {
+                        receiver.receive({ text, _ -> invitation.complete(text) }, { _, _ -> true }, {},
+                            live = { socket, peer, _ ->
+                                RollingLanDirectMedia.receive(socket, peer, receiver::active) { uri, factory ->
+                                    val source = factory.createDataSource()
+                                    try {
+                                        val spec = androidx.media3.datasource.DataSpec.Builder().setUri(uri)
+                                            .setPosition(4096).setLength(4096).build()
+                                        assertEquals(4096L, source.open(spec))
+                                        val actual = ByteArray(4096)
+                                        var offset = 0
+                                        while (offset < actual.size) {
+                                            val n = source.read(actual, offset, actual.size - offset)
+                                            assertTrue(n > 0)
+                                            offset += n
+                                        }
+                                        val expected = ByteArray(actual.size)
+                                        java.io.RandomAccessFile(fixture, "r").use { it.seek(4096); it.readFully(expected) }
+                                        assertArrayEquals(expected, actual)
+                                        assertEquals(-1, source.read(actual, 0, 1))
+                                    } finally { source.close() }
+                                    RollingHlsLanPlayback.playDirect(context, uri, factory, receiver::active, { engine ->
+                                        if (engine != null) {
+                                            texture = SurfaceTexture(10)
+                                            surface = Surface(checkNotNull(texture))
+                                            engine.setVideoSurface(surface)
+                                        } else {
+                                            surface?.release(); texture?.release()
+                                            surface = null; texture = null
+                                        }
+                                    }, {})
+                                }
+                            })
+                    }
+                    checkNotNull(RollingHlsLanInvitation.decode(invitation.get(15, TimeUnit.SECONDS))).use { decoded ->
+                        RollingHlsLanSession(route.address, route.prefix, route::current).use { sender ->
+                            val sent = sender.send(decoded, {}, {}, live = { socket, peer, _ ->
+                                java.io.RandomAccessFile(fixture, "r").use { file ->
+                                    val source = object : RollingLanDirectMedia.Source {
+                                        override val size = file.length()
+                                        override fun readAt(offset: Long, buffer: ByteArray, count: Int) {
+                                            file.seek(offset)
+                                            file.readFully(buffer, 0, count)
+                                        }
+                                    }
+                                    RollingLanDirectMedia.send(socket, peer, source, sender::active)
+                                }
+                            })
+                            assertEquals(name, RollingHlsLanSession.Result.VERIFIED, sent)
+                            assertEquals(name, RollingHlsLanSession.Result.VERIFIED, result.get(30, TimeUnit.SECONDS))
+                        }
+                    }
+                }
+            }
+        } finally { worker.shutdownNow(); assertTrue(workersTerminated(worker)) }
+    }
+
     private fun workersTerminated(worker: java.util.concurrent.ExecutorService) = worker.awaitTermination(10, TimeUnit.SECONDS)
 
     @Test fun cancellationClosesPendingInvitation() {

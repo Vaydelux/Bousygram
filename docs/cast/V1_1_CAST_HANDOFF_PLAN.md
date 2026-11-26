@@ -200,3 +200,18 @@ Prior live private-interface emulator 147/147 passed; Enterprise only UsableSpac
 User requested software completion before physical-device testing. Prior qualified 85788f7 is a synthetic QA baseline, not a final release. Three debug ABI variants were published from exact tested merge 0d99273; subsequent code needs new qualification. This batch adds explicit local clip mode in both sender and receiver, distinct protocol marker, verified sequential fragmented MP4 input (H.264/AAC strict verifier subset), 16 MiB source cap, at most 12 fragments with existing duration bounds, no full-file copy, shared measured cache admission plus physical free-block floor, first-frame/actual ENDED receiver receipt, and a short completed-window integration test alongside the original synthetic live test. Local source is opened only after approval, not from an arbitrary URL or path. No ordinary MP4 conversion, general MKV/TS conversion, actual TDLib source ownership integration, device discovery, or reconnect implemented in this batch. Provider stalls and actual hardware remain unqualified.
 
 Remaining release gates: (1) qualify this batch and maintain synthetic regression; (2) connect safe bounded native source ownership to account-authorized Telegram and general selected local media, without changing stable playback or assuming TDLib deletion; (3) implement foreground discovery without broadcasting invitation secrets or trusting unauthenticated network advertisements; (4) implement bounded mutually authenticated reconnect with explicit revoke/account-change/network-change handling and no stale media replay; (5) integrate normal player UX, device selection, controls and truthful fallback; (6) fresh three-ABI build and all software regression checks; (7) physical phone/TV qualification, then final merge/cleanup. Do not publish a new user-facing test build solely for this intermediate batch. Stable main remains unchanged.
+
+
+## Direct selected-file transport candidate
+
+For supported seekable local media, use progressive Media3 extraction directly from a single
+consent-bound TLS channel instead of requiring FFmpeg or staging an entire conversion.
+Source is an explicitly selected content descriptor, regular-file only, with verified bounds
+and up to 64 KiB per request (8 GiB file admission cap). No filenames or filesystem paths are
+sent. No persistent disk copy. Direct mode has a 16 MiB target player buffer, not a hard process
+memory limit. Tests exercise exact nonzero ranges and actual playback of synthetic MP4, MKV and
+TS fixtures. The debug session still expires after 120 seconds of player time and requires
+matching modes on both devices; incompatible codecs, non-seekable providers and interrupted
+direct sockets fail closed. This is not arbitrary codec conversion or long-duration casting.
+Keep the native LGPL packaging gate unchanged. Do not distribute a new APK until current and
+candidate qualification complete; test physical devices only after the intended feature scope.

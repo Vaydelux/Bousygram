@@ -15,6 +15,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import java.io.IOException
 import java.util.concurrent.FutureTask
@@ -43,20 +44,24 @@ internal object RollingHlsLanPlayback {
 
     fun playDirect(context: Context, uri: Uri, factory: DataSource.Factory, permitted: () -> Boolean,
                    attach: (ExoPlayer?) -> Unit, status: (String) -> Unit): Boolean =
-        playSource(context, permitted, attach, status, true) {
+        playSource(context, permitted, attach, status, true, direct = true) {
             ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(uri))
         }
 
     private fun playSource(context: Context, permitted: () -> Boolean,
                            attach: (ExoPlayer?) -> Unit, status: (String) -> Unit,
-                           localClip: Boolean, media: () -> MediaSource): Boolean {
+                           localClip: Boolean, direct: Boolean = false, media: () -> MediaSource): Boolean {
         val first = AtomicBoolean()
         val failure = AtomicReference<PlaybackException?>(null)
         val holder = AtomicReference<ExoPlayer?>(null)
         try {
             val player = main {
                 check(permitted())
-                ExoPlayer.Builder(context).build().also { engine ->
+                val builder = ExoPlayer.Builder(context)
+                if (direct) builder.setLoadControl(DefaultLoadControl.Builder()
+                    .setTargetBufferBytes(16 * 1024 * 1024)
+                    .setPrioritizeTimeOverSizeThresholds(false).build())
+                builder.build().also { engine ->
                     holder.set(engine)
                     engine.setAudioAttributes(AudioAttributes.DEFAULT, false)
                     engine.addListener(object : Player.Listener {
@@ -81,7 +86,7 @@ internal object RollingHlsLanPlayback {
                 tick = now
                 if (state == Player.STATE_ENDED) return first.get() &&
                     (if (localClip) playingMs > 0 else playingMs >= 45_000) && permitted()
-                val text = if (playing) "Playing encrypted test stream" else if (state == Player.STATE_BUFFERING) "Buffering encrypted stream" else "Playback paused"
+                val text = if (playing) (if (direct) "Playing selected video" else "Playing encrypted test stream") else if (state == Player.STATE_BUFFERING) "Buffering encrypted stream" else "Playback paused"
                 if (text != previous) { previous = text; status(text) }
                 Thread.sleep(100)
             }

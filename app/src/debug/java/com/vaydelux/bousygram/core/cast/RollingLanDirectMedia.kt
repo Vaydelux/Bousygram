@@ -188,9 +188,9 @@ internal object RollingLanDirectMedia {
             private var opened = false
             private var cursor = 0L
             private var remaining = 0L
-            override fun getUri(): Uri? = if (opened) uri else null
+            override fun getUri(): Uri? = if (opened) this@Client.uri else null
             override fun open(dataSpec: DataSpec): Long {
-                if (opened || !active() || dataSpec.uri != uri || dataSpec.httpMethod != DataSpec.HTTP_METHOD_GET ||
+                if (opened || !active() || dataSpec.uri != this@Client.uri || dataSpec.httpMethod != DataSpec.HTTP_METHOD_GET ||
                     dataSpec.httpBody != null || dataSpec.position !in 0L..size)
                     throw IOException("Invalid direct media resource")
                 val available = size - dataSpec.position
