@@ -216,8 +216,7 @@ internal fun CinematicNavigationMenu(
         shape = panelShape,
         color = colors.surfaceContainerHigh.copy(
             alpha = when {
-                halo.isHighContrast -> 0.99f
-                reduceTransparency -> 0.97f
+                halo.isHighContrast || reduceTransparency -> 1f
                 styleSpec.isLiquidGlass -> if (halo.isLight) 0.93f else 0.89f
                 else -> 0.96f
             }
