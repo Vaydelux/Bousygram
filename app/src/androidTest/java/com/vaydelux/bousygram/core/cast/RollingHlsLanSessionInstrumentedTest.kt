@@ -209,12 +209,20 @@ class RollingHlsLanSessionInstrumentedTest {
     }
 
     @androidx.annotation.OptIn(UnstableApi::class)
-    @Test fun directSelectedMp4MkvAndTsPlayback() {
+    @Test fun directSelectedMp4Playback() = directSelectedPlayback("seek-control.mp4")
+    @androidx.annotation.OptIn(UnstableApi::class)
+    @Test fun directSelectedMkvPlayback() = directSelectedPlayback("indexed.mkv")
+    @androidx.annotation.OptIn(UnstableApi::class)
+    @Test fun directSelectedTsPlayback() = directSelectedPlayback("unindexed.ts")
+
+    @androidx.annotation.OptIn(UnstableApi::class)
+    private fun directSelectedPlayback(name: String) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val route = checkNotNull(RollingHlsLanRoute.capture(context))
         val worker = Executors.newSingleThreadExecutor()
         try {
-            for (name in listOf("seek-control.mp4", "indexed.mkv", "unindexed.ts")) {
+            run {
+                println("DIRECT_MEDIA_START format=$name")
                 val fixture = File(context.getExternalFilesDir("decoder-fixtures"), name)
                 assertTrue(fixture.isFile && fixture.length() > 8192)
                 val invitation = CompletableFuture<String>()
@@ -251,13 +259,13 @@ class RollingHlsLanSessionInstrumentedTest {
                                             surface?.release(); texture?.release()
                                             surface = null; texture = null
                                         }
-                                    }, {})
+                                    }, { status -> println("DIRECT_MEDIA_STATE format=$name $status") })
                                 }
                             })
                     }
                     checkNotNull(RollingHlsLanInvitation.decode(invitation.get(15, TimeUnit.SECONDS))).use { decoded ->
                         RollingHlsLanSession(route.address, route.prefix, route::current).use { sender ->
-                            val sent = sender.send(decoded, {}, {}, live = { socket, peer, _ ->
+                            val sent = try { sender.send(decoded, {}, {}, live = { socket, peer, _ ->
                                 java.io.RandomAccessFile(fixture, "r").use { file ->
                                     val source = object : RollingLanDirectMedia.Source {
                                         override val size = file.length()
@@ -269,13 +277,18 @@ class RollingHlsLanSessionInstrumentedTest {
                                     val interrupted = java.util.concurrent.atomic.AtomicBoolean(false)
                                     RollingLanDirectMedia.send(socket, peer, source, sender::active,
                                         interruptAfterWrite = { offset ->
-                                            offset == 4096L && interrupted.compareAndSet(false, true)
+                                            offset == 0L && interrupted.compareAndSet(false, true)
                                         })
                                     assertTrue("Expected interrupted data response for $name", interrupted.get())
                                 }
-                            })
+                            }) } catch (senderError: Exception) {
+                                try { result.get(10, TimeUnit.SECONDS) }
+                                catch (receiverError: Exception) { senderError.addSuppressed(receiverError.cause ?: receiverError) }
+                                throw AssertionError("Direct playback failed: $name", senderError)
+                            }
                             assertEquals(name, RollingHlsLanSession.Result.VERIFIED, sent)
                             assertEquals(name, RollingHlsLanSession.Result.VERIFIED, result.get(30, TimeUnit.SECONDS))
+                            println("DIRECT_MEDIA_PASS format=$name")
                         }
                     }
                 }

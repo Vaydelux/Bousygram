@@ -74,6 +74,7 @@ internal object RollingLanDirectMedia {
     private fun handshake(socket: SSLSocket, peer: RollingHlsPairedTls.Peer, client: Boolean,
                           permitted: () -> Boolean) {
         access(permitted)
+        socket.tcpNoDelay = true
         socket.useClientMode = client
         socket.enabledProtocols = arrayOf("TLSv1.3")
         if (!client) socket.needClientAuth = true
@@ -202,6 +203,16 @@ internal object RollingLanDirectMedia {
         try {
             if (!playback(client.uri, client.factory()) || !permitted()) throw IOException("Direct playback incomplete")
             client.finish()
+        } catch (error: Exception) {
+            // Make receiver failure observable before the control channel is closed.
+            runCatching {
+                if (permitted()) {
+                    output.writeByte(FINISH)
+                    output.writeByte(0)
+                    output.flush()
+                }
+            }
+            throw error
         } finally { client.revoke() }
     }
 
@@ -214,6 +225,7 @@ internal object RollingLanDirectMedia {
         @Volatile private var failed = false
         private fun active() = !closed && !failed && permitted()
         private val dataSocket = AtomicReference<SSLSocket?>(null)
+        private val window = RollingLanDirectReadWindow(size)
         private var dataInput: DataInputStream? = null
         private var dataOutput: DataOutputStream? = null
 
@@ -226,7 +238,13 @@ internal object RollingLanDirectMedia {
             closed = true
             // Close outside the synchronized read monitor to interrupt blocked IO.
             dataSocket.getAndSet(null)?.let { runCatching { it.close() } }
+            synchronized(this) { window.clear() }
         }
+
+        @Synchronized fun read(offset: Long, buffer: ByteArray, start: Int, count: Int): Int =
+            window.read(offset, buffer, start, count, ::active) { pageOffset, page, pageLength ->
+                fetch(pageOffset, pageLength, page, 0)
+            }
 
         private fun connect() {
             if (dataSocket.get() != null) return
@@ -288,6 +306,7 @@ internal object RollingLanDirectMedia {
         @Synchronized fun finish() {
             if (!active()) throw IOException("Direct media session unavailable")
             disconnect()
+            window.clear()
             output.writeByte(FINISH)
             output.writeByte(1)
             output.flush()
@@ -320,11 +339,11 @@ internal object RollingLanDirectMedia {
                 if (!opened || !active()) throw IOException("Direct media session revoked")
                 if (remaining == 0L) return C.RESULT_END_OF_INPUT
                 val count = minOf(remaining, length.toLong(), RollingLanDirectMediaPolicy.MAX_READ_BYTES.toLong()).toInt()
-                fetch(cursor, count, buffer, offset)
-                cursor += count
-                remaining -= count
-                bytesTransferred(count)
-                return count
+                val n = this@Client.read(cursor, buffer, offset, count)
+                cursor += n
+                remaining -= n
+                bytesTransferred(n)
+                return n
             }
             override fun close() {
                 if (opened) { opened = false; transferEnded() }
