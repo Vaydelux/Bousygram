@@ -285,6 +285,14 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     var activeEmbed by remember { mutableStateOf<ExtrasEmbedRequest?>(null) }
     val detailHistory = remember { mutableStateListOf<ExtrasItem>() }
     val selectedPoster = remember { mutableStateMapOf<ExtrasType, Int>() }
+    val discovery = remember(state.results, state.query, state.filters, state.droppedResults,
+        personalLibrary, personalLibraryReady, type, metrics.effectiveWidthDp, metrics.effectiveHeightDp) {
+        ExtrasDiscoveryPolicy.resolve(
+            type, state.results, personalLibrary.takeIf { personalLibraryReady },
+            unfiltered = state.query.isBlank() && state.filters == ExtrasFilters() && state.droppedResults == 0,
+            roomy = metrics.effectiveWidthDp >= 600.dp && metrics.effectiveHeightDp >= 600.dp
+        )
+    }
     val moviePosterFocus = remember { FocusRequester() }
     val tvPosterFocus = remember { FocusRequester() }
     val animePosterFocus = remember { FocusRequester() }
@@ -335,14 +343,14 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
     }
 
     // Restore the poster *and* grid position after leaving the details route.
-    LaunchedEffect(restorePosterFocus, detailItem, activeTabIndex, state.results.size, showPersonalLibrary) {
+    LaunchedEffect(restorePosterFocus, detailItem, activeTabIndex, state.results.size, showPersonalLibrary, discovery.prefixCount) {
         if (restorePosterFocus <= restoredPosterFocus || detailItem != null || showPersonalLibrary) return@LaunchedEffect
         // A bounded page or provider refresh can evict the selected poster.
         // Restore the original card when present; otherwise focus the first
         // retained card instead of leaving a TV remote in a dead focus state.
         val target = ExtrasPosterReturnPolicy.resolve(selectedPoster[type], state.results)
             ?: return@LaunchedEffect
-        activeGrid.scrollToItem(target.index)
+        activeGrid.scrollToItem(discovery.posterIndex(target.index))
         if (!isAndroidTv) {
             // Touch navigation needs the scroll anchor, not forced input focus.
             restoredPosterFocus = restorePosterFocus
@@ -1146,28 +1154,6 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 // A real interactive hero is reserved for large windows; a
                 // 960x540dp short TV and landscape phone retain the full
                 // catalog viewport rather than a second oversized banner.
-                val showSpotlight = state.results.isNotEmpty() &&
-                    state.query.isBlank() && state.filters == ExtrasFilters() &&
-                    !metrics.isShortWindow &&
-                    ((isAndroidTv && metrics.heightDp >= 680.dp &&
-                        metrics.fontScale < 1.5f) ||
-                    (!isAndroidTv && metrics.widthDp >= 800.dp &&
-                        metrics.heightDp >= 760.dp))
-                if (showSpotlight) {
-                    val featured = state.results[spotlightIndex % state.results.size]
-                    ExtrasSpotlightCard(
-                        item = featured,
-                        position = spotlightIndex % state.results.size,
-                        total = state.results.size,
-                        isTv = isAndroidTv,
-                        onOpen = { openFromResults(featured) },
-                        onNext = {
-                            if (state.results.size > 1) {
-                                spotlightIndex = (spotlightIndex + 1) % state.results.size
-                            }
-                        }
-                    )
-                }
                 if (state.results.isEmpty() && state.loading) {
                     ExtrasCatalogViewport {
                         ExtrasCatalogLoadingSkeleton(
@@ -1222,13 +1208,34 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         modifier = Modifier.fillMaxSize().focusGroup().testTag("extras-poster-grid"),
                         horizontalArrangement = Arrangement.spacedBy(layout.gridGapDp.dp),
                         verticalArrangement = Arrangement.spacedBy(layout.gridGapDp.dp + 2.dp)) {
+                        if (discovery.featured) {
+                            item(key = "extras-featured", span = { GridItemSpan(maxLineSpan) }) {
+                                val featured = state.results[spotlightIndex % state.results.size]
+                                ExtrasSpotlightCard(item = featured,
+                                    position = spotlightIndex % state.results.size,
+                                    total = state.results.size, isTv = isAndroidTv,
+                                    onOpen = { openFromResults(featured) },
+                                    onNext = {
+                                        if (state.results.size > 1) spotlightIndex = (spotlightIndex + 1) % state.results.size
+                                    })
+                            }
+                        }
+                        discovery.rails.forEach { rail ->
+                            item(key = "extras-rail:${rail.key}", span = { GridItemSpan(maxLineSpan) }) {
+                                ExtrasDiscoveryRail(rail, isAndroidTv, onOpen = { selected ->
+                                    // Personal titles may lie outside this catalog page. Keep
+                                    // their exact identity and restore the retained grid fallback.
+                                    openFromResults(selected)
+                                })
+                            }
+                        }
                         itemsIndexed(
                             state.results, key = { _, item -> "${item.type}:${item.id}" }
                         ) { index, item ->
                             val focus = Modifier
                                 .then(if (index == 0) Modifier.focusRequester(firstPosterFocus)
                                     .focusProperties {
-                                        if (!filtersExpanded) up = filterFocus
+                                        if (!filtersExpanded && discovery.prefixCount == 0) up = filterFocus
                                     } else Modifier)
                                 .then(if (selectedPoster[type] == item.id) {
                                     Modifier.focusRequester(posterFocus)
@@ -1630,6 +1637,7 @@ private fun ExtrasPosterArtwork(
 internal fun ExtrasPosterCard(
     item: ExtrasItem,
     modifier: Modifier = Modifier,
+    tagPrefix: String = "extras-poster",
     onClick: () -> Unit
 ) {
     val metrics = rememberAdaptiveMetrics()
@@ -1637,7 +1645,7 @@ internal fun ExtrasPosterCard(
     TvFocusSurface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth()
-            .testTag("extras-poster-${item.type.name.lowercase()}-${item.id}")
+            .testTag("$tagPrefix-${item.type.name.lowercase()}-${item.id}")
     ) { focused ->
         Column {
             ExtrasPosterArtwork(
@@ -1850,11 +1858,13 @@ internal fun ExtrasDetailContent(
                     }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(if (isAndroidTv) 24.dp else 18.dp)) {
-                        ExtrasPosterArtwork(
-                            url = info.item.poster, contentDescription = info.item.title,
-                            modifier = Modifier.width(posterWidth)
-                                .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
-                        )
+                        if (info.backdrop.isNullOrBlank() || !shortViewport) {
+                            ExtrasPosterArtwork(
+                                url = info.item.poster, contentDescription = info.item.title,
+                                modifier = Modifier.width(posterWidth)
+                                    .aspectRatio(ExtrasImagePolicy.POSTER_ASPECT_RATIO), detail = true
+                            )
+                        }
                         Column(Modifier.weight(1f)) { ExtrasDetailSummary(info, spec,
                             isSaved, libraryReady, libraryBusy, onSaveToggle) }
                     }
@@ -1877,7 +1887,7 @@ internal fun ExtrasDetailContent(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         BousygramIcon(icon = BousygramIcons.Play, contentDescription = null, size = 18.dp)
-                        Text("Play · Web source")
+                        Text("Play movie")
                     }
                 }
             }
@@ -1971,7 +1981,7 @@ internal fun ExtrasDetailContent(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             BousygramIcon(icon = BousygramIcons.Play, contentDescription = null, size = 18.dp)
-                            Text("Play episode · Web source")
+                            Text("Play episode $episodeNumber")
                         }
                     }
                     Text(

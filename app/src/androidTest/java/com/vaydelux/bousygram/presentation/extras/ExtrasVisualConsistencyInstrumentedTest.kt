@@ -56,6 +56,19 @@ import org.junit.runner.RunWith
 class ExtrasVisualConsistencyInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun discoveryRailUsesDistinctTagsAndOpensExactTitle() {
+        val item = ExtrasItem(id = 42, type = ExtrasType.ANIME, title = "Fixture anime")
+        var opened: ExtrasItem? = null
+        compose.setContent {
+            BousygramTheme(preset = BousygramThemePreset.MIDNIGHT_GLASS) {
+                ExtrasDiscoveryRail(ExtrasDiscoveryRailModel("saved", "Saved titles", listOf(item)),
+                    isTv = false, onOpen = { opened = it })
+            }
+        }
+        compose.onNodeWithTag("extras-rail-saved-anime-42").performClick()
+        compose.runOnIdle { assertEquals(item, opened) }
+    }
+
     @Test fun theaterToolsDialogScrollsAndClosesWithoutReplacingStage() {
         val opened = mutableStateOf(true)
         compose.setContent {

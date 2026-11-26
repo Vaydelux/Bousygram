@@ -31,3 +31,6 @@ flowchart TD
 ## Qualification and remaining work
 Run offline request-policy and UI tests, emulator real-launch and D-pad smoke, test all 16 themes/Reduce Transparency, then test user-authorized real sources and physical ARM32 TV. Inspect actual screenshots; this document is a design contract, not proof of rendered pixels.
 Next design work: richer scrollable discovery rails using actual catalog data, consolidated title-detail information hierarchy and saved/recent cards; do not fabricate provider availability or watch progress. Consider GeckoView only after measuring WebView version/codec limitations, APK and memory impact. Do not add a new playback engine merely to work around providers' page behavior.
+
+## Phase 2–3 implementation
+The featured block and bounded lazy rails now occupy full-span items within the existing grid; poster restoration includes the exact prefix count. Saved/recent rails use only local metadata for the active category; highly rated uses existing results with numeric scores ≥8. No extra API traffic or fake watch history. Narrow/short windows and filtered searches remain grid-only. Episode artwork has bounded decoding and fallback visuals; primary actions use concise labels. Qualification still required.

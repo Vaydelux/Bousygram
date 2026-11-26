@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -60,6 +61,7 @@ internal fun ExtrasDetailBackdrop(
     }
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
+    val opaque = LocalBousygramReduceTransparency.current || halo.isHighContrast
     val styleSpec = LocalBousygramStyleSpec.current
     val shape = RoundedCornerShape(styleSpec.panelCorner)
     Box(
@@ -97,7 +99,7 @@ internal fun ExtrasDetailBackdrop(
                     listOf(
                         Color.Transparent,
                         colors.background.copy(alpha = 0.35f),
-                        colors.background.copy(alpha = 0.96f)
+                        colors.background.copy(alpha = if (opaque) 1f else 0.96f)
                     )
                 )
             )

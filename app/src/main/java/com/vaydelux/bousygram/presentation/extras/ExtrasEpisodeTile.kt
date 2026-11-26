@@ -1,5 +1,8 @@
 package com.vaydelux.bousygram.presentation.extras
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -17,7 +20,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.request.ImageRequest
+import coil.size.Precision
+import androidx.compose.runtime.remember
+import android.os.Process
+import com.vaydelux.bousygram.core.media.PlayerBufferConfig
+import com.vaydelux.bousygram.presentation.components.BousygramIcon
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +51,14 @@ internal fun ExtrasEpisodeTile(
     isTv: Boolean = false
 ) {
     val style = LocalBousygramStyleSpec.current
+    val context = LocalContext.current
+    val target = remember(context) {
+        ExtrasImagePolicy.backdrop(PlayerBufferConfig.isLowRamDevice(context) || !Process.is64Bit())
+    }
+    val stillRequest = remember(context, episode.still, target) {
+        ImageRequest.Builder(context).data(episode.still).size(target.width, target.height)
+            .precision(Precision.INEXACT).crossfade(false).build()
+    }
     Surface(
         modifier = modifier.fillMaxWidth().testTag("extras-episode-card-${episode.number}"),
         shape = RoundedCornerShape(style.cardCorner),
@@ -52,13 +72,21 @@ internal fun ExtrasEpisodeTile(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    AsyncImage(
-                        model = episode.still,
-                        contentDescription = null,
-                        modifier = Modifier.width(if (compactCard) 100.dp else 136.dp)
-                            .aspectRatio(16f / 9f),
-                        contentScale = ContentScale.Crop
-                    )
+                    Box(
+                        Modifier.width(if (compactCard) 100.dp else 160.dp)
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(style.tabCorner))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (episode.still.isNullOrBlank()) {
+                            BousygramIcon(icon = BousygramIcons.Film, contentDescription = null,
+                                size = 24.dp)
+                        } else {
+                            AsyncImage(model = stillRequest, contentDescription = null,
+                                modifier = Modifier.matchParentSize(), contentScale = ContentScale.Crop)
+                        }
+                    }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             "Episode ${episode.number}",
@@ -87,7 +115,10 @@ internal fun ExtrasEpisodeTile(
                         onClick = onPlay,
                         modifier = Modifier.fillMaxWidth().heightIn(min = if (isTv) 56.dp else 48.dp)
                             .extrasFocusOutline().testTag("extras-play-episode")
-                    ) { Text("Play episode ${episode.number}") }
+                    ) {
+                        BousygramIcon(icon = BousygramIcons.Play, contentDescription = null, size = 18.dp)
+                        Text("Play episode ${episode.number}", modifier = Modifier.padding(start = 8.dp))
+                    }
                 }
             }
         }
