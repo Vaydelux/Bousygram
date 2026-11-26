@@ -29,7 +29,8 @@ internal object RollingHlsLanPlayback {
         try { return task.get(5, TimeUnit.SECONDS) } finally { task.cancel(false) }
     }
     fun play(context: Context, client: RollingHlsLiveLanClient, permitted: () -> Boolean,
-             attach: (ExoPlayer?) -> Unit, status: (String) -> Unit = {}): Boolean {
+             attach: (ExoPlayer?) -> Unit, status: (String) -> Unit = {},
+             localClip: Boolean = false): Boolean {
         val first = AtomicBoolean()
         val failure = AtomicReference<PlaybackException?>(null)
         val holder = AtomicReference<ExoPlayer?>(null)
@@ -62,7 +63,8 @@ internal object RollingHlsLanPlayback {
                 val now = SystemClock.elapsedRealtime()
                 if (playing && first.get()) playingMs += (now - tick).coerceIn(0, 250)
                 tick = now
-                if (state == Player.STATE_ENDED) return first.get() && playingMs >= 45_000 && permitted()
+                if (state == Player.STATE_ENDED) return first.get() &&
+                    (if (localClip) playingMs > 0 else playingMs >= 45_000) && permitted()
                 val text = if (playing) "Playing encrypted test stream" else if (state == Player.STATE_BUFFERING) "Buffering encrypted stream" else "Playback paused"
                 if (text != previous) { previous = text; status(text) }
                 Thread.sleep(100)

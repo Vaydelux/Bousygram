@@ -24,6 +24,7 @@ import javax.net.ssl.SSLSocket
 internal object RollingHlsLanLiveBridge {
     private const val MAGIC = 0x42474d31
     private const val END = 0x42474d32
+    private const val LOCAL_MAGIC = 0x42474d33
 
     private fun handshake(socket: SSLSocket, peer: RollingHlsPairedTls.Peer, client: Boolean) {
         socket.useClientMode = client
@@ -36,8 +37,11 @@ internal object RollingHlsLanLiveBridge {
 
     fun send(control: SSLSocket, peer: RollingHlsPairedTls.Peer, local: Inet4Address,
              remote: Inet4Address, cache: File, input: InputStream, permitted: () -> Boolean,
+             localClip: Boolean = false, sharedAdmission: ((Long) -> Boolean)? = null,
              progress: (Long) -> Unit = {}) {
-        input.use { source ->
+        require(!localClip || sharedAdmission != null)
+        val boundedSource = if (localClip) RollingLanClipPolicy.bounded(input, permitted) else input
+        boundedSource.use { source ->
             handshake(control, peer, true)
             check(permitted())
             val dir = Files.createTempDirectory(cache.toPath(), "lan-live-").toFile()
@@ -51,16 +55,20 @@ internal object RollingHlsLanLiveBridge {
                     val free = runCatching { StatFs(dir.absolutePath).availableBytes }.getOrDefault(-1L)
                     additional in 0L..RollingHlsBudget.MAX_SEGMENT_BYTES &&
                         free >= RollingHlsBudget.MIN_FREE_BYTES &&
-                        additional <= free - RollingHlsBudget.MIN_FREE_BYTES
+                        additional <= free - RollingHlsBudget.MIN_FREE_BYTES &&
+                        (sharedAdmission?.invoke(additional) ?: true)
                 })
             val verified = RollingHlsLiveVerifiedInput(source, ::active)
             val bounded = object : RollingHlsLiveProducer.VerifiedInput {
-                private var count = 0
+                private val policy = RollingLanClipPolicy(synthetic = !localClip)
                 override fun initialization() = verified.initialization()
                 override fun next(): RollingHlsLiveProducer.Unit? {
                     val unit = verified.next()
-                    if (unit == null) { check(count == 12); return null }
-                    if (++count > 12) { unit.bytes.fill(0); throw IOException("Test fragment limit") }
+                    if (unit == null) { check(policy.complete()); return null }
+                    if (!policy.accept(unit.sequence, unit.startUs, unit.durationUs)) {
+                        unit.bytes.fill(0)
+                        throw IOException("Unsupported clip length or fragment layout")
+                    }
                     return unit
                 }
                 override fun close() = verified.close()
@@ -90,23 +98,24 @@ internal object RollingHlsLanLiveBridge {
                 RollingHlsLiveLanServer(local, remote, store, resources, peer, ::active).use { server ->
                     worker.start()
                     val deadline = SystemClock.elapsedRealtime() + 25_000
-                    while (published.get() < 3 && active() && SystemClock.elapsedRealtime() < deadline) {
+                    while (published.get() < 3 && !done.get() && active() && SystemClock.elapsedRealtime() < deadline) {
                         failure.get()?.let { throw IOException("Live producer failed", it) }
                         Thread.sleep(50)
                     }
-                    check(active() && published.get() == 3L)
+                    failure.get()?.let { throw IOException("Live producer failed", it) }
+                    check(active() && (published.get() >= 3L || (localClip && done.get() && published.get() > 0)))
                     val output = DataOutputStream(control.outputStream)
-                    output.writeInt(MAGIC)
+                    output.writeInt(if (localClip) LOCAL_MAGIC else MAGIC)
                     output.writeShort(server.port)
                     output.writeUTF(checkNotNull(server.uri().encodedAuthority))
                     output.flush()
                     control.soTimeout = 135_000
                     val receipt = DataInputStream(control.inputStream)
                     if (receipt.readInt() != END || receipt.readUnsignedByte() != 1 ||
-                        !active() || !done.get() || published.get() != 12L)
+                        !active() || !done.get() || (if (localClip) published.get() !in 1L..12L else published.get() != 12L))
                         throw IOException("Receiver completion refused")
                     failure.get()?.let { throw IOException("Live producer failed", it) }
-                    check(server.diagnostics().responses >= 12 && resources.diagnostics().endListRead)
+                    check(server.diagnostics().responses.toLong() >= published.get() && resources.diagnostics().endListRead)
                 }
             } finally {
                 allowed.set(false)
@@ -121,12 +130,13 @@ internal object RollingHlsLanLiveBridge {
 
     fun receive(control: SSLSocket, peer: RollingHlsPairedTls.Peer, local: Inet4Address,
                 remote: Inet4Address, permitted: () -> Boolean,
+                localClip: Boolean = false,
                 playback: (RollingHlsLiveLanClient) -> Boolean) {
         handshake(control, peer, false)
         check(permitted())
         control.soTimeout = 30_000
         val input = DataInputStream(control.inputStream)
-        if (input.readInt() != MAGIC) throw IOException("Incorrect LAN test mode")
+        if (input.readInt() != (if (localClip) LOCAL_MAGIC else MAGIC)) throw IOException("Incorrect LAN test mode")
         val port = input.readUnsignedShort()
         // Bounded ASCII field: sender emits modified UTF length 36; check before allocation.
         if (input.readUnsignedShort() != 36) throw IOException("Invalid live authority length")

@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.Row
 import com.vaydelux.bousygram.core.cast.RollingHlsLanLiveBridge
 import com.vaydelux.bousygram.core.cast.RollingHlsLanPlayback
 import java.security.MessageDigest
+import java.io.File
+import android.os.StatFs
+import com.vaydelux.bousygram.core.cache.CacheManager
+import com.vaydelux.bousygram.core.cast.RollingHlsBudget
 import java.io.ByteArrayInputStream
 import android.os.Bundle
 import android.os.Handler
@@ -84,6 +88,7 @@ class RollingLanLabActivity : ComponentActivity() {
     private var permissionRole: Boolean? = null
     private var externalPicker = false
     private var liveMode by mutableStateOf(false)
+    private var localClip by mutableStateOf(false)
     private var fixture by mutableStateOf<Uri?>(null)
     private var player by mutableStateOf<ExoPlayer?>(null)
     private val tick = object : Runnable {
@@ -107,7 +112,7 @@ class RollingLanLabActivity : ComponentActivity() {
     }
     private val video = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         externalPicker = false
-        if (!busy && uri != null) { fixture = uri; message = "Test clip selected. Its SHA-256 will be checked before playback." }
+        if (!busy && uri != null) { fixture = uri; message = if (localClip) "Local clip selected. Format and size will be verified during transfer." else "Test clip selected. Its SHA-256 will be checked before playback." }
     }
     private val photo = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         externalPicker = false
@@ -130,7 +135,7 @@ class RollingLanLabActivity : ComponentActivity() {
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.widthIn(max = 600.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("Two-device LAN test", style = MaterialTheme.typography.headlineMedium)
-                            Text("Debug only · synthetic connectivity or live playback · no Telegram media")
+                            Text("Debug only · connectivity, synthetic playback or compatible local fMP4 · no Telegram media")
                             Text(message, style = MaterialTheme.typography.bodyLarge)
                             if (expires > 0) Text("Time remaining: ${seconds}s")
                             qr?.let { Image(it.asImageBitmap(), "Private LAN invitation QR", Modifier.align(Alignment.CenterHorizontally).size(256.dp)) }
@@ -153,14 +158,18 @@ class RollingLanLabActivity : ComponentActivity() {
                             }
                             if (!busy) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = liveMode, onCheckedChange = { liveMode = it })
-                                    Text("72-second encrypted live playback test")
+                                    Checkbox(checked = liveMode, onCheckedChange = { liveMode = it; localClip = false; fixture = null })
+                                    Text("Encrypted live playback")
                                 }
                                 if (liveMode) {
-                                    OutlinedButton(onClick = { launchPicker { video.launch("video/mp4") } }, modifier = Modifier.fillMaxWidth()) {
-                                        Text(if (fixture == null) "Select official synthetic test clip (sender)" else "Test clip selected")
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = localClip, onCheckedChange = { localClip = it; fixture = null })
+                                        Text("Use compatible local fragmented MP4")
                                     }
-                                    Text("Both devices must choose the same test mode. Only the official clip is accepted.")
+                                    OutlinedButton(onClick = { launchPicker { video.launch("video/mp4") } }, modifier = Modifier.fillMaxWidth()) {
+                                        Text(if (fixture != null) "Clip selected" else if (localClip) "Select local fragmented MP4 (sender)" else "Select official synthetic test clip (sender)")
+                                    }
+                                    Text(if (localClip) "Both devices must enable local clip mode. H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments. Other formats are rejected." else "Both devices must choose the same test mode. Only the official clip is accepted.")
                                 }
                                 Button(onClick = { requestStart(true) }, modifier = Modifier.fillMaxWidth()) { Text("Receive on this device") }
                                 OutlinedTextField(value = input, onValueChange = {
@@ -258,6 +267,7 @@ class RollingLanLabActivity : ComponentActivity() {
         val raw = input
         val selected = fixture
         val live = liveMode
+        val local = live && localClip
         input = ""
         busy = true
         message = "Preparing temporary identity…"
@@ -299,10 +309,10 @@ class RollingLanLabActivity : ComponentActivity() {
                         },
                         onApproved = { post(token) { expires = 0L; message = if (live) "Waiting for live stream…" else "Receiving authenticated synthetic bytes…" } },
                         live = if (!live) null else { socket, peer, remote ->
-                            RollingHlsLanLiveBridge.receive(socket, peer, route.address, remote, active::active) { client ->
+                            RollingHlsLanLiveBridge.receive(socket, peer, route.address, remote, active::active, localClip = local) { client ->
                                 RollingHlsLanPlayback.play(this@RollingLanLabActivity, client, active::active,
                                     { engine -> if (token == generation.get()) player = engine },
-                                    { text -> post(token) { message = text } })
+                                    { text -> post(token) { message = text } }, localClip = local)
                             }
                         })
                     else checkNotNull(RollingHlsLanInvitation.decode(raw.trim())).use { decoded ->
@@ -310,13 +320,30 @@ class RollingLanLabActivity : ComponentActivity() {
                             { post(token) { message = "Waiting for approval on the receiver." } },
                             { post(token) { message = if (live) "Preparing verified live stream…" else "Sending authenticated synthetic bytes…" } },
                             live = if (!live) null else { socket, peer, remote ->
-                                val bytes = readOfficialFixture(checkNotNull(selected))
-                                try {
-                                    RollingHlsLanLiveBridge.send(socket, peer, route.address, remote, cacheDir,
-                                        ByteArrayInputStream(bytes), active::active) { seq ->
-                                        post(token) { message = "Published test fragment $seq / 12" }
+                                if (local) {
+                                    val uri = checkNotNull(selected)
+                                    check(uri.scheme == "content")
+                                    val source = checkNotNull(contentResolver.openInputStream(uri))
+                                    source.use {
+                                        RollingHlsLanLiveBridge.send(socket, peer, route.address, remote, cacheDir,
+                                            source, active::active, localClip = true, sharedAdmission = { additional ->
+                                                runCatching {
+                                                    val stats = CacheManager.storageStats(this@RollingLanLabActivity,
+                                                        File(filesDir, "tdlib_files"))
+                                                    RollingHlsBudget.admits(stats.appCacheBytes, stats.tdLibCacheBytes,
+                                                        StatFs(cacheDir.absolutePath).availableBytes, additional)
+                                                }.getOrDefault(false)
+                                            }) { seq -> post(token) { message = "Published verified local fragment $seq" } }
                                     }
-                                } finally { bytes.fill(0) }
+                                } else {
+                                    val bytes = readOfficialFixture(checkNotNull(selected))
+                                    try {
+                                        RollingHlsLanLiveBridge.send(socket, peer, route.address, remote, cacheDir,
+                                            ByteArrayInputStream(bytes), active::active) { seq ->
+                                            post(token) { message = "Published test fragment $seq / 12" }
+                                        }
+                                    } finally { bytes.fill(0) }
+                                }
                             })
                     }
                 }
