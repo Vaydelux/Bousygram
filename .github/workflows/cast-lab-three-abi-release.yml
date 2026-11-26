@@ -1,0 +1,135 @@
+name: Cast Lab Dated Debug APK - three ABIs
+on:
+  push:
+    branches: [feature/v1.1-cast-handoff]
+    paths: [.github/workflows/cast-lab-three-abi-release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: cast-lab-three-abi-85788f7
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/feature/v1.1-cast-handoff'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      RELEASE_SHA: 0d99273cf0a43778a4104495d2c74aa60e7824d7
+      QA_HEAD: 85788f7a24ce61fa0f565b4474cc86bd9fe872f8
+      QA_BASE: 91167aff74ac0c58259c6f67f371083bbf7ff488
+      QA_TAG: debug-cast-lab-20261126-85788f7-three-abi
+      CI_VERIFICATION_RUN_ID: ${{ github.run_id }}
+      ANDROID_API: '37'
+      BUILD_TOOLS_VERSION: '35.0.0'
+    steps:
+      - name: Verify exact previously qualified source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for run_id in 45771994026 45771994015 45771993944 45771994049; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" | jq -e --arg head "$QA_HEAD" \
+              '.head_sha == $head and .event == "pull_request" and .status == "completed" and .conclusion == "success" and .run_attempt == 1' >/dev/null
+            if [[ "$run_id" != 45771994026 ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/attempts/1/jobs?per_page=100" | jq -e --arg proof "Prove tested merge $RELEASE_SHA" \
+                '.total_count > 0 and (.jobs | length > 0 and all(.[]; .conclusion == "success" and any(.steps[]?; .name == $proof and .conclusion == "success")))' >/dev/null
+            fi
+          done
+          gh api "repos/$GITHUB_REPOSITORY/git/commits/$RELEASE_SHA" | jq -e --arg base "$QA_BASE" --arg head "$QA_HEAD" \
+            '(.parents | map(.sha)) == [$base, $head]' >/dev/null
+      - name: Check out exact tested merge, not the current branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - name: Confirm clean uncredentialed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
+          [[ ! -e .env && ! -e .env.local ]]
+          bash tools/ci/verify_brand_identity.sh
+          bash tools/ci/verify_telegram_local_only.sh
+      - name: Set up Java 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - name: Install verified SDK
+        shell: bash
+        run: bash tools/ci/setup_android_sdk.sh
+      - name: Verify application and build all three native variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain :app:verifyReleaseVersionPolicy :app:verifyTvHardeningContract :app:verifyPrivateMediaCastReleaseGate :app:verifySensitiveLogRedaction :app:lintDebug :app:testDebugUnitTest :mediaforge-core:testDebugUnitTest :mediaforge-player-adapters:testDebugUnitTest
+          bash tools/ci/build_debug_preview.sh ci-artifacts/cast-lab-three-abi
+          bash tools/ci/verify_debug_preview_publication.sh ci-artifacts/cast-lab-three-abi "$RELEASE_SHA" "$CI_VERIFICATION_RUN_ID"
+      - name: Stage three dated APKs and confirm matching signing certificates
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir=ci-artifacts/cast-lab-three-abi
+          dest=ci-artifacts/cast-lab-dated
+          mkdir -p "$dest"
+          version="$(sed -n 's/^version=//p' "$source_dir/BUILD_INFO.txt")"
+          signer=""
+          for abi in arm64-v8a armeabi-v7a universal; do
+            apk="$source_dir/Bousygram-debug-v$version-build.$CI_VERIFICATION_RUN_ID-$abi.apk"
+            target="$dest/Bousygram-Cast-Lab-debug-Nov.26.2026-$abi.apk"
+            badging="$("$ANDROID_BUILD_TOOLS_DIR/aapt2" dump badging "$apk")"
+            grep -Fxq 'application-debuggable' <<<"$badging"
+            cert_output="$("$ANDROID_BUILD_TOOLS_DIR/apksigner" verify --print-certs "$apk")"
+            mapfile -t certs < <(sed -n 's/^Signer #[0-9][0-9]* certificate SHA-256 digest: //p' <<<"$cert_output")
+            [[ "${#certs[@]}" -eq 1 && "${certs[0]}" =~ ^[0-9a-fA-F]{64}$ ]]
+            if [[ -z "$signer" ]]; then signer="${certs[0]}"; fi
+            [[ "${certs[0]}" == "$signer" ]]
+            cp -- "$apk" "$target"
+            cmp "$apk" "$target"
+          done
+          cp "$source_dir/BUILD_INFO.txt" "$dest/BUILD_INFO.txt"
+          printf 'qualifiedPrHead=%s\nqualifiedBase=%s\nqualificationRun=45771994026\nsignerSha256=%s\n' "$QA_HEAD" "$QA_BASE" "$signer" >> "$dest/BUILD_INFO.txt"
+          (cd "$dest"; sha256sum Bousygram-Cast-Lab-debug-*.apk > SHA256SUMS.txt; sha256sum --check SHA256SUMS.txt)
+      - name: Publish separate dated QA prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$QA_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Existing QA release must not be overwritten."
+            exit 1
+          fi
+          cd ci-artifacts/cast-lab-dated
+          sha256sum --check SHA256SUMS.txt
+          cat > RELEASE_NOTES.md <<EOF
+          # Bousygram Cast Lab Debug — Nov 26, 2026 (3 ABIs)
+
+          ARM64 (arm64-v8a), ARM32 (armeabi-v7a) and universal ARM-only APKs.
+          Same exact previously qualified source, newly built in one job with
+          a common debug signing certificate. Native libraries and package
+          identity verified individually; not separately tested on real hardware.
+
+          Tested source: $RELEASE_SHA
+          Original qualification: https://github.com/$GITHUB_REPOSITORY/actions/runs/45771994026
+          Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          Debug QA only. No TMDB credential injected. Phone-to-TV physical tests
+          and TDLib source-cache integration remain unqualified. Signing may
+          differ from older APKs: do not uninstall without safeguarding data.
+          EOF
+          gh release create "$QA_TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_SHA" --prerelease --latest=false \
+            --title "Bousygram Cast Lab Debug — Nov 26, 2026 (3 ABIs)" \
+            --notes-file RELEASE_NOTES.md \
+            Bousygram-Cast-Lab-debug-*.apk SHA256SUMS.txt BUILD_INFO.txt
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$QA_TAG" >> "$GITHUB_STEP_SUMMARY"
