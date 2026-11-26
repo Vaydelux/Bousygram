@@ -34,6 +34,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.core.cast.RollingHlsReceiverLabSession
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
+import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
+import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
+import com.vaydelux.bousygram.data.store.EnterprisePreferences
+import androidx.compose.runtime.collectAsState
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
@@ -68,7 +73,13 @@ class RollingReceiverLabActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
-            BousygramTheme {
+            val appearance by EnterprisePreferences.visualAppearanceFlow.collectAsState()
+            BousygramTheme(
+                preset = BousygramThemePreset.fromId(appearance.themeId),
+                designStyle = BousygramDesignStyle.fromId(appearance.designStyleId),
+                backdropPattern = BousygramBackdropPattern.fromId(appearance.backdropPatternId),
+                reduceTransparency = appearance.reduceTransparency
+            ) {
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
