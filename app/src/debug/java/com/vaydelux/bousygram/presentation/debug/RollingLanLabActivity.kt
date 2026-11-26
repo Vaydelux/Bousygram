@@ -10,7 +10,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
 import com.vaydelux.bousygram.core.cast.RollingHlsLanLiveBridge
 import com.vaydelux.bousygram.core.cast.RollingHlsLanPlayback
 import java.security.MessageDigest
@@ -64,7 +63,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /** Debug only, foreground-only two-device probe. No user media, storage
  * permission, discovery broadcast or exported intent inputs. */
-@UnstableApi
+@androidx.annotation.OptIn(UnstableApi::class)
 class RollingLanLabActivity : ComponentActivity() {
     private val generation = AtomicLong()
     private val io = Executors.newSingleThreadExecutor()
@@ -83,6 +82,7 @@ class RollingLanLabActivity : ComponentActivity() {
     private var expires by mutableLongStateOf(0)
     private var seconds by mutableLongStateOf(0)
     private var permissionRole: Boolean? = null
+    private var externalPicker = false
     private var liveMode by mutableStateOf(false)
     private var fixture by mutableStateOf<Uri?>(null)
     private var player by mutableStateOf<ExoPlayer?>(null)
@@ -99,16 +99,22 @@ class RollingLanLabActivity : ComponentActivity() {
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val role = permissionRole
         permissionRole = null
-        if (granted && visible && role != null) start(role)
-        else if (!granted) message = "Local-network permission is required for this optional test."
+        externalPicker = false
+        main.post {
+            if (granted && visible && role != null) start(role)
+            else if (!granted && visible) message = "Local-network permission is required for this optional test."
+        }
     }
     private val video = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        externalPicker = false
         if (!busy && uri != null) { fixture = uri; message = "Test clip selected. Its SHA-256 will be checked before playback." }
     }
     private val photo = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        externalPicker = false
         if (uri != null && !busy) decodePhoto(uri)
     }
     private val camera = registerForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        externalPicker = false
         if (bitmap != null && !busy) {
             decodeBitmapAsync { bitmap }
         } else bitmap?.recycle()
@@ -151,7 +157,7 @@ class RollingLanLabActivity : ComponentActivity() {
                                     Text("72-second encrypted live playback test")
                                 }
                                 if (liveMode) {
-                                    OutlinedButton(onClick = { video.launch("video/mp4") }, modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedButton(onClick = { launchPicker { video.launch("video/mp4") } }, modifier = Modifier.fillMaxWidth()) {
                                         Text(if (fixture == null) "Select official synthetic test clip (sender)" else "Test clip selected")
                                     }
                                     Text("Both devices must choose the same test mode. Only the official clip is accepted.")
@@ -161,9 +167,9 @@ class RollingLanLabActivity : ComponentActivity() {
                                     if (it.length <= RollingHlsLanInvitation.MAX_TEXT) input = it
                                 }, label = { Text("Sender: paste LAN invitation") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
                                 OutlinedButton(onClick = {
-                                    runCatching { camera.launch(null) }.onFailure { message = "Camera unavailable. Import a QR photo instead." }
+                                    launchPicker { camera.launch(null) }
                                 }, modifier = Modifier.fillMaxWidth()) { Text("Capture QR photo") }
-                                OutlinedButton(onClick = { photo.launch("image/*") }, modifier = Modifier.fillMaxWidth()) { Text("Import QR photo") }
+                                OutlinedButton(onClick = { launchPicker { photo.launch("image/*") } }, modifier = Modifier.fillMaxWidth()) { Text("Import QR photo") }
                                 Button(onClick = { requestStart(false) }, enabled = input.isNotBlank() && (!liveMode || fixture != null),
                                     modifier = Modifier.fillMaxWidth()) { Text(if (liveMode) "Send live test clip" else "Send connectivity test") }
                             } else OutlinedButton(onClick = { reset("Test cancelled.") }, modifier = Modifier.fillMaxWidth()) { Text("Cancel test") }
@@ -183,7 +189,9 @@ class RollingLanLabActivity : ComponentActivity() {
     override fun onStop() {
         visible = false
         main.removeCallbacks(tick)
-        reset("Start a new foreground test.")
+        // Only an explicitly launched picker/permission prompt may preserve idle
+        // selections. No active network session survives any onStop.
+        if (busy || session != null || !externalPicker) reset("Start a new foreground test.")
         super.onStop()
     }
     override fun onDestroy() {
@@ -194,6 +202,8 @@ class RollingLanLabActivity : ComponentActivity() {
 
     private fun reset(text: String) {
         generation.incrementAndGet()
+        externalPicker = false
+        permissionRole = null
         consent?.complete(false)
         consent = null
         session?.close()
@@ -212,10 +222,20 @@ class RollingLanLabActivity : ComponentActivity() {
         message = text
     }
 
+    private fun launchPicker(action: () -> Unit) {
+        if (busy || session != null) return
+        externalPicker = true
+        try { action() } catch (_: Exception) {
+            externalPicker = false
+            permissionRole = null
+            message = "Picker unavailable. Use another input method."
+        }
+    }
+
     private fun requestStart(receiver: Boolean) {
         if (!RollingHlsLanRoute.hasPermission(this)) {
             permissionRole = receiver
-            permission.launch(RollingHlsLanRoute.PERMISSION)
+            launchPicker { permission.launch(RollingHlsLanRoute.PERMISSION) }
         } else start(receiver)
     }
     private fun post(token: Long, action: () -> Unit) {

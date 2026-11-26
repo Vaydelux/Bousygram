@@ -41,7 +41,7 @@ class RollingHlsLanSessionInstrumentedTest {
         } finally { workers.shutdownNow(); assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS)) }
     }
 
-    @UnstableApi
+    @androidx.annotation.OptIn(UnstableApi::class)
     @Test fun privateInterfaceLivePlaybackAfterExplicitConsent() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
