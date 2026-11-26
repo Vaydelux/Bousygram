@@ -78,6 +78,7 @@ import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import org.drinkless.tdlib.Client
 
 /**
@@ -237,18 +238,23 @@ private fun EnterpriseBrandHeader(
 
         Spacer(Modifier.height(12.dp))
 
-        BousygramDynamicIsland(
-            compact = true,
-            state = DynamicIslandActivityState(
-                title = statusText,
-                badge = if (isReady) "Encrypted" else "TDLib",
-                tone = if (isReady) DynamicIslandTone.ONLINE else DynamicIslandTone.SYNCING,
-                isBusy = !isReady,
-                liveHeadline = "Telegram Sign-In",
-                liveDetail = "Direct client-side MTProto connection. No third-party relay servers.",
-                statusTag = if (isReady) "TDLib Connected" else "Connecting"
+        if (LocalBousygramStyleSpec.current.isLiquidGlass) {
+            BousygramDynamicIsland(
+                compact = true,
+                state = DynamicIslandActivityState(
+                    title = statusText,
+                    badge = if (isReady) "Encrypted" else "TDLib",
+                    tone = if (isReady) DynamicIslandTone.ONLINE else DynamicIslandTone.SYNCING,
+                    isBusy = !isReady,
+                    liveHeadline = "Telegram Sign-In",
+                    liveDetail = "Direct client-side MTProto connection. No third-party relay servers.",
+                    statusTag = if (isReady) "TDLib Connected" else "Connecting"
+                )
             )
-        )
+        } else {
+            Text(statusText, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium)
+        }
     }
 }
 
