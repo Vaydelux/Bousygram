@@ -40,7 +40,7 @@ package_one() {
   [[ ${#launchers[@]} -eq 1 && "${launchers[0]}" == com.vaydelux.bousygram.app.MainActivity ]] || { echo "Unexpected phone launcher inventory for $kind" >&2; exit 1; }
   # aapt2 badging does not consistently enumerate Leanback activities.
   # Inspect the compiled manifest in a separate verifier for both categories.
-  "$AAPT2" dump xmltree "$apk" --file AndroidManifest.xml | python3 tools/ci/verify_debug_launcher_manifest.py
+  "$ANDROID_BUILD_TOOLS_DIR/aapt" dump xmltree "$apk" AndroidManifest.xml | python3 tools/ci/verify_debug_launcher_manifest.py
   actual_version="$(sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" <<<"$badging" | head -1)"
   actual_code="$(sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p" <<<"$badging" | head -1)"
   [[ "$actual_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$actual_code" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid package version in $apk" >&2; exit 1; }

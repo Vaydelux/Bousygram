@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate launcher routes in compiled aapt2 XML tree, without changing APK bytes."""
+"""Validate launcher routes in compiled aapt XML tree, without changing APK bytes."""
 import re
 import sys
 
@@ -24,7 +24,7 @@ def verify(text):
             if tag in ("activity", "activity-alias"):
                 activities.append(node)
             continue
-        attr = re.match(r'^\s*A:\s+android:name(?:\([^)]*\))?="([^"]+)"', line)
+        attr = re.match(r'^\s*A:\s+(?:android:|http://schemas\.android\.com/apk/res/android:)name(?:\([^)]*\))?="([^"]+)"', line)
         if attr and stack:
             stack[-1]["name"] = attr[1]
     def normalized(name):

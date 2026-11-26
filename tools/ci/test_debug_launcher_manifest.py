@@ -19,6 +19,10 @@ class LauncherManifestTest(unittest.TestCase):
     def test_single_main_phone_and_tv(self):
         verify(manifest(activity(".app.MainActivity", "LAUNCHER"),
                         activity(".app.MainActivity", "LEANBACK_LAUNCHER")))
+    def test_namespace_uri_and_shared_intent_filter(self):
+        text = manifest(activity(".app.MainActivity", "LAUNCHER"))
+        text += '        E: category\n          A: android:name(0x01010003)="android.intent.category.LEANBACK_LAUNCHER"\n'
+        verify(text.replace("android:name", "http://schemas.android.com/apk/res/android:name"))
     def test_duplicate_lab(self):
         with self.assertRaises(ValueError):
             verify(manifest(activity(".app.MainActivity", "LAUNCHER"),

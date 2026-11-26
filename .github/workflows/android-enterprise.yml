@@ -245,7 +245,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$ANDROID_BUILD_TOOLS_DIR/aapt2" dump xmltree ci-artifacts/debug/Bousygram-debug.apk --file AndroidManifest.xml \
+          "$ANDROID_BUILD_TOOLS_DIR/aapt" dump xmltree ci-artifacts/debug/Bousygram-debug.apk AndroidManifest.xml \
             | python3 tools/ci/verify_debug_launcher_manifest.py
 
       - name: Archive verification reports only on failure
