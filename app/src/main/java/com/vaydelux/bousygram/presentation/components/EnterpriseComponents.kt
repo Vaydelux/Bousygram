@@ -635,47 +635,51 @@ fun TvTopNavBar(
                 }
             }
 
-            // Center: Morphing iOS 27/28 Dynamic Island in linear TV focus chain
-            BousygramDynamicIsland(
-                state = DynamicIslandActivityState(
-                    title = selected.label,
-                    badge = if (showResume) "Resume" else null,
-                    tone = if (showResume) DynamicIslandTone.ONLINE else DynamicIslandTone.ACCENT,
-                    liveHeadline = "Bousygram · ${selected.label}",
-                    liveDetail = if (showResume) "Continue watching where you left off or jump anywhere."
-                        else "Quick navigation and iOS 27 appearance controls.",
-                    statusTag = "Live Activity",
-                    actions = buildList {
-                        if (showResume) {
+            if (styleSpec.isLiquidGlass) {
+                // Center: Morphing iOS 27/28 Dynamic Island in linear TV focus chain
+                BousygramDynamicIsland(
+                    state = DynamicIslandActivityState(
+                        title = selected.label,
+                        badge = if (showResume) "Resume" else null,
+                        tone = if (showResume) DynamicIslandTone.ONLINE else DynamicIslandTone.ACCENT,
+                        liveHeadline = "Bousygram · ${selected.label}",
+                        liveDetail = if (showResume) "Continue watching where you left off or jump anywhere."
+                            else "Quick navigation and iOS 27 appearance controls.",
+                        statusTag = "Live Activity",
+                        actions = buildList {
+                            if (showResume) {
+                                add(
+                                    DynamicIslandAction(
+                                        id = "resume",
+                                        label = "Continue",
+                                        icon = BousygramIcons.Continue,
+                                        emphasized = true,
+                                        onClick = onResume
+                                    )
+                                )
+                            }
                             add(
                                 DynamicIslandAction(
-                                    id = "resume",
-                                    label = "Continue",
-                                    icon = BousygramIcons.Continue,
-                                    emphasized = true,
-                                    onClick = onResume
+                                    id = "search",
+                                    label = "Search",
+                                    icon = BousygramIcons.Search,
+                                    onClick = onOpenSearch
+                                )
+                            )
+                            add(
+                                DynamicIslandAction(
+                                    id = "settings",
+                                    label = "Settings",
+                                    icon = BousygramIcons.Settings,
+                                    onClick = onOpenProfile
                                 )
                             )
                         }
-                        add(
-                            DynamicIslandAction(
-                                id = "search",
-                                label = "Search",
-                                icon = BousygramIcons.Search,
-                                onClick = onOpenSearch
-                            )
-                        )
-                        add(
-                            DynamicIslandAction(
-                                id = "settings",
-                                label = "Settings",
-                                icon = BousygramIcons.Settings,
-                                onClick = onOpenProfile
-                            )
-                        )
-                    }
+                    )
                 )
-            )
+            } else if (showResume) {
+                BousygramButton(text = "Continue", leadingIcon = BousygramIcons.Continue, onClick = onResume)
+            }
 
             // Right: Appearance Popover + Profile & Settings circular glass pills
             Row(
@@ -768,23 +772,29 @@ fun PhoneTopBar(
             modifier = Modifier.weight(1f),
             contentAlignment = Alignment.Center
         ) {
-            BousygramDynamicIsland(
-                compact = true,
-                state = DynamicIslandActivityState(
-                    title = selected.label,
-                    badge = if (showResume) "Resume" else null,
-                    tone = if (showResume) DynamicIslandTone.ONLINE else DynamicIslandTone.ACCENT,
-                    liveHeadline = "Bousygram · ${selected.label}",
-                    liveDetail = "Quick search, resume playback, and iOS 27 Liquid Glass controls.",
-                    actions = buildList {
-                        if (showResume) {
-                            add(DynamicIslandAction("resume", "Continue", BousygramIcons.Continue, true, onResume))
+            if (styleSpec.isLiquidGlass) {
+                BousygramDynamicIsland(
+                    compact = true,
+                    state = DynamicIslandActivityState(
+                        title = selected.label,
+                        badge = if (showResume) "Resume" else null,
+                        tone = if (showResume) DynamicIslandTone.ONLINE else DynamicIslandTone.ACCENT,
+                        liveHeadline = "Bousygram · ${selected.label}",
+                        liveDetail = "Quick search, resume playback, and iOS 27 Liquid Glass controls.",
+                        actions = buildList {
+                            if (showResume) {
+                                add(DynamicIslandAction("resume", "Continue", BousygramIcons.Continue, true, onResume))
+                            }
+                            add(DynamicIslandAction("search", "Search", BousygramIcons.Search, onClick = onOpenSearch))
+                            add(DynamicIslandAction("settings", "Settings", BousygramIcons.Settings, onClick = onOpenProfile))
                         }
-                        add(DynamicIslandAction("search", "Search", BousygramIcons.Search, onClick = onOpenSearch))
-                        add(DynamicIslandAction("settings", "Settings", BousygramIcons.Settings, onClick = onOpenProfile))
-                    }
+                    )
                 )
-            )
+            } else if (showResume) {
+                TopBarIconButton(onClick = onResume, contentDescription = "Continue watching") { tint ->
+                    ShellNavIcon(destination = ShellDestination.Continue, tint = tint)
+                }
+            }
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
