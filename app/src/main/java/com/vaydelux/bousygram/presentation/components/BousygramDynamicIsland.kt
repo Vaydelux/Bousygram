@@ -201,7 +201,7 @@ fun BousygramDynamicIsland(
 
     Surface(
         modifier = modifier
-            .heightIn(min = if (metrics.isTv) 48.dp else 40.dp)
+            .heightIn(min = 48.dp)
             .widthIn(max = if (compact) 236.dp else 340.dp)
             .graphicsLayer {
                 scaleX = focusScale
@@ -596,7 +596,7 @@ private fun IslandActionPill(
 
     Row(
         modifier = modifier
-            .heightIn(min = if (isTv) 48.dp else 42.dp)
+            .heightIn(min = 48.dp)
             .clip(shape)
             .background(bg)
             .border(if (focused) BousygramUiTokens.tvFocusOutline else 1.dp, border, shape)
@@ -646,7 +646,7 @@ private fun IslandCircleIconButton(
     }
     Box(
         modifier = modifier
-            .size(40.dp)
+            .size(48.dp)
             .clip(CircleShape)
             .background(bg)
             .border(if (focused) 2.5.dp else 1.dp, border, CircleShape)
