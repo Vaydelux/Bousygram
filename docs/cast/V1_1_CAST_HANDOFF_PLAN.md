@@ -241,3 +241,10 @@ owner stops the heartbeat before sending the terminal playback result. The proto
 versioned; old direct-media peers are refused. Control loss requires a new invitation;
 only data socket interruption within a live approved control session can recover automatically.
 Instrumentation asserts heartbeat exchange alongside exact byte-range recovery and playback.
+
+### Direct decoder liveness follow-up
+Direct playback now has a separate 30-second first-frame deadline and 45-second no-progress
+budget when playback is requested. User pause does not consume that budget; position changes
+(including seeking) reset it. Completion still requires a rendered frame and actual ended state.
+Control heartbeat shutdown treats IO failures as fatal rather than attempting to send a receipt
+on an ambiguous stream. These changes require fresh Android qualification.

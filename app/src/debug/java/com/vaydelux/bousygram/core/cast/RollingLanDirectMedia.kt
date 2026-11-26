@@ -259,7 +259,10 @@ internal object RollingLanDirectMedia {
                 }
                 if (running.get()) throw IOException("Direct control revoked")
             } catch (error: Exception) {
-                if (running.get()) {
+                // Only interruption of the scheduled sleep is a clean stop.
+                // A failed read/write during shutdown can leave control framing
+                // ambiguous; never send a success receipt on that connection.
+                if (running.get() || error !is InterruptedException) {
                     runCatching { socket.close() }
                     revoke()
                 }

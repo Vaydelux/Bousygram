@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.AtomicReference
  * User may pause/resume; prolonged pauses fail closed at the session deadline. */
 @UnstableApi
 internal object RollingHlsLanPlayback {
+    private data class Snapshot(val playing: Boolean, val state: Int, val position: Long, val requested: Boolean)
+
     private fun <T> main(action: () -> T): T {
         val task = FutureTask(action)
         check(Handler(Looper.getMainLooper()).post(task))
@@ -79,10 +81,22 @@ internal object RollingHlsLanPlayback {
             var playingMs = 0L
             var tick = SystemClock.elapsedRealtime()
             var previous = ""
+            val liveness = if (direct) RollingLanPlaybackProgress(tick) else null
             while (permitted() && SystemClock.elapsedRealtime() < deadline) {
                 failure.get()?.let { throw IOException("Live player failed", it) }
-                val (playing, state) = main { player.isPlaying to player.playbackState }
+                val snapshot = main { Snapshot(player.isPlaying, player.playbackState,
+                    player.currentPosition, player.playWhenReady) }
+                val playing = snapshot.playing
+                val state = snapshot.state
                 val now = SystemClock.elapsedRealtime()
+                liveness?.observe(now, snapshot.position, first.get(), snapshot.requested,
+                    state == Player.STATE_ENDED)?.let { reason ->
+                    throw IOException(when (reason) {
+                        RollingLanPlaybackProgress.Failure.STARTUP -> "Selected video did not render within startup deadline"
+                        RollingLanPlaybackProgress.Failure.STALL -> "Selected video stopped progressing"
+                        RollingLanPlaybackProgress.Failure.CLOCK -> "Playback clock invalid"
+                    })
+                }
                 if (playing && first.get()) playingMs += (now - tick).coerceIn(0, 250)
                 tick = now
                 if (state == Player.STATE_ENDED) return first.get() &&
