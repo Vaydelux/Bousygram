@@ -266,7 +266,12 @@ class RollingHlsLanSessionInstrumentedTest {
                                             file.readFully(buffer, 0, count)
                                         }
                                     }
-                                    RollingLanDirectMedia.send(socket, peer, source, sender::active)
+                                    val interrupted = java.util.concurrent.atomic.AtomicBoolean(false)
+                                    RollingLanDirectMedia.send(socket, peer, source, sender::active,
+                                        interruptAfterWrite = { offset ->
+                                            offset == 4096L && interrupted.compareAndSet(false, true)
+                                        })
+                                    assertTrue("Expected interrupted data response for $name", interrupted.get())
                                 }
                             })
                             assertEquals(name, RollingHlsLanSession.Result.VERIFIED, sent)

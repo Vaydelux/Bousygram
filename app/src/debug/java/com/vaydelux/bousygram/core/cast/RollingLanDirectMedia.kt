@@ -13,6 +13,11 @@ import androidx.media3.datasource.DataSpec
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLServerSocket
 import java.util.UUID
 import javax.net.ssl.SSLSocket
 
@@ -21,7 +26,8 @@ import javax.net.ssl.SSLSocket
  * Both directions use the already enrolled TLS identity; no permanent listener. */
 @UnstableApi
 internal object RollingLanDirectMedia {
-    private const val MAGIC = 0x42474431
+    private const val MAGIC = 0x42474432
+    private const val DATA_MAGIC = 0x42474433
     private const val READ = 1
     private const val FINISH = 2
 
@@ -87,7 +93,7 @@ internal object RollingLanDirectMedia {
     }
 
     fun send(socket: SSLSocket, peer: RollingHlsPairedTls.Peer, source: Source,
-             permitted: () -> Boolean) {
+             permitted: () -> Boolean, interruptAfterWrite: ((Long) -> Boolean)? = null) {
         handshake(socket, peer, true, permitted)
         val size = source.size
         if (!RollingLanDirectMediaPolicy.validSize(size)) throw IOException("Invalid selected media size")
@@ -99,39 +105,86 @@ internal object RollingLanDirectMedia {
         access(permitted)
         val input = DataInputStream(socket.inputStream)
         val output = DataOutputStream(socket.outputStream)
-        output.writeInt(MAGIC)
-        output.writeLong(size)
-        output.flush()
-        // No requests during a pause: bound idle ownership separately from total duration.
-        socket.soTimeout = 5 * 60 * 1000
-        val buffer = ByteArray(RollingLanDirectMediaPolicy.MAX_READ_BYTES)
+        val listener = peer.context.serverSocketFactory.createServerSocket() as SSLServerSocket
+        val done = AtomicBoolean(false)
+        val accepted = AtomicReference<SSLSocket?>(null)
+        val fatal = AtomicReference<Exception?>(null)
+        fun active() = !done.get() && permitted()
+        var worker: Thread? = null
         try {
-            while (true) {
-                access(permitted)
-                when (input.readUnsignedByte()) {
-                    READ -> {
-                        val offset = input.readLong()
-                        val count = input.readInt()
-                        if (!RollingLanDirectMediaPolicy.validRange(size, offset, count))
-                            throw IOException("Invalid direct media request")
-                        access(permitted)
-                        source.readAt(offset, buffer, count)
-                        access(permitted)
-                        output.writeInt(count)
-                        output.write(buffer, 0, count)
-                        output.flush()
+            listener.enabledProtocols = arrayOf("TLSv1.3")
+            listener.needClientAuth = true
+            listener.soTimeout = 250
+            listener.bind(InetSocketAddress(socket.localAddress, 0), 1)
+            val reader = Thread({
+                val buffer = ByteArray(RollingLanDirectMediaPolicy.MAX_READ_BYTES)
+                try {
+                    while (active()) {
+                        val connection = try { listener.accept() as SSLSocket }
+                            catch (_: SocketTimeoutException) { continue }
+                        accepted.set(connection)
+                        try {
+                            connection.use { data ->
+                                if (!active() || data.inetAddress != socket.inetAddress) return@use
+                                handshake(data, peer, false, ::active)
+                                data.soTimeout = 15_000
+                                val request = DataInputStream(data.inputStream)
+                                val response = DataOutputStream(data.outputStream)
+                                if (request.readInt() != DATA_MAGIC) throw IOException("Invalid direct channel")
+                                response.writeInt(DATA_MAGIC)
+                                response.flush()
+                                while (active()) {
+                                    if (request.readUnsignedByte() != READ) throw IOException("Invalid direct command")
+                                    val offset = request.readLong()
+                                    val count = request.readInt()
+                                    if (!RollingLanDirectMediaPolicy.validRange(size, offset, count))
+                                        throw IOException("Invalid direct media request")
+                                    access(::active)
+                                    try { source.readAt(offset, buffer, count) }
+                                    catch (error: Exception) {
+                                        fatal.set(error)
+                                        runCatching { socket.close() }
+                                        return@use
+                                    }
+                                    access(::active)
+                                    response.writeInt(count)
+                                    if (count > 1 && interruptAfterWrite?.invoke(offset) == true) {
+                                        response.write(buffer, 0, count / 2)
+                                        response.flush()
+                                        return@use
+                                    }
+                                    response.write(buffer, 0, count)
+                                    response.flush()
+                                }
+                            }
+                        } catch (_: IOException) {
+                            // A failed data socket never grants enrollment or
+                            // changes the file. The same pinned peer may reconnect.
+                        } finally { accepted.compareAndSet(connection, null) }
                     }
-                    FINISH -> {
-                        access(permitted)
-                        if (input.readUnsignedByte() != 1) throw IOException("Playback not confirmed")
-                        output.writeByte(1)
-                        output.flush()
-                        return
-                    }
-                    else -> throw IOException("Invalid direct media command")
-                }
-            }
-        } finally { buffer.fill(0) }
+                } catch (error: Exception) {
+                    if (active()) { fatal.set(error); runCatching { socket.close() } }
+                } finally { buffer.fill(0) }
+            }, "direct-media-data")
+            worker = reader
+            reader.start()
+            output.writeInt(MAGIC)
+            output.writeLong(size)
+            output.writeShort(listener.localPort)
+            output.flush()
+            socket.soTimeout = RollingLanSessionLifetime.DIRECT_VIDEO.operationMs.toInt()
+            if (input.readUnsignedByte() != FINISH || input.readUnsignedByte() != 1)
+                throw IOException("Direct playback not confirmed")
+            access(permitted)
+            fatal.get()?.let { throw IOException("Direct source failed", it) }
+            output.writeByte(1)
+            output.flush()
+        } finally {
+            done.set(true)
+            runCatching { listener.close() }
+            accepted.get()?.let { runCatching { it.close() } }
+            worker?.let { it.join(5000); check(!it.isAlive) }
+        }
     }
 
     fun receive(socket: SSLSocket, peer: RollingHlsPairedTls.Peer, permitted: () -> Boolean,
@@ -143,34 +196,90 @@ internal object RollingLanDirectMedia {
         if (input.readInt() != MAGIC) throw IOException("Incorrect direct media mode")
         val size = input.readLong()
         if (!RollingLanDirectMediaPolicy.validSize(size)) throw IOException("Invalid remote media size")
-        val client = Client(size, input, output, permitted)
+        val port = input.readUnsignedShort()
+        if (port == 0) throw IOException("Invalid direct data port")
+        val client = Client(size, socket, port, peer, input, output, permitted)
         try {
             if (!playback(client.uri, client.factory()) || !permitted()) throw IOException("Direct playback incomplete")
             client.finish()
         } finally { client.revoke() }
     }
 
-    private class Client(private val size: Long, private val input: DataInputStream,
-                         private val output: DataOutputStream, private val permitted: () -> Boolean) {
+    private class Client(private val size: Long, private val control: SSLSocket,
+                         private val port: Int, private val peer: RollingHlsPairedTls.Peer,
+                         private val input: DataInputStream, private val output: DataOutputStream,
+                         private val permitted: () -> Boolean) {
         val uri: Uri = Uri.parse("bousygram-direct://${UUID.randomUUID()}/video")
         @Volatile private var closed = false
         @Volatile private var failed = false
         private fun active() = !closed && !failed && permitted()
-        fun revoke() { closed = true }
+        private val dataSocket = AtomicReference<SSLSocket?>(null)
+        private var dataInput: DataInputStream? = null
+        private var dataOutput: DataOutputStream? = null
+
+        private fun disconnect() {
+            dataSocket.getAndSet(null)?.let { runCatching { it.close() } }
+            dataInput = null
+            dataOutput = null
+        }
+        fun revoke() {
+            closed = true
+            // Close outside the synchronized read monitor to interrupt blocked IO.
+            dataSocket.getAndSet(null)?.let { runCatching { it.close() } }
+        }
+
+        private fun connect() {
+            if (dataSocket.get() != null) return
+            access(::active)
+            val socket = peer.context.socketFactory.createSocket() as SSLSocket
+            dataSocket.set(socket)
+            try {
+                access(::active)
+                socket.bind(InetSocketAddress(control.localAddress, 0))
+                socket.connect(InetSocketAddress(control.inetAddress, port), 5000)
+                handshake(socket, peer, true, ::active)
+                socket.soTimeout = 15_000
+                val request = DataOutputStream(socket.outputStream)
+                val response = DataInputStream(socket.inputStream)
+                request.writeInt(DATA_MAGIC)
+                request.flush()
+                if (response.readInt() != DATA_MAGIC) throw IOException("Invalid direct data channel")
+                dataInput = response
+                dataOutput = request
+            } catch (error: Exception) {
+                disconnect()
+                throw error
+            }
+        }
 
         @Synchronized fun fetch(offset: Long, count: Int, buffer: ByteArray, start: Int) {
+            var retries = 0
             try {
                 if (!active() || !RollingLanDirectMediaPolicy.validRange(size, offset, count))
                     throw IOException("Direct media read refused")
-                output.writeByte(READ)
-                output.writeLong(offset)
-                output.writeInt(count)
-                output.flush()
-                if (input.readInt() != count) throw IOException("Invalid direct media response")
-                input.readFully(buffer, start, count)
-                if (!active()) throw IOException("Direct media read revoked")
+                while (true) {
+                    try {
+                        connect()
+                        val request = checkNotNull(dataOutput)
+                        val response = checkNotNull(dataInput)
+                        request.writeByte(READ)
+                        request.writeLong(offset)
+                        request.writeInt(count)
+                        request.flush()
+                        if (response.readInt() != count) throw IOException("Invalid direct media response")
+                        response.readFully(buffer, start, count)
+                        if (!active()) throw IOException("Direct media read revoked")
+                        return
+                    } catch (error: IOException) {
+                        disconnect()
+                        buffer.fill(0, start, start + count)
+                        if (!active() || retries >= 2 || !RollingLanDirectRecovery.retryable(error)) throw error
+                        retries++
+                    }
+                }
             } catch (error: Exception) {
-                failed = true // never reuse a possibly desynchronized stream
+                failed = true
+                disconnect()
                 buffer.fill(0, start, start + count)
                 throw error
             }
@@ -178,6 +287,7 @@ internal object RollingLanDirectMedia {
 
         @Synchronized fun finish() {
             if (!active()) throw IOException("Direct media session unavailable")
+            disconnect()
             output.writeByte(FINISH)
             output.writeByte(1)
             output.flush()
