@@ -556,11 +556,11 @@ private fun ExplorerFolderCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Surface(
-                    shape = RoundedCornerShape(BousygramUiTokens.tabCorner),
+                    shape = RoundedCornerShape(14.dp),
                     color = if (focused) colors.primary else colors.primaryContainer
                 ) {
                     Box(
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(42.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         BousygramIcon(

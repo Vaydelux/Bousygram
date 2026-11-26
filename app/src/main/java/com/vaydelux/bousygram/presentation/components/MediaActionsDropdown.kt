@@ -23,6 +23,9 @@ import com.vaydelux.bousygram.data.repository.TelegramCloudFavorites
 import com.vaydelux.bousygram.presentation.navigation.CloudFavoritesNavigation
 import com.vaydelux.bousygram.domain.model.MediaItem
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 
 /** Shared touch, mouse, keyboard and D-pad action; no long-press dependency. */
 @Composable
@@ -57,6 +60,18 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
     }
     fun dismiss() { expanded = false; restoreFocus = true }
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
+    val styleSpec = LocalBousygramStyleSpec.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
+    val buttonShape = if (styleSpec.isLiquidGlass) {
+        androidx.compose.foundation.shape.CircleShape
+    } else MaterialTheme.shapes.small
+    val restContainer = if (styleSpec.isLiquidGlass && !halo.isHighContrast) {
+        androidx.compose.ui.graphics.Color(0xFF0A0F1A).copy(alpha = if (reduceTransparency) 0.96f else 0.78f)
+    } else colors.background.copy(alpha = 0.78f)
+    val restContent = if (styleSpec.isLiquidGlass && !halo.isHighContrast) {
+        androidx.compose.ui.graphics.Color(0xFFF5F8FF)
+    } else colors.onBackground
     Box(modifier) {
         BousygramTooltipBox(
             tooltip = "Media actions",
@@ -67,11 +82,10 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
         ) {
             FilledTonalIconButton(
                 onClick = { expanded = true },
-                shape = MaterialTheme.shapes.small,
+                shape = buttonShape,
                 colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = if (focused) colors.primaryContainer
-                        else colors.background.copy(alpha = 0.78f),
-                    contentColor = if (focused) colors.onPrimaryContainer else colors.onBackground
+                    containerColor = if (focused) colors.primaryContainer else restContainer,
+                    contentColor = if (focused) colors.onPrimaryContainer else restContent
                 ),
                 modifier = Modifier.size(minimum).focusRequester(trigger)
                     .focusProperties { playbackFocusRequester?.let { left = it } }
@@ -83,8 +97,12 @@ fun MediaActionsDropdown(media: MediaItem, modifier: Modifier = Modifier, privac
                     .onFocusChanged { focused = it.isFocused; onActionFocus(it.isFocused) }
                     .border(
                         width = if (focused) 3.dp else 1.dp,
-                        color = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.65f),
-                        shape = MaterialTheme.shapes.small
+                        color = when {
+                            focused -> colors.primary
+                            styleSpec.isLiquidGlass && !halo.isHighContrast -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.22f)
+                            else -> colors.outlineVariant.copy(alpha = 0.65f)
+                        },
+                        shape = buttonShape
                     )
                     .semantics {
                         contentDescription = if (privacyMode) "Media actions" else "Actions for ${media.title}"

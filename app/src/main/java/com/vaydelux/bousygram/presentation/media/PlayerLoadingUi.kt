@@ -15,12 +15,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -33,19 +30,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
+import com.vaydelux.bousygram.presentation.components.BousygramPlayerDynamicIsland
+import com.vaydelux.bousygram.presentation.components.DynamicIslandTone
 import com.vaydelux.bousygram.presentation.components.rememberShimmerBrush
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import kotlinx.coroutines.delay
 
@@ -131,15 +130,17 @@ internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifi
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 16.dp)
         ) {
+            val styleSpec = LocalBousygramStyleSpec.current
             Box(
                 Modifier.fillMaxWidth()
                     .height(if (shortWindow) 76.dp else if (compact) 122.dp else 210.dp)
-                    .clip(RoundedCornerShape(BousygramUiTokens.panelCorner))
+                    .clip(RoundedCornerShape(styleSpec.panelCorner))
                     .background(shimmer),
                 contentAlignment = Alignment.Center
             ) {
                 BousygramBrandMark(
-                    size = if (shortWindow) 34.dp else if (compact) 44.dp else 56.dp
+                    size = if (shortWindow) 38.dp else if (compact) 48.dp else 62.dp,
+                    squircleFrame = true
                 )
             }
             Row(
@@ -165,30 +166,38 @@ internal fun PlayerOpeningSkeleton(compact: Boolean, modifier: Modifier = Modifi
     }
 }
 
-/** Consistent non-interactive status chip, with no remote focus or playback state ownership. */
+/** Consistent non-interactive Dynamic Island style status chip, with no remote focus ownership. */
 @Composable
 internal fun PlayerStatusChip(label: String, isError: Boolean, isBusy: Boolean) {
+    val halo = LocalBousygramHaloColors.current
     val accent = when {
         isError -> MaterialTheme.colorScheme.error
         isBusy -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.primary
     }
+    val chipBg = if (halo.isHighContrast) {
+        MaterialTheme.colorScheme.surfaceContainerHighest
+    } else {
+        Color(0xFF090D16).copy(alpha = 0.86f)
+    }
+    val chipFg = if (halo.isHighContrast) MaterialTheme.colorScheme.onSurface else Color(0xFFF5F8FF)
     Surface(
-        shape = RoundedCornerShape(100.dp),
-        color = accent.copy(alpha = 0.12f),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.34f)),
+        shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+        color = chipBg,
+        border = BorderStroke(1.dp, if (isError) accent.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.18f)),
         modifier = Modifier.testTag("player_status_chip")
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Box(Modifier.size(6.dp).clip(CircleShape).background(accent))
+            Box(Modifier.size(6.5.dp).clip(CircleShape).background(accent))
             Text(
                 label,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = chipFg,
                 style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -196,7 +205,7 @@ internal fun PlayerStatusChip(label: String, isError: Boolean, isBusy: Boolean) 
     }
 }
 
-/** Brief status banner with a distinct start/rebuffer delay to avoid flicker on cache hits. */
+/** Brief top-center Dynamic Island status capsule with a distinct start/rebuffer delay to avoid flicker on cache hits. */
 @Composable
 internal fun PlayerLoadingBanner(
     phase: PlayerLoadingPhase,
@@ -205,7 +214,6 @@ internal fun PlayerLoadingBanner(
     modifier: Modifier = Modifier
 ) {
     val motion = rememberBousygramMotionPolicy()
-    val metrics = rememberAdaptiveMetrics()
     var show by remember { mutableStateOf(false) }
     LaunchedEffect(phase) {
         show = false
@@ -221,82 +229,24 @@ internal fun PlayerLoadingBanner(
         modifier = modifier
     ) {
         val copy = playerLoadingCopy(phase, retryCount)
-        // The banner fits both 320dp portrait and short landscape: width is capped
-        // by the actual parent, not a presumed device or the Android CPU ABI.
+        val islandTone = when (phase) {
+            PlayerLoadingPhase.RECONNECTING -> DynamicIslandTone.WARNING
+            PlayerLoadingPhase.BUFFERING -> DynamicIslandTone.SYNCING
+            else -> DynamicIslandTone.ACCENT
+        }
+        // Compact non-focusable Dynamic Island capsule fits 320dp portrait and 540dp landscape safely.
         Box(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center
         ) {
-            val halo = LocalBousygramHaloColors.current
-            Surface(
-                modifier = Modifier
-                    .widthIn(max = if (compact) 328.dp else 410.dp)
-                    .fillMaxWidth()
-                    .testTag("player_loading_banner")
-                    .semantics {
-                        liveRegion = LiveRegionMode.Polite
-                        contentDescription = copy.title + ". " + copy.detail
-                    },
-                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                border = if (halo.isHighContrast) BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline) else null,
-                shadowElevation = if (motion.lowRam) 0.dp else 6.dp
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(
-                            horizontal = if (compact) 12.dp else 16.dp,
-                            vertical = if (metrics.isShortWindow) 8.dp else 12.dp
-                        ),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (motion.animateIndeterminateProgress) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(if (compact) 18.dp else 22.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            // Static accessible busy indicator: no infinite GPU loop on
-                            // reduced-motion or low-RAM devices.
-                            Box(
-                                Modifier.size(12.dp).clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                        }
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                copy.title,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.SemiBold,
-                                style = MaterialTheme.typography.titleSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                copy.detail,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = if (metrics.isShortWindow) 1 else 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    if (motion.animateIndeterminateProgress) {
-                        // Indeterminate activity only; never invent buffered percentages.
-                        LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth().height(2.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    }
-                }
-            }
+            BousygramPlayerDynamicIsland(
+                title = copy.title,
+                detail = copy.detail,
+                isBusy = true,
+                compact = compact,
+                tone = islandTone,
+                modifier = Modifier.testTag("player_loading_banner")
+            )
         }
     }
 }

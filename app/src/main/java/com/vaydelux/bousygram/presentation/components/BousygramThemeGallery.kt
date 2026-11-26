@@ -63,7 +63,7 @@ fun BousygramQuickLookBar(
                 activePattern == look.pattern
             val icon = when (look.id) {
                 "material_you" -> BousygramIcons.Layers
-                "iphone_cupertino", "iphone_midnight" -> BousygramIcons.Smartphone
+                "iphone_cupertino", "iphone_midnight", "ios_emerald", "ios_ember" -> BousygramIcons.Smartphone
                 "cutesy_sakura" -> BousygramIcons.Flower
                 "chow_paws" -> BousygramIcons.PawPrint
                 else -> BousygramIcons.Wand
@@ -369,8 +369,8 @@ fun BousygramThemeGallery(
                             BousygramThemePreset.MATCHA -> "Pastel · Sage"
                             BousygramThemePreset.COTTON_CANDY -> "Kawaii · Night"
                             BousygramThemePreset.MATERIAL_YOU -> "M3 · Tonal"
-                            BousygramThemePreset.CUPERTINO -> "iOS · Light"
-                            BousygramThemePreset.MIDNIGHT_GLASS -> "iOS · OLED"
+                            BousygramThemePreset.CUPERTINO -> "iOS 27 · Frost"
+                            BousygramThemePreset.MIDNIGHT_GLASS -> "iOS 27 · Obsidian"
                         }
                         TvFocusSurface(
                             onClick = { onSelect(preset) },

@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
@@ -48,6 +49,7 @@ import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
@@ -136,13 +138,7 @@ fun BousygramCompactPageTitle(
             overflow = TextOverflow.Ellipsis
         )
         if (status.isNotBlank()) {
-            Text(
-                text = status,
-                style = MaterialTheme.typography.labelMedium.copy(lineHeight = 18.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            BousygramStatusPill(label = status)
         }
     }
 }
@@ -158,10 +154,15 @@ fun BousygramStatusPill(
 ) {
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
+    val styleSpec = LocalBousygramStyleSpec.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
+    val glassAlpha = if (styleSpec.isLiquidGlass && !halo.isHighContrast && !reduceTransparency) {
+        if (halo.isLight) 0.86f else 0.78f
+    } else 1f
     val containerColor = when {
-        gold -> halo.goldContainer
-        accent -> colors.primaryContainer
-        else -> colors.surfaceContainerHigh
+        gold -> halo.goldContainer.copy(alpha = glassAlpha)
+        accent -> colors.primaryContainer.copy(alpha = glassAlpha)
+        else -> colors.surfaceContainerHigh.copy(alpha = glassAlpha)
     }
     val contentColor = when {
         gold -> halo.onGoldContainer
@@ -170,8 +171,9 @@ fun BousygramStatusPill(
     }
     val borderColor = when {
         halo.isHighContrast -> colors.outline
-        gold -> halo.goldAccent.copy(alpha = 0.35f)
-        accent -> colors.primary.copy(alpha = 0.30f)
+        gold -> halo.goldAccent.copy(alpha = 0.42f)
+        accent -> colors.primary.copy(alpha = 0.40f)
+        styleSpec.isLiquidGlass -> if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.08f) else Color.White.copy(alpha = 0.14f)
         else -> Color.Transparent
     }
     Surface(
@@ -233,15 +235,24 @@ fun BousygramSectionTab(
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
     val styleSpec = LocalBousygramStyleSpec.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
     val motion = rememberBousygramMotionPolicy()
     val tooltipState = rememberBousygramTooltipState()
     var focused by remember { mutableStateOf(false) }
 
+    val glassAlpha = resolveLiquidGlassAlpha(
+        BousygramGlassLevel.CARD, halo.isLight, halo.isHighContrast, reduceTransparency
+    )
     val highlight by animateColorAsState(
         targetValue = when {
+            active && styleSpec.isLiquidGlass && !halo.isHighContrast ->
+                if (halo.isLight) colors.surface.copy(alpha = if (reduceTransparency) 0.99f else 0.96f)
+                else colors.primaryContainer.copy(alpha = if (reduceTransparency) 0.98f else 0.90f)
             active && styleSpec.segmentedTabs && !halo.isHighContrast -> colors.surface
             active -> colors.primaryContainer
             focused -> colors.surfaceContainerHighest
+            styleSpec.isLiquidGlass && !halo.isHighContrast ->
+                (if (halo.isLight) colors.surface else colors.surfaceContainerLow).copy(alpha = glassAlpha * 0.90f)
             styleSpec.useTonalSurfaces -> colors.surfaceContainerHigh
             else -> colors.surfaceContainerLow
         },
@@ -251,8 +262,12 @@ fun BousygramSectionTab(
     val outline by animateColorAsState(
         targetValue = when {
             focused -> colors.primary
+            active && styleSpec.isLiquidGlass && !halo.isHighContrast ->
+                colors.primary.copy(alpha = if (halo.isLight) 0.42f else 0.65f)
             active && styleSpec.segmentedTabs && !halo.isHighContrast -> colors.outlineVariant.copy(alpha = 0.55f)
             active -> halo.haloStart.copy(alpha = if (halo.isHighContrast) 1f else 0.72f)
+            styleSpec.isLiquidGlass && !halo.isHighContrast ->
+                if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.09f) else Color.White.copy(alpha = 0.14f)
             styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.primary.copy(alpha = 0.28f)
             else -> colors.outlineVariant.copy(alpha = 0.70f)
         },
@@ -260,6 +275,8 @@ fun BousygramSectionTab(
         label = "sectionTabOutline"
     )
     val contentColor = when {
+        active && styleSpec.isLiquidGlass && !halo.isHighContrast ->
+            if (halo.isLight) colors.primary else colors.onPrimaryContainer
         active && styleSpec.segmentedTabs && !halo.isHighContrast -> colors.onSurface
         active -> colors.onPrimaryContainer
         focused -> colors.onSurface
@@ -398,6 +415,7 @@ fun BousygramIconButton(
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
     val styleSpec = LocalBousygramStyleSpec.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
     val motion = rememberBousygramMotionPolicy()
     val tooltipState = rememberBousygramTooltipState()
     var focused by remember { mutableStateOf(false) }
@@ -407,6 +425,9 @@ fun BousygramIconButton(
     val resolvedIconSize = iconSize ?: spec.iconSizeAction
     val shape = if (circular) RoundedCornerShape(BousygramUiTokens.pillCorner)
         else RoundedCornerShape(styleSpec.tabCorner)
+    val glassAlpha = resolveLiquidGlassAlpha(
+        BousygramGlassLevel.FLOATING_CHROME, halo.isLight, halo.isHighContrast, reduceTransparency
+    )
 
     val scale by animateFloatAsState(
         targetValue = if (focused && motion.animateFocusScale) BousygramUiTokens.focusScale else 1f,
@@ -420,7 +441,8 @@ fun BousygramIconButton(
             selected -> colors.primaryContainer
             focused -> colors.surfaceContainerHighest
             styleSpec.useTonalSurfaces -> colors.surfaceContainerHigh
-            styleSpec.style == BousygramDesignStyle.IPHONE_GLASS && !halo.isHighContrast -> colors.surface.copy(alpha = 0.90f)
+            styleSpec.isLiquidGlass && !halo.isHighContrast ->
+                (if (halo.isLight) colors.surface else colors.surfaceContainerHigh).copy(alpha = glassAlpha)
             else -> colors.surfaceContainerLow
         },
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
@@ -437,6 +459,8 @@ fun BousygramIconButton(
         focused -> colors.primary
         selected -> colors.primary.copy(alpha = 0.72f)
         emphasized -> Color.Transparent
+        styleSpec.isLiquidGlass && !halo.isHighContrast ->
+            if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.10f) else Color.White.copy(alpha = 0.18f)
         styleSpec.style == BousygramDesignStyle.COZY_KAWAII -> colors.primary.copy(alpha = 0.30f)
         else -> colors.outlineVariant.copy(alpha = 0.72f)
     }
@@ -456,9 +480,28 @@ fun BousygramIconButton(
             }
             .clip(shape)
             .background(bgColor)
+            .liquidGlassSheen(
+                enabled = styleSpec.isLiquidGlass && !halo.isHighContrast && !reduceTransparency && !emphasized,
+                topColor = if (halo.isLight) Color.White.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.10f),
+                coverageFraction = 0.42f
+            )
             .then(
-                if (borderWidth > 0.dp) Modifier.border(width = borderWidth, color = borderColor, shape = shape)
-                else Modifier
+                if (borderWidth > 0.dp) {
+                    if (styleSpec.isLiquidGlass && !focused && !selected && !halo.isHighContrast) {
+                        Modifier.border(
+                            width = borderWidth,
+                            brush = Brush.verticalGradient(
+                                listOf(
+                                    if (halo.isLight) Color.White.copy(alpha = 0.90f) else Color.White.copy(alpha = 0.24f),
+                                    borderColor
+                                )
+                            ),
+                            shape = shape
+                        )
+                    } else {
+                        Modifier.border(width = borderWidth, color = borderColor, shape = shape)
+                    }
+                } else Modifier
             )
             .semantics {
                 this.contentDescription = contentDescription

@@ -50,6 +50,7 @@ import com.vaydelux.bousygram.presentation.components.BousygramDesignStyleGaller
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramIosAppearanceControls
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramQuickLookBar
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
@@ -58,7 +59,9 @@ import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
 import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramAppearanceController
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -197,7 +200,7 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                BousygramBrandMark(size = 36.dp)
+                                BousygramBrandMark(size = 38.dp, squircleFrame = true)
                                 Text(
                                     text = "Settings",
                                     modifier = Modifier.weight(1f),
@@ -209,6 +212,40 @@ fun SettingsScreen(
                                     text = "Back",
                                     onClick = onBack,
                                     leadingIcon = BousygramIcons.Back
+                                )
+                            }
+                        }
+                    }
+
+                    // 0. iOS 27 Liquid Glass Controls (Dark/Light/Contrast, Accent Tints, Reduce Transparency)
+                    item {
+                        val appearanceController = LocalBousygramAppearanceController.current
+                        val initialReduce = LocalBousygramReduceTransparency.current
+                        var localReduce by remember(initialReduce) { mutableStateOf(initialReduce) }
+                        val activeReduce = appearanceController?.reduceTransparency ?: localReduce
+                        EnterprisePanel(Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                SettingsSectionTitle(
+                                    icon = BousygramIcons.Smartphone,
+                                    title = "iOS 27 Liquid Glass"
+                                )
+                                BousygramIosAppearanceControls(
+                                    activePreset = themePreset,
+                                    reduceTransparency = activeReduce,
+                                    onSelectPreset = { preset ->
+                                        onThemePresetChange(preset)
+                                        EnterprisePreferences.setVisualThemeId(preset.id)
+                                    },
+                                    onReduceTransparencyChange = { enabled ->
+                                        localReduce = enabled
+                                        EnterprisePreferences.setReduceTransparency(enabled)
+                                        appearanceController?.onReduceTransparencyChange?.invoke(enabled)
+                                    }
                                 )
                             }
                         }

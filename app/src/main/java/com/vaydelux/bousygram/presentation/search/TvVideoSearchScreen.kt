@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
@@ -56,21 +57,28 @@ import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramCompactPageTitle
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramChip
+import com.vaydelux.bousygram.presentation.components.BousygramDynamicIsland
+import com.vaydelux.bousygram.presentation.components.BousygramGlassLevel
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.BousygramTextField
 import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
+import com.vaydelux.bousygram.presentation.components.DynamicIslandAction
+import com.vaydelux.bousygram.presentation.components.DynamicIslandActivityState
+import com.vaydelux.bousygram.presentation.components.DynamicIslandTone
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.components.NoSearchResultsEmptyState
 import com.vaydelux.bousygram.presentation.components.RecentSearchesSection
+import com.vaydelux.bousygram.presentation.components.liquidGlassChrome
 import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
 import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
 import com.vaydelux.bousygram.presentation.media.playableVideos
 import com.vaydelux.bousygram.presentation.navigation.SearchFocusTarget
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 
 enum class SearchFilterOption(val label: String) {
     ALL("All Results"),
@@ -191,30 +199,71 @@ fun TvVideoSearchScreen(
                     .fillMaxSize()
                     .padding(horizontal = displaySpec.horizontalPadding, vertical = if (adaptive.isCompact) 14.dp else 24.dp)
             ) {
+                val styleSpec = LocalBousygramStyleSpec.current
+                val searchBarShape = RoundedCornerShape(styleSpec.panelCorner)
+                val scopeBadge = if (searchScope == SearchMode.InChat) {
+                    if (privacyMode) "Source" else viewModel.inChatTitle.ifBlank { inChatTitle }.ifBlank { "Source" }
+                } else "All Telegram"
                 // Preserve vertical space for actual results on short landscape windows.
                 // Keep the heading for idle/error screens where orientation matters less.
                 if (uiState !is SearchUiState.Success && uiState !is SearchUiState.Loading) {
-                    BousygramPageHeading(
-                        eyebrow = "",
-                        title = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
-                            "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
-                        } else {
-                            "Search Telegram videos"
-                        },
-                        subtitle = "Search across your accessible Telegram sources.",
-                        compact = adaptive.isCompact,
-                        icon = BousygramIcons.Search
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        BousygramPageHeading(
+                            eyebrow = "",
+                            title = if (privacyMode) "Search media" else if (searchScope == SearchMode.InChat) {
+                                "Search in ${viewModel.inChatTitle.ifBlank { inChatTitle }}"
+                            } else {
+                                "Search Telegram videos"
+                            },
+                            subtitle = "Search across your accessible Telegram sources.",
+                            compact = adaptive.isCompact,
+                            icon = BousygramIcons.Search,
+                            modifier = Modifier.weight(1f)
+                        )
+                        BousygramDynamicIsland(
+                            compact = adaptive.isCompact,
+                            state = DynamicIslandActivityState(
+                                title = if (isVoiceListening) "Listening…" else "Search",
+                                badge = if (adaptive.isCompact) null else scopeBadge,
+                                tone = if (isVoiceListening) DynamicIslandTone.ONLINE else DynamicIslandTone.ACCENT,
+                                isBusy = isVoiceListening,
+                                liveHeadline = "Telegram Video Search",
+                                liveDetail = "Scope: $scopeBadge. Use voice search or filter results below.",
+                                statusTag = if (isVoiceListening) "Voice Active" else "Search Ready",
+                                actions = buildList {
+                                    add(DynamicIslandAction("voice", "Voice Search", BousygramIcons.Mic, true) { launchVoiceSearch() })
+                                    if (searchQuery.isNotBlank()) {
+                                        add(DynamicIslandAction("clear", "Clear Query", BousygramIcons.Close) { clearSearch() })
+                                    }
+                                }
+                            )
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
                 } else {
                     BousygramCompactPageTitle(
                         title = "Search",
                         status = if (uiState is SearchUiState.Loading) "Searching…" else "Results"
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(6.dp))
                 }
                 if (adaptive.isCompact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (styleSpec.isLiquidGlass) {
+                                    Modifier
+                                        .liquidGlassChrome(shape = searchBarShape, level = BousygramGlassLevel.PANEL)
+                                        .padding(12.dp)
+                                } else Modifier
+                            )
+                    ) {
                         SearchField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
@@ -265,7 +314,15 @@ fun TvVideoSearchScreen(
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (styleSpec.isLiquidGlass) {
+                                    Modifier
+                                        .liquidGlassChrome(shape = searchBarShape, level = BousygramGlassLevel.PANEL)
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                } else Modifier
+                            )
                     ) {
                         SearchField(
                             value = searchQuery,

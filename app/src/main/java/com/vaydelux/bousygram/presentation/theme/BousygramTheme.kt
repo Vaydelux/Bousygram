@@ -110,14 +110,14 @@ enum class BousygramThemePreset(
         Color(0xFFF6F8FE), Color(0xFFFFFFFF), Color(0xFFE6ECF8), Color(0xFF8C98B0)
     ),
     CUPERTINO(
-        "cupertino", "Cupertino Frost", "Crisp iPhone-inspired system blue over airy frosted gray",
+        "cupertino", "iOS Frost", "Airy iOS 27 frosted mist with crisp cobalt blue accents",
         Color(0xFF005EC4), Color(0xFF4C3FB5), Color(0xFF8C5100),
-        Color(0xFFF2F2F7), Color(0xFFFFFFFF), Color(0xFFE5E5EA), Color(0xFF9898A3)
+        Color(0xFFF3F6FC), Color(0xFFFFFFFF), Color(0xFFE5ECF6), Color(0xFF8E9BB0)
     ),
     MIDNIGHT_GLASS(
-        "midnight_glass", "iOS Midnight", "True OLED obsidian with electric iOS blue & mint highlights",
-        Color(0xFF5AC8FA), Color(0xFF6CE8B8), Color(0xFFFFD27D),
-        Color(0xFF050508), Color(0xFF121217), Color(0xFF262630), Color(0xFF8C8C9A)
+        "midnight_glass", "iOS Obsidian", "Deep obsidian spatial glass with luminous Halo Cyan & mint",
+        Color(0xFF5CE1FA), Color(0xFF6CE8B8), Color(0xFFFFD27D),
+        Color(0xFF060910), Color(0xFF101622), Color(0xFF202A3C), Color(0xFF8896AE)
     );
 
     val isLightPreset: Boolean
@@ -180,9 +180,9 @@ private fun darkLayers(preset: BousygramThemePreset): BousygramDarkLayers = when
         Color(0xFF3A3161), Color(0xFF7264A0)
     )
     BousygramThemePreset.MIDNIGHT_GLASS -> BousygramDarkLayers(
-        Color(0xFF10394E), Color(0xFF113B2E), Color(0xFF463419),
-        Color(0xFF0D0D12), Color(0xFF16161D), Color(0xFF202029),
-        Color(0xFF2B2B37), Color(0xFF525263)
+        Color(0xFF0E3A4D), Color(0xFF113C30), Color(0xFF473318),
+        Color(0xFF0B1019), Color(0xFF121926), Color(0xFF1A2334),
+        Color(0xFF243045), Color(0xFF4E5E77)
     )
     else -> BousygramDarkLayers(
         Color(0xFF153C4B), Color(0xFF233A56), Color(0xFF46321F),
@@ -377,18 +377,18 @@ internal fun schemeFor(preset: BousygramThemePreset): ColorScheme {
             tertiaryContainer = Color(0xFFFFEBD0),
             onTertiaryContainer = Color(0xFF472700),
             background = preset.background,
-            onBackground = Color(0xFF1C1C1E),
+            onBackground = Color(0xFF141923),
             surface = preset.surface,
-            onSurface = Color(0xFF1C1C1E),
+            onSurface = Color(0xFF141923),
             surfaceVariant = preset.surfaceVariant,
-            onSurfaceVariant = Color(0xFF48484F),
+            onSurfaceVariant = Color(0xFF434D5E),
             surfaceContainerLowest = preset.surface,
-            surfaceContainerLow = Color(0xFFF7F7FA),
-            surfaceContainer = Color(0xFFEFEFF4),
-            surfaceContainerHigh = Color(0xFFE5E5EA),
-            surfaceContainerHighest = Color(0xFFDCDCE3),
+            surfaceContainerLow = Color(0xFFF7F9FD),
+            surfaceContainer = Color(0xFFEEF3FA),
+            surfaceContainerHigh = Color(0xFFE5ECF6),
+            surfaceContainerHighest = Color(0xFFD9E3F0),
             outline = preset.outline,
-            outlineVariant = Color(0xFFC7C7CC),
+            outlineVariant = Color(0xFFC2CEDF),
             error = Color(0xFFC41D2E),
             onError = Color.White,
             errorContainer = Color(0xFFFFDADC),
@@ -740,11 +740,105 @@ val LocalBousygramDisplaySpec = staticCompositionLocalOf {
     resolveDisplaySpec(AdaptiveMetrics(DeviceProfile.PhonePortrait, 393.dp, 852.dp))
 }
 
+/**
+ * Curated iOS 27/28 Accent Tints displayed in the quick Appearance Popover.
+ * Each tint maps cleanly onto WCAG-verified Dark and Light theme presets so
+ * contrast, settings backup, and legacy theme contracts remain unified.
+ */
+enum class BousygramIosAccentTint(
+    val id: String,
+    val displayName: String,
+    val swatchColor: Color,
+    val darkPreset: BousygramThemePreset,
+    val lightPreset: BousygramThemePreset
+) {
+    HALO_CYAN(
+        id = "halo_cyan",
+        displayName = "Halo Cyan",
+        swatchColor = Color(0xFF5CE1FA),
+        darkPreset = BousygramThemePreset.MIDNIGHT_GLASS,
+        lightPreset = BousygramThemePreset.LIGHT
+    ),
+    COBALT_BLUE(
+        id = "cobalt_blue",
+        displayName = "Cobalt Blue",
+        swatchColor = Color(0xFF3B82F6),
+        darkPreset = BousygramThemePreset.DARK,
+        lightPreset = BousygramThemePreset.CUPERTINO
+    ),
+    EMERALD(
+        id = "emerald",
+        displayName = "Emerald",
+        swatchColor = Color(0xFF34D399),
+        darkPreset = BousygramThemePreset.EVERGREEN,
+        lightPreset = BousygramThemePreset.MATCHA
+    ),
+    EMBER(
+        id = "ember",
+        displayName = "Ember",
+        swatchColor = Color(0xFFFB923C),
+        darkPreset = BousygramThemePreset.EMBER,
+        lightPreset = BousygramThemePreset.IVORY
+    ),
+    AURORA_VIOLET(
+        id = "aurora_violet",
+        displayName = "Aurora",
+        swatchColor = Color(0xFFA78BFA),
+        darkPreset = BousygramThemePreset.AURORA,
+        lightPreset = BousygramThemePreset.MATERIAL_YOU
+    ),
+    SILVER(
+        id = "silver",
+        displayName = "Obsidian",
+        swatchColor = Color(0xFFDDE3EF),
+        darkPreset = BousygramThemePreset.OBSIDIAN,
+        lightPreset = BousygramThemePreset.CUPERTINO
+    );
+
+    fun presetFor(lightMode: Boolean): BousygramThemePreset =
+        if (lightMode) lightPreset else darkPreset
+
+    companion object {
+        fun fromPreset(preset: BousygramThemePreset): BousygramIosAccentTint = when (preset) {
+            BousygramThemePreset.MIDNIGHT_GLASS, BousygramThemePreset.LIGHT, BousygramThemePreset.OCEAN -> HALO_CYAN
+            BousygramThemePreset.DARK, BousygramThemePreset.CUPERTINO -> COBALT_BLUE
+            BousygramThemePreset.EVERGREEN, BousygramThemePreset.MATCHA -> EMERALD
+            BousygramThemePreset.EMBER, BousygramThemePreset.IVORY, BousygramThemePreset.SAKURA -> EMBER
+            BousygramThemePreset.AURORA, BousygramThemePreset.MATERIAL_YOU,
+            BousygramThemePreset.PLUM, BousygramThemePreset.COTTON_CANDY -> AURORA_VIOLET
+            BousygramThemePreset.OBSIDIAN, BousygramThemePreset.HIGH_CONTRAST -> SILVER
+        }
+    }
+}
+
+/**
+ * Live root-level appearance controller provided via [LocalBousygramAppearanceController]
+ * so the Dynamic Island, Appearance Popover, and Settings can toggle Dark/Light/Contrast,
+ * iOS Accent Tints, and Reduce Transparency from any screen without threading callbacks.
+ */
+@Immutable
+data class BousygramAppearanceController(
+    val themePreset: BousygramThemePreset,
+    val designStyle: BousygramDesignStyle,
+    val backdropPattern: BousygramBackdropPattern,
+    val reduceTransparency: Boolean,
+    val onThemePresetChange: (BousygramThemePreset) -> Unit,
+    val onDesignStyleChange: (BousygramDesignStyle) -> Unit,
+    val onBackdropPatternChange: (BousygramBackdropPattern) -> Unit,
+    val onReduceTransparencyChange: (Boolean) -> Unit
+)
+
+val LocalBousygramAppearanceController = staticCompositionLocalOf<BousygramAppearanceController?> {
+    null
+}
+
 @Composable
 fun BousygramTheme(
     preset: BousygramThemePreset = BousygramThemePreset.MIDNIGHT,
-    designStyle: BousygramDesignStyle = BousygramDesignStyle.CINEMA_HALO,
-    backdropPattern: BousygramBackdropPattern = BousygramBackdropPattern.AMBIENT_HALO,
+    designStyle: BousygramDesignStyle = BousygramDesignStyle.IPHONE_GLASS,
+    backdropPattern: BousygramBackdropPattern = BousygramBackdropPattern.IOS_MESH,
+    reduceTransparency: Boolean = false,
+    appearanceController: BousygramAppearanceController? = null,
     content: @Composable () -> Unit
 ) {
     val scheme = remember(preset) { schemeFor(preset) }
@@ -758,7 +852,9 @@ fun BousygramTheme(
         LocalBousygramHaloColors provides halo,
         LocalBousygramDisplaySpec provides displaySpec,
         LocalBousygramStyleSpec provides styleSpec,
-        LocalBousygramBackdropPattern provides backdropPattern
+        LocalBousygramBackdropPattern provides backdropPattern,
+        LocalBousygramReduceTransparency provides reduceTransparency,
+        LocalBousygramAppearanceController provides appearanceController
     ) {
         MaterialTheme(
             colorScheme = scheme,

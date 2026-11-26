@@ -50,6 +50,7 @@ import com.vaydelux.bousygram.domain.model.SAVED_MESSAGES_TITLE
 import com.vaydelux.bousygram.domain.model.VideoChatItem
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 
 /** Horizontal source tabs with a searchable full picker for accounts with many chats. */
 @Composable
@@ -125,7 +126,8 @@ private fun SourceTab(
 ) {
     var focused by remember { mutableStateOf(false) }
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(BousygramUiTokens.tabCorner)
+    val styleSpec = LocalBousygramStyleSpec.current
+    val shape = RoundedCornerShape(styleSpec.tabCorner)
     val borderColor = when {
         focused -> MaterialTheme.colorScheme.primary
         selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
@@ -245,18 +247,15 @@ fun AllChatsPickerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        val halo = LocalBousygramHaloColors.current
-        Surface(
+        val styleSpec = LocalBousygramStyleSpec.current
+        LiquidGlassSurface(
+            level = BousygramGlassLevel.POPOVER,
+            shape = RoundedCornerShape(styleSpec.panelCorner),
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .widthIn(max = 760.dp)
                 .heightIn(max = dialogMaxHeight)
-                .testTag("telegram-chat-source-dialog"),
-            shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
-            shadowElevation = 16.dp
+                .testTag("telegram-chat-source-dialog")
         ) {
             Column(
                 modifier = Modifier.padding(if (shortScreen) 12.dp else 20.dp),
@@ -281,7 +280,7 @@ fun AllChatsPickerDialog(
                     modifier = Modifier.fillMaxWidth()
                         .testTag("telegram-chat-source-search"),
                     singleLine = true,
-                    shape = RoundedCornerShape(BousygramUiTokens.cardCorner),
+                    shape = RoundedCornerShape(styleSpec.inputCorner),
                     leadingIcon = {
                         BousygramIcon(
                             icon = BousygramIcons.Search,
@@ -390,7 +389,8 @@ private fun SourcePickerRow(
 ) {
     var focused by remember { mutableStateOf(false) }
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
+    val styleSpec = LocalBousygramStyleSpec.current
+    val shape = RoundedCornerShape(styleSpec.cardCorner)
     Surface(
         modifier = Modifier
             .fillMaxWidth()

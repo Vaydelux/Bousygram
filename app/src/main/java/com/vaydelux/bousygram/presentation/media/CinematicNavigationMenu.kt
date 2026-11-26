@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.testTag
@@ -50,8 +51,9 @@ import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
-import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.components.liquidGlassSheen
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
@@ -193,17 +195,36 @@ internal fun CinematicNavigationMenu(
     }
 
     val styleSpec = LocalBousygramStyleSpec.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
     val panelShape = RoundedCornerShape(styleSpec.panelCorner)
     val menuBorderWidth = if (halo.isHighContrast) 1.5.dp else styleSpec.panelBorderWidth
+    val menuBorder = when {
+        halo.isHighContrast -> BorderStroke(1.5.dp, colors.outline)
+        styleSpec.isLiquidGlass -> BorderStroke(
+            width = 1.dp,
+            brush = Brush.verticalGradient(
+                listOf(
+                    if (halo.isLight) Color.White.copy(alpha = 0.90f) else Color.White.copy(alpha = 0.24f),
+                    if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.10f) else Color.White.copy(alpha = 0.08f)
+                )
+            )
+        )
+        menuBorderWidth > 0.dp -> BorderStroke(menuBorderWidth, halo.glassBorder)
+        else -> null
+    }
     Surface(
         shape = panelShape,
-        color = colors.surfaceContainerHigh.copy(alpha = if (halo.isHighContrast) 0.99f else 0.96f),
+        color = colors.surfaceContainerHigh.copy(
+            alpha = when {
+                halo.isHighContrast -> 0.99f
+                reduceTransparency -> 0.97f
+                styleSpec.isLiquidGlass -> if (halo.isLight) 0.93f else 0.89f
+                else -> 0.96f
+            }
+        ),
         contentColor = colors.onSurface,
-        border = if (menuBorderWidth > 0.dp) BorderStroke(
-            width = menuBorderWidth,
-            color = if (halo.isHighContrast) colors.outline else halo.glassBorder
-        ) else null,
-        shadowElevation = if (motion.lowRam) 0.dp else 10.dp,
+        border = menuBorder,
+        shadowElevation = if (motion.lowRam) 0.dp else 12.dp,
         modifier = modifier
             .widthIn(min = 240.dp, max = 320.dp)
             .animateContentSize(animationSpec = tween(durationMillis = motion.duration(170)))
@@ -221,6 +242,11 @@ internal fun CinematicNavigationMenu(
     ) {
         Column(
             modifier = Modifier
+                .liquidGlassSheen(
+                    enabled = styleSpec.isLiquidGlass && !halo.isHighContrast && !reduceTransparency,
+                    topColor = if (halo.isLight) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.09f),
+                    coverageFraction = 0.34f
+                )
                 .verticalScroll(menuScroll)
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)

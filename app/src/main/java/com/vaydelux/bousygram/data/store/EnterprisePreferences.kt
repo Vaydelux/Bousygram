@@ -10,7 +10,6 @@ import com.vaydelux.bousygram.core.media.SubtitleAppearance
 import com.vaydelux.bousygram.core.media.SubtitleColorPreset
 import com.vaydelux.bousygram.core.media.AudioEqualizerPreset
 import com.vaydelux.bousygram.core.media.AudioProcessingProfile
-import com.vaydelux.bousygram.core.media.CustomEqualizerLayout
 import com.vaydelux.bousygram.core.media.SmartVolumeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,6 +78,7 @@ object EnterprisePreferences {
     private const val KEY_VISUAL_THEME = "visual_theme"
     private const val KEY_VISUAL_DESIGN_STYLE = "visual_design_style"
     private const val KEY_VISUAL_BACKDROP_PATTERN = "visual_backdrop_pattern"
+    private const val KEY_VISUAL_REDUCE_TRANSPARENCY = "visual_reduce_transparency"
     private const val KEY_PLAYER_ENGINE = "player_engine"
     private const val KEY_VIDEO_DEBUG_HUD = "video_debug_hud"
     private const val KEY_SURFACE_TYPE = "surface_type"
@@ -173,22 +173,34 @@ object EnterprisePreferences {
     fun hideWatched(): Boolean = prefs.getBoolean(KEY_HIDE_WATCHED, false)
     fun setHideWatched(value: Boolean) = prefs.edit { putBoolean(KEY_HIDE_WATCHED, value) }
 
-    fun visualThemeId(): String = prefs.getString(KEY_VISUAL_THEME, "midnight") ?: "midnight"
+    fun visualThemeId(): String = prefs.getString(KEY_VISUAL_THEME, "midnight_glass") ?: "midnight_glass"
     fun setVisualThemeId(value: String) = prefs.edit { putString(KEY_VISUAL_THEME, value) }
 
-    fun designStyleId(): String = prefs.getString(KEY_VISUAL_DESIGN_STYLE, "cinema_halo") ?: "cinema_halo"
+    fun designStyleId(): String = prefs.getString(KEY_VISUAL_DESIGN_STYLE, "iphone_glass") ?: "iphone_glass"
     fun setDesignStyleId(value: String) = prefs.edit { putString(KEY_VISUAL_DESIGN_STYLE, value) }
 
-    fun backdropPatternId(): String = prefs.getString(KEY_VISUAL_BACKDROP_PATTERN, "ambient_halo") ?: "ambient_halo"
+    fun backdropPatternId(): String = prefs.getString(KEY_VISUAL_BACKDROP_PATTERN, "ios_mesh") ?: "ios_mesh"
     fun setBackdropPatternId(value: String) = prefs.edit { putString(KEY_VISUAL_BACKDROP_PATTERN, value) }
 
+    fun reduceTransparency(): Boolean = prefs.getBoolean(KEY_VISUAL_REDUCE_TRANSPARENCY, false)
+    fun setReduceTransparency(enabled: Boolean) = prefs.edit {
+        putBoolean(KEY_VISUAL_REDUCE_TRANSPARENCY, enabled)
+    }
+
     /** Persist an entire curated look in one preferences transaction. */
-    fun setVisualAppearance(themeId: String, designStyleId: String, backdropPatternId: String) =
-        prefs.edit {
-            putString(KEY_VISUAL_THEME, themeId)
-            putString(KEY_VISUAL_DESIGN_STYLE, designStyleId)
-            putString(KEY_VISUAL_BACKDROP_PATTERN, backdropPatternId)
+    fun setVisualAppearance(
+        themeId: String,
+        designStyleId: String,
+        backdropPatternId: String,
+        reduceTransparency: Boolean? = null
+    ) = prefs.edit {
+        putString(KEY_VISUAL_THEME, themeId)
+        putString(KEY_VISUAL_DESIGN_STYLE, designStyleId)
+        putString(KEY_VISUAL_BACKDROP_PATTERN, backdropPatternId)
+        if (reduceTransparency != null) {
+            putBoolean(KEY_VISUAL_REDUCE_TRANSPARENCY, reduceTransparency)
         }
+    }
 
     fun safeMode(): Boolean = prefs.getBoolean(KEY_SAFE_MODE, false)
     fun setSafeMode(value: Boolean) = prefs.edit { putBoolean(KEY_SAFE_MODE, value) }
@@ -306,6 +318,7 @@ object EnterprisePreferences {
         appendLine("Visual theme: ${visualThemeId()}")
         appendLine("Design style: ${designStyleId()}")
         appendLine("Background pattern: ${backdropPatternId()}")
+        appendLine("Reduce transparency: ${reduceTransparency()}")
         appendLine("Hide watched: ${hideWatched()}")
         appendLine("Favorites: ${favoriteKeys().size}")
         appendLine("Pinned chats: ${pinnedChatIds().size}")
@@ -328,6 +341,7 @@ object EnterprisePreferences {
             .put("visualTheme", visualThemeId())
             .put("visualDesignStyle", designStyleId())
             .put("visualBackdropPattern", backdropPatternId())
+            .put("visualReduceTransparency", reduceTransparency())
             .put("autoPlayNext", autoPlayNext())
             .put("subtitlesDefault", subtitlesDefault())
             .put("preferredSpeed", preferredSpeed().toDouble())
@@ -375,6 +389,7 @@ object EnterprisePreferences {
                 settings.visualTheme?.let { putString(KEY_VISUAL_THEME, it) }
                 settings.visualDesignStyle?.let { putString(KEY_VISUAL_DESIGN_STYLE, it) }
                 settings.visualBackdropPattern?.let { putString(KEY_VISUAL_BACKDROP_PATTERN, it) }
+                settings.visualReduceTransparency?.let { putBoolean(KEY_VISUAL_REDUCE_TRANSPARENCY, it) }
                 // Legacy EQ fields from old settings files are ignored.
                 remove(KEY_AUDIO_EQ_PRESET)
                 remove(KEY_AUDIO_CUSTOM_GAINS)

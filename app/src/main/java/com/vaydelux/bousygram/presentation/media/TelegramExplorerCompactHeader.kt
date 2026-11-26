@@ -1,5 +1,7 @@
 package com.vaydelux.bousygram.presentation.media
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,9 +9,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -22,6 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -31,13 +37,22 @@ import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.core.tdlib.client.TelegramConnectionState
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramDynamicIsland
+import com.vaydelux.bousygram.presentation.components.BousygramGlassLevel
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIconButton
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
 import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
+import com.vaydelux.bousygram.presentation.components.DynamicIslandAction
+import com.vaydelux.bousygram.presentation.components.DynamicIslandActivityState
+import com.vaydelux.bousygram.presentation.components.DynamicIslandTone
+import com.vaydelux.bousygram.presentation.components.liquidGlassChrome
 import com.vaydelux.bousygram.presentation.media.vm.ExplorerSection
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.tabular
 
 /**
@@ -108,14 +123,28 @@ internal fun TelegramExplorerCompactHeader(
     val minControl = if (isTv) BousygramUiTokens.tvControlHeight
         else BousygramUiTokens.compactControlHeight
     val colors = MaterialTheme.colorScheme
+    val halo = LocalBousygramHaloColors.current
+    val styleSpec = LocalBousygramStyleSpec.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
+    val showDynamicIsland = effectiveWidth >= (if (canGoUp) 410.dp else 360.dp)
     var menuExpanded by remember { mutableStateOf(false) }
+
+    val headerRowShape = RoundedCornerShape(if (styleSpec.isLiquidGlass) 20.dp else 0.dp)
+    val headerRowModifier = if (styleSpec.isLiquidGlass) {
+        Modifier
+            .fillMaxWidth()
+            .liquidGlassChrome(shape = headerRowShape, level = BousygramGlassLevel.FLOATING_CHROME)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    } else {
+        Modifier.fillMaxWidth()
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth().testTag("telegram-explorer-toolbar"),
         verticalArrangement = Arrangement.spacedBy(if (density == ExplorerHeaderDensity.COMPACT) 6.dp else 10.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = headerRowModifier,
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -141,7 +170,8 @@ internal fun TelegramExplorerCompactHeader(
                 }
             } else if (isTv || effectiveWidth >= 420.dp) {
                 BousygramBrandMark(
-                    size = if (isTv) 36.dp else 32.dp
+                    size = if (isTv) 36.dp else 32.dp,
+                    squircleFrame = styleSpec.isLiquidGlass
                 )
             }
 
@@ -174,7 +204,7 @@ internal fun TelegramExplorerCompactHeader(
                             else MaterialTheme.typography.labelSmall).tabular(),
                         color = colors.onSurfaceVariant
                     )
-                    if (connection != null) {
+                    if (connection != null && !showDynamicIsland) {
                         Text(
                             text = when (connection) {
                                 TelegramConnectionState.ONLINE -> "Online"
@@ -192,7 +222,7 @@ internal fun TelegramExplorerCompactHeader(
                             }
                         )
                     }
-                    if (isLoading) {
+                    if (isLoading && !showDynamicIsland) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(12.dp),
                             strokeWidth = 1.5.dp,
@@ -200,6 +230,46 @@ internal fun TelegramExplorerCompactHeader(
                         )
                     }
                 }
+            }
+
+            // Inline center iOS 27/28 Dynamic Island (zero extra vertical height; linear D-pad focus)
+            if (showDynamicIsland) {
+                val connectionLabel = when (connection) {
+                    TelegramConnectionState.ONLINE -> "Online"
+                    TelegramConnectionState.OFFLINE -> "Offline"
+                    TelegramConnectionState.SYNCING -> "Syncing"
+                    TelegramConnectionState.CONNECTING -> "Connecting"
+                    null -> folderTitle
+                }
+                val islandTone = when (connection) {
+                    TelegramConnectionState.ONLINE -> DynamicIslandTone.ONLINE
+                    TelegramConnectionState.OFFLINE -> DynamicIslandTone.ERROR
+                    TelegramConnectionState.SYNCING,
+                    TelegramConnectionState.CONNECTING -> DynamicIslandTone.SYNCING
+                    null -> if (hasSourceError || hasTopicError) DynamicIslandTone.WARNING else DynamicIslandTone.ACCENT
+                }
+                BousygramDynamicIsland(
+                    modifier = if (effectiveWidth < 460.dp) Modifier.widthIn(max = 122.dp) else Modifier,
+                    compact = effectiveWidth < 860.dp,
+                    statusTestTag = if (connection != null) "telegram-connection-status" else null,
+                    state = DynamicIslandActivityState(
+                        title = connectionLabel,
+                        badge = if (hasResume && effectiveWidth >= 460.dp) "Resume" else null,
+                        tone = islandTone,
+                        isBusy = isLoading,
+                        liveHeadline = folderTitle,
+                        liveDetail = if (privacyMode) "Private · $collectionStatus" else collectionStatus,
+                        statusTag = "Telegram · $connectionLabel",
+                        actions = buildList {
+                            if (hasResume) {
+                                add(DynamicIslandAction("resume", "Continue", BousygramIcons.Continue, true, onResume))
+                            }
+                            add(DynamicIslandAction("search", "Search", BousygramIcons.Search, onClick = onSearch))
+                            add(DynamicIslandAction("favorites", "Favorites", BousygramIcons.Favorites, onClick = onFavorites))
+                            add(DynamicIslandAction("settings", "Settings", BousygramIcons.Settings, onClick = onSettings))
+                        }
+                    )
+                )
             }
 
             // Adaptive action cluster: full labeled pills on wide TV/tablets,
@@ -382,8 +452,26 @@ internal fun TelegramExplorerCompactHeader(
                     )
                     .testTag("telegram-library-tab-favorites")
             )
+            val sourceTabsTrayShape = RoundedCornerShape(if (styleSpec.isLiquidGlass) 18.dp else 0.dp)
             Row(
                 modifier = Modifier.weight(1f)
+                    .then(
+                        if (styleSpec.isLiquidGlass && !compactTabs) {
+                            Modifier
+                                .clip(sourceTabsTrayShape)
+                                .background(
+                                    colors.surfaceContainerLow.copy(
+                                        alpha = if (halo.isHighContrast || reduceTransparency) 0.96f else 0.62f
+                                    )
+                                )
+                                .border(
+                                    1.dp,
+                                    if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.08f) else Color.White.copy(alpha = 0.10f),
+                                    sourceTabsTrayShape
+                                )
+                                .padding(3.dp)
+                        } else Modifier
+                    )
                     // Compact widths must keep all three primary sections
                     // visible; requiring sideways scrolling hides Groups
                     // from both first-time users and 10-ft remote navigation.

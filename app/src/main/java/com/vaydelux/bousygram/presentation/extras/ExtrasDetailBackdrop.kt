@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -23,15 +22,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.core.media.PlayerBufferConfig
-import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 
 /**
  * Detail hero uses backdrop metadata already returned by the TMDB/AniList
@@ -62,7 +60,8 @@ internal fun ExtrasDetailBackdrop(
     }
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(BousygramUiTokens.panelCorner)
+    val styleSpec = LocalBousygramStyleSpec.current
+    val shape = RoundedCornerShape(styleSpec.panelCorner)
     Box(
         modifier = modifier.fillMaxWidth()
             .height((heightDp ?: if (shortViewport) 118 else if (compact) 164 else 218).dp)
@@ -70,6 +69,16 @@ internal fun ExtrasDetailBackdrop(
             .background(colors.surfaceContainerLow)
             .then(
                 if (halo.isHighContrast) Modifier.border(1.dp, colors.outline, shape)
+                else if (styleSpec.isLiquidGlass) Modifier.border(
+                    1.dp,
+                    Brush.verticalGradient(
+                        listOf(
+                            if (halo.isLight) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.24f),
+                            if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.10f) else Color.White.copy(alpha = 0.08f)
+                        )
+                    ),
+                    shape
+                )
                 else Modifier
             )
             .testTag("extras-detail-backdrop")
@@ -98,12 +107,9 @@ internal fun ExtrasDetailBackdrop(
                 .padding(horizontal = 18.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                info.item.type.label + "  ·  " + info.item.type.provider,
-                style = MaterialTheme.typography.labelMedium,
-                color = colors.onBackground.copy(alpha = 0.9f),
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1
+            BousygramStatusPill(
+                label = info.item.type.label + " · " + info.item.type.provider,
+                accent = true
             )
             // Title and synopsis belong to the profile block below this hero,
             // not on top of the artwork: no duplicated headings on small TVs.

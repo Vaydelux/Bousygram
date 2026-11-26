@@ -30,8 +30,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -53,7 +51,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -94,7 +91,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -107,14 +103,20 @@ import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
 import com.vaydelux.bousygram.presentation.components.BousygramButton
 import com.vaydelux.bousygram.presentation.components.BousygramCenteredStatus
+import com.vaydelux.bousygram.presentation.components.BousygramDynamicIsland
+import com.vaydelux.bousygram.presentation.components.BousygramGlassLevel
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIconButton
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
 import com.vaydelux.bousygram.presentation.components.BousygramSectionTab
 import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
+import com.vaydelux.bousygram.presentation.components.DynamicIslandAction
+import com.vaydelux.bousygram.presentation.components.DynamicIslandActivityState
+import com.vaydelux.bousygram.presentation.components.DynamicIslandTone
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.components.TvFocusSurface
+import com.vaydelux.bousygram.presentation.components.liquidGlassChrome
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
@@ -582,6 +584,8 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         // out of the Android status/navigation bars and display cutout.
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
+            val styleSpec = LocalBousygramStyleSpec.current
+            val barShape = RoundedCornerShape(22.dp)
             Column(
                 Modifier.fillMaxWidth().statusBarsPadding().padding(
                     horizontal = layout.horizontalGutterDp.dp,
@@ -590,8 +594,17 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (styleSpec.isLiquidGlass) {
+                                Modifier
+                                    .liquidGlassChrome(shape = barShape, level = BousygramGlassLevel.FLOATING_CHROME)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            } else Modifier
+                        ),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(if (compactPhoneWindow) 6.dp else 10.dp)
                 ) {
                     if (compactPhoneWindow) {
                         BousygramIconButton(
@@ -618,7 +631,10 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     // On a 320dp phone, the logo plus two actions squeezed the
                     // title to almost zero width. Keep the actions reachable.
                     if (!compactPhoneWindow && metrics.effectiveWidthDp >= 380.dp) {
-                        BousygramBrandMark(size = if (metrics.isTv) 36.dp else 30.dp)
+                        BousygramBrandMark(
+                            size = if (metrics.isTv) 36.dp else 30.dp,
+                            squircleFrame = styleSpec.isLiquidGlass
+                        )
                     }
                     if (landscapeToolbar && detailItem == null && !showPersonalLibrary) {
                         Text(
@@ -665,6 +681,60 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                             )
                         }
                     }
+                    }
+                    val showExtrasDynamicIsland = if (landscapeToolbar && detailItem == null && !showPersonalLibrary) {
+                        metrics.effectiveWidthDp >= 760.dp
+                    } else {
+                        metrics.effectiveWidthDp >= 360.dp
+                    }
+                    if (showExtrasDynamicIsland) {
+                        val activeDetailItem = detailItem
+                        BousygramDynamicIsland(
+                            modifier = if (metrics.effectiveWidthDp < 460.dp) Modifier.widthIn(max = 124.dp) else Modifier,
+                            compact = metrics.effectiveWidthDp < 900.dp,
+                            state = DynamicIslandActivityState(
+                                title = activeDetailItem?.title ?: if (showPersonalLibrary) "My Extras" else type.label,
+                                badge = if (metrics.effectiveWidthDp < 520.dp) null
+                                    else if (activeDetailItem != null) activeDetailItem.type.provider
+                                    else if (personalLibrary.saved.isNotEmpty()) "${personalLibrary.saved.size} Saved"
+                                    else type.provider,
+                                tone = if (state.error != null) DynamicIslandTone.WARNING else DynamicIslandTone.ACCENT,
+                                isBusy = state.loading || detailLoading,
+                                liveHeadline = activeDetailItem?.title ?: "Extras · ${type.label}",
+                                liveDetail = "Metadata via ${type.provider}. Switch views or tune Liquid Glass.",
+                                statusTag = "Extras Catalog",
+                                actions = buildList {
+                                    add(
+                                        DynamicIslandAction(
+                                            id = "library",
+                                            label = if (showPersonalLibrary) "Browse" else "My Extras",
+                                            icon = BousygramIcons.Favorites,
+                                            emphasized = !showPersonalLibrary,
+                                            onClick = {
+                                                detailItem = null
+                                                showPersonalLibrary = !showPersonalLibrary
+                                            }
+                                        )
+                                    )
+                                    add(
+                                        DynamicIslandAction(
+                                            id = "credits",
+                                            label = "Credits",
+                                            icon = BousygramIcons.Info,
+                                            onClick = { showCredits = true }
+                                        )
+                                    )
+                                    add(
+                                        DynamicIslandAction(
+                                            id = "modes",
+                                            label = "Switch Mode",
+                                            icon = BousygramIcons.Home,
+                                            onClick = onExit
+                                        )
+                                    )
+                                }
+                            )
+                        )
                     }
                     if (compactResultsInHeader && detailItem == null &&
                         !showPersonalLibrary && state.results.isNotEmpty()) {

@@ -18,7 +18,8 @@ internal data class SettingsImport(
     val audioCustomLayout: CustomEqualizerLayout? = null,
     val audioSmartVolume: SmartVolumeMode? = null,
     val visualDesignStyle: String? = null,
-    val visualBackdropPattern: String? = null
+    val visualBackdropPattern: String? = null,
+    val visualReduceTransparency: Boolean? = null
 )
 
 internal object SettingsImportPolicy {
@@ -118,6 +119,6 @@ internal object SettingsImportPolicy {
             SmartVolumeMode.valueOf(obj.getString("audioSmartVolume")) else null
         return SettingsImport(favorites, pinned, recent, last, bool("continueOnly"), bool("safeMode"),
             bool("autoPlayNext"), bool("subtitlesDefault"), speed, mode, theme, eq, gains, layout, smart,
-            designStyle, backdrop)
+            designStyle, backdrop, bool("visualReduceTransparency"))
     }
 }

@@ -44,6 +44,7 @@ import com.vaydelux.bousygram.presentation.adaptive.BousygramDisplayTier
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.components.BousygramCompactPageTitle
 import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramGlassLevel
 import com.vaydelux.bousygram.presentation.components.BousygramIconButton
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
@@ -53,11 +54,13 @@ import com.vaydelux.bousygram.presentation.components.BrowseGridShimmerSkeleton
 import com.vaydelux.bousygram.presentation.components.EmptyStateView
 import com.vaydelux.bousygram.presentation.components.MediaPosterCard
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
+import com.vaydelux.bousygram.presentation.components.liquidGlassChrome
 import com.vaydelux.bousygram.presentation.media.launch.LaunchOpeningIndicator
 import com.vaydelux.bousygram.presentation.media.launch.rememberMediaLauncher
 import com.vaydelux.bousygram.presentation.media.vm.CloudFavoritesViewModel
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.bousygramResponsiveTokens
 import kotlinx.coroutines.launch
 
@@ -163,8 +166,19 @@ fun FavoritesScreen(
                         icon = BousygramIcons.Favorites
                     )
                 }
+                val styleSpec = LocalBousygramStyleSpec.current
+                val actionBarShape = RoundedCornerShape(20.dp)
                 Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (styleSpec.isLiquidGlass) {
+                                Modifier
+                                    .liquidGlassChrome(shape = actionBarShape, level = BousygramGlassLevel.FLOATING_CHROME)
+                                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                            } else Modifier
+                        )
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

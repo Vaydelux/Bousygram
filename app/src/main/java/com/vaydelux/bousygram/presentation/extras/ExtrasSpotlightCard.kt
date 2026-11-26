@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -32,11 +33,13 @@ import coil.request.ImageRequest
 import coil.size.Precision
 import com.vaydelux.bousygram.core.media.PlayerBufferConfig
 import com.vaydelux.bousygram.presentation.components.BousygramButton
+import com.vaydelux.bousygram.presentation.components.BousygramGlassLevel
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
+import com.vaydelux.bousygram.presentation.components.LiquidGlassSurface
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
-import com.vaydelux.bousygram.presentation.theme.tabular
 
 /**
  * Featured in the current provider results, never editorial or sponsored.
@@ -71,26 +74,24 @@ internal fun ExtrasSpotlightCard(
     }
     val minHeight = if (isTv) 56.dp else 48.dp
     val halo = LocalBousygramHaloColors.current
-    val shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner)
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = shape,
-        modifier = modifier.fillMaxWidth().testTag("extras-spotlight")
-            .then(
-                if (halo.isHighContrast) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, shape)
-                else Modifier
-            )
-    ) {
+    val styleSpec = LocalBousygramStyleSpec.current
+    val shape = RoundedCornerShape(styleSpec.panelCorner)
+    val spotlightBody: @Composable () -> Unit = {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(if (isTv) 16.dp else 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(if (isTv) 18.dp else 14.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier.width(if (isTv) 108.dp else 92.dp)
+                modifier = Modifier.width(if (isTv) 112.dp else 94.dp)
                     .aspectRatio(2f / 3f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerLow),
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                    .border(
+                        1.dp,
+                        if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.08f) else Color.White.copy(alpha = 0.16f),
+                        RoundedCornerShape(14.dp)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 if (item.poster.isNullOrBlank()) {
@@ -106,31 +107,36 @@ internal fun ExtrasSpotlightCard(
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    "Featured · ${item.type.provider} · ${position + 1}/${total.coerceAtLeast(1)}",
-                    style = MaterialTheme.typography.labelMedium.tabular(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (item.rating.isNotBlank()) {
+                        BousygramStatusPill(
+                            label = item.rating,
+                            icon = BousygramIcons.Star,
+                            gold = true
+                        )
+                    }
+                    if (!item.year.isNullOrBlank()) {
+                        BousygramStatusPill(label = item.year)
+                    }
+                    BousygramStatusPill(
+                        label = "${item.type.provider} · ${position + 1}/${total.coerceAtLeast(1)}",
+                        accent = true
+                    )
+                }
                 Text(
                     item.title,
-                    style = if (isTv) MaterialTheme.typography.titleLarge
-                        else MaterialTheme.typography.titleMedium,
+                    style = if (isTv) MaterialTheme.typography.headlineSmall
+                        else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.testTag("extras-spotlight-title")
-                )
-                Text(
-                    listOf(item.year, item.rating.takeIf { it.isNotBlank() }?.let { "★ $it" })
-                        .filterNotNull().filter(String::isNotBlank).joinToString(" · "),
-                    style = MaterialTheme.typography.labelMedium.tabular(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
                 )
                 if (item.description.isNotBlank()) {
                     Text(
@@ -147,6 +153,7 @@ internal fun ExtrasSpotlightCard(
                 ) {
                     BousygramButton(
                         text = "Details",
+                        leadingIcon = BousygramIcons.Play,
                         selected = true,
                         onClick = onOpen,
                         modifier = Modifier.heightIn(min = minHeight)
@@ -154,6 +161,7 @@ internal fun ExtrasSpotlightCard(
                     )
                     BousygramButton(
                         text = "Next pick",
+                        leadingIcon = BousygramIcons.Next,
                         enabled = total > 1,
                         onClick = onNext,
                         modifier = Modifier.heightIn(min = minHeight)
@@ -161,6 +169,28 @@ internal fun ExtrasSpotlightCard(
                     )
                 }
             }
+        }
+    }
+    if (styleSpec.isLiquidGlass) {
+        LiquidGlassSurface(
+            level = BousygramGlassLevel.PANEL,
+            shape = shape,
+            accentTinted = true,
+            modifier = modifier.fillMaxWidth().testTag("extras-spotlight")
+        ) {
+            spotlightBody()
+        }
+    } else {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = shape,
+            modifier = modifier.fillMaxWidth().testTag("extras-spotlight")
+                .then(
+                    if (halo.isHighContrast) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                    else Modifier
+                )
+        ) {
+            spotlightBody()
         }
     }
 }

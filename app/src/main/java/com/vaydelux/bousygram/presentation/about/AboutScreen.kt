@@ -36,10 +36,9 @@ import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
+import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
-import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
-import com.vaydelux.bousygram.presentation.theme.tabular
 
 /**
  * About screen displaying application version, privacy/storage summary,
@@ -114,7 +113,8 @@ private fun AppHeaderCard() {
         ) {
             // Same approved Chow mascot shown by Android launcher, sign-in and README.
             BousygramBrandMark(
-                size = if (displaySpec.isCompact) 48.dp else 58.dp
+                size = if (displaySpec.isCompact) 50.dp else 62.dp,
+                squircleFrame = true
             )
 
             Column(
@@ -132,18 +132,10 @@ private fun AppHeaderCard() {
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ) {
-                        Text(
-                            text = "v${BuildConfig.VERSION_NAME}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall.tabular(),
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
+                    BousygramStatusPill(
+                        label = "v${BuildConfig.VERSION_NAME}",
+                        accent = true
+                    )
                 }
                 Text(
                     text = "Local-first Telegram video player for Android TV, tablet, and phone.",

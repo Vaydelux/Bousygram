@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -43,6 +45,7 @@ import androidx.compose.ui.window.PopupProperties
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import kotlinx.coroutines.delay
@@ -172,21 +175,44 @@ fun BousygramTooltipBox(
                     exit = fadeOut(tween(fadeMs))
                 ) {
                     val tooltipIconTint = if (halo.isLight) BousygramUiTokens.mascotCyan else halo.haloStart
-                    Surface(
-                        shape = RoundedCornerShape(styleSpec.tooltipCorner),
-                        color = halo.tooltipFill,
-                        contentColor = halo.tooltipContent,
-                        border = BorderStroke(
+                    val reduceTransparency = LocalBousygramReduceTransparency.current
+                    val tooltipFill = if (styleSpec.isLiquidGlass && !halo.isHighContrast) {
+                        Color(0xFF0A0F1A).copy(alpha = if (reduceTransparency) 0.98f else 0.92f)
+                    } else halo.tooltipFill
+                    val tooltipContent = if (styleSpec.isLiquidGlass && !halo.isHighContrast) {
+                        Color(0xFFF5F8FF)
+                    } else halo.tooltipContent
+                    val tooltipBorder = if (styleSpec.isLiquidGlass && !halo.isHighContrast) {
+                        BorderStroke(
+                            width = 1.dp,
+                            brush = Brush.verticalGradient(
+                                listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0.08f))
+                            )
+                        )
+                    } else {
+                        BorderStroke(
                             width = if (halo.isHighContrast) 2.dp else 1.dp,
                             color = halo.tooltipBorder
-                        ),
-                        shadowElevation = if (motion.lowRam) 0.dp else 8.dp,
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(styleSpec.tooltipCorner),
+                        color = tooltipFill,
+                        contentColor = tooltipContent,
+                        border = tooltipBorder,
+                        shadowElevation = if (motion.lowRam) 0.dp else 10.dp,
                         modifier = Modifier
                             .widthIn(max = spec.tooltipMaxWidth)
                             .clearAndSetSemantics { testTag = "bousygram-tooltip-popup" }
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                            modifier = Modifier
+                                .liquidGlassSheen(
+                                    enabled = styleSpec.isLiquidGlass && !halo.isHighContrast && !reduceTransparency,
+                                    topColor = Color.White.copy(alpha = 0.10f),
+                                    coverageFraction = 0.45f
+                                )
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
                             Row(
@@ -203,7 +229,7 @@ fun BousygramTooltipBox(
                                 }
                                 Text(
                                     text = tooltip,
-                                    color = halo.tooltipContent,
+                                    color = tooltipContent,
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
@@ -213,7 +239,7 @@ fun BousygramTooltipBox(
                             if (!detail.isNullOrBlank()) {
                                 Text(
                                     text = detail,
-                                    color = halo.tooltipContent.copy(alpha = 0.84f),
+                                    color = tooltipContent.copy(alpha = 0.84f),
                                     style = MaterialTheme.typography.labelSmall,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis

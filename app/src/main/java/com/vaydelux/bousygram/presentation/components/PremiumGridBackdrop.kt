@@ -24,6 +24,7 @@ import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
 import com.vaydelux.bousygram.presentation.theme.BousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramBackdropPattern
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 
 /**
  * Theme-aware native Compose backdrop supporting ambient glow, architectural
@@ -43,6 +44,7 @@ fun PremiumGridBackdrop(
     val colors = MaterialTheme.colorScheme
     val halo = LocalBousygramHaloColors.current
     val pattern = patternOverride ?: LocalBousygramBackdropPattern.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
 
     Box(
         modifier = modifier
@@ -60,7 +62,8 @@ fun PremiumGridBackdrop(
                         primary = colors.primary,
                         secondary = colors.secondary,
                         tertiary = colors.tertiary,
-                        previewBoost = false
+                        previewBoost = false,
+                        calmForSolidSurfaces = reduceTransparency
                     )
             )
         }
@@ -99,7 +102,8 @@ private fun Modifier.drawBackdropPattern(
     primary: Color,
     secondary: Color,
     tertiary: Color,
-    previewBoost: Boolean
+    previewBoost: Boolean,
+    calmForSolidSurfaces: Boolean = false
 ): Modifier = drawWithCache {
     val w = size.width
     val h = size.height
@@ -144,35 +148,42 @@ private fun Modifier.drawBackdropPattern(
     } else emptyList()
 
     val meshBrushes: List<Brush> = if (pattern == BousygramBackdropPattern.IOS_MESH) {
-        val a1 = ((if (light) 0.19f else 0.26f) * (if (previewBoost) 1.55f else 1f)).coerceAtMost(0.55f)
-        val a2 = ((if (light) 0.15f else 0.22f) * (if (previewBoost) 1.55f else 1f)).coerceAtMost(0.48f)
-        val a3 = ((if (light) 0.12f else 0.16f) * (if (previewBoost) 1.55f else 1f)).coerceAtMost(0.40f)
+        val calmScale = if (calmForSolidSurfaces && !previewBoost) 0.45f else 1f
+        val boost = if (previewBoost) 1.55f else 1f
+        val a1 = ((if (light) 0.16f else 0.22f) * boost * calmScale).coerceAtMost(0.54f)
+        val a2 = ((if (light) 0.13f else 0.18f) * boost * calmScale).coerceAtMost(0.46f)
+        val a3 = ((if (light) 0.09f else 0.13f) * boost * calmScale).coerceAtMost(0.36f)
         listOf(
+            // Primary top-left spatial aurora bloom (Kakei / React Orbit / Portfolio depth)
             Brush.radialGradient(
-                listOf(primary.copy(alpha = a1), Color.Transparent),
-                center = Offset(w * 0.18f, h * 0.18f),
-                radius = maxDim * 0.62f
+                listOf(primary.copy(alpha = a1), primary.copy(alpha = a1 * 0.35f), Color.Transparent),
+                center = Offset(w * 0.16f, h * 0.08f),
+                radius = maxDim * 0.68f
             ),
+            // Secondary top-right luminous counterweight
             Brush.radialGradient(
                 listOf(secondary.copy(alpha = a2), Color.Transparent),
-                center = Offset(w * 0.84f, h * 0.26f),
+                center = Offset(w * 0.86f, h * 0.14f),
+                radius = maxDim * 0.60f
+            ),
+            // Soft bottom-center ambient floor glow
+            Brush.radialGradient(
+                listOf(halo.haloEnd.copy(alpha = a3), Color.Transparent),
+                center = Offset(w * 0.52f, h * 0.94f),
                 radius = maxDim * 0.58f
             ),
+            // Subtle warm tertiary accent whisper at bottom-right
             Brush.radialGradient(
-                listOf(tertiary.copy(alpha = a3), Color.Transparent),
-                center = Offset(w * 0.76f, h * 0.86f),
-                radius = maxDim * 0.56f
+                listOf(tertiary.copy(alpha = a3 * 0.72f), Color.Transparent),
+                center = Offset(w * 0.88f, h * 0.84f),
+                radius = maxDim * 0.44f
             ),
-            Brush.radialGradient(
-                listOf(halo.haloStart.copy(alpha = a2 * 0.85f), Color.Transparent),
-                center = Offset(w * 0.28f, h * 0.84f),
-                radius = maxDim * 0.52f
-            ),
+            // Crisp diagonal spatial sheen
             Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = if (light) 0.20f else 0.045f),
+                    Color.White.copy(alpha = (if (light) 0.28f else 0.04f) * calmScale),
                     Color.Transparent,
-                    Color.White.copy(alpha = if (light) 0.10f else 0.025f)
+                    Color.White.copy(alpha = (if (light) 0.12f else 0.02f) * calmScale)
                 ),
                 start = Offset(0f, 0f),
                 end = Offset(w, h)

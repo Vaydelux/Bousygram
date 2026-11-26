@@ -4,11 +4,13 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -20,8 +22,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -50,6 +60,7 @@ import com.vaydelux.bousygram.presentation.media.canPageOlderEpisodes
 import com.vaydelux.bousygram.presentation.media.isMatchingEpisodeSource
 import com.vaydelux.bousygram.presentation.media.vm.MediaViewModel
 import com.vaydelux.bousygram.presentation.components.BousygramAdaptiveShell
+import com.vaydelux.bousygram.presentation.components.GlassBottomBar
 import com.vaydelux.bousygram.presentation.components.ShellDestination
 import com.vaydelux.bousygram.presentation.navigation.CloudFavoritesNavigation
 import com.vaydelux.bousygram.presentation.navigation.AppScreen
@@ -65,6 +76,7 @@ import com.vaydelux.bousygram.presentation.about.AboutScreen
 import com.vaydelux.bousygram.core.cast.CastReceiverManager
 import com.vaydelux.bousygram.core.account.AccountSession
 import com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer
+import com.vaydelux.bousygram.presentation.theme.BousygramAppearanceController
 import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
 import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
@@ -84,6 +96,10 @@ class MainActivity : ComponentActivity() {
     private var designPreviewRequested by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         super.onCreate(savedInstanceState)
         previewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_UI_PREVIEW, false)
         designPreviewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_DESIGN_PREVIEW, false)
@@ -98,10 +114,46 @@ class MainActivity : ComponentActivity() {
             var backdropPattern by remember {
                 mutableStateOf(BousygramBackdropPattern.fromId(EnterprisePreferences.backdropPatternId()))
             }
+            var reduceTransparency by remember {
+                mutableStateOf(EnterprisePreferences.reduceTransparency())
+            }
+            val view = LocalView.current
+            val isLightTheme = themePreset.isLightPreset
+            SideEffect {
+                val controller = WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars = isLightTheme
+                controller.isAppearanceLightNavigationBars = isLightTheme
+            }
+            val appearanceController = remember(themePreset, designStyle, backdropPattern, reduceTransparency) {
+                BousygramAppearanceController(
+                    themePreset = themePreset,
+                    designStyle = designStyle,
+                    backdropPattern = backdropPattern,
+                    reduceTransparency = reduceTransparency,
+                    onThemePresetChange = { preset ->
+                        EnterprisePreferences.setVisualThemeId(preset.id)
+                        themePreset = preset
+                    },
+                    onDesignStyleChange = { style ->
+                        EnterprisePreferences.setDesignStyleId(style.id)
+                        designStyle = style
+                    },
+                    onBackdropPatternChange = { pattern ->
+                        EnterprisePreferences.setBackdropPatternId(pattern.id)
+                        backdropPattern = pattern
+                    },
+                    onReduceTransparencyChange = { enabled ->
+                        EnterprisePreferences.setReduceTransparency(enabled)
+                        reduceTransparency = enabled
+                    }
+                )
+            }
             BousygramTheme(
                 preset = themePreset,
                 designStyle = designStyle,
-                backdropPattern = backdropPattern
+                backdropPattern = backdropPattern,
+                reduceTransparency = reduceTransparency,
+                appearanceController = appearanceController
             ) {
                 if (designPreviewRequested) {
                     StreamingDesignGallery(onExit = { designPreviewRequested = false })
@@ -110,20 +162,11 @@ class MainActivity : ComponentActivity() {
                 } else {
                     BousygramAppRoot(
                         themePreset = themePreset,
-                        onThemePresetChange = { preset ->
-                            EnterprisePreferences.setVisualThemeId(preset.id)
-                            themePreset = preset
-                        },
+                        onThemePresetChange = appearanceController.onThemePresetChange,
                         designStyle = designStyle,
-                        onDesignStyleChange = { style ->
-                            EnterprisePreferences.setDesignStyleId(style.id)
-                            designStyle = style
-                        },
+                        onDesignStyleChange = appearanceController.onDesignStyleChange,
                         backdropPattern = backdropPattern,
-                        onBackdropPatternChange = { pattern ->
-                            EnterprisePreferences.setBackdropPatternId(pattern.id)
-                            backdropPattern = pattern
-                        }
+                        onBackdropPatternChange = appearanceController.onBackdropPatternChange
                     )
                 }
             }
@@ -246,31 +289,43 @@ private fun BousygramAppRoot(
             handoffInbox.clear()
             modeName = BousygramMode.SELECT.name
         }
-        Box(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+        com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop {
+            Box(
+                Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                if (telegramStartupError != null) {
-                    Text(
-                        telegramStartupError ?: "Unable to start Telegram Media",
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    Button(onClick = { telegramStartupAttempt += 1 }) { Text("Retry Telegram startup") }
-                } else {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    Text("Starting Telegram Media…",
-                        color = MaterialTheme.colorScheme.onBackground)
+                com.vaydelux.bousygram.presentation.components.EnterprisePanel {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 30.dp, vertical = 28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        com.vaydelux.bousygram.presentation.components.BousygramBrandMark(
+                            size = 64.dp,
+                            squircleFrame = true
+                        )
+                        if (telegramStartupError != null) {
+                            Text(
+                                telegramStartupError ?: "Unable to start Telegram Media",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Button(onClick = { telegramStartupAttempt += 1 }) { Text("Retry Telegram startup") }
+                        } else {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "Starting Telegram Media…",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        OutlinedButton(onClick = {
+                            CastReceiverManager.clearPendingRequest()
+                            handoffInbox.clear()
+                            modeName = BousygramMode.SELECT.name
+                        }) { Text("Back to modes") }
+                    }
                 }
-                OutlinedButton(onClick = {
-                    CastReceiverManager.clearPendingRequest()
-                    handoffInbox.clear()
-                    modeName = BousygramMode.SELECT.name
-                }) { Text("Back to modes") }
             }
         }
         return
@@ -434,25 +489,78 @@ private fun BousygramAppRoot(
                 appScreen == AppScreen.Library ||
                 (!adaptive.isTv && adaptive.profile != DeviceProfile.Tablet)
             if (useRouteHeader) {
-                // Dedicated, compact explorer owns Home navigation. Do not wrap
-                // a second oversized TV sidebar around the three-tab grid.
-                AuthorizedContent(
-                    favoritesState = favoritesState,
-                    appScreen = appScreen,
-                    themePreset = themePreset,
-                    onThemePresetChange = onThemePresetChange,
-                    designStyle = designStyle,
-                    onDesignStyleChange = onDesignStyleChange,
-                    backdropPattern = backdropPattern,
-                    onBackdropPatternChange = onBackdropPatternChange,
-                    searchFocus = searchFocus,
-                    onSearchFocusChange = { searchFocus = it },
-                    onAppScreenChange = { appScreen = it },
-                    resumeSignal = resumeSignal,
-                    onResumeConsumed = { resumeSignal = 0 },
-                    onBackToNavBar = {},
-                    onLogout = { authViewModel.logout() }
-                )
+                val showPhoneFloatingDock = adaptive.profile == DeviceProfile.PhonePortrait &&
+                    !adaptive.isShortWindow
+                if (showPhoneFloatingDock) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                            .statusBarsPadding()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .consumeWindowInsets(WindowInsets.navigationBars)
+                        ) {
+                            AuthorizedContent(
+                                favoritesState = favoritesState,
+                                appScreen = appScreen,
+                                themePreset = themePreset,
+                                onThemePresetChange = onThemePresetChange,
+                                designStyle = designStyle,
+                                onDesignStyleChange = onDesignStyleChange,
+                                backdropPattern = backdropPattern,
+                                onBackdropPatternChange = onBackdropPatternChange,
+                                searchFocus = searchFocus,
+                                onSearchFocusChange = { searchFocus = it },
+                                onAppScreenChange = { appScreen = it },
+                                resumeSignal = resumeSignal,
+                                onResumeConsumed = { resumeSignal = 0 },
+                                onBackToNavBar = {},
+                                onLogout = { authViewModel.logout() }
+                            )
+                        }
+                        GlassBottomBar(
+                            selected = destination,
+                            onSelect = { target ->
+                                appScreen = when (target) {
+                                    ShellDestination.Home -> AppScreen.Home
+                                    ShellDestination.Continue -> {
+                                        resumeSignal += 1
+                                        AppScreen.Home
+                                    }
+                                    ShellDestination.Favorites -> AppScreen.Favorites(appScreen)
+                                    ShellDestination.Library, ShellDestination.Sources, ShellDestination.Offline -> AppScreen.Library
+                                    ShellDestination.Search -> AppScreen.Search(returnTo = appScreen)
+                                    ShellDestination.Me, ShellDestination.Settings -> AppScreen.Settings(appScreen)
+                                    ShellDestination.About -> AppScreen.About(appScreen)
+                                }
+                            },
+                            modifier = Modifier.navigationBarsPadding()
+                        )
+                    }
+                } else {
+                    // Dedicated, compact explorer owns Home navigation on TV and short landscape.
+                    AuthorizedContent(
+                        favoritesState = favoritesState,
+                        appScreen = appScreen,
+                        themePreset = themePreset,
+                        onThemePresetChange = onThemePresetChange,
+                        designStyle = designStyle,
+                        onDesignStyleChange = onDesignStyleChange,
+                        backdropPattern = backdropPattern,
+                        onBackdropPatternChange = onBackdropPatternChange,
+                        searchFocus = searchFocus,
+                        onSearchFocusChange = { searchFocus = it },
+                        onAppScreenChange = { appScreen = it },
+                        resumeSignal = resumeSignal,
+                        onResumeConsumed = { resumeSignal = 0 },
+                        onBackToNavBar = {},
+                        onLogout = { authViewModel.logout() }
+                    )
+                }
             } else {
             BousygramAdaptiveShell(
                 selected = destination,

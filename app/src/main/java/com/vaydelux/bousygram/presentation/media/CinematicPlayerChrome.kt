@@ -88,11 +88,13 @@ import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramTooltipBox
 import com.vaydelux.bousygram.presentation.components.BousygramTooltipPlacement
+import com.vaydelux.bousygram.presentation.components.liquidGlassSheen
 import com.vaydelux.bousygram.presentation.components.rememberBousygramTooltipState
 import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.playerHudSurfaceOpacity
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
@@ -376,12 +378,14 @@ private fun CinemaHudButton(
         focused && hero -> colors.onPrimary
         focused || selected -> colors.primary
         halo.isHighContrast -> colors.outline
+        styleSpec.isLiquidGlass -> if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.10f) else Color.White.copy(alpha = 0.18f)
         else -> Color.Transparent
     }
     val borderWidth = when {
         focused -> BousygramUiTokens.tvFocusOutline
         selected -> 1.5.dp
         halo.isHighContrast -> 1.dp
+        styleSpec.isLiquidGlass -> 1.dp
         else -> 0.dp
     }
     val fgColor = when {
@@ -524,8 +528,18 @@ internal fun CinematicPlayerChrome(
     val halo = LocalBousygramHaloColors.current
     val spec = LocalBousygramDisplaySpec.current
     val styleSpec = LocalBousygramStyleSpec.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
     val colors = MaterialTheme.colorScheme
-    val hudSurface = colors.surfaceContainer.copy(alpha = playerHudSurfaceOpacity(colors.background))
+    val baseHudAlpha = playerHudSurfaceOpacity(colors.background)
+    val hudAlpha = if (reduceTransparency && !halo.isHighContrast) maxOf(baseHudAlpha, 0.96f) else baseHudAlpha
+    val hudSurface = colors.surfaceContainer.copy(alpha = hudAlpha)
+    val glassRimBrush = Brush.verticalGradient(
+        listOf(
+            if (halo.isLight) Color.White.copy(alpha = 0.90f) else Color.White.copy(alpha = 0.24f),
+            if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.10f) else Color.White.copy(alpha = 0.08f)
+        )
+    )
+    val topBarShape = RoundedCornerShape(styleSpec.panelCorner)
     val density = LocalDensity.current
     val windowWidth = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
@@ -566,8 +580,19 @@ internal fun CinematicPlayerChrome(
                         .fillMaxWidth()
                         .statusBarsPadding()
                         .padding(horizontal = horizontalPad, vertical = if (isTv) 14.dp else 10.dp)
-                        .background(hudSurface, RoundedCornerShape(styleSpec.panelCorner))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .clip(topBarShape)
+                        .background(hudSurface, topBarShape)
+                        .liquidGlassSheen(
+                            enabled = styleSpec.isLiquidGlass && !halo.isHighContrast && !reduceTransparency,
+                            topColor = if (halo.isLight) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.09f),
+                            coverageFraction = 0.42f
+                        )
+                        .then(
+                            if (halo.isHighContrast) Modifier.border(1.5.dp, colors.outline, topBarShape)
+                            else if (styleSpec.isLiquidGlass) Modifier.border(1.dp, glassRimBrush, topBarShape)
+                            else Modifier
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -667,13 +692,20 @@ internal fun CinematicPlayerChrome(
                             end = horizontalPad,
                             bottom = if (isTv) 16.dp else 10.dp
                         )
+                        .clip(dockShape)
                         .background(hudSurface, dockShape)
+                        .liquidGlassSheen(
+                            enabled = styleSpec.isLiquidGlass && !halo.isHighContrast && !reduceTransparency,
+                            topColor = if (halo.isLight) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.09f),
+                            coverageFraction = 0.36f
+                        )
                         .then(
                             if (halo.isHighContrast) Modifier.border(1.5.dp, colors.outline, dockShape)
+                            else if (styleSpec.isLiquidGlass) Modifier.border(1.dp, glassRimBrush, dockShape)
                             else if (styleSpec.panelBorderWidth > 0.dp) Modifier.border(styleSpec.panelBorderWidth, colors.outlineVariant.copy(alpha = 0.55f), dockShape)
                             else Modifier
                         )
-                        .padding(horizontal = if (isTv) 18.dp else 10.dp, vertical = 8.dp),
+                        .padding(horizontal = if (isTv) 18.dp else 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     // Timeline Scrubber
@@ -852,7 +884,7 @@ internal fun CinematicPlayerChrome(
         // PLAYBACK ERROR CARD
         state.error?.let { errorMessage ->
             Surface(
-                shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
+                shape = RoundedCornerShape(styleSpec.panelCorner),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
                 border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.72f)),
                 shadowElevation = if (motion.lowRam) 0.dp else 12.dp,

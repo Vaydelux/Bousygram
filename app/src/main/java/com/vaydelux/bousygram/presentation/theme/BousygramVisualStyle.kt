@@ -31,9 +31,9 @@ enum class BousygramDesignStyle(
     ),
     IPHONE_GLASS(
         id = "iphone_glass",
-        displayName = "iPhone Cupertino",
-        shortTagline = "iOS · Capsule",
-        description = "Apple-inspired squircle cards, floating capsule bar and fine frost hairlines"
+        displayName = "iOS 27 Glass",
+        shortTagline = "Liquid Glass · Island",
+        description = "iOS 27/28 Liquid Glass with specular frost rims, floating docks, and Dynamic Island"
     ),
     COZY_KAWAII(
         id = "cozy_kawaii",
@@ -62,7 +62,7 @@ enum class BousygramBackdropPattern(
     DOT_MATRIX("dot_matrix", "Polka Dots", "Dotted pattern"),
     GEOMETRIC_GRID("geometric_grid", "Cinema Grid", "Architectural grid"),
     TOPO_WAVES("topo_waves", "Silk Waves", "Ribbon contours"),
-    IOS_MESH("ios_mesh", "iPhone Mesh", "Aurora mesh"),
+    IOS_MESH("ios_mesh", "iOS Aurora", "Liquid aurora"),
     CUTESY_KAWAII("cutesy_kawaii", "Cutesy Stars", "Hearts & sparkles"),
     CUTESY_PAWS("cutesy_paws", "Chow Paws", "Cute paw prints");
 
@@ -89,7 +89,8 @@ data class BousygramStyleSpec(
     val segmentedTabs: Boolean,
     val useTonalSurfaces: Boolean,
     val useSpecularHighlight: Boolean,
-    val playerDockFloatingCapsule: Boolean
+    val playerDockFloatingCapsule: Boolean,
+    val isLiquidGlass: Boolean = false
 )
 
 internal fun styleSpecFor(style: BousygramDesignStyle): BousygramStyleSpec = when (style) {
@@ -108,7 +109,8 @@ internal fun styleSpecFor(style: BousygramDesignStyle): BousygramStyleSpec = whe
         segmentedTabs = false,
         useTonalSurfaces = false,
         useSpecularHighlight = false,
-        playerDockFloatingCapsule = false
+        playerDockFloatingCapsule = false,
+        isLiquidGlass = false
     )
     BousygramDesignStyle.MATERIAL_EXPRESSIVE -> BousygramStyleSpec(
         style = style,
@@ -125,24 +127,26 @@ internal fun styleSpecFor(style: BousygramDesignStyle): BousygramStyleSpec = whe
         segmentedTabs = false,
         useTonalSurfaces = true,
         useSpecularHighlight = false,
-        playerDockFloatingCapsule = true
+        playerDockFloatingCapsule = true,
+        isLiquidGlass = false
     )
     BousygramDesignStyle.IPHONE_GLASS -> BousygramStyleSpec(
         style = style,
-        cardCorner = 16.dp,
-        panelCorner = 22.dp,
-        tabCorner = 12.dp,
-        buttonCorner = 14.dp,
-        inputCorner = 14.dp,
-        tooltipCorner = 12.dp,
-        panelBorderWidth = 0.75.dp,
-        cardBorderWidth = 0.75.dp,
+        cardCorner = 18.dp,
+        panelCorner = 24.dp,
+        tabCorner = 14.dp,
+        buttonCorner = 16.dp,
+        inputCorner = 16.dp,
+        tooltipCorner = 14.dp,
+        panelBorderWidth = 1.dp,
+        cardBorderWidth = 1.dp,
         panelTonalElevation = 0.dp,
         floatingBottomBar = true,
         segmentedTabs = true,
         useTonalSurfaces = false,
         useSpecularHighlight = true,
-        playerDockFloatingCapsule = true
+        playerDockFloatingCapsule = true,
+        isLiquidGlass = true
     )
     BousygramDesignStyle.COZY_KAWAII -> BousygramStyleSpec(
         style = style,
@@ -159,7 +163,8 @@ internal fun styleSpecFor(style: BousygramDesignStyle): BousygramStyleSpec = whe
         segmentedTabs = false,
         useTonalSurfaces = false,
         useSpecularHighlight = true,
-        playerDockFloatingCapsule = true
+        playerDockFloatingCapsule = true,
+        isLiquidGlass = false
     )
 }
 
@@ -184,9 +189,41 @@ data class BousygramCuratedLook(
 
 val BousygramCuratedLooks: List<BousygramCuratedLook> = listOf(
     BousygramCuratedLook(
+        id = "iphone_midnight",
+        title = "iOS 27 Obsidian",
+        subtitle = "Liquid Glass · Cyan",
+        preset = BousygramThemePreset.MIDNIGHT_GLASS,
+        style = BousygramDesignStyle.IPHONE_GLASS,
+        pattern = BousygramBackdropPattern.IOS_MESH
+    ),
+    BousygramCuratedLook(
+        id = "iphone_cupertino",
+        title = "iOS 27 Frost",
+        subtitle = "Light Glass · Cobalt",
+        preset = BousygramThemePreset.CUPERTINO,
+        style = BousygramDesignStyle.IPHONE_GLASS,
+        pattern = BousygramBackdropPattern.IOS_MESH
+    ),
+    BousygramCuratedLook(
+        id = "ios_emerald",
+        title = "iOS Emerald",
+        subtitle = "Liquid Glass · Mint",
+        preset = BousygramThemePreset.EVERGREEN,
+        style = BousygramDesignStyle.IPHONE_GLASS,
+        pattern = BousygramBackdropPattern.IOS_MESH
+    ),
+    BousygramCuratedLook(
+        id = "ios_ember",
+        title = "iOS Ember",
+        subtitle = "Liquid Glass · Warm",
+        preset = BousygramThemePreset.EMBER,
+        style = BousygramDesignStyle.IPHONE_GLASS,
+        pattern = BousygramBackdropPattern.IOS_MESH
+    ),
+    BousygramCuratedLook(
         id = "cinema_halo",
         title = "Cinema Halo",
-        subtitle = "Midnight · Glass",
+        subtitle = "Midnight · Halo",
         preset = BousygramThemePreset.DARK,
         style = BousygramDesignStyle.CINEMA_HALO,
         pattern = BousygramBackdropPattern.AMBIENT_HALO
@@ -200,28 +237,12 @@ val BousygramCuratedLooks: List<BousygramCuratedLook> = listOf(
         pattern = BousygramBackdropPattern.DOT_MATRIX
     ),
     BousygramCuratedLook(
-        id = "iphone_cupertino",
-        title = "iPhone Glass",
-        subtitle = "Cupertino · Mesh",
-        preset = BousygramThemePreset.CUPERTINO,
-        style = BousygramDesignStyle.IPHONE_GLASS,
-        pattern = BousygramBackdropPattern.IOS_MESH
-    ),
-    BousygramCuratedLook(
         id = "cutesy_sakura",
         title = "Cutesy Sakura",
         subtitle = "Pastel · Stars",
         preset = BousygramThemePreset.SAKURA,
         style = BousygramDesignStyle.COZY_KAWAII,
         pattern = BousygramBackdropPattern.CUTESY_KAWAII
-    ),
-    BousygramCuratedLook(
-        id = "iphone_midnight",
-        title = "iPhone Dark",
-        subtitle = "OLED · Mesh",
-        preset = BousygramThemePreset.MIDNIGHT_GLASS,
-        style = BousygramDesignStyle.IPHONE_GLASS,
-        pattern = BousygramBackdropPattern.IOS_MESH
     ),
     BousygramCuratedLook(
         id = "chow_paws",
@@ -234,9 +255,11 @@ val BousygramCuratedLooks: List<BousygramCuratedLook> = listOf(
 )
 
 val LocalBousygramStyleSpec = staticCompositionLocalOf {
-    styleSpecFor(BousygramDesignStyle.CINEMA_HALO)
+    styleSpecFor(BousygramDesignStyle.IPHONE_GLASS)
 }
 
 val LocalBousygramBackdropPattern = staticCompositionLocalOf {
-    BousygramBackdropPattern.AMBIENT_HALO
+    BousygramBackdropPattern.IOS_MESH
 }
+
+val LocalBousygramReduceTransparency = staticCompositionLocalOf { false }

@@ -25,7 +25,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 
 /** Presentation-only severity; status content and recovery actions belong to the caller. */
 enum class BousygramStatusTone { NEUTRAL, WARNING, ERROR }
@@ -43,10 +44,13 @@ fun BousygramInlineStatus(
     trailingAction: (@Composable () -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
+    val styleSpec = LocalBousygramStyleSpec.current
+    val reduceTransparency = LocalBousygramReduceTransparency.current
+    val glassAlpha = if (styleSpec.isLiquidGlass && !reduceTransparency) 0.86f else 1f
     val background = when (tone) {
-        BousygramStatusTone.NEUTRAL -> colors.surfaceContainerHigh
-        BousygramStatusTone.WARNING -> colors.tertiaryContainer
-        BousygramStatusTone.ERROR -> colors.errorContainer
+        BousygramStatusTone.NEUTRAL -> colors.surfaceContainerHigh.copy(alpha = glassAlpha)
+        BousygramStatusTone.WARNING -> colors.tertiaryContainer.copy(alpha = glassAlpha)
+        BousygramStatusTone.ERROR -> colors.errorContainer.copy(alpha = glassAlpha)
     }
     val foreground = when (tone) {
         BousygramStatusTone.NEUTRAL -> colors.onSurface
@@ -77,7 +81,7 @@ fun BousygramInlineStatus(
         color = background,
         contentColor = foreground,
         border = BorderStroke(1.dp, borderColor),
-        shape = RoundedCornerShape(BousygramUiTokens.cardCorner)
+        shape = RoundedCornerShape(styleSpec.cardCorner)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),

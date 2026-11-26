@@ -66,11 +66,14 @@ import com.vaydelux.bousygram.domain.model.AuthStep
 import com.vaydelux.bousygram.domain.model.AuthUiState
 import com.vaydelux.bousygram.presentation.auth.vm.AuthViewModel
 import com.vaydelux.bousygram.presentation.components.BousygramBrandMark
+import com.vaydelux.bousygram.presentation.components.BousygramDynamicIsland
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
 import com.vaydelux.bousygram.presentation.components.BousygramStatusTone
+import com.vaydelux.bousygram.presentation.components.DynamicIslandActivityState
+import com.vaydelux.bousygram.presentation.components.DynamicIslandTone
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
 import com.vaydelux.bousygram.presentation.components.PremiumGridBackdrop
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
@@ -207,12 +210,14 @@ private fun EnterpriseBrandHeader(
     state: AuthUiState,
     modifier: Modifier = Modifier
 ) {
+    val isReady = state.connectionStatus?.contains("Connected", ignoreCase = true) == true
+    val statusText = state.connectionStatus ?: stringResource(R.string.auth_connection_default)
     Column(modifier = modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            BousygramBrandMark(size = 44.dp)
+            BousygramBrandMark(size = 46.dp, squircleFrame = true)
 
             Column {
                 Text(
@@ -230,35 +235,20 @@ private fun EnterpriseBrandHeader(
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
 
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            val isReady = state.connectionStatus?.contains("Connected", ignoreCase = true) == true
-            val dotColor = if (isReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
-
-            Box(
-                modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(dotColor)
+        BousygramDynamicIsland(
+            compact = true,
+            state = DynamicIslandActivityState(
+                title = statusText,
+                badge = if (isReady) "Encrypted" else "TDLib",
+                tone = if (isReady) DynamicIslandTone.ONLINE else DynamicIslandTone.SYNCING,
+                isBusy = !isReady,
+                liveHeadline = "Telegram Sign-In",
+                liveDetail = "Direct client-side MTProto connection. No third-party relay servers.",
+                statusTag = if (isReady) "TDLib Connected" else "Connecting"
             )
-
-            Text(
-                text = state.connectionStatus ?: stringResource(R.string.auth_connection_default),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        )
     }
 }
 
