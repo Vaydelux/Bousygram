@@ -77,6 +77,11 @@ import com.vaydelux.bousygram.core.cast.RollingHlsLanRoute
 import com.vaydelux.bousygram.core.cast.RollingHlsLanSession
 import com.vaydelux.bousygram.core.tdlib.utils.QrCodeGenerator
 import com.vaydelux.bousygram.presentation.theme.BousygramTheme
+import com.vaydelux.bousygram.presentation.theme.BousygramThemePreset
+import com.vaydelux.bousygram.presentation.theme.BousygramDesignStyle
+import com.vaydelux.bousygram.presentation.theme.BousygramBackdropPattern
+import com.vaydelux.bousygram.data.store.EnterprisePreferences
+import androidx.compose.runtime.collectAsState
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -187,7 +192,13 @@ class RollingLanLabActivity : ComponentActivity() {
         intent.replaceExtras(android.os.Bundle())
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
-            BousygramTheme {
+            val appearance by EnterprisePreferences.visualAppearanceFlow.collectAsState()
+            BousygramTheme(
+                preset = BousygramThemePreset.fromId(appearance.themeId),
+                designStyle = BousygramDesignStyle.fromId(appearance.designStyleId),
+                backdropPattern = BousygramBackdropPattern.fromId(appearance.backdropPatternId),
+                reduceTransparency = appearance.reduceTransparency
+            ) {
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
                         .verticalScroll(rememberScrollState()).padding(20.dp),
