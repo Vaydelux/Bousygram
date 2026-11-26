@@ -4,6 +4,9 @@ import com.vaydelux.bousygram.data.store.SettingsImportPolicy
 import com.vaydelux.bousygram.presentation.components.BousygramGlassLevel
 import com.vaydelux.bousygram.presentation.components.formatDynamicIslandCompactTitle
 import com.vaydelux.bousygram.presentation.components.resolveLiquidGlassAlpha
+import com.vaydelux.bousygram.presentation.components.resolveGlassMaterial
+import com.vaydelux.bousygram.presentation.components.minimumGlassTextContrast
+import androidx.compose.ui.graphics.Color
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +30,33 @@ class LiquidGlassDesignContractTest {
                 assertTrue("Reduce Transparency alpha for $level must be >= 0.96", reduced >= 0.96f)
                 assertTrue("High Contrast alpha for $level must be >= 0.99", highContrast >= 0.99f)
                 assertTrue("Reduce Transparency must be at least as opaque as translucent", reduced >= translucent)
+            }
+        }
+    }
+
+    @Test
+    fun glassMaterialsKeepNormalTextReadableOverExtremeBackdrops() {
+        for (preset in BousygramThemePreset.entries) {
+            val colors = schemeFor(preset)
+            val halo = haloColorsFor(preset, colors)
+            for (level in BousygramGlassLevel.entries) {
+                for (reduced in listOf(false, true)) {
+                    for (tinted in listOf(false, true)) {
+                        val material = resolveGlassMaterial(level, colors, halo, reduced,
+                            lowRam = true, accentTinted = tinted)
+                        val fg = if (level == BousygramGlassLevel.DYNAMIC_ISLAND && !halo.isHighContrast)
+                            Color(0xFFF5F8FF) else colors.onSurface
+                        val sheen = if (material.showSpecularSheen) material.specularTop else Color.Transparent
+                        assertTrue(
+                            "${preset.id} $level reduced=$reduced tinted=$tinted",
+                            minimumGlassTextContrast(material.fill, sheen, fg) >= 4.5f
+                        )
+                        if (reduced || halo.isHighContrast) {
+                            assertEquals(1f, material.fill.alpha, 0.001f)
+                            assertFalse(material.showSpecularSheen)
+                        }
+                    }
+                }
             }
         }
     }
