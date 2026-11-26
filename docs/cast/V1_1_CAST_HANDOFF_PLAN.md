@@ -190,3 +190,6 @@ Split authenticated server/client endpoints, mTLS control offer, paced synthetic
 
 ## Batch A3 — physical debug QA gate
 Prior live private-interface emulator 147/147 passed; Enterprise only UsableSpace lint failure. Physical free-block admission via StatFs, exact-head/base gated uncredentialed ARM-compatible QA artifact (PR234 only, one-day retention), no production merge. Await complete fresh checks and actual artifact before physical-device qualification.
+
+## Batch A4 — exact-merge QA packaging repair
+686aff6 native 45758059816, Cast 45758059827 (147/147), UI 45758059820 (68/68) passed. Enterprise 45758059830 passed Gradle/lint/unit and debug assembly; packaging guard failed because PR metadata reported stale base 37ce0ae, while all five jobs checked out cffae9c with actual base 91167aff. Derive base from checkout parent and compare actual main, feature and merge refs. Require each companion job of latest exact-head run attempt to prove identical checkout via dynamic source-identity step and success, including both native jobs. Read-only pull request permission; no feature or main changes. Local jq predicate positive and three negative fixtures passed (missing jobs, mismatched merge, failed job). Fresh workflow and one-day artifact still unverified. No production publication.

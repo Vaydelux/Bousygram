@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 
 concurrency:
   group: android-enterprise-${{ github.workflow }}-${{ github.ref }}
@@ -259,7 +260,7 @@ jobs:
 
       # One deliberately scoped, uncredentialed QA artifact for PR 234. Do
       # not change the main-only trusted debug release / production policy.
-      - name: Wait for exact-head and exact-base Cast Lab qualification
+      - name: Wait for identical tested Cast Lab merge qualification
         if: ${{ success() && github.repository == 'Vaydelux/Bousygram' && github.event_name == 'pull_request' && github.event.pull_request.number == 234 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/v1.1-cast-handoff' }}
         shell: bash
         env:
@@ -267,13 +268,22 @@ jobs:
         run: |
           set -euo pipefail
           head_sha="$(jq -er '.pull_request.head.sha' "$GITHUB_EVENT_PATH")"
-          base_sha="$(jq -er '.pull_request.base.sha' "$GITHUB_EVENT_PATH")"
-          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
-          [[ "$(git rev-parse HEAD^1)" == "$base_sha" && "$(git rev-parse HEAD^2)" == "$head_sha" ]]
+          base_sha="$(git rev-parse HEAD^1)"
+          merge_sha="$(git rev-parse HEAD)"
           assert_current() {
-            gh api "repos/$GITHUB_REPOSITORY/pulls/234" | jq -e \
-              --arg head "$head_sha" --arg base "$base_sha" \
-              '.state == "open" and .head.sha == $head and .base.sha == $base' >/dev/null
+            [[ "$merge_sha" == "$GITHUB_SHA" && "$(git rev-parse HEAD^2)" == "$head_sha" ]] || {
+              echo "::error::Checkout is not the event merge with the expected PR head."; return 1;
+            }
+            local main_ref feature_ref merge_ref
+            main_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+            feature_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/feature/v1.1-cast-handoff" --jq '.object.sha')"
+            merge_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/pull/234/merge" --jq '.object.sha')"
+            if [[ "$base_sha" != "$main_ref" || "$head_sha" != "$feature_ref" || "$merge_sha" != "$merge_ref" ]]; then
+              echo "::error::Actual main, feature or PR merge ref changed; refusing stale APK."
+              return 1
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/pulls/234" | jq -e --arg head "$head_sha" \
+              '.state == "open" and .head.sha == $head' >/dev/null
           }
           assert_current
           workflows=(android-emulator-smoke.yml android-explorer-ui-smoke.yml cast-native-qualification.yml)
@@ -281,20 +291,32 @@ jobs:
             assert_current
             ready=true
             for workflow in "${workflows[@]}"; do
-              status="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$head_sha&event=pull_request&per_page=30" | jq -r \
-                --arg head "$head_sha" --arg base "$base_sha" \
+              run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$head_sha&event=pull_request&per_page=30" | jq -c \
+                --arg head "$head_sha" \
                 '[.workflow_runs[] | select(.head_sha == $head and .event == "pull_request") |
-                  select(any(.pull_requests[]?; .number == 234 and .head.sha == $head and .base.sha == $base))] |
-                  sort_by(.run_number, .run_attempt) | last |
-                  if . == null then "missing" else (.conclusion // .status) end')"
+                  select(any(.pull_requests[]?; .number == 234 and .head.sha == $head))] |
+                  sort_by(.run_number, .run_attempt) | last')"
+              status="$(jq -r 'if . == null then "missing" else (.conclusion // .status) end' <<<"$run")"
               case "$status" in
-                success) ;;
+                success)
+                  run_id="$(jq -er '.id' <<<"$run")"
+                  run_attempt="$(jq -er '.run_attempt' <<<"$run")"
+                  count=1
+                  if [[ "$workflow" == cast-native-qualification.yml ]]; then count=2; fi
+                  if ! gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/attempts/$run_attempt/jobs?per_page=100" | jq -e \
+                    --arg proof "Prove tested merge $merge_sha" --argjson count "$count" \
+                    '.total_count == $count and (.jobs | (length == $count) and all(.[]; .conclusion == "success" and any(.steps[]?; .name == $proof and .conclusion == "success")))' >/dev/null; then
+                    echo "::error::Companion jobs did not prove the identical merge: $workflow"
+                    exit 1
+                  fi
+                  ;;
                 missing|queued|in_progress|requested|waiting|pending) ready=false ;;
                 *) echo "::error::Cast Lab exact-source qualification failed: $workflow ($status)"; exit 1 ;;
               esac
             done
             if [[ "$ready" == true ]]; then
-              echo "All companion qualification workflows passed for the exact PR head and base."
+              assert_current
+              echo "All companion jobs proved identical merge $merge_sha (head $head_sha, base $base_sha)."
               exit 0
             fi
             sleep 15
@@ -310,10 +332,24 @@ jobs:
         run: |
           set -euo pipefail
           head_sha="$(jq -er '.pull_request.head.sha' "$GITHUB_EVENT_PATH")"
-          base_sha="$(jq -er '.pull_request.base.sha' "$GITHUB_EVENT_PATH")"
-          gh api "repos/$GITHUB_REPOSITORY/pulls/234" | jq -e --arg head "$head_sha" --arg base "$base_sha" \
-            '.state == "open" and .head.sha == $head and .base.sha == $base' >/dev/null
-          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          base_sha="$(git rev-parse HEAD^1)"
+          merge_sha="$(git rev-parse HEAD)"
+          assert_current() {
+            [[ "$merge_sha" == "$GITHUB_SHA" && "$(git rev-parse HEAD^2)" == "$head_sha" ]] || {
+              echo "::error::Checkout is not the event merge with the expected PR head."; return 1;
+            }
+            local main_ref feature_ref merge_ref
+            main_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+            feature_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/feature/v1.1-cast-handoff" --jq '.object.sha')"
+            merge_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/pull/234/merge" --jq '.object.sha')"
+            if [[ "$base_sha" != "$main_ref" || "$head_sha" != "$feature_ref" || "$merge_sha" != "$merge_ref" ]]; then
+              echo "::error::Actual main, feature or PR merge ref changed; refusing stale APK."
+              return 1
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/pulls/234" | jq -e --arg head "$head_sha" \
+              '.state == "open" and .head.sha == $head' >/dev/null
+          }
+          assert_current
           apk=ci-artifacts/debug/Bousygram-debug.apk
           test -s "$apk"
           "$ANDROID_BUILD_TOOLS_DIR/apksigner" verify "$apk"
