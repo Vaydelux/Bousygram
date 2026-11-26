@@ -239,12 +239,15 @@ fun SettingsScreen(
                                     reduceTransparency = activeReduce,
                                     onSelectPreset = { preset ->
                                         onThemePresetChange(preset)
-                                        EnterprisePreferences.setVisualThemeId(preset.id)
+                                        if (appearanceController == null) EnterprisePreferences.setVisualThemeId(preset.id)
                                     },
                                     onReduceTransparencyChange = { enabled ->
-                                        localReduce = enabled
-                                        EnterprisePreferences.setReduceTransparency(enabled)
-                                        appearanceController?.onReduceTransparencyChange?.invoke(enabled)
+                                        if (appearanceController != null) {
+                                            appearanceController.onReduceTransparencyChange(enabled)
+                                        } else {
+                                            localReduce = enabled
+                                            EnterprisePreferences.setReduceTransparency(enabled)
+                                        }
                                     }
                                 )
                             }
