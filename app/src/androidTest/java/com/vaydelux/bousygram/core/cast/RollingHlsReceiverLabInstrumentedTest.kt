@@ -63,7 +63,21 @@ class RollingHlsReceiverLabInstrumentedTest {
         }
     }
 
-    @Test fun launcherLabRequiresExplicitApprovalAndClosesCredentials() {
+    @Test fun packageHasOnlyOnePhoneAndTvLauncher() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        for (category in listOf(Intent.CATEGORY_LAUNCHER, Intent.CATEGORY_LEANBACK_LAUNCHER)) {
+            val entries = context.packageManager.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(category).setPackage(context.packageName), 0)
+            assertEquals(listOf("com.vaydelux.bousygram.app.MainActivity"),
+                entries.map { it.activityInfo.name }.distinct())
+        }
+        @Suppress("DEPRECATION")
+        val lab = context.packageManager.getActivityInfo(
+            android.content.ComponentName(context, RollingReceiverLabActivity::class.java), 0)
+        assertFalse(lab.exported)
+    }
+
+    @Test fun internalLabRequiresExplicitApprovalAndClosesCredentials() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val device = UiDevice.getInstance(instrumentation)

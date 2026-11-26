@@ -210,6 +210,17 @@ private fun BousygramAppRoot(
         BousygramModeSelection(
             onTelegram = { modeName = BousygramMode.TELEGRAM.name },
             onExtras = { modeName = BousygramMode.EXTRAS_MAINTENANCE.name },
+            onOpenCastLab = if (BuildConfig.DEBUG) ({
+                // The debug-only receiver is private to this application. Never
+                // register a second launcher tile or accept external lab intents.
+                val lab = Intent().setClassName(context.packageName,
+                    "com.vaydelux.bousygram.presentation.debug.RollingReceiverLabActivity")
+                try {
+                    context.startActivity(lab)
+                } catch (_: android.content.ActivityNotFoundException) {
+                    Toast.makeText(context, "Cast Lab is unavailable in this build.", Toast.LENGTH_SHORT).show()
+                }
+            }) else null,
             themePreset = themePreset,
             designStyle = designStyle,
             backdropPattern = backdropPattern,
