@@ -105,18 +105,11 @@ class MainActivity : ComponentActivity() {
         designPreviewRequested = BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_DESIGN_PREVIEW, false)
         handleIncomingIntent(intent)
         setContent {
-            var themePreset by remember {
-                mutableStateOf(BousygramThemePreset.fromId(EnterprisePreferences.visualThemeId()))
-            }
-            var designStyle by remember {
-                mutableStateOf(BousygramDesignStyle.fromId(EnterprisePreferences.designStyleId()))
-            }
-            var backdropPattern by remember {
-                mutableStateOf(BousygramBackdropPattern.fromId(EnterprisePreferences.backdropPatternId()))
-            }
-            var reduceTransparency by remember {
-                mutableStateOf(EnterprisePreferences.reduceTransparency())
-            }
+            val appearance by EnterprisePreferences.visualAppearanceFlow.collectAsState()
+            val themePreset = BousygramThemePreset.fromId(appearance.themeId)
+            val designStyle = BousygramDesignStyle.fromId(appearance.designStyleId)
+            val backdropPattern = BousygramBackdropPattern.fromId(appearance.backdropPatternId)
+            val reduceTransparency = appearance.reduceTransparency
             val view = LocalView.current
             val isLightTheme = themePreset.isLightPreset
             SideEffect {
@@ -132,19 +125,15 @@ class MainActivity : ComponentActivity() {
                     reduceTransparency = reduceTransparency,
                     onThemePresetChange = { preset ->
                         EnterprisePreferences.setVisualThemeId(preset.id)
-                        themePreset = preset
                     },
                     onDesignStyleChange = { style ->
                         EnterprisePreferences.setDesignStyleId(style.id)
-                        designStyle = style
                     },
                     onBackdropPatternChange = { pattern ->
                         EnterprisePreferences.setBackdropPatternId(pattern.id)
-                        backdropPattern = pattern
                     },
                     onReduceTransparencyChange = { enabled ->
                         EnterprisePreferences.setReduceTransparency(enabled)
-                        reduceTransparency = enabled
                     }
                 )
             }
