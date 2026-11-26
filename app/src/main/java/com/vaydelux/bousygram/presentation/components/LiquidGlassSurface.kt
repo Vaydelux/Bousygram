@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.theme.BousygramHaloColors
@@ -70,8 +72,7 @@ internal fun resolveLiquidGlassAlpha(
     isHighContrast: Boolean,
     reduceTransparency: Boolean
 ): Float {
-    if (isHighContrast) return 0.99f
-    if (reduceTransparency) return if (level == BousygramGlassLevel.DYNAMIC_ISLAND) 0.98f else 0.97f
+    if (isHighContrast || reduceTransparency) return 1f
     return when (level) {
         BousygramGlassLevel.SUBTLE -> if (isLight) 0.72f else 0.64f
         BousygramGlassLevel.CARD -> if (isLight) 0.84f else 0.76f
@@ -80,6 +81,35 @@ internal fun resolveLiquidGlassAlpha(
         BousygramGlassLevel.DYNAMIC_ISLAND -> 0.92f
         BousygramGlassLevel.POPOVER -> if (isLight) 0.92f else 0.88f
     }
+}
+
+// Check the rendered material, not only the uncomposited theme colors.
+// Black/white bound the channel values of opaque sRGB artwork. The sheen
+// endpoint represents the brightest part of the decorative gradient.
+internal fun glassTextContrast(foreground: Color, background: Color): Float {
+    val fg = foreground.compositeOver(background).luminance()
+    val bg = background.luminance()
+    return (maxOf(fg, bg) + 0.05f) / (minOf(fg, bg) + 0.05f)
+}
+
+internal fun minimumGlassTextContrast(fill: Color, sheen: Color, foreground: Color): Float {
+    return listOf(Color.Black, Color.White).minOf { backdrop ->
+        val base = fill.compositeOver(backdrop)
+        minOf(glassTextContrast(foreground, base),
+            glassTextContrast(foreground, sheen.compositeOver(base)))
+    }
+}
+
+private fun contrastSafeGlassFill(base: Color, preferredAlpha: Float, sheen: Color, foreground: Color): Color {
+    val preferred = base.copy(alpha = preferredAlpha)
+    if (minimumGlassTextContrast(preferred, sheen, foreground) >= 4.5f) return preferred
+    // Increase opacity only as needed; no backdrop sampling or blur allocation.
+    for (step in 1..16) {
+        val alpha = preferredAlpha + (1f - preferredAlpha) * step / 16f
+        val candidate = base.copy(alpha = alpha)
+        if (minimumGlassTextContrast(candidate, sheen, foreground) >= 4.5f) return candidate
+    }
+    return base.copy(alpha = 1f)
 }
 
 internal fun resolveGlassMaterial(
@@ -152,15 +182,21 @@ internal fun resolveGlassMaterial(
         else -> 0.dp
     }
 
+    val preferredSheen = Color.White.copy(alpha = if (halo.isLight) 0.55f else 0.09f)
+    val requestedSheen = if (solid) Color.Transparent else preferredSheen
+    val safeFill = contrastSafeGlassFill(tintedBase, alpha, requestedSheen, colors.onSurface)
+    val safeSheen = if (minimumGlassTextContrast(safeFill, requestedSheen, colors.onSurface) >= 4.5f) {
+        requestedSheen
+    } else Color.Transparent
     return BousygramGlassMaterial(
-        fill = tintedBase.copy(alpha = alpha),
-        specularTop = if (halo.isLight) Color.White.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.09f),
+        fill = safeFill,
+        specularTop = safeSheen,
         specularBottom = Color.Transparent,
         rimTop = rimTop,
         rimBottom = rimBottom,
         borderWidth = if (halo.isHighContrast) 1.5.dp else 1.dp,
         shadowElevation = elevation,
-        showSpecularSheen = !solid
+        showSpecularSheen = !solid && safeSheen.alpha > 0f
     )
 }
 
