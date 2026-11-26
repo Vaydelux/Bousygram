@@ -1114,7 +1114,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 if (media.captions.isNotEmpty()) {
                     OutlinedButton(
                         onClick = { showSubtitlePicker = true },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = if (isAndroidTv) 54.dp else 44.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(min = if (isAndroidTv) 54.dp else 48.dp)
                             .testTag("extras-subtitles-open")
                     ) {
                         Text(
@@ -1807,7 +1807,7 @@ private fun ExtrasMediaForgeNativePlayer(
             controls.release()
         }
     }
-    Column(Modifier.fillMaxSize().background(Color.Black)
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
         .windowInsetsPadding(WindowInsets.safeDrawing)) {
         val canUseVlc = !castHoldsLocal && com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
             MediaForgeGuardedProgressiveSource.supported(media.stream)
@@ -1823,7 +1823,7 @@ private fun ExtrasMediaForgeNativePlayer(
         BoxWithConstraints(Modifier.fillMaxWidth().padding(8.dp)) {
             if (maxWidth < 500.dp) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(title, color = Color.White, maxLines = 1,
+                    Text(title, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
                         overflow = TextOverflow.Ellipsis)
                     Row(
                         Modifier.fillMaxWidth(),
@@ -1848,7 +1848,7 @@ private fun ExtrasMediaForgeNativePlayer(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(onClick = onBack) { Text("Back to WebView") }
-                    Text(title, color = Color.White, maxLines = 1,
+                    Text(title, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     if (canUseVlc) {
                         OutlinedButton(
@@ -1890,7 +1890,7 @@ private fun ExtrasMediaForgeNativePlayer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(error, color = Color(0xFFFFC7C7), modifier = Modifier.weight(1f))
+                Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
                 // Explicit retry rather than endlessly auto-restarting failed media.
                 Button(
                     modifier = Modifier.testTag("extras-native-media3-retry"),
@@ -1910,7 +1910,7 @@ private fun ExtrasMediaForgeNativePlayer(
             }
         }
         if (castHoldsLocal) {
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().weight(1f).background(Color.Black), contentAlignment = Alignment.Center) {
                 Text("Playing on TV", color = Color.White, style = MaterialTheme.typography.titleMedium)
             }
         } else {
@@ -1923,7 +1923,7 @@ private fun ExtrasMediaForgeNativePlayer(
                 },
                 update = { it.player = player },
                 onRelease = { it.player = null },
-                modifier = Modifier.fillMaxWidth().weight(1f)
+                modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black)
             )
         }
     }
