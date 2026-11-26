@@ -29,6 +29,7 @@ import java.io.ByteArrayInputStream
 import android.os.Bundle
 import android.os.Build
 import com.vaydelux.bousygram.core.cast.RollingLanDiscovery
+import com.vaydelux.bousygram.core.cast.RollingLanDirectMedia
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -107,6 +108,7 @@ class RollingLanLabActivity : ComponentActivity() {
     private var outgoing: TelegramTvHandoff? = null
     private var outgoingOwner: AccountSnapshot? = null
     private var localClip by mutableStateOf(false)
+    private var directMedia by mutableStateOf(false)
     private var fixture by mutableStateOf<Uri?>(null)
     private var player by mutableStateOf<ExoPlayer?>(null)
     private val tick = object : Runnable {
@@ -132,7 +134,7 @@ class RollingLanLabActivity : ComponentActivity() {
     }
     private val video = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         externalPicker = false
-        if (!busy && uri != null) { fixture = uri; message = if (localClip) "Local clip selected. Format and size will be verified during transfer." else "Test clip selected. Its SHA-256 will be checked before playback." }
+        if (!busy && uri != null) { fixture = uri; message = if (localClip || directMedia) "Local video selected. Compatibility will be checked during playback." else "Test clip selected. Its SHA-256 will be checked before playback." }
     }
     private val photo = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         externalPicker = false
@@ -192,24 +194,28 @@ class RollingLanLabActivity : ComponentActivity() {
                             if (!busy) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = telegramMode, enabled = outgoing == null,
-                                        onCheckedChange = { telegramMode = it; liveMode = false; localClip = false; fixture = null })
+                                        onCheckedChange = { telegramMode = it; liveMode = false; localClip = false; directMedia = false; fixture = null })
                                     Text("Telegram player handoff")
                                 }
                                 if (telegramMode) Text(if (outgoing != null) "Selected video from the player. Scan the TV invitation."
                                     else "Receiver must already be signed in to Telegram and have access to the selected video.")
                                 if (!telegramMode) Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = liveMode, onCheckedChange = { liveMode = it; localClip = false; fixture = null })
+                                    Checkbox(checked = liveMode, onCheckedChange = { liveMode = it; localClip = false; directMedia = false; fixture = null })
                                     Text("Encrypted live playback")
                                 }
                                 if (!telegramMode && liveMode) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Checkbox(checked = localClip, onCheckedChange = { localClip = it; fixture = null })
+                                        Checkbox(checked = localClip, enabled = !directMedia, onCheckedChange = { localClip = it; fixture = null })
                                         Text("Use compatible local fragmented MP4")
                                     }
-                                    OutlinedButton(onClick = { launchPicker { video.launch("video/mp4") } }, modifier = Modifier.fillMaxWidth()) {
-                                        Text(if (fixture != null) "Clip selected" else if (localClip) "Select local fragmented MP4 (sender)" else "Select official synthetic test clip (sender)")
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = directMedia, onCheckedChange = { directMedia = it; localClip = false; fixture = null })
+                                        Text("Direct local video (MP4, MKV, TS)")
                                     }
-                                    Text(if (localClip) "Both devices must enable local clip mode. H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments. Other formats are rejected." else "Both devices must choose the same test mode. Only the official clip is accepted.")
+                                    OutlinedButton(onClick = { launchPicker { video.launch(if (directMedia) "video/*" else "video/mp4") } }, modifier = Modifier.fillMaxWidth()) {
+                                        Text(if (fixture != null) "Clip selected" else if (directMedia) "Select local video (sender)" else if (localClip) "Select local fragmented MP4 (sender)" else "Select official synthetic test clip (sender)")
+                                    }
+                                    Text(if (directMedia) "Both devices select direct mode. Seekable local files only; TV decoder compatibility required. Debug session up to 120 seconds; no copied file." else if (localClip) "Both devices must enable local clip mode. H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments. Other formats are rejected." else "Both devices must choose the same test mode. Only the official clip is accepted.")
                                 }
                                 Button(onClick = { requestStart(true) }, enabled = outgoing == null,
                                     modifier = Modifier.fillMaxWidth()) { Text("Receive on this device") }
@@ -360,6 +366,7 @@ class RollingLanLabActivity : ComponentActivity() {
         }
         val live = !telegram && liveMode
         val local = live && localClip
+        val direct = live && directMedia
         val reference = outgoing
         val handoff = TelegramTvAccountHandoff()
         var prepared: TelegramTvAccountHandoff.Prepared? = null
@@ -424,6 +431,12 @@ class RollingLanLabActivity : ComponentActivity() {
                                 prepared = runBlocking { handoff.prepare(request, true) }
                                 prepared?.owner == account && active.active()
                             }
+                        }) else if (direct) ({ socket, peer, _ ->
+                            RollingLanDirectMedia.receive(socket, peer, active::active) { uri, factory ->
+                                RollingHlsLanPlayback.playDirect(this@RollingLanLabActivity, uri, factory, active::active,
+                                    { engine -> if (token == generation.get()) player = engine },
+                                    { text -> post(token) { message = text } })
+                            }
                         }) else if (!live) null else { socket, peer, remote ->
                             RollingHlsLanLiveBridge.receive(socket, peer, route.address, remote, active::active, localClip = local) { client ->
                                 RollingHlsLanPlayback.play(this@RollingLanLabActivity, client, active::active,
@@ -437,6 +450,9 @@ class RollingLanLabActivity : ComponentActivity() {
                             { post(token) { message = if (live) "Preparing verified live stream…" else "Sending authenticated synthetic bytes…" } },
                             live = if (telegram) ({ socket, peer, _ ->
                                 referenceAccepted = RollingLanTelegramHandoff.send(socket, peer, checkNotNull(reference), active::active)
+                            }) else if (direct) ({ socket, peer, _ ->
+                                RollingLanDirectMedia.sendSelected(this@RollingLanLabActivity,
+                                    checkNotNull(selected), socket, peer, active::active)
                             }) else if (!live) null else { socket, peer, remote ->
                                 if (local) {
                                     val uri = checkNotNull(selected)

@@ -1,6 +1,10 @@
 package com.vaydelux.bousygram.core.cast
 
 import android.content.Context
+import android.net.Uri
+import androidx.media3.datasource.DataSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.MediaSource
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -30,7 +34,22 @@ internal object RollingHlsLanPlayback {
     }
     fun play(context: Context, client: RollingHlsLiveLanClient, permitted: () -> Boolean,
              attach: (ExoPlayer?) -> Unit, status: (String) -> Unit = {},
-             localClip: Boolean = false): Boolean {
+             localClip: Boolean = false): Boolean = playSource(context, permitted, attach, status, localClip) {
+        val item = MediaItem.Builder().setUri(client.uri()).setMimeType(MimeTypes.APPLICATION_M3U8)
+            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(18_000)
+                .setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build()).build()
+        HlsMediaSource.Factory(client.factory()).createMediaSource(item)
+    }
+
+    fun playDirect(context: Context, uri: Uri, factory: DataSource.Factory, permitted: () -> Boolean,
+                   attach: (ExoPlayer?) -> Unit, status: (String) -> Unit): Boolean =
+        playSource(context, permitted, attach, status, true) {
+            ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(uri))
+        }
+
+    private fun playSource(context: Context, permitted: () -> Boolean,
+                           attach: (ExoPlayer?) -> Unit, status: (String) -> Unit,
+                           localClip: Boolean, media: () -> MediaSource): Boolean {
         val first = AtomicBoolean()
         val failure = AtomicReference<PlaybackException?>(null)
         val holder = AtomicReference<ExoPlayer?>(null)
@@ -45,10 +64,7 @@ internal object RollingHlsLanPlayback {
                         override fun onPlayerError(error: PlaybackException) { failure.set(error) }
                     })
                     attach(engine)
-                    val item = MediaItem.Builder().setUri(client.uri()).setMimeType(MimeTypes.APPLICATION_M3U8)
-                        .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(18_000)
-                            .setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build()).build()
-                    engine.setMediaSource(HlsMediaSource.Factory(client.factory()).createMediaSource(item))
+                    engine.setMediaSource(media())
                     engine.prepare()
                     engine.play()
                 }
