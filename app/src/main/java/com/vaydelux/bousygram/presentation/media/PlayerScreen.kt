@@ -234,6 +234,12 @@ fun PlayerScreen(
     onLoadOlderEpisodes: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val currentAccount by com.vaydelux.bousygram.core.account.AccountSession.state.collectAsStateWithLifecycle()
+    if (request.handoffOwner != null && currentAccount != request.handoffOwner) {
+        // Never construct a decoder, cache or stream for a stale accepted handoff.
+        LaunchedEffect(request) { onExit() }
+        return
+    }
     val castState by CastSessionController.state.collectAsStateWithLifecycle()
     val isAndroidTv = remember(context) {
         context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
@@ -273,7 +279,7 @@ fun PlayerScreen(
     // Pin private launcher history to the verified account that opened this player.
     // An old engine callback after logout must never resolve a newly signed-in account.
     val playbackAccountOwner = remember(request) {
-        com.vaydelux.bousygram.core.account.AccountSession.current()
+        request.handoffOwner ?: com.vaydelux.bousygram.core.account.AccountSession.current()
     }
     val playbackSession = remember(request) {
         PlaybackSessionController.start(
@@ -1664,8 +1670,8 @@ fun PlayerScreen(
         StreamAccessRegistry.revokeFromUrl(activeLocalStreamUrl)
         activeLocalStreamUrl = null
         val selected = queue[queueIndex]
-        val owner = com.vaydelux.bousygram.core.account.AccountSession.current()
-        if (owner == null) {
+        val owner = playbackAccountOwner
+        if (owner == null || !com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner)) {
             playbackError = "Telegram session is not ready. Return to the library and try again."
             isOpening = false
             isReconnecting = false

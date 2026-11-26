@@ -24,7 +24,9 @@ data class PlaybackRequest(
     /** Real TDLib message topic/thread identity; null is not an inferred topic. */
     val topicId: Long? = null,
     val initialHandoffPositionMs: Long? = null,
-    val initialHandoffPlay: Boolean? = null
+    val initialHandoffPlay: Boolean? = null,
+    /** Captured receiver account, only set for authenticated internal handoff. */
+    val handoffOwner: com.vaydelux.bousygram.core.account.AccountSnapshot? = null
 )
 
 data class PlaybackQueueItem(

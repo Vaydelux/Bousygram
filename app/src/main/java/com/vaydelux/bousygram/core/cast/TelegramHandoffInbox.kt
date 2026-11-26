@@ -28,6 +28,9 @@ internal class TelegramHandoffInbox(
         }
         return entry
     }
+    fun isAvailable(entry: Entry): Boolean = pending.value === entry &&
+        accounts.isCurrent(entry.owner) && now() < entry.expires
+
     fun take(entry: Entry): ResolvedTelegramTvHandoff? {
         if (!pending.compareAndSet(entry, null)) return null
         return entry.media.takeIf { accounts.isCurrent(entry.owner) && now() < entry.expires }
