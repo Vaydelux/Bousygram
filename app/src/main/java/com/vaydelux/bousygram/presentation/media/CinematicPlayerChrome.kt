@@ -531,7 +531,7 @@ internal fun CinematicPlayerChrome(
     val reduceTransparency = LocalBousygramReduceTransparency.current
     val colors = MaterialTheme.colorScheme
     val baseHudAlpha = playerHudSurfaceOpacity(colors.background)
-    val hudAlpha = if (reduceTransparency && !halo.isHighContrast) maxOf(baseHudAlpha, 0.96f) else baseHudAlpha
+    val hudAlpha = if (reduceTransparency || halo.isHighContrast) 1f else baseHudAlpha
     val hudSurface = colors.surfaceContainer.copy(alpha = hudAlpha)
     val glassRimBrush = Brush.verticalGradient(
         listOf(
@@ -885,7 +885,7 @@ internal fun CinematicPlayerChrome(
         state.error?.let { errorMessage ->
             Surface(
                 shape = RoundedCornerShape(styleSpec.panelCorner),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (reduceTransparency || halo.isHighContrast) 1f else 0.96f),
                 border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.72f)),
                 shadowElevation = if (motion.lowRam) 0.dp else 12.dp,
                 modifier = Modifier
