@@ -32,14 +32,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The nested pull_requests head is live metadata, not the historical run SHA.
+          # Verify the immutable run and the exact merge proof recorded by its jobs.
           for run_id in "$QA_RUN" 45771994015 45771993944 45771994049; do
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" | jq -e --arg head "$QA_HEAD" \
-              '.head_sha == $head and .event == "pull_request" and .status == "completed" and .conclusion == "success" and any(.pull_requests[]?; .number == 234 and .head.sha == $head)' >/dev/null
+              '.head_sha == $head and .event == "pull_request" and .status == "completed" and .conclusion == "success" and .run_attempt == 1' >/dev/null || { echo "::error::Invalid original qualification run $run_id"; exit 1; }
+            if [[ "$run_id" != "$QA_RUN" ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/attempts/1/jobs?per_page=100" | jq -e --arg proof "Prove tested merge $QA_MERGE" \
+                '.total_count > 0 and (.jobs | length > 0 and all(.[]; .conclusion == "success" and any(.steps[]?; .name == $proof and .conclusion == "success")))' >/dev/null || { echo "::error::Missing exact merge proof in $run_id"; exit 1; }
+            fi
           done
           gh api "repos/$GITHUB_REPOSITORY/git/commits/$QA_MERGE" | jq -e --arg base "$QA_BASE" --arg head "$QA_HEAD" \
-            '(.parents | map(.sha)) == [$base, $head]' >/dev/null
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$QA_ARTIFACT" | jq -e --arg head "$QA_HEAD" --arg digest "sha256:$QA_DIGEST" --argjson run "$QA_RUN" \
-            '.expired == false and .digest == $digest and .name == ("cast-lab-qa-" + $head) and .workflow_run.id == $run and .workflow_run.head_sha == $head' >/dev/null
+            '(.parents | map(.sha)) == [$base, $head]' >/dev/null || { echo "::error::Tested merge parents differ"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QA_RUN/artifacts?per_page=100" | jq -e --arg head "$QA_HEAD" --arg digest "sha256:$QA_DIGEST" --argjson id "$QA_ARTIFACT" \
+            '[.artifacts[] | select(.id == $id and .expired == false and .digest == $digest and .name == ("cast-lab-qa-" + $head))] | length == 1' >/dev/null || { echo "::error::Original artifact metadata differs"; exit 1; }
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$QA_ARTIFACT/zip" > qa.zip
           printf '%s  qa.zip\n' "$QA_DIGEST" | sha256sum --check -
           python3 - <<'PY'
