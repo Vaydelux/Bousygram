@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: android-enterprise-${{ github.workflow }}-${{ github.ref }}
@@ -255,6 +256,99 @@ jobs:
             tools/tdlib/BUILD_METADATA.txt
             tools/tdlib/BUILD_VERIFICATION.txt
             build-tools/tdlib/RESOLVED_COMMIT.txt
+
+      # One deliberately scoped, uncredentialed QA artifact for PR 234. Do
+      # not change the main-only trusted debug release / production policy.
+      - name: Wait for exact-head and exact-base Cast Lab qualification
+        if: ${{ success() && github.repository == 'Vaydelux/Bousygram' && github.event_name == 'pull_request' && github.event.pull_request.number == 234 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/v1.1-cast-handoff' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head_sha="$(jq -er '.pull_request.head.sha' "$GITHUB_EVENT_PATH")"
+          base_sha="$(jq -er '.pull_request.base.sha' "$GITHUB_EVENT_PATH")"
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git rev-parse HEAD^1)" == "$base_sha" && "$(git rev-parse HEAD^2)" == "$head_sha" ]]
+          assert_current() {
+            gh api "repos/$GITHUB_REPOSITORY/pulls/234" | jq -e \
+              --arg head "$head_sha" --arg base "$base_sha" \
+              '.state == "open" and .head.sha == $head and .base.sha == $base' >/dev/null
+          }
+          assert_current
+          workflows=(android-emulator-smoke.yml android-explorer-ui-smoke.yml cast-native-qualification.yml)
+          for ((attempt=0; attempt<120; attempt++)); do
+            assert_current
+            ready=true
+            for workflow in "${workflows[@]}"; do
+              status="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$head_sha&event=pull_request&per_page=30" | jq -r \
+                --arg head "$head_sha" --arg base "$base_sha" \
+                '[.workflow_runs[] | select(.head_sha == $head and .event == "pull_request") |
+                  select(any(.pull_requests[]?; .number == 234 and .head.sha == $head and .base.sha == $base))] |
+                  sort_by(.run_number, .run_attempt) | last |
+                  if . == null then "missing" else (.conclusion // .status) end')"
+              case "$status" in
+                success) ;;
+                missing|queued|in_progress|requested|waiting|pending) ready=false ;;
+                *) echo "::error::Cast Lab exact-source qualification failed: $workflow ($status)"; exit 1 ;;
+              esac
+            done
+            if [[ "$ready" == true ]]; then
+              echo "All companion qualification workflows passed for the exact PR head and base."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Exact-source qualification did not complete within the bounded gate."
+          exit 1
+
+      - name: Verify and stage uncredentialed Cast Lab debug APK
+        if: ${{ success() && github.repository == 'Vaydelux/Bousygram' && github.event_name == 'pull_request' && github.event.pull_request.number == 234 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/v1.1-cast-handoff' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head_sha="$(jq -er '.pull_request.head.sha' "$GITHUB_EVENT_PATH")"
+          base_sha="$(jq -er '.pull_request.base.sha' "$GITHUB_EVENT_PATH")"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/234" | jq -e --arg head "$head_sha" --arg base "$base_sha" \
+            '.state == "open" and .head.sha == $head and .base.sha == $base' >/dev/null
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          apk=ci-artifacts/debug/Bousygram-debug.apk
+          test -s "$apk"
+          "$ANDROID_BUILD_TOOLS_DIR/apksigner" verify "$apk"
+          badging="$("$ANDROID_BUILD_TOOLS_DIR/aapt2" dump badging "$apk")"
+          grep -Fq "package: name='com.vaydelux.bousygram'" <<<"$badging"
+          grep -Fq "application-debuggable" <<<"$badging"
+          entries="$(zipinfo -1 "$apk")"
+          for abi in arm64-v8a armeabi-v7a; do
+            for lib in libtdjni.so libmpv.so libvlc.so libc++_shared.so; do
+              grep -Fxq "lib/$abi/$lib" <<<"$entries"
+            done
+          done
+          mkdir -p ci-artifacts/cast-lab-qa
+          cp -- "$apk" ci-artifacts/cast-lab-qa/Bousygram-Cast-Lab-debug.apk
+          (
+            cd ci-artifacts/cast-lab-qa
+            sha256sum Bousygram-Cast-Lab-debug.apk > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
+            printf 'pr=234\nheadSha=%s\nbaseSha=%s\nmergeSha=%s\nciRunId=%s\n' \
+              "$head_sha" "$base_sha" "$GITHUB_SHA" "$GITHUB_RUN_ID" > BUILD_INFO.txt
+            printf '%s\n' 'Debug-signed, uncredentialed PR qualification only. No production release.' \
+              'Includes ARM32 and ARM64. Extras metadata credential not injected.' \
+              'Use Receiver Lab > Two-device LAN test with the official synthetic fixture.' \
+              'Physical-device playback and source-cache reclamation remain unqualified.' \
+              'Different debug signing keys may prevent updating an existing installation; do not uninstall without safeguarding account data.' > README.txt
+          )
+
+      - name: Archive one qualified Cast Lab APK for physical-device testing
+        if: ${{ success() && github.repository == 'Vaydelux/Bousygram' && github.event_name == 'pull_request' && github.event.pull_request.number == 234 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/v1.1-cast-handoff' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cast-lab-qa-${{ github.event.pull_request.head.sha }}
+          retention-days: 1
+          if-no-files-found: error
+          path: ci-artifacts/cast-lab-qa/
 
       # Debug prereleases build an independent three-ABI matrix and publish
       # to GitHub Releases directly; no automatic APK uploads per commit.

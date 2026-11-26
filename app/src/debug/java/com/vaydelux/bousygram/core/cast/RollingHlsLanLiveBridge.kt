@@ -1,6 +1,7 @@
 package com.vaydelux.bousygram.core.cast
 
 import android.os.SystemClock
+import android.os.StatFs
 import androidx.media3.common.util.UnstableApi
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -44,7 +45,14 @@ internal object RollingHlsLanLiveBridge {
             fun active() = allowed.get() && permitted()
             val clock = { SystemClock.elapsedRealtime() * 1000L }
             val store = RollingHlsLiveFileStore(dir, 6_000_000, 8, 32L * 1024 * 1024,
-                clock, ::active, { additional -> dir.usableSpace >= 500L * 1024 * 1024 + additional })
+                clock, ::active, { additional ->
+                    // Physical free blocks only: no StorageManager allocation,
+                    // cache eviction, or credit for potentially reclaimable data.
+                    val free = runCatching { StatFs(dir.absolutePath).availableBytes }.getOrDefault(-1L)
+                    additional in 0L..RollingHlsBudget.MAX_SEGMENT_BYTES &&
+                        free >= RollingHlsBudget.MIN_FREE_BYTES &&
+                        additional <= free - RollingHlsBudget.MIN_FREE_BYTES
+                })
             val verified = RollingHlsLiveVerifiedInput(source, ::active)
             val bounded = object : RollingHlsLiveProducer.VerifiedInput {
                 private var count = 0

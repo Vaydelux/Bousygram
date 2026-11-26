@@ -187,3 +187,6 @@ Fix all observed manifest/trust-manager lint issues; introduce QR endpoint/certi
 
 ## Batch A2 — approved live LAN synthetic media
 Split authenticated server/client endpoints, mTLS control offer, paced synthetic sender, real Media3 receiver with play/pause and terminal receipt, bounded deadlines, regression and debug-only Fragment lint dependency fix. New code not yet qualified. Actual physical devices, discovery, automatic reconnect and TDLib integration remain pending.
+
+## Batch A3 — physical debug QA gate
+Prior live private-interface emulator 147/147 passed; Enterprise only UsableSpace lint failure. Physical free-block admission via StatFs, exact-head/base gated uncredentialed ARM-compatible QA artifact (PR234 only, one-day retention), no production merge. Await complete fresh checks and actual artifact before physical-device qualification.
