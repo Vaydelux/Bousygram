@@ -44,6 +44,7 @@ import com.vaydelux.bousygram.presentation.components.rememberShimmerBrush
 import com.vaydelux.bousygram.presentation.adaptive.rememberAdaptiveMetrics
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import kotlinx.coroutines.delay
@@ -175,16 +176,19 @@ internal fun PlayerStatusChip(label: String, isError: Boolean, isBusy: Boolean) 
         isBusy -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.primary
     }
-    val chipBg = if (halo.isHighContrast) {
+    val style = LocalBousygramStyleSpec.current
+    val reduced = LocalBousygramReduceTransparency.current
+    val themed = halo.isHighContrast || !style.isLiquidGlass
+    val chipBg = if (themed) {
         MaterialTheme.colorScheme.surfaceContainerHighest
     } else {
-        Color(0xFF090D16).copy(alpha = 0.86f)
+        Color(0xFF090D16).copy(alpha = if (reduced) 1f else 0.92f)
     }
-    val chipFg = if (halo.isHighContrast) MaterialTheme.colorScheme.onSurface else Color(0xFFF5F8FF)
+    val chipFg = if (themed) MaterialTheme.colorScheme.onSurface else Color(0xFFF5F8FF)
     Surface(
-        shape = RoundedCornerShape(BousygramUiTokens.pillCorner),
+        shape = RoundedCornerShape(if (style.isLiquidGlass) BousygramUiTokens.pillCorner else style.tabCorner),
         color = chipBg,
-        border = BorderStroke(1.dp, if (isError) accent.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.18f)),
+        border = BorderStroke(1.dp, if (isError) accent.copy(alpha = 0.65f) else if (themed) MaterialTheme.colorScheme.outline else Color.White.copy(alpha = 0.18f)),
         modifier = Modifier.testTag("player_status_chip")
     ) {
         Row(
