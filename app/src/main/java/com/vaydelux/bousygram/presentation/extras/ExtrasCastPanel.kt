@@ -26,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,7 +87,9 @@ internal fun ExtrasCastPanel(
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         val message = localMessage ?: state.message
         if (message.isNotBlank()) {
-            Text(message, style = MaterialTheme.typography.labelMedium, color = Color.White,
+            Text(message, style = MaterialTheme.typography.labelMedium,
+                color = if (localMessage != null || state.phase == ExtrasCastPhase.FAILED)
+                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Row(
