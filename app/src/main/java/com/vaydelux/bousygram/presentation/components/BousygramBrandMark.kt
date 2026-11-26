@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.R
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
 
 /**
  * The only in-app visual brand mark.
@@ -41,12 +42,12 @@ fun BousygramBrandMark(
 ) {
     val halo = LocalBousygramHaloColors.current
     val reduceTransparency = LocalBousygramReduceTransparency.current
-    if (squircleFrame && !halo.isHighContrast) {
+    if (squircleFrame && LocalBousygramStyleSpec.current.isLiquidGlass && !halo.isHighContrast) {
         val squircle = RoundedCornerShape((size * 0.28f).coerceAtLeast(10.dp))
         val fill = if (halo.isLight) {
-            Color.White.copy(alpha = if (reduceTransparency) 0.98f else 0.88f)
+            Color.White.copy(alpha = if (reduceTransparency) 1f else 0.88f)
         } else {
-            Color(0xFF101828).copy(alpha = if (reduceTransparency) 0.98f else 0.86f)
+            Color(0xFF101828).copy(alpha = if (reduceTransparency) 1f else 0.86f)
         }
         val rimTop = if (halo.isLight) Color.White else Color.White.copy(alpha = 0.28f)
         val rimBottom = if (halo.isLight) Color(0xFF0F172A).copy(alpha = 0.10f) else Color.White.copy(alpha = 0.08f)
