@@ -126,7 +126,9 @@ internal fun TelegramExplorerCompactHeader(
     val halo = LocalBousygramHaloColors.current
     val styleSpec = LocalBousygramStyleSpec.current
     val reduceTransparency = LocalBousygramReduceTransparency.current
-    val showDynamicIsland = effectiveWidth >= (if (canGoUp) 410.dp else 360.dp)
+    // Preserve the compact toolbar's title and primary actions; the island is supplemental.
+    val showDynamicIsland = styleSpec.isLiquidGlass && effectiveWidth >=
+        (if (canGoUp || hasResume) 960.dp else 860.dp)
     var menuExpanded by remember { mutableStateOf(false) }
 
     val headerRowShape = RoundedCornerShape(if (styleSpec.isLiquidGlass) 20.dp else 0.dp)
