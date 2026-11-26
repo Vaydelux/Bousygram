@@ -38,6 +38,7 @@ import com.vaydelux.bousygram.presentation.components.BousygramPageHeading
 import com.vaydelux.bousygram.presentation.components.BousygramScaffold
 import com.vaydelux.bousygram.presentation.components.BousygramStatusPill
 import com.vaydelux.bousygram.presentation.components.EnterprisePanel
+import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramDisplaySpec
 
 /**
