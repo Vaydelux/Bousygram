@@ -122,25 +122,27 @@ fun BousygramModeSelection(
                 // smaller internal gaps instead of inheriting this large gap.
                 verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 20.dp)
             ) {
-                // Top-center iOS 27/28 Dynamic Island status capsule (linear D-pad top stop)
-                BousygramDynamicIsland(
-                    compact = compact && metrics.widthDp < 600.dp,
-                    state = DynamicIslandActivityState(
-                        title = "Bousygram Ready",
-                        badge = if (designStyle == BousygramDesignStyle.IPHONE_GLASS) "iOS 27" else designStyle.displayName,
-                        tone = DynamicIslandTone.ONLINE,
-                        liveHeadline = "Bousygram Workspace",
-                        liveDetail = "Choose Telegram Media or Movies, TV Shows & Anime, or customize Liquid Glass.",
-                        statusTag = "Workspace Ready",
-                        actions = listOf(
-                            DynamicIslandAction("telegram", "Telegram Media", BousygramIcons.Telegram, true, onTelegram),
-                            DynamicIslandAction("extras", "Explore Extras", BousygramIcons.Anime, false, onExtras),
-                            DynamicIslandAction("appearance", "Appearance Studio", BousygramIcons.Theme, false) {
-                                appearanceOpen = true
-                            }
+                if (LocalBousygramStyleSpec.current.isLiquidGlass) {
+                    // Top-center iOS 27/28 Dynamic Island status capsule (linear D-pad top stop)
+                    BousygramDynamicIsland(
+                        compact = compact && metrics.widthDp < 600.dp,
+                        state = DynamicIslandActivityState(
+                            title = "Bousygram Ready",
+                            badge = if (designStyle == BousygramDesignStyle.IPHONE_GLASS) "iOS 27" else designStyle.displayName,
+                            tone = DynamicIslandTone.ONLINE,
+                            liveHeadline = "Bousygram Workspace",
+                            liveDetail = "Choose Telegram Media or Movies, TV Shows & Anime, or customize Liquid Glass.",
+                            statusTag = "Workspace Ready",
+                            actions = listOf(
+                                DynamicIslandAction("telegram", "Telegram Media", BousygramIcons.Telegram, true, onTelegram),
+                                DynamicIslandAction("extras", "Explore Extras", BousygramIcons.Anime, false, onExtras),
+                                DynamicIslandAction("appearance", "Appearance Studio", BousygramIcons.Theme, false) {
+                                    appearanceOpen = true
+                                }
+                            )
                         )
                     )
-                )
+                }
                 if (compact) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
