@@ -1,5 +1,5 @@
 name: Publish qualified main debug once
-# Release request: retry after AboutScreen theme token import correction.
+# Release request: retry after subtitle test bounds and Maven rate-limit corrections.
 # Deliberate release request: editing this file starts all four companion
 # qualifications for the same main SHA. Manual dispatch is also supported.
 on:

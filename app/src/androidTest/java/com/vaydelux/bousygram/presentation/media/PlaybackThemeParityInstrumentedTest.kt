@@ -47,8 +47,9 @@ class PlaybackThemeParityInstrumentedTest {
         }
         val choice = compose.onNodeWithTag("qa-subtitle-track")
         choice.assertIsNotSelected()
+        val bounds = choice.getUnclippedBoundsInRoot()
         assertTrue("Subtitle track must be at least 48dp high",
-            choice.getUnclippedBoundsInRoot().height >= 48.dp)
+            bounds.bottom - bounds.top >= 48.dp)
         choice.performClick()
         choice.assertIsSelected()
     }

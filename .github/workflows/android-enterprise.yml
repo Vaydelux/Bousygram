@@ -199,20 +199,41 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon --console=plain \
-            :app:verifyReleaseVersionPolicy \
-            :app:verifyTdlibAbiCoverage \
-            :app:verifyTvHardeningContract \
-            :app:verifyPrivateMediaCastReleaseGate \
-            :app:verifySensitiveLogRedaction \
-            :app:verifyTdlibBindingCompatibility \
-            :app:compileDebugKotlin \
-            :mediaforge-core:testDebugUnitTest \
-            :mediaforge-player-adapters:testDebugUnitTest \
-            :app:lintDebug \
-            :app:testDebugUnitTest \
-            :app:assembleDebug \
+          gradle_tasks=(
+            :app:verifyReleaseVersionPolicy
+            :app:verifyTdlibAbiCoverage
+            :app:verifyTvHardeningContract
+            :app:verifyPrivateMediaCastReleaseGate
+            :app:verifySensitiveLogRedaction
+            :app:verifyTdlibBindingCompatibility
+            :app:compileDebugKotlin
+            :mediaforge-core:testDebugUnitTest
+            :mediaforge-player-adapters:testDebugUnitTest
+            :app:lintDebug
+            :app:testDebugUnitTest
+            :app:assembleDebug
             :app:assembleDebugAndroidTest
+          )
+          first_log="$(mktemp)"
+          trap 'rm -f "$first_log"' EXIT
+          if ! ./gradlew --no-daemon --no-configuration-cache --console=plain "${gradle_tasks[@]}" 2>&1 | tee "$first_log"; then
+            # Retry only known dependency resolution failures, never ignore a
+            # failing compile, lint or test result. Rerun the complete gate.
+            if ! grep -Eq 'Could not (find|resolve) org\.json:json:20231013\.' "$first_log"; then
+              echo "::error::Gradle verification failed outside the known transient dependency lookup."
+              exit 1
+            fi
+            if grep -Fq 'Received status code 429' "$first_log"; then
+              echo "::warning::Maven Central rate limited the runner; retrying once after backoff."
+              sleep 60
+            elif grep -Fq 'Could not find org.json:json:20231013.' "$first_log"; then
+              echo "::warning::Transient Maven lookup failed; retrying once after backoff."
+              sleep 30
+            else
+              exit 1
+            fi
+            ./gradlew --no-daemon --no-configuration-cache --console=plain "${gradle_tasks[@]}"
+          fi
 
       - name: Verify exported Room v3 schema and migration contract
         if: ${{ success() }}
