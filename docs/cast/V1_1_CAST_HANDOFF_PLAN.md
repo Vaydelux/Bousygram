@@ -251,3 +251,6 @@ on an ambiguous stream. These changes require fresh Android qualification.
 
 ### Qualification follow-up
 Indexed MP4 and MKV direct playback now exercise a five-second seek before successful playback completion; TS is not required to expose an index. A separate authenticated control-loss test forces a disconnect after heartbeat, requires the receiver's data source to reject opening, and disallows a success receipt. These are automated same-emulator tests, not a four-hour physical-device soak or proof of arbitrary codec support.
+
+## Final integrated debug packaging candidate
+Remove the two obsolete QA publication workflows pinned to the initial laboratory-only build; existing historical release assets remain untouched. The shared three-variant debug builder now checks debuggability, common signing identity, and actual compiled phone/TV launcher inventory (only MainActivity). The ordinary trusted main-only release workflow continues requiring TMDB configuration and existing Gradle, lint and ABI gates. It must be invoked only after the exact final code qualifies. Production signing, arbitrary codec conversion and physical device checks are not claimed.

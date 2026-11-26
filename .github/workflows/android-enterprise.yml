@@ -115,6 +115,9 @@ jobs:
           bash tools/ci/test_release_apk_verifier.sh
           python3 -B tools/ci/test_apk_native_inventory.py
 
+      - name: Test single application launcher publication gate
+        run: python3 tools/ci/test_debug_launcher_manifest.py
+
       - name: Test automated release version policy
         shell: bash
         run: bash tools/ci/test_release_tag_policy.sh
