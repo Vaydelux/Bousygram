@@ -88,7 +88,8 @@ internal class RollingHlsLanSession(
 
     fun receive(onInvitation: (String, Long) -> Unit,
                 onPending: (String, Long) -> Boolean,
-                onApproved: () -> Unit): Result {
+                onApproved: () -> Unit,
+                live: ((SSLSocket, RollingHlsPairedTls.Peer, Inet4Address) -> Unit)? = null): Result {
         access()
         RollingHlsKeystoreIdentity.create(owner, current).use { identity ->
             RollingHlsPeerPairing(current, nowMs).use { pairing ->
@@ -130,7 +131,10 @@ internal class RollingHlsLanSession(
                                 onApproved()
                                 using(accept(probeServer, nowMs() + 15_000L)) { probe ->
                                     if (!validPeer(probe, remote)) throw IOException("Unexpected probe endpoint")
-                                    bounded(probe, 15_000) { RollingHlsLanProbe.receive(probe, tls.pin(), ::active) }
+                                    bounded(probe, if (live == null) 15_000 else 180_000) {
+                                        if (live == null) RollingHlsLanProbe.receive(probe, tls.pin(), ::active)
+                                        else live(probe, tls, remote)
+                                    }
                                 }
                             }
                             Result.VERIFIED
@@ -145,7 +149,8 @@ internal class RollingHlsLanSession(
     }
 
     fun send(invitation: RollingHlsLanInvitation.Decoded, onPending: () -> Unit,
-             onApproved: () -> Unit): Result {
+             onApproved: () -> Unit,
+             live: ((SSLSocket, RollingHlsPairedTls.Peer, Inet4Address) -> Unit)? = null): Result {
         access()
         val endpoint = invitation.endpoint
         if (!RollingHlsLanInvitation.sameSubnet(local, endpoint.address, prefix))
@@ -170,9 +175,10 @@ internal class RollingHlsLanSession(
             val tls = RollingHlsPairedTls.create(owner, pins, identity, invitation.certificate, false, current)
             onApproved()
             using(tls.context.socketFactory.createSocket() as SSLSocket) { socket ->
-                bounded(socket, 15_000) {
+                bounded(socket, if (live == null) 15_000 else 180_000) {
                     connect(socket, RollingHlsLanInvitation.Endpoint(endpoint.address, port))
-                    RollingHlsLanProbe.send(socket, tls.pin(), ::active)
+                    if (live == null) RollingHlsLanProbe.send(socket, tls.pin(), ::active)
+                    else live(socket, tls, endpoint.address)
                 }
             }
             return Result.VERIFIED

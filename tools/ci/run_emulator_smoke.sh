@@ -91,7 +91,7 @@ runner='com.vaydelux.bousygram.test/androidx.test.runner.AndroidJUnitRunner'
 # Preserve the actual instrumentation exit status through tee. The test run
 # remains a failure unless all selected tests complete successfully.
 set +e
-timeout 660s adb shell am instrument -w -r -e class "$test_classes" "$runner" | tee emulator-smoke-results.txt
+timeout 800s adb shell am instrument -w -r -e class "$test_classes" "$runner" | tee emulator-smoke-results.txt
 instrumentation_exit=${PIPESTATUS[0]}
 set -e
 # The runner can succeed with a partial selection if a class name changes.

@@ -184,3 +184,6 @@ Integrate debug TV launcher, explicit consent, credential orphan cleanup and rea
 
 ## Batch A1 — two-device foreground LAN qualification
 Fix all observed manifest/trust-manager lint issues; introduce QR endpoint/certificate, permission-aware private network selection, signed enrollment, remote consent, mutually authenticated synthetic transfer, cancellation and host/Android regression gates. LAN UI and physical devices still need qualification; actual live media transport not connected. Keep main unchanged.
+
+## Batch A2 — approved live LAN synthetic media
+Split authenticated server/client endpoints, mTLS control offer, paced synthetic sender, real Media3 receiver with play/pause and terminal receipt, bounded deadlines, regression and debug-only Fragment lint dependency fix. New code not yet qualified. Actual physical devices, discovery, automatic reconnect and TDLib integration remain pending.
