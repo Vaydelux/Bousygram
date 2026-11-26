@@ -41,12 +41,17 @@ class RollingHlsLanSessionInstrumentedTest {
         } finally { workers.shutdownNow(); assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS)) }
     }
 
+    @Test fun privateInterfaceLivePlaybackAfterExplicitConsent() = livePlayback(false)
+
+    @Test fun shortLocalClipPlaybackAfterExplicitConsent() = livePlayback(true)
+
     @androidx.annotation.OptIn(UnstableApi::class)
-    @Test fun privateInterfaceLivePlaybackAfterExplicitConsent() {
+    private fun livePlayback(localClip: Boolean) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val route = checkNotNull(RollingHlsLanRoute.capture(context))
-        val clip = File(context.getExternalFilesDir("decoder-fixtures"), "rolling-receiver-live.mp4")
+        val clip = File(context.getExternalFilesDir("decoder-fixtures"),
+            if (localClip) "rolling-receiver.mp4" else "rolling-receiver-live.mp4")
         check(clip.isFile)
         val worker = Executors.newSingleThreadExecutor()
         val invitation = CompletableFuture<String>()
@@ -57,7 +62,8 @@ class RollingHlsLanSessionInstrumentedTest {
                 val result = worker.submit<RollingHlsLanSession.Result> {
                     receiver.receive({ text, _ -> invitation.complete(text) }, { _, _ -> true }, {},
                         live = { socket, peer, remote ->
-                            RollingHlsLanLiveBridge.receive(socket, peer, route.address, remote, receiver::active) { client ->
+                            RollingHlsLanLiveBridge.receive(socket, peer, route.address, remote, receiver::active,
+                                localClip = localClip) { client ->
                                 RollingHlsLanPlayback.play(context, client, receiver::active, { engine ->
                                     if (engine != null) {
                                         texture = SurfaceTexture(10)
@@ -69,7 +75,7 @@ class RollingHlsLanSessionInstrumentedTest {
                                         surface = null
                                         texture = null
                                     }
-                                })
+                                }, localClip = localClip)
                             }
                         })
                 }
@@ -77,7 +83,8 @@ class RollingHlsLanSessionInstrumentedTest {
                     RollingHlsLanSession(route.address, route.prefix, route::current).use { sender ->
                         val sent = sender.send(decoded, {}, {}, live = { socket, peer, remote ->
                             RollingHlsLanLiveBridge.send(socket, peer, route.address, remote, context.cacheDir,
-                                clip.inputStream(), sender::active)
+                                clip.inputStream(), sender::active, localClip = localClip,
+                                sharedAdmission = if (localClip) ({ additional -> additional in 0L..RollingHlsBudget.MAX_SEGMENT_BYTES }) else null)
                         })
                         assertEquals(RollingHlsLanSession.Result.VERIFIED, sent)
                         assertEquals(RollingHlsLanSession.Result.VERIFIED, result.get(30, TimeUnit.SECONDS))
