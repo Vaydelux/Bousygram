@@ -98,8 +98,12 @@ internal fun StartupAppearanceDialog(
                     reduceTransparency = activeReduceTransparency,
                     onSelectPreset = onThemePresetChange,
                     onReduceTransparencyChange = { enabled ->
-                        localReduceTransparency = enabled
-                        controller?.onReduceTransparencyChange?.invoke(enabled)
+                        if (controller != null) {
+                            controller.onReduceTransparencyChange(enabled)
+                        } else {
+                            localReduceTransparency = enabled
+                            EnterprisePreferences.setReduceTransparency(enabled)
+                        }
                     }
                 )
                 Text("Quick looks", style = MaterialTheme.typography.titleMedium)
@@ -111,9 +115,11 @@ internal fun StartupAppearanceDialog(
                         EnterprisePreferences.setVisualAppearance(
                             look.preset.id, look.style.id, look.pattern.id
                         )
-                        onThemePresetChange(look.preset)
-                        onDesignStyleChange(look.style)
-                        onBackdropPatternChange(look.pattern)
+                        if (controller == null) {
+                            onThemePresetChange(look.preset)
+                            onDesignStyleChange(look.style)
+                            onBackdropPatternChange(look.pattern)
+                        }
                     }
                 )
                 Text("Color theme", style = MaterialTheme.typography.titleMedium)
