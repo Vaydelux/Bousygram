@@ -11,7 +11,7 @@ import java.net.Inet4Address
 /** Explicit opt-in on the currently selected Wi-Fi/Ethernet network only.
  * No discovery broadcast, mobile data, VPN, hostname or public address. */
 internal class RollingHlsLanRoute private constructor(
-    private val context: Context, private val network: Network,
+    private val context: Context, internal val network: Network,
     val address: Inet4Address, val prefix: Int
 ) {
     fun contains(peer: Inet4Address) = RollingHlsLanInvitation.sameSubnet(address, peer, prefix)

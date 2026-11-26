@@ -19,6 +19,8 @@ import com.vaydelux.bousygram.core.cache.CacheManager
 import com.vaydelux.bousygram.core.cast.RollingHlsBudget
 import java.io.ByteArrayInputStream
 import android.os.Bundle
+import android.os.Build
+import com.vaydelux.bousygram.core.cast.RollingLanDiscovery
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -73,6 +75,11 @@ class RollingLanLabActivity : ComponentActivity() {
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var session: RollingHlsLanSession? = null
+    private var discovery: RollingLanDiscovery? = null
+    private var discoveryRoute: RollingHlsLanRoute? = null
+    private var foundDevices by mutableStateOf<List<String>>(emptyList())
+    private var browsing by mutableStateOf(false)
+    private var browseDeadline = 0L
     private var consent: CompletableFuture<Boolean>? = null
     private var visible = false
     private var busy by mutableStateOf(false)
@@ -94,6 +101,8 @@ class RollingLanLabActivity : ComponentActivity() {
     private val tick = object : Runnable {
         override fun run() {
             if (!visible) return
+            if (discovery != null && (discoveryRoute?.current() != true ||
+                    (browsing && SystemClock.elapsedRealtime() >= browseDeadline))) stopDiscovery()
             if (expires > 0L) {
                 seconds = ((expires - SystemClock.elapsedRealtime() + 999) / 1000).coerceAtLeast(0)
                 if (seconds == 0L) reset("Invitation or consent expired.")
@@ -172,6 +181,15 @@ class RollingLanLabActivity : ComponentActivity() {
                                     Text(if (localClip) "Both devices must enable local clip mode. H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments. Other formats are rejected." else "Both devices must choose the same test mode. Only the official clip is accepted.")
                                 }
                                 Button(onClick = { requestStart(true) }, modifier = Modifier.fillMaxWidth()) { Text("Receive on this device") }
+                                if (Build.VERSION.SDK_INT >= 33) {
+                                    OutlinedButton(onClick = { if (browsing) stopDiscovery() else browseReceivers() },
+                                        modifier = Modifier.fillMaxWidth()) { Text(if (browsing) "Stop finding receivers" else "Find nearby receivers") }
+                                    if (browsing) {
+                                        Text("Nearby receiver hints (unverified). Scan the TV invitation before connecting.")
+                                        if (foundDevices.isEmpty()) Text("Searching…")
+                                        foundDevices.forEach { Text(it) }
+                                    }
+                                }
                                 OutlinedTextField(value = input, onValueChange = {
                                     if (it.length <= RollingHlsLanInvitation.MAX_TEXT) input = it
                                 }, label = { Text("Sender: paste LAN invitation") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
@@ -197,6 +215,7 @@ class RollingLanLabActivity : ComponentActivity() {
     }
     override fun onStop() {
         visible = false
+        stopDiscovery()
         main.removeCallbacks(tick)
         // Only an explicitly launched picker/permission prompt may preserve idle
         // selections. No active network session survives any onStop.
@@ -211,6 +230,7 @@ class RollingLanLabActivity : ComponentActivity() {
 
     private fun reset(text: String) {
         generation.incrementAndGet()
+        stopDiscovery()
         externalPicker = false
         permissionRole = null
         consent?.complete(false)
@@ -231,8 +251,41 @@ class RollingLanLabActivity : ComponentActivity() {
         message = text
     }
 
+    private fun stopDiscovery() {
+        if (Build.VERSION.SDK_INT >= 33) discovery?.close()
+        discovery = null
+        discoveryRoute = null
+        browsing = false
+        browseDeadline = 0L
+        foundDevices = emptyList()
+    }
+
+    @androidx.annotation.RequiresApi(33)
+    private fun browseReceivers() {
+        if (!visible || busy) return
+        val route = runCatching { RollingHlsLanRoute.capture(this) }.getOrNull()
+        if (route == null) {
+            message = "Discovery needs local-network permission and private Wi-Fi/Ethernet. QR pairing remains available."
+            return
+        }
+        stopDiscovery()
+        val result = runCatching {
+            RollingLanDiscovery(this, route) { names ->
+                if (visible && browsing && discoveryRoute === route) foundDevices = names
+            }.also { owner ->
+                discovery = owner
+                discoveryRoute = route
+                browsing = true
+                browseDeadline = SystemClock.elapsedRealtime() + 30_000
+                owner.browse()
+            }
+        }
+        if (result.isFailure) { stopDiscovery(); message = "Discovery unavailable. Use QR or manual pairing." }
+    }
+
     private fun launchPicker(action: () -> Unit) {
         if (busy || session != null) return
+        stopDiscovery()
         externalPicker = true
         try { action() } catch (_: Exception) {
             externalPicker = false
@@ -261,6 +314,7 @@ class RollingLanLabActivity : ComponentActivity() {
 
     private fun start(receiver: Boolean) {
         if (busy || !visible) return
+        stopDiscovery()
         val route = runCatching { RollingHlsLanRoute.capture(this) }.getOrNull()
         if (route == null) { message = "No eligible private Wi-Fi/Ethernet connection."; return }
         val token = generation.incrementAndGet()
@@ -285,12 +339,23 @@ class RollingLanLabActivity : ComponentActivity() {
                                     qr = bitmap
                                     expires = deadline
                                     message = "Scan this invitation on the sender. Waiting for enrollment…"
+                                    if (Build.VERSION.SDK_INT >= 33) {
+                                        runCatching {
+                                            val port = checkNotNull(RollingHlsLanInvitation.decode(text)).use { it.endpoint.port }
+                                            RollingLanDiscovery(this@RollingLanLabActivity, route) {}.also { owner ->
+                                                discovery = owner
+                                                discoveryRoute = route
+                                                owner.advertise(port)
+                                            }
+                                        }.onFailure { stopDiscovery() }
+                                    }
                                 } else bitmap.recycle()
                             }
                         },
                         onPending = { pin, deadline ->
                             val answer = CompletableFuture<Boolean>()
                             post(token) {
+                                stopDiscovery()
                                 invitation = ""
                                 qr = null
                                 showText = false
