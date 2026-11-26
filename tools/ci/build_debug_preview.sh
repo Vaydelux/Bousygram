@@ -18,16 +18,29 @@ apk_dir="app/build/outputs/apk/debug"
 declare -a apk_names=()
 version=""
 code=""
+signer=""
 
 package_one() {
   local kind="$1" apk="" libs="" badging="" actual_version="" actual_code="" filename=""
   mapfile -t found < <(find "$apk_dir" -maxdepth 1 -type f -name '*.apk' -print | sort)
   [[ ${#found[@]} -eq 1 ]] || { echo "Expected exactly one debug APK for $kind; found ${#found[@]}" >&2; exit 1; }
   apk="${found[0]}"
-  "$APKSIGNER" verify "$apk" >/dev/null
+  local cert_output actual_signer
+  cert_output="$("$APKSIGNER" verify --print-certs "$apk")"
+  mapfile -t certs < <(sed -n 's/^Signer #[0-9][0-9]* certificate SHA-256 digest: //p' <<<"$cert_output")
+  [[ ${#certs[@]} -eq 1 && "${certs[0]}" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Invalid debug signing identity for $kind" >&2; exit 1; }
+  actual_signer="${certs[0]}"
+  if [[ -z "$signer" ]]; then signer="$actual_signer"; fi
+  [[ "$actual_signer" == "$signer" ]] || { echo "Mismatched signing certificates across APK variants" >&2; exit 1; }
   zipinfo -t "$apk" >/dev/null
   badging="$("$AAPT2" dump badging "$apk")"
   grep -q "package: name='com.vaydelux.bousygram'" <<<"$badging" || { echo "Unexpected package in $apk" >&2; exit 1; }
+  grep -Fxq application-debuggable <<<"$badging" || { echo "Expected debuggable APK" >&2; exit 1; }
+  mapfile -t launchers < <(sed -n "s/^launchable-activity: name='\([^\x27]*\)'.*/\1/p" <<<"$badging")
+  [[ ${#launchers[@]} -eq 1 && "${launchers[0]}" == com.vaydelux.bousygram.app.MainActivity ]] || { echo "Unexpected phone launcher inventory for $kind" >&2; exit 1; }
+  # aapt2 badging does not consistently enumerate Leanback activities.
+  # Inspect the compiled manifest in a separate verifier for both categories.
+  "$ANDROID_BUILD_TOOLS_DIR/aapt" dump xmltree "$apk" AndroidManifest.xml | python3 tools/ci/verify_debug_launcher_manifest.py
   actual_version="$(sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" <<<"$badging" | head -1)"
   actual_code="$(sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p" <<<"$badging" | head -1)"
   [[ "$actual_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$actual_code" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid package version in $apk" >&2; exit 1; }
@@ -70,4 +83,4 @@ package_one armeabi-v7a
 printf 'version=%s\nversionCode=%s\nsourceSha=%s\nciRunId=%s\nsigning=Android generated debug key (not production signing)\n' \
   "$version" "$code" "${RELEASE_SHA:?}" "$CI_VERIFICATION_RUN_ID" > "$OUT_DIR/BUILD_INFO.txt"
 echo "version=$version" >> "${GITHUB_OUTPUT:?}"
-echo "Produced ${#apk_names[@]} verified debug APKs for version $version"
+echo "Produced ${#apk_names[@]} verified debug APKs for version $version (matching signing certificate $signer)"

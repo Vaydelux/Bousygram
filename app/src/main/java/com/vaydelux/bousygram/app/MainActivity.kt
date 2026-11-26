@@ -179,8 +179,13 @@ private fun BousygramAppRoot(
     // Observe incoming Cast requests before selecting a mode. A genuine Cast
     // target must initialize Telegram, even if Extras or the chooser is visible.
     val pendingCast by CastReceiverManager.pendingCastRequest.collectAsState()
-    LaunchedEffect(pendingCast) {
-        val requested = TelegramRuntimePolicy.routeForPendingCast(mode, pendingCast != null)
+    val handoffInbox = com.vaydelux.bousygram.core.cast.TelegramHandoffNavigation.inbox
+    val pendingHandoff by handoffInbox.state.collectAsState()
+    LaunchedEffect(pendingCast, pendingHandoff) {
+        val handoff = pendingHandoff
+        val available = handoff != null && handoffInbox.isAvailable(handoff)
+        if (handoff != null && !available) handoffInbox.discard(handoff)
+        val requested = TelegramRuntimePolicy.routeForPendingCast(mode, pendingCast != null || available)
         if (requested != mode) modeName = requested.name
     }
 
@@ -210,6 +215,17 @@ private fun BousygramAppRoot(
         BousygramModeSelection(
             onTelegram = { modeName = BousygramMode.TELEGRAM.name },
             onExtras = { modeName = BousygramMode.EXTRAS_MAINTENANCE.name },
+            onOpenCastLab = if (BuildConfig.DEBUG) ({
+                // The debug-only receiver is private to this application. Never
+                // register a second launcher tile or accept external lab intents.
+                val lab = Intent().setClassName(context.packageName,
+                    "com.vaydelux.bousygram.presentation.debug.RollingLanLabActivity")
+                try {
+                    context.startActivity(lab)
+                } catch (_: android.content.ActivityNotFoundException) {
+                    Toast.makeText(context, "Casting preview is unavailable in this build.", Toast.LENGTH_SHORT).show()
+                }
+            }) else null,
             themePreset = themePreset,
             designStyle = designStyle,
             backdropPattern = backdropPattern,
@@ -227,6 +243,7 @@ private fun BousygramAppRoot(
         // Physical remote Back must return to mode selection, not finish the Activity.
         BackHandler {
             CastReceiverManager.clearPendingRequest()
+            handoffInbox.clear()
             modeName = BousygramMode.SELECT.name
         }
         Box(
@@ -251,6 +268,7 @@ private fun BousygramAppRoot(
                 }
                 OutlinedButton(onClick = {
                     CastReceiverManager.clearPendingRequest()
+                    handoffInbox.clear()
                     modeName = BousygramMode.SELECT.name
                 }) { Text("Back to modes") }
             }
@@ -279,7 +297,38 @@ private fun BousygramAppRoot(
             resumeSignal = 0
             if (authState.step != AuthStep.Loading) {
                 CastReceiverManager.clearPendingRequest()
+                handoffInbox.clear()
             }
+        }
+    }
+
+    LaunchedEffect(pendingHandoff, authState.step) {
+        val entry = pendingHandoff ?: return@LaunchedEffect
+        if (authState.step == AuthStep.Loading) return@LaunchedEffect
+        if (authState.step != AuthStep.Authorized || !handoffInbox.isAvailable(entry)) {
+            handoffInbox.discard(entry)
+            return@LaunchedEffect
+        }
+        val request = entry.media.request
+        val localId = try {
+            withContext(Dispatchers.IO) {
+                com.vaydelux.bousygram.core.cast.TelegramHandoffAuthorization.resolve(entry.owner, request)
+            }
+        } catch (cancel: CancellationException) { throw cancel }
+          catch (_: Exception) { null }
+        if (localId == null || localId != entry.media.localFileId) {
+            handoffInbox.discard(entry)
+            return@LaunchedEffect
+        }
+        if (handoffInbox.take(entry) == null) return@LaunchedEffect
+        AccountSession.runIfCurrent(entry.owner) {
+            val payload = com.vaydelux.bousygram.core.cast.CastMediaPayload(
+                request.chatId, request.messageId, localId, "Telegram video")
+            val playback = CastReceiverManager.toPlaybackRequest(payload, null).copy(
+                initialHandoffPositionMs = request.positionMs, initialHandoffPlay = request.playRequested,
+                handoffOwner = entry.owner)
+            appScreen = AppScreen.Player(playback, returnTo = AppScreen.Home)
+            modeName = BousygramMode.TELEGRAM.name
         }
     }
 
@@ -317,6 +366,7 @@ private fun BousygramAppRoot(
     // Auth is a child of Telegram Media mode. Back from a login/connection
     // screen must return to mode choice, not unexpectedly finish the app.
     BackHandler(enabled = authState.step != AuthStep.Authorized) {
+        handoffInbox.clear()
         modeName = BousygramMode.SELECT.name
     }
 

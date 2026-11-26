@@ -89,6 +89,7 @@ class BousygramApp : Application(), DefaultLifecycleObserver, ImageLoaderFactory
             fun close(action: () -> Unit) {
                 runCatching(action).onFailure { failure = failure ?: it }
             }
+            close { com.vaydelux.bousygram.core.cast.TelegramHandoffNavigation.inbox.clear() }
             close { AccountMediaResources.invalidateAccountResources() }
             // Remove account-specific thumbnails from Coil's decoded memory
             // cache; do not instantiate a loader solely for logout.

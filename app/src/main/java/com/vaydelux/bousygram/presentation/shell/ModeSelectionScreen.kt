@@ -73,7 +73,8 @@ fun BousygramModeSelection(
     backdropPattern: BousygramBackdropPattern = BousygramBackdropPattern.AMBIENT_HALO,
     onThemePresetChange: (BousygramThemePreset) -> Unit = {},
     onDesignStyleChange: (BousygramDesignStyle) -> Unit = {},
-    onBackdropPatternChange: (BousygramBackdropPattern) -> Unit = {}
+    onBackdropPatternChange: (BousygramBackdropPattern) -> Unit = {},
+    onOpenCastLab: (() -> Unit)? = null
 ) {
     val metrics = rememberAdaptiveMetrics()
     var appearanceOpen by remember { mutableStateOf(false) }
@@ -205,6 +206,13 @@ fun BousygramModeSelection(
                         icon = BousygramIcons.Anime
                     )
                     }
+                }
+                if (onOpenCastLab != null) {
+                    BousygramButton(
+                        text = "Cast devices (Preview)",
+                        onClick = onOpenCastLab,
+                        modifier = Modifier.widthIn(min = 232.dp).testTag("startup-cast-lab")
+                    )
                 }
                 if (!compact) {
                     Text(

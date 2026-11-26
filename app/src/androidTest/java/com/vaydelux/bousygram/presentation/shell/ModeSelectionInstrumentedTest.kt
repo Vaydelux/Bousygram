@@ -83,6 +83,19 @@ class ModeSelectionInstrumentedTest {
         composeRule.onNodeWithTag("startup-appearance-studio").assertExists()
     }
 
+    @Test fun castLabIsOptionalAndDoesNotReplaceEitherMediaRoute() {
+        var opens = 0
+        composeRule.setContent {
+            BousygramTheme {
+                BousygramModeSelection(onTelegram = {}, onExtras = {}, onOpenCastLab = { opens++ })
+            }
+        }
+        composeRule.onNodeWithTag("mode-telegram").assertHasClickAction()
+        composeRule.onNodeWithTag("mode-extras").assertHasClickAction()
+        composeRule.onNodeWithTag("startup-cast-lab").performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(1, opens) }
+    }
+
     @Test fun telegramChoiceIsSingleExplicitAction() {
         var telegramLaunches = 0
         composeRule.setContent {
@@ -90,6 +103,7 @@ class ModeSelectionInstrumentedTest {
                 BousygramModeSelection(onTelegram = { telegramLaunches++ }, onExtras = {})
             }
         }
+        composeRule.onNodeWithTag("startup-cast-lab").assertDoesNotExist()
         composeRule.onNodeWithTag("mode-telegram").performClick()
         composeRule.runOnIdle { assertEquals(1, telegramLaunches) }
     }

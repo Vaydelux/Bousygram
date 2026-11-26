@@ -335,8 +335,10 @@ object TelegramProxyManager {
         fileId: Int,
         range: HttpByteRange,
         channel: ByteWriteChannel,
-        firstChunk: ByteArray? = null
+        firstChunk: ByteArray? = null,
+        mayContinue: () -> Boolean = { true }
     ) = coroutineScope {
+        if (!mayContinue()) throw IOException("Media authorization expired")
         channel.flush()
         var expectedOffset = range.start
         val lease = TelegramChunkScheduler.acquireLease(
@@ -352,12 +354,14 @@ object TelegramProxyManager {
                 if (firstChunk.isEmpty() || firstChunk.size > range.end - range.start + 1L) {
                     throw IOException("Invalid initial media range")
                 }
+                if (!mayContinue()) throw IOException("Media authorization expired")
                 channel.writeFully(firstChunk, 0, firstChunk.size)
                 channel.flush()
                 expectedOffset += firstChunk.size
             }
             while (expectedOffset <= range.end) {
                 coroutineContext.ensureActive()
+                if (!mayContinue()) throw IOException("Media authorization expired")
                 val limit = min(CHUNK_SIZE_BYTES.toLong(), range.end - expectedOffset + 1L).toInt()
                 if (limit <= 0) break
                 val chunk = fetchReadyChunkForStream(
@@ -367,6 +371,7 @@ object TelegramProxyManager {
                     purpose = TelegramChunkPurpose.Streaming
                 )
                 if (chunk == null || chunk.isEmpty()) throw IOException("The media backend could not complete the requested range")
+                if (!mayContinue()) throw IOException("Media authorization expired")
                 channel.writeFully(chunk, 0, chunk.size)
                 channel.flush()
                 expectedOffset += chunk.size

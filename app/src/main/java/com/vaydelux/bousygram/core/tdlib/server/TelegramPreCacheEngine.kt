@@ -2,7 +2,8 @@ package com.vaydelux.bousygram.core.tdlib.server
 
 import android.content.Context
 import android.util.Log
-import com.vaydelux.bousygram.core.tdlib.client.TdLibClient
+import com.vaydelux.bousygram.core.account.AccountSession
+import kotlinx.coroutines.CancellationException
 import com.vaydelux.bousygram.core.cache.CacheManager
 import com.vaydelux.bousygram.core.media.StreamOnlyMode
 import com.vaydelux.bousygram.core.cache.StoragePressureMonitor
@@ -14,7 +15,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.Client
-import org.drinkless.tdlib.TdApi
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
@@ -215,24 +215,23 @@ object TelegramPreCacheEngine {
     internal fun isCachingForTests(fileId: Int): Boolean = isCaching(fileId)
 
     private fun cancelTelegramDownload(fileId: Int) {
-        try {
-            TdLibClient.client.send(
-                TdApi.CancelDownloadFile(fileId, false)
-            ) { response ->
-                if (response is TdApi.Error) {
-                    TelegramLogWrapper.logError("CancelDownloadFile", response)
-                    Log.w(TAG, "CancelDownloadFile failed fileId=$fileId code=${response.code} message=${response.message}")
-                } else {
-                    Log.d(TAG, "Stopped active Telegram download fileId=$fileId")
-                    // The player has released its file; a protected worker can
-                    // now remove eligible watched/old bytes without touching
-                    // any active playback leases or pinned offline downloads.
-                    CacheManager.triggerCacheCleanupIfNeeded()
-                }
+        val owner = AccountSession.current()
+        if (owner == null) {
+            // Account invalidation is handled by the scheduler's old-client
+            // teardown path. Never dispatch an unowned ordinary cancellation.
+            return
+        }
+        scope.launch {
+            if (!AccountSession.isCurrent(owner)) return@launch
+            try {
+                if (TdLibTelegramFileGateway.cancelForOwner(owner, fileId, false)) {
+                    if (AccountSession.isCurrent(owner)) CacheManager.triggerCacheCleanupIfNeeded()
+                } else Log.w(TAG, "CancelDownloadFile failed fileId=$fileId")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not issue CancelDownloadFile for fileId=$fileId", error)
             }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Could not issue CancelDownloadFile for fileId=$fileId: ${t.message}")
         }
     }
-
 }

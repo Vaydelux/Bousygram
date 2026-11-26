@@ -9,6 +9,8 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.vaydelux.bousygram.BuildConfig
+import com.vaydelux.bousygram.core.account.AccountSession
+import com.vaydelux.bousygram.core.account.AccountSnapshot
 import com.vaydelux.bousygram.core.tdlib.server.HttpRangeParser
 import com.vaydelux.bousygram.core.tdlib.server.TelegramChunkScheduler
 import com.vaydelux.bousygram.core.tdlib.server.TelegramProxyManager
@@ -27,6 +29,10 @@ import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.routing.get
 import io.ktor.server.routing.head
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.coroutineScope
@@ -41,6 +47,7 @@ object CastLanStreamingServer {
     @Volatile private var server: NettyApplicationEngine? = null
     @Volatile private var capability: CastAccessRegistry.Capability? = null
     @Volatile private var publicUrl: String? = null
+    private var remuxArtifact: CastRemuxArtifact? = null
     @Volatile private var serverContextRef: WeakReference<Context>? = null
 
     val isRunning: Boolean get() = server != null
@@ -56,8 +63,23 @@ object CastLanStreamingServer {
     }
 
     @Synchronized
-    fun start(context: Context, fileId: Int, size: Long, mimeType: String): String? {
+    fun start(context: Context, fileId: Int, size: Long, mimeType: String,
+              expectedOwner: AccountSnapshot? = AccountSession.current()): String? =
+        startInternal(context, fileId, size, mimeType, null, expectedOwner)
+
+    /** Debug-only verified clip delivery. */
+    @Synchronized
+    internal fun startRemuxed(context: Context, artifact: CastRemuxArtifact): String? {
+        if (!artifact.isAvailable()) return null
+        // Caller retains ownership on failure; server owns the output on success.
+        return startInternal(context, artifact.fileId, artifact.size, "video/mp4", artifact, artifact.owner)
+    }
+
+    private fun startInternal(context: Context, fileId: Int, size: Long, mimeType: String,
+                              artifact: CastRemuxArtifact?, expectedOwner: AccountSnapshot?): String? {
+        if (expectedOwner == null || !AccountSession.isCurrent(expectedOwner)) return null
         stop()
+        if (remuxArtifact != null || (artifact != null && !artifact.isAvailable())) return null
         // The current receiver workflow uses HTTP. A bearer capability is authorization,
         // not encryption, so private media is disabled in production until trusted TLS works
         // with supported physical receivers.
@@ -65,7 +87,9 @@ object CastLanStreamingServer {
         if (fileId <= 0 || size <= 0L || !hasLanPermission(context)) return null
         val address = activeLanAddress(context) ?: return null
         val hostAddress = address.hostAddress ?: return null
-        val grant = runCatching { CastAccessRegistry.issue(fileId) }.getOrElse {
+        val grant = runCatching {
+            CastAccessRegistry.issue(fileId, expectedOwner)
+        }.getOrElse {
             Log.w(TAG, "Could not create Cast media capability", it)
             return null
         }
@@ -80,8 +104,8 @@ object CastLanStreamingServer {
         val engine = try {
             embeddedServer(Netty, host = hostAddress, port = 0) {
                 routing {
-                    get("/cast/media/{resourceId}") { serveMedia(call, grant, size, mimeType) }
-                    head("/cast/media/{resourceId}") { serveHead(call, grant, size, mimeType) }
+                    get("/cast/media/{resourceId}") { serveMedia(call, grant, size, mimeType, artifact) }
+                    head("/cast/media/{resourceId}") { serveHead(call, grant, size, mimeType, artifact) }
                 }
             }.start(wait = false)
         } catch (error: Exception) {
@@ -101,10 +125,12 @@ object CastLanStreamingServer {
                 resolved
             }
             val resolvedPort = port?.takeIf { it > 0 } ?: error("Cast server did not bind")
+            check(AccountSession.isCurrent(expectedOwner) && CastAccessRegistry.isActive(grant)) { "Cast account changed" }
             server = engine
             capability = grant
             serverContextRef = WeakReference(context.applicationContext)
-            TelegramChunkScheduler.noteFileSize(fileId, size)
+            if (artifact == null) TelegramChunkScheduler.noteFileSize(fileId, size)
+            remuxArtifact = artifact
             publicUrl = "http://$hostAddress:$resolvedPort/cast/media/${grant.resourceId}?token=${grant.token}"
             Log.i(TAG, "Cast LAN stream started on selected interface for resource ${grant.resourceId}")
             publicUrl
@@ -118,14 +144,25 @@ object CastLanStreamingServer {
     }
 
     @Synchronized
+    internal fun stopIfCurrentUrl(url: String) {
+        if (publicUrl == url) stop()
+    }
+
+    @Synchronized
     fun stop() {
-        server?.let { runCatching { it.stop(500, 1_500) } }
-        server = null
-        serverContextRef = null
+        // Revoke before draining connections so in-flight writers fail closed.
         capability?.let { CastAccessRegistry.revoke(it.resourceId) }
         capability = null
         CastAccessRegistry.revokeAll()
         publicUrl = null
+        serverContextRef = null
+        server?.let { runCatching { it.stop(0, 1_000) } }
+        server = null
+        remuxArtifact?.let { artifact ->
+            // Keep a failed cleanup reference so subsequent starts fail closed.
+            if (runCatching { artifact.close() }.isSuccess) remuxArtifact = null
+            else Log.w(TAG, "Cast remux artifact cleanup failed")
+        }
         runCatching { CastStreamingService.stop(com.vaydelux.bousygram.app.BousygramApp.instance) }
     }
 
@@ -133,9 +170,14 @@ object CastLanStreamingServer {
         call: io.ktor.server.application.ApplicationCall,
         grant: CastAccessRegistry.Capability,
         size: Long,
-        mimeType: String
+        mimeType: String,
+        artifact: CastRemuxArtifact?
     ) {
-        val fileId = authorize(call, grant) ?: return
+        authorize(call, grant) ?: return
+        if (artifact != null && !artifact.isAvailable()) {
+            call.respond(HttpStatusCode.Gone, "Remux output unavailable")
+            return
+        }
         respondHeaders(call, size, mimeType)
     }
 
@@ -143,35 +185,54 @@ object CastLanStreamingServer {
         call: io.ktor.server.application.ApplicationCall,
         grant: CastAccessRegistry.Capability,
         size: Long,
-        mimeType: String
+        mimeType: String,
+        artifact: CastRemuxArtifact?
     ) {
         val fileId = authorize(call, grant) ?: return
+        if (artifact != null && !artifact.isAvailable()) {
+            call.respond(HttpStatusCode.Gone, "Remux output unavailable")
+            return
+        }
         val range = parseRange(call, size) ?: return
-        val isPartial = range.isPartial
-        val length = range.endInclusive - range.start + 1L
-        call.response.header(HttpHeaders.AcceptRanges, "bytes")
-        call.response.header(HttpHeaders.ContentLength, length.toString())
-        call.response.header(HttpHeaders.ContentType, safeContentType(mimeType).toString())
-        call.response.header("Cache-Control", "private, no-store")
-        call.response.header("X-Content-Type-Options", "nosniff")
-        if (isPartial) call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
-        val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
+        // A busy response must not advertise the media body's length.
         if (!clientPermit.tryAcquire()) {
+            call.response.header(HttpHeaders.RetryAfter, "1")
+            call.response.header("Cache-Control", "no-store")
             call.respond(HttpStatusCode.ServiceUnavailable, "Cast stream is busy")
             return
         }
         try {
+            val isPartial = range.isPartial
+            val length = range.endInclusive - range.start + 1L
+            call.response.header(HttpHeaders.AcceptRanges, "bytes")
+            call.response.header(HttpHeaders.ContentLength, length.toString())
+            call.response.header(HttpHeaders.ContentType, safeContentType(mimeType).toString())
+            call.response.header("Cache-Control", "private, no-store")
+            call.response.header("X-Content-Type-Options", "nosniff")
+            if (isPartial) call.response.header(HttpHeaders.ContentRange, "bytes ${range.start}-${range.endInclusive}/$size")
+            val status = if (isPartial) HttpStatusCode.PartialContent else HttpStatusCode.OK
             call.respondBytesWriter(contentType = safeContentType(mimeType), status = status) {
                 coroutineScope {
-                    TelegramProxyManager.streamTelegramFileSequentially(
+                    val permitted = { CastAccessRegistry.isActive(grant) &&
+                        serverContextRef?.get()?.let(::hasLanPermission) == true }
+                    if (artifact != null) {
+                        withContext(Dispatchers.IO) {
+                            artifact.stream(range.start, range.endInclusive, permitted) { bytes, count ->
+                                coroutineContext.ensureActive()
+                                this@respondBytesWriter.writeFully(bytes, 0, count)
+                                this@respondBytesWriter.flush()
+                            }
+                        }
+                    } else TelegramProxyManager.streamTelegramFileSequentially(
                         fileId,
                         HttpByteRange(range.start, range.endInclusive),
-                        this@respondBytesWriter
+                        this@respondBytesWriter,
+                        mayContinue = permitted
                     )
                 }
             }
         } catch (error: Exception) {
-            TelegramChunkScheduler.onClientDisconnected(fileId, range.start)
+            if (artifact == null) TelegramChunkScheduler.onClientDisconnected(fileId, range.start)
             Log.d(TAG, "Cast media client disconnected for resource ${grant.resourceId}")
             throw error
         } finally {
