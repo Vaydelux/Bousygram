@@ -1,0 +1,237 @@
+package com.vaydelux.bousygram.core.cast
+
+import java.io.File
+import java.io.FileInputStream
+import java.io.IOException
+import java.io.InputStream
+import java.util.Locale
+
+/** Debug qualification only. The caller supplies verified media and owns a
+ * private empty directory. One outstanding playlist response; hold its lease
+ * until the response is flushed or abandoned. No network route is registered. */
+internal class RollingHlsLiveFileStore(
+    private val directory: File,
+    private val targetUs: Long,
+    private val capacity: Int,
+    private val byteCap: Long,
+    private val nowUs: () -> Long,
+    private val permitted: () -> Boolean,
+    private val admit: (Long) -> Boolean,
+    private val delete: (File) -> Boolean = { it.delete() }
+) : AutoCloseable {
+    private val planner = RollingHlsLiveRetention(targetUs, capacity, byteCap, nowUs)
+    private data class Entry(val file: File, val size: Long)
+    private val files = linkedMapOf<Long, Entry>()
+    private val readers = mutableSetOf<Long>()
+    private val orphans = mutableSetOf<File>()
+    private var playlist: Playlist? = null
+    private var initialization: ByteArray? = null
+    @Volatile private var revoked = false
+    private var lastClock = -1L
+    init {
+        require(targetUs % 1_000_000L == 0L)
+        require(directory.isDirectory && directory.listFiles()?.isEmpty() == true)
+    }
+
+    private fun active(): Boolean {
+        if (revoked) return false
+        val now = nowUs()
+        if (!permitted() || now < 0 || now < lastClock || now > Long.MAX_VALUE - 500_000_000L) {
+            revoked = true
+            return false
+        }
+        lastClock = now
+        return !revoked
+    }
+
+    @Synchronized fun available(): Boolean = active()
+
+    /** Serialized publication and optional withdrawal. Old playlist responses
+     * must be finished before any advancement. A new playlist sees both changes
+     * together. Admission includes all withdrawn files until actual deletion. */
+    @Synchronized fun publishPaced(segment: RollingHlsLiveRetention.Segment, input: InputStream): Boolean {
+        if (!active() || playlist != null || !planner.canAdvance() || !reclaim()) return false
+        if (!publish(segment, input)) return false
+        planner.withdrawOldest()
+        if (!active()) throw IOException("Live publication revoked")
+        return true
+    }
+
+    @Synchronized fun markComplete(lastSequence: Long): Boolean =
+        active() && planner.finish(lastSequence)
+
+    @Synchronized fun publish(segment: RollingHlsLiveRetention.Segment, input: InputStream): Boolean {
+        if (!active() || planner.isEnded() || segment.bytes !in 1L..8L * 1024 * 1024 ||
+            files.size >= capacity || segment.bytes > byteCap - planner.retainedBytes() || !admit(segment.bytes)) return false
+        val file = File.createTempFile("live-", ".part", directory)
+        var stored = false
+        try {
+            if (!copyExact(file, input, segment.bytes)) return false
+            if (!active() || file.length() != segment.bytes || !admit(0) || !planner.append(segment)) return false
+            files[segment.sequence] = Entry(file, segment.bytes)
+            stored = true
+            return true
+        } finally {
+            if (!stored && !remove(file)) {
+                orphans.add(file)
+                revoked = true
+                throw IOException("Unpublished scratch cleanup failed")
+            }
+        }
+    }
+
+    private fun copyExact(file: File, input: InputStream, size: Long): Boolean {
+        val buffer = ByteArray(64 * 1024)
+        try {
+            val output = file.outputStream()
+            try {
+                var left = size
+                while (left > 0) {
+                    if (!active()) return false
+                    val n = input.read(buffer, 0, minOf(left, buffer.size.toLong()).toInt())
+                    if (n <= 0 || n > left || !active()) return false
+                    output.write(buffer, 0, n)
+                    left -= n
+                }
+                return input.read() == -1
+            } finally { output.close() }
+        } finally { buffer.fill(0) }
+    }
+
+    /** Caller supplies independently verified init; RAM only, separately bounded. */
+    @Synchronized fun installInitialization(bytes: ByteArray): Boolean {
+        if (!active() || initialization != null || bytes.size !in 16..512 * 1024) return false
+        initialization = bytes.copyOf()
+        return true
+    }
+
+    @Synchronized fun initialization(): ByteArray? =
+        if (active()) initialization?.copyOf() else null
+
+    /** A previous response may still carry an older playlist; do not start
+     * the removal grace clock until that response has closed. */
+    @Synchronized fun openPlaylist(): Playlist? {
+        if (!active() || playlist != null || initialization == null) return null
+        val visible = planner.advertise() ?: return null
+        val body = buildString {
+            append("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:").append(targetUs / 1_000_000).append('\n')
+            append("#EXT-X-MEDIA-SEQUENCE:").append(visible.first().sequence).append('\n')
+            append("#EXT-X-MAP:URI=\"init.mp4\"\n")
+            for (segment in visible) {
+                append("#EXTINF:").append(String.format(Locale.ROOT, "%.6f", segment.durationUs / 1_000_000.0))
+                    .append(",\nsegment/").append(segment.sequence).append(".m4s\n")
+            }
+            if (planner.isEnded()) append("#EXT-X-ENDLIST\n")
+        }
+        if (!active()) return null
+        return Playlist(body).also { playlist = it }
+    }
+
+    inner class Playlist internal constructor(private val body: String) : AutoCloseable {
+        fun text(): String? = synchronized(this@RollingHlsLiveFileStore) {
+            body.takeIf { playlist === this && active() }
+        }
+        override fun close() = synchronized(this@RollingHlsLiveFileStore) {
+            if (playlist === this) playlist = null
+        }
+    }
+
+    @Synchronized fun withdrawOldest(): Boolean = active() && playlist == null && planner.withdrawOldest()
+
+    /** Retry a bounded range of an already advertised immutable segment.
+     * Only the exact retained resource can be reopened; expiry and lease
+     * pinning rules still apply. No arbitrary file path or HTTP range parser. */
+    @Synchronized fun open(sequence: Long, offset: Long = 0L, length: Long? = null): Lease? {
+        if (!active()) return null
+        val entry = files[sequence] ?: return null
+        if (offset !in 0L until entry.size) return null
+        val count = length ?: (entry.size - offset)
+        if (count !in 1L..(entry.size - offset) || !planner.acquire(sequence)) return null
+        var input: FileInputStream? = null
+        try {
+            if (!entry.file.isFile || entry.file.length() != entry.size) throw IOException("Live segment size changed")
+            input = FileInputStream(entry.file)
+            input.channel.position(offset)
+            if (!active()) throw IOException("Live segment revoked")
+            readers.add(sequence)
+            return Lease(sequence, input, count)
+        } catch (error: Exception) {
+            try { input?.close() } catch (cleanup: Exception) { error.addSuppressed(cleanup) }
+            planner.release(sequence)
+            revoked = true
+            throw error
+        }
+    }
+
+    inner class Lease internal constructor(val sequence: Long, private val input: FileInputStream,
+                                           val length: Long) : AutoCloseable {
+        private var closed = false
+        private var left = length
+        fun read(buffer: ByteArray): Int = read(buffer, 0, buffer.size)
+        fun read(buffer: ByteArray, offset: Int, count: Int): Int = synchronized(this@RollingHlsLiveFileStore) {
+            require(offset >= 0 && count in 1..32 * 1024 && offset <= buffer.size - count)
+            try {
+                if (closed || !active()) throw IOException("Live lease revoked")
+                if (left == 0L) return@synchronized -1
+                val n = input.read(buffer, offset, minOf(left, count.toLong()).toInt())
+                if (n <= 0 || !active()) throw IOException("Live segment truncated or revoked")
+                left -= n
+                n
+            } catch (error: Exception) {
+                buffer.fill(0, offset, offset + count)
+                revoked = true
+                throw error
+            }
+        }
+        override fun close() = synchronized(this@RollingHlsLiveFileStore) {
+            if (closed) return@synchronized
+            closed = true
+            try { input.close() } finally {
+                readers.remove(sequence)
+                planner.release(sequence)
+            }
+        }
+    }
+
+    private fun remove(file: File): Boolean = try {
+        if (file.exists()) delete(file)
+        !file.exists()
+    } catch (_: Exception) { false }
+
+    /** Failed deletion never frees the planner's slot or byte reservation. */
+    @Synchronized fun reclaim(): Boolean {
+        if (!active()) return false
+        var clean = true
+        for (sequence in planner.eligible()) {
+            val file = checkNotNull(files[sequence]).file
+            if (!remove(file)) { clean = false; continue }
+            if (!planner.confirmDeleted(sequence)) {
+                revoked = true
+                throw IOException("Live reclamation could not be reconciled")
+            }
+            files.remove(sequence)
+        }
+        return clean
+    }
+
+    @Synchronized fun retainedBytes(): Long = files.values.sumOf { it.size } + orphans.sumOf { it.length() }
+    @Synchronized fun retainedCount(): Int = files.size + orphans.size
+
+    /** Revoke before waiting for the IO monitor. Open leases pin their files;
+     * caller closes them and retries close. No media access after revocation. */
+    override fun close() {
+        revoked = true
+        synchronized(this) {
+            playlist = null
+            initialization?.fill(0)
+            initialization = null
+            val iterator = files.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.key !in readers && remove(entry.value.file)) iterator.remove()
+            }
+            orphans.removeAll { remove(it) }
+            if (files.isNotEmpty() || orphans.isNotEmpty()) throw IOException("Live scratch cleanup incomplete")
+        }
+    }
+}

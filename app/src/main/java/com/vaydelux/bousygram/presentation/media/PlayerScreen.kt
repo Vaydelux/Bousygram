@@ -36,6 +36,10 @@ import com.vaydelux.bousygram.core.media.PlaybackFileRecovery
 import com.vaydelux.bousygram.core.cast.CastLanStreamingServer
 import com.vaydelux.bousygram.core.cast.CastPlaybackStatus
 import com.vaydelux.bousygram.core.cast.CastSessionController
+import com.vaydelux.bousygram.core.cast.TelegramCastCompatibility
+import com.vaydelux.bousygram.core.cast.TelegramCastPreparation
+import com.vaydelux.bousygram.core.cast.TelegramCastTarget
+import com.vaydelux.bousygram.core.cast.TelegramCastSelection
 import com.vaydelux.bousygram.core.cast.CastRouteButtonFactory
 import com.vaydelux.bousygram.BuildConfig
 import com.vaydelux.bousygram.data.store.SessionHealthRecord
@@ -549,17 +553,38 @@ fun PlayerScreen(
     var castWasConnected by remember { mutableStateOf(false) }
     var castWasPlaying by remember { mutableStateOf(false) }
     var lastCastPositionMs by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(context) {
-        if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED) CastSessionController.initialize(context)
+    var castPreparing by remember { mutableStateOf(false) }
+    var castTarget by remember { mutableStateOf<TelegramCastTarget?>(null) }
+    val selectedCastTarget = queue.getOrNull(queueIndex)?.let {
+        TelegramCastTarget(it.chatId, it.messageId, it.fileId)
+    }
+    var castRouteFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(castRouteFailed) {
+        if (castRouteFailed) {
+            CastSessionController.reportRouteFailure()
+            castRouteFailed = false
+        }
+    }
+    LaunchedEffect(castState.errorMessage) {
+        castState.errorMessage?.let { message ->
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 
-    LaunchedEffect(castState.connected, queueIndex) {
+    DisposableEffect(context, isAndroidTv) {
+        if (BuildConfig.PRIVATE_MEDIA_CAST_ENABLED && !isAndroidTv) CastSessionController.initialize(context)
+        onDispose { CastSessionController.shutdown() }
+    }
+
+    LaunchedEffect(castState.connected, selectedCastTarget, hasLocalNetworkPermission) {
         if (!castState.connected) {
+            val sameFile = castTarget != null && selectedCastTarget == castTarget
+            castTarget = null
             if (castWasConnected) {
                 castWasConnected = false
+                if (!sameFile || playbackSession.isStopped()) return@LaunchedEffect
                 playerEngine.seekTo(lastCastPositionMs.coerceAtLeast(0L))
-                if (castWasPlaying) {
+                if (castWasPlaying && castState.errorMessage == null) {
                     explicitlyPaused = false
                     playerEngine.play()
                     isPlaying = true
@@ -573,38 +598,79 @@ fun PlayerScreen(
             }
             return@LaunchedEffect
         }
-        castWasConnected = true
         if (!hasLocalNetworkPermission) {
+            android.widget.Toast.makeText(context, "Cast requires local network permission.", android.widget.Toast.LENGTH_LONG).show()
             CastSessionController.endSession()
             return@LaunchedEffect
         }
+        // Pin the message before any suspension: a queue change during remux
+        // must disconnect, not silently prepare a different private video.
+        when (TelegramCastSelection.decide(castTarget, selectedCastTarget)) {
+            TelegramCastSelection.Decision.KEEP -> return@LaunchedEffect
+            TelegramCastSelection.Decision.DISCONNECT -> {
+                CastSessionController.endSession()
+                return@LaunchedEffect
+            }
+            TelegramCastSelection.Decision.PREPARE -> Unit
+        }
+        val target = selectedCastTarget ?: return@LaunchedEffect
         val current = queue.getOrNull(queueIndex) ?: return@LaunchedEffect
+        castTarget = target
         val name = current.fileName.orEmpty()
         val mime = VideoFormatSupport.httpContentType(current.mimeType, name, current.title)
-        if (!mime.equals("video/mp4", ignoreCase = true) &&
-            !name.endsWith(".mp4", ignoreCase = true) && !name.endsWith(".m4v", ignoreCase = true)
-        ) {
-            android.widget.Toast.makeText(context, "Cast currently supports MP4 media only", android.widget.Toast.LENGTH_LONG).show()
-            CastSessionController.endSession()
-            return@LaunchedEffect
-        }
-        val size = current.fileSizeBytes.takeIf { it > 0L } ?: withContext(Dispatchers.IO) {
-            com.vaydelux.bousygram.core.tdlib.server.LocalStreamingServer.resolveFileSizeWithin(current.fileId, 1_000L)
-        }
-        val mediaType = if (mime.equals("application/octet-stream", ignoreCase = true)) "video/mp4" else mime
-        val lanUrl = withContext(Dispatchers.IO) {
-            CastLanStreamingServer.start(context, current.fileId, size, mediaType)
-        }
-        if (lanUrl == null || !CastSessionController.loadMedia(
-                url = lanUrl,
-                title = current.title,
-                contentType = mediaType,
-                durationMs = duration,
-                positionMs = playerEngine.currentPositionMs
-            )
-        ) {
-            android.widget.Toast.makeText(context, "Could not start Cast streaming on this network", android.widget.Toast.LENGTH_LONG).show()
-            CastSessionController.endSession()
+        val remux = TelegramCastCompatibility.requiresRemux(mime, name)
+        var preparedUrl: String? = null
+        var loaded = false
+        castPreparing = true
+        try {
+            val result = withContext(Dispatchers.IO) {
+                TelegramCastPreparation.prepare(
+                    context.applicationContext, playbackAccountOwner, current.chatId,
+                    current.messageId, current.fileId, mime, name, current.fileSizeBytes
+                ).also { prepared ->
+                    if (prepared is TelegramCastPreparation.Result.Ready) preparedUrl = prepared.url
+                }
+            }
+            if (result is TelegramCastPreparation.Result.Unavailable) {
+                android.widget.Toast.makeText(context, result.reason, android.widget.Toast.LENGTH_LONG).show()
+                CastSessionController.endSession()
+                return@LaunchedEffect
+            }
+            val owner = playbackAccountOwner
+            val liveTarget = queue.getOrNull(playbackSession.currentIndex.value)?.let {
+                TelegramCastTarget(it.chatId, it.messageId, it.fileId)
+            }
+            if (!CastSessionController.state.value.connected) return@LaunchedEffect
+            if (owner == null || !com.vaydelux.bousygram.core.account.AccountSession.isCurrent(owner) ||
+                playbackSession.isStopped() || liveTarget != target || castTarget != target) {
+                CastSessionController.endSession()
+                return@LaunchedEffect
+            }
+            val lanUrl = (result as TelegramCastPreparation.Result.Ready).url
+            // Capture intent after preparation: the local decoder may have advanced.
+            val handoffPosition = playerEngine.currentPositionMs.coerceAtLeast(0L)
+            val handoffPlay = playerEngine.playWhenReady && !explicitlyPaused
+            lastCastPositionMs = handoffPosition
+            castWasPlaying = handoffPlay
+            if (!CastSessionController.loadMedia(
+                    url = lanUrl, title = current.title, contentType = "video/mp4",
+                    durationMs = if (remux) 0L else duration,
+                    positionMs = handoffPosition, playRequested = handoffPlay
+                )) {
+                android.widget.Toast.makeText(context, "TV could not start Cast playback.", android.widget.Toast.LENGTH_LONG).show()
+                CastSessionController.endSession()
+            } else {
+                castWasConnected = true
+                playerEngine.pause()
+                loaded = true
+            }
+        } finally {
+            castPreparing = false
+            if (!loaded) preparedUrl?.let { url ->
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                    CastLanStreamingServer.stopIfCurrentUrl(url)
+                }
+            }
         }
     }
 
@@ -622,8 +688,9 @@ fun PlayerScreen(
         isPlaying = false
     }
 
-    LaunchedEffect(castState.connected, castState.positionMs, castState.playbackStatus) {
-        if (!castState.connected) return@LaunchedEffect
+    LaunchedEffect(castState.connected, castState.loading, castState.positionMs, castState.playbackStatus, castWasConnected) {
+        if (!castState.connected || !castWasConnected || castState.loading ||
+            castState.playbackStatus !in setOf(CastPlaybackStatus.Playing, CastPlaybackStatus.Paused, CastPlaybackStatus.Buffering)) return@LaunchedEffect
         lastCastPositionMs = castState.positionMs
         if (castState.durationMs > 0L) duration = castState.durationMs
         position = castState.positionMs
@@ -2250,7 +2317,8 @@ fun PlayerScreen(
             override fun togglePlayPause() {
                 hudInteractionTick++
                 if (castState.connected) {
-                    if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
+                    if (castState.playbackStatus == CastPlaybackStatus.Playing ||
+                        castState.playbackStatus == CastPlaybackStatus.Buffering) CastSessionController.pause()
                     else CastSessionController.play()
                 } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
                     pauseLocalPlayback()
@@ -2676,7 +2744,8 @@ fun PlayerScreen(
                 onPlayPause = {
                     hudInteractionTick++
                     if (castState.connected) {
-                        if (castState.playbackStatus == CastPlaybackStatus.Playing) CastSessionController.pause()
+                        if (castState.playbackStatus == CastPlaybackStatus.Playing ||
+                        castState.playbackStatus == CastPlaybackStatus.Buffering) CastSessionController.pause()
                         else CastSessionController.play()
                     } else if (shouldPauseOnTransportToggle(playerEngine.isPlaying, playerEngine.playWhenReady)) {
                         pauseLocalPlayback()
@@ -2825,19 +2894,26 @@ fun PlayerScreen(
                     AndroidView(
                         modifier = Modifier.size(48.dp),
                         factory = { viewContext ->
-                            CastRouteButtonFactory.create(viewContext).also { button ->
-                                com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(
-                                    viewContext.applicationContext,
-                                    button
-                                )
-                                button.contentDescription = "Choose a Cast device"
+                            try {
+                                CastRouteButtonFactory.create(viewContext).also { button ->
+                                    com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(
+                                        viewContext.applicationContext,
+                                        button
+                                    )
+                                    button.contentDescription = "Choose a Cast device"
+                                }
+                            } catch (_: Exception) {
+                                castRouteFailed = true
+                                android.view.View(viewContext)
                             }
                         }
                     )
                 }
                 if (castState.connected && !castState.deviceName.isNullOrBlank()) {
                     Text(
-                        "Casting to ${castState.deviceName}",
+                        if (castPreparing) "Preparing Cast…" else if (castState.loading) "Connecting to ${castState.deviceName}…" else
+                            if (castState.playbackStatus == CastPlaybackStatus.Idle) "TV connected" else
+                                "Casting to ${castState.deviceName}",
                         color = Color.White,
                         style = MaterialTheme.typography.labelLarge
                     )

@@ -1,0 +1,113 @@
+name: Isolated Cast Native Build
+on:
+  pull_request:
+    paths:
+      - 'tools/cast-native/**'
+      - 'app/src/debug/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/testDebug/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/test/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/cache/TvStorageBudget.kt'
+      - 'tools/ci/qualify_rolling_hls_*.sh'
+      - 'tools/ci/qualify_rolling_hls_pipe.py'
+      - 'tools/ci/qualify_rolling_hls_long.py'
+      - 'tools/ci/fixtures/RollingHls*'
+      - 'tools/ci/provision_emulator_image.sh'
+      - '.github/workflows/cast-native-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: cast-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  long-host-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prove tested merge ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [[ "$actual" != "$GITHUB_SHA" ]]; then
+            echo "::error::Checkout differs from workflow source: $actual"
+            exit 1
+          fi
+          echo "Qualified checkout identity: $actual"
+
+      - name: Install synthetic media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg python3
+      - name: Six-minute bounded rolling output qualification
+        run: bash tools/ci/qualify_rolling_hls_long.sh
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prove tested merge ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [[ "$actual" != "$GITHUB_SHA" ]]; then
+            echo "::error::Checkout differs from workflow source: $actual"
+            exit 1
+          fi
+          echo "Qualified checkout identity: $actual"
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Install pinned NDK and qualification tools
+        run: |
+          sdkmanager 'ndk;28.2.13676358' 'build-tools;35.0.0'
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y make curl gnupg xz-utils shellcheck python3 ffmpeg
+          command -v kotlinc
+          kotlinc -version
+      - name: Qualify AAC clock arithmetic on host
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 tools/cast-native/aac_sample_clock_test.c -o "$RUNNER_TEMP/aac-clock-test"
+          "$RUNNER_TEMP/aac-clock-test"
+      - name: Generate synthetic native fixtures and DEX harness
+        run: |
+          bash tools/cast-native/prepare_runtime.sh "$RUNNER_TEMP/cast-runtime" "$ANDROID_HOME/build-tools/35.0.0/d8"
+      - name: Cross-compile isolated qualification bridge
+        run: |
+          shellcheck tools/cast-native/build_android.sh
+          bash -n tools/cast-native/build_android.sh
+          bash tools/cast-native/build_android.sh "$ANDROID_HOME/ndk/28.2.13676358" "$RUNNER_TEMP/cast-native"
+      - name: Report native evidence without publishing binaries
+        run: |
+          cat "$RUNNER_TEMP/cast-native/SOURCE.sha256"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cat "$RUNNER_TEMP/cast-native/$abi/ELF.txt"
+            cat "$RUNNER_TEMP/cast-native/$abi/EXPORTS.txt"
+            cat "$RUNNER_TEMP/cast-native/$abi/SHA256SUMS"
+          done
+      - name: Enable emulator acceleration
+        run: |
+          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; else exit 1; fi
+      - name: Provision test emulator image
+        run: bash tools/ci/provision_emulator_image.sh
+      - name: Execute isolated JNI bridge on Android x86-64
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 3072M
+          emulator-options: -partition-size 3072 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: bash tools/cast-native/run_runtime.sh "$RUNNER_TEMP/cast-native/x86_64/libbousygram_cast_remux.so" "$RUNNER_TEMP/cast-runtime"
