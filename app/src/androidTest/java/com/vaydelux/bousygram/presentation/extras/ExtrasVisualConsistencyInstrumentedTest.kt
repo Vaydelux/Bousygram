@@ -56,6 +56,26 @@ import org.junit.runner.RunWith
 class ExtrasVisualConsistencyInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun theaterToolsDialogScrollsAndClosesWithoutReplacingStage() {
+        val opened = mutableStateOf(true)
+        compose.setContent {
+            BousygramTheme(preset = BousygramThemePreset.MIDNIGHT_GLASS) {
+                Box(Modifier.fillMaxSize().testTag("qa-theater-stage"))
+                if (opened.value) {
+                    ExtrasPlaybackToolsDialog(onDismiss = { opened.value = false }) {
+                        repeat(20) { Text("Diagnostic $it", modifier = Modifier.height(48.dp)) }
+                        Text("Last diagnostic", modifier = Modifier.testTag("qa-last-diagnostic"))
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("extras-playback-tools-dialog").assertExists()
+        compose.onNodeWithTag("qa-last-diagnostic").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("extras-playback-tools-close").performClick()
+        compose.onNodeWithTag("extras-playback-tools-dialog").assertDoesNotExist()
+        compose.onNodeWithTag("qa-theater-stage").assertExists()
+    }
+
     @Test fun webRecoveryActionsRemainReachableInShortWindow() {
         var retryCount = 0
         var browserCount = 0

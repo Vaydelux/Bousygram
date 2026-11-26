@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vaydelux.bousygram.presentation.components.BousygramCenteredStatus
+import com.vaydelux.bousygram.presentation.components.BousygramGlassLevel
+import com.vaydelux.bousygram.presentation.components.liquidGlassChrome
 import com.vaydelux.bousygram.presentation.components.BousygramIcon
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.components.BousygramInlineStatus
@@ -148,7 +150,10 @@ internal fun ExtrasPersonalLibraryPanel(
         }
         LazyRow(
             modifier = Modifier.fillMaxWidth().focusGroup()
-                .testTag("extras-library-sections"),
+                .testTag("extras-library-sections")
+                .then(if (LocalBousygramStyleSpec.current.isLiquidGlass) Modifier.liquidGlassChrome(
+                    shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner),
+                    level = BousygramGlassLevel.FLOATING_CHROME).padding(4.dp) else Modifier),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

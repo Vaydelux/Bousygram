@@ -585,7 +585,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             val styleSpec = LocalBousygramStyleSpec.current
-            val barShape = RoundedCornerShape(22.dp)
+            val barShape = RoundedCornerShape(styleSpec.panelCorner)
             Column(
                 Modifier.fillMaxWidth().statusBarsPadding().padding(
                     horizontal = layout.horizontalGutterDp.dp,
@@ -660,7 +660,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         Text(
                             if (detailItem != null) "Title details"
                             else if (showPersonalLibrary) "My Extras"
-                            else "Explore Extras",
+                            else "Extras",
                             style = if (metrics.isTv) MaterialTheme.typography.titleLarge
                                 else MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -684,12 +684,12 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                     }
                     // The landscape toolbar already owns the tab row; retain its available width.
                     val showExtrasDynamicIsland = styleSpec.isLiquidGlass &&
-                        !landscapeToolbar && metrics.effectiveWidthDp >= 720.dp
+                        !landscapeToolbar && metrics.effectiveWidthDp >= 960.dp
                     if (showExtrasDynamicIsland) {
                         val activeDetailItem = detailItem
                         BousygramDynamicIsland(
-                            modifier = if (metrics.effectiveWidthDp < 460.dp) Modifier.widthIn(max = 124.dp) else Modifier,
-                            compact = metrics.effectiveWidthDp < 900.dp,
+                            modifier = Modifier.widthIn(max = if (metrics.effectiveWidthDp < 1100.dp) 150.dp else 236.dp),
+                            compact = metrics.effectiveWidthDp < 1100.dp,
                             state = DynamicIslandActivityState(
                                 title = activeDetailItem?.title ?: if (showPersonalLibrary) "My Extras" else type.label,
                                 badge = if (metrics.effectiveWidthDp < 520.dp) null
@@ -699,7 +699,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                                 tone = if (state.error != null) DynamicIslandTone.WARNING else DynamicIslandTone.ACCENT,
                                 isBusy = state.loading || detailLoading,
                                 liveHeadline = activeDetailItem?.title ?: "Extras · ${type.label}",
-                                liveDetail = "Metadata via ${type.provider}. Switch views or tune Liquid Glass.",
+                                liveDetail = "Browse ${type.label} · Metadata via ${type.provider}.",
                                 statusTag = "Extras Catalog",
                                 actions = buildList {
                                     add(
@@ -955,7 +955,7 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         }
                     )
                 }
-                if (landscapeToolbar) {
+                if (landscapeToolbar || metrics.effectiveWidthDp >= 760.dp) {
                     Row(
                         modifier = Modifier.fillMaxWidth().testTag("extras-compact-search-toolbar"),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1357,7 +1357,10 @@ internal fun ExtrasCatalogTabs(
     val iconOnlyCompact = !metrics.isTv &&
         metrics.fontScale >= 1.35f && metrics.effectiveWidthDp < 440.dp
     Row(
-        modifier = modifier.fillMaxWidth().focusGroup().testTag("extras-catalog-tabs"),
+        modifier = modifier.fillMaxWidth().focusGroup().testTag("extras-catalog-tabs")
+            .then(if (LocalBousygramStyleSpec.current.isLiquidGlass) Modifier.liquidGlassChrome(
+                shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner),
+                level = BousygramGlassLevel.FLOATING_CHROME).padding(4.dp) else Modifier),
         horizontalArrangement = Arrangement.spacedBy(BousygramUiTokens.compactSpacing)
     ) {
         ExtrasType.entries.forEach { tab ->
@@ -2304,7 +2307,11 @@ internal fun ExtrasDetailSummary(
         mutableStateOf(false)
     }
     Column(
-        modifier = Modifier.widthIn(max = 760.dp),
+        modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth()
+            .then(if (LocalBousygramStyleSpec.current.isLiquidGlass) Modifier.liquidGlassChrome(
+                shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner),
+                level = BousygramGlassLevel.PANEL).padding(if (spec.compactChrome) 12.dp else 16.dp)
+                else Modifier),
         verticalArrangement = Arrangement.spacedBy(if (spec.compactChrome) 7.dp else 10.dp)
     ) {
         Text(

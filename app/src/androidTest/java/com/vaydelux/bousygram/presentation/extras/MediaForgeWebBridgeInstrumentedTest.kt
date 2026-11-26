@@ -33,6 +33,21 @@ import java.io.ByteArrayInputStream
 class MediaForgeWebBridgeInstrumentedTest {
     private val offlineEmbed = "https://mediaforge.example.invalid/embed/movie/42"
 
+    @Test fun trackerPrivacyPolicyUsesDnsBoundariesAndPreservesMainFrame() {
+        assertTrue(MediaForgeWebRequestPolicy.blockKnownTracker(
+            "https://stats.g.doubleclick.net/pixel", offlineEmbed, false))
+        assertFalse(MediaForgeWebRequestPolicy.blockKnownTracker(
+            "https://doubleclick.net.example.invalid/video", offlineEmbed, false))
+        assertFalse(MediaForgeWebRequestPolicy.blockKnownTracker(
+            "https://notdoubleclick.net/video", offlineEmbed, false))
+        assertFalse(MediaForgeWebRequestPolicy.blockKnownTracker(
+            "https://doubleclick.net/pixel", offlineEmbed, true))
+        assertFalse(MediaForgeWebRequestPolicy.blockKnownTracker(
+            "https://stats.doubleclick.net/pixel", "https://doubleclick.net/player", false))
+        assertFalse(MediaForgeWebRequestPolicy.blockKnownTracker(
+            "https://cdn.example.invalid/video.m3u8", offlineEmbed, false))
+    }
+
     @Test fun webBridgeAppliesSandboxedSettingsAndDisablesThirdPartyCookies() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {

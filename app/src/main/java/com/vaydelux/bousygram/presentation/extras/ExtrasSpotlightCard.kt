@@ -109,6 +109,8 @@ internal fun ExtrasSpotlightCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Text("Featured in this catalog", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -153,7 +155,7 @@ internal fun ExtrasSpotlightCard(
                 ) {
                     BousygramButton(
                         text = "Details",
-                        leadingIcon = BousygramIcons.Play,
+                        leadingIcon = BousygramIcons.Info,
                         selected = true,
                         onClick = onOpen,
                         modifier = Modifier.heightIn(min = minHeight)

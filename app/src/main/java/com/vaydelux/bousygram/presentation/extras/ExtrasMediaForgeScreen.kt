@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -68,6 +69,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
+import com.vaydelux.bousygram.presentation.components.BousygramIconButton
+import com.vaydelux.bousygram.presentation.components.BousygramIcons
+import com.vaydelux.bousygram.presentation.components.BousygramGlassLevel
+import com.vaydelux.bousygram.presentation.components.liquidGlassChrome
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import androidx.compose.ui.focus.focusRequester
@@ -336,6 +341,7 @@ private fun ExtrasMediaForgePlayerScreen(
     val dpadFullscreenFocus = remember(request.url) { FocusRequester() }
     val dpadRecoveryFocus = remember(request.url) { FocusRequester() }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
+    var showPlaybackTools by remember(request.url) { mutableStateOf(false) }
     // A provider may need third-party cookies or scripted autoplay to render its
     // nested player. Neither is granted until the user explicitly opts in.
     var webCompatibilityMode by remember(request.url) { mutableStateOf(false) }
@@ -499,6 +505,7 @@ private fun ExtrasMediaForgePlayerScreen(
     BackHandler {
         when {
             nativeMedia != null -> returnToWebView()
+            showPlaybackTools -> showPlaybackTools = false
             cursorEnabled -> cursorEnabled = false
             htmlFullscreenView != null -> bridge.dismissFullscreen()
             immersiveWeb -> immersiveWeb = false
@@ -623,6 +630,7 @@ private fun ExtrasMediaForgePlayerScreen(
     val shortWindow = panelLimits.compactHeight
     val headerCap = panelLimits.headerMax
     val footerCap = panelLimits.footerMax
+    val playerStyle = LocalBousygramStyleSpec.current
     Column(
         Modifier.fillMaxSize()
             .then(if (!immersiveWeb) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)
@@ -633,31 +641,42 @@ private fun ExtrasMediaForgePlayerScreen(
                 modifier = Modifier.fillMaxWidth()
                     .then(if (shortWindow) Modifier.heightIn(max = headerCap)
                         .verticalScroll(rememberScrollState()) else Modifier)
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(6.dp)
+                    .then(if (playerStyle.isLiquidGlass) Modifier.liquidGlassChrome(
+                        shape = RoundedCornerShape(playerStyle.panelCorner),
+                        level = BousygramGlassLevel.FLOATING_CHROME) else Modifier)
+                    .padding(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("extras-embed-back")
-                    ) { Text("Back") }
+                    BousygramIconButton(
+                        icon = BousygramIcons.Back, contentDescription = "Back",
+                        onClick = onBack, modifier = Modifier.testTag("extras-embed-back")
+                    )
                     Text(
                         request.title,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                    BousygramIconButton(
+                        icon = BousygramIcons.Options, contentDescription = "Playback tools",
+                        tooltip = "Playback tools", onClick = { cursorEnabled = false; showPlaybackTools = true },
+                        modifier = Modifier.testTag("extras-playback-tools")
                     )
                 }
 
                 // Small phones receive a full-width source picker; TV/desktop
                 // keep the picker and large D-pad targets on one row.
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    if (maxWidth < 520.dp) {
+                    if (maxWidth < 520.dp && isAndroidTv) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (request.anilistId > 0) ExtrasAnimeEmbedServerDropdown(
                                 server = selectedAnimeServer,
@@ -721,91 +740,7 @@ private fun ExtrasMediaForgePlayerScreen(
                     }
                 }
 
-                Text(
-                    (when {
-                        request.anilistId > 0 -> "AniList #${request.anilistId} · ${selectedAnimeServer.description}"
-                        else -> "TMDB #${request.tmdbId} · ${selectedServer.description}"
-                    }) + " · Availability varies by provider.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2
-                )
-                ExtrasServerConnectionCheck(
-                    url = request.url,
-                    isTv = isAndroidTv,
-                    modifier = Modifier.testTag("extras-current-server-health")
-                )
-                if (isAndroidTv) {
-                    Text(
-                        if (cursorEnabled) "Cursor mode: arrows move pointer, OK clicks; Back/Menu returns to D-pad."
-                        else "D-pad mode: navigate controls; Use cursor to click inside the web player.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2
-                    )
-                }
-                ExtrasWebPlaybackModeControls(
-                    compatibility = webCompatibilityMode,
-                    legacyWindows = legacyWindowRouting,
-                    onStrict = { switchWebMode(false, false) },
-                    onCompatibility = { tryCompatibilityMode() },
-                    onLegacy = { tryLegacyWebMode() }
-                )
-                // The same bounded, source-preserving navigator works in
-                // Anime and TV. Movies have no episode identity.
-                if (episodeGuide != null && request.episode != null) {
-                    ExtrasPlayerEpisodeControls(
-                        request = request,
-                        guide = episodeGuide,
-                        onSelect = onEpisodeSelected
-                    )
-                }
 
-                if (request.tmdbId > 0 && request.season == null &&
-                    selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
-                ) {
-                    OutlinedButton(
-                        onClick = { onLegacyEmbedHeavenToggle(!request.legacyEmbedHeaven) },
-                        modifier = Modifier.testTag("extras-embedheaven-legacy")
-                    ) {
-                        Text(if (request.legacyEmbedHeaven) "Use standard movie route" else "Try legacy movie route")
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            inspectionGeneration += 1
-                            inspectionJob?.cancel()
-                            inspectionJob = null
-                            busy = false
-                            approved = null
-                            selectedCaption = null
-                            session.clear()
-                            snapshot = session.snapshot()
-                            status = "Reloading embedded player…"
-                            webLoadFailed = false
-                            if (webView != null) webView?.reload() else webGeneration += 1
-                        },
-                        modifier = Modifier.testTag("extras-embed-reload")
-                    ) { Text("Reload player") }
-                    OutlinedButton(
-                        onClick = {
-                            inspectionGeneration += 1
-                            inspectionJob?.cancel()
-                            inspectionJob = null
-                            busy = false
-                            approved = null
-                            selectedCaption = null
-                            session.clear()
-                            snapshot = session.snapshot()
-                            status = "Detected sources cleared."
-                        },
-                        modifier = Modifier.testTag("extras-clear-sources")
-                    ) { Text("Clear sources") }
-                }
             }
         }
 
@@ -922,13 +857,120 @@ private fun ExtrasMediaForgePlayerScreen(
         }
 
         if (!immersiveWeb) {
-        Column(
-            Modifier.fillMaxWidth()
-                .then(if (shortWindow) Modifier.heightIn(max = footerCap)
-                    .verticalScroll(rememberScrollState()) else Modifier)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .then(if (shortWindow) Modifier.heightIn(max = footerCap)
+                        .verticalScroll(rememberScrollState()) else Modifier)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // The same bounded, source-preserving navigator works in
+                // Anime and TV. Movies have no episode identity.
+                if (episodeGuide != null && request.episode != null) {
+                    ExtrasPlayerEpisodeControls(
+                        request = request,
+                        guide = episodeGuide,
+                        onSelect = onEpisodeSelected
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(status, modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    TextButton(onClick = { cursorEnabled = false; showPlaybackTools = true },
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("extras-playback-help")) {
+                        Text("Help")
+                    }
+                }
+            }
+        }
+    }
+
+    // Keep the theater viewport while advanced controls occupy a bounded dialog.
+    if (showPlaybackTools && !immersiveWeb && htmlFullscreenView == null && !showSubtitlePicker) {
+        ExtrasPlaybackToolsDialog(onDismiss = { showPlaybackTools = false }) {
+                Text(
+                    (when {
+                        request.anilistId > 0 -> "AniList #${request.anilistId} · ${selectedAnimeServer.description}"
+                        else -> "TMDB #${request.tmdbId} · ${selectedServer.description}"
+                    }) + " · Availability varies by provider.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2
+                )
+                ExtrasServerConnectionCheck(
+                    url = request.url,
+                    isTv = isAndroidTv,
+                    modifier = Modifier.testTag("extras-current-server-health")
+                )
+                if (isAndroidTv) {
+                    Text(
+                        if (cursorEnabled) "Cursor mode: arrows move pointer, OK clicks; Back/Menu returns to D-pad."
+                        else "D-pad mode: navigate controls; Use cursor to click inside the web player.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2
+                    )
+                }
+                ExtrasWebPlaybackModeControls(
+                    compatibility = webCompatibilityMode,
+                    legacyWindows = legacyWindowRouting,
+                    onStrict = { switchWebMode(false, false) },
+                    onCompatibility = { tryCompatibilityMode() },
+                    onLegacy = { tryLegacyWebMode() }
+                )
+
+                if (request.tmdbId > 0 && request.season == null &&
+                    selectedServer == ExtrasEmbedServer.EMBED_HEAVEN
+                ) {
+                    OutlinedButton(
+                        onClick = { onLegacyEmbedHeavenToggle(!request.legacyEmbedHeaven) },
+                        modifier = Modifier.testTag("extras-embedheaven-legacy")
+                    ) {
+                        Text(if (request.legacyEmbedHeaven) "Use standard movie route" else "Try legacy movie route")
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            inspectionGeneration += 1
+                            inspectionJob?.cancel()
+                            inspectionJob = null
+                            busy = false
+                            approved = null
+                            selectedCaption = null
+                            session.clear()
+                            snapshot = session.snapshot()
+                            status = "Reloading embedded player…"
+                            webLoadFailed = false
+                            if (webView != null) webView?.reload() else webGeneration += 1
+                        },
+                        modifier = Modifier.testTag("extras-embed-reload")
+                    ) { Text("Reload player") }
+                    OutlinedButton(
+                        onClick = {
+                            inspectionGeneration += 1
+                            inspectionJob?.cancel()
+                            inspectionJob = null
+                            busy = false
+                            approved = null
+                            selectedCaption = null
+                            session.clear()
+                            snapshot = session.snapshot()
+                            status = "Detected sources cleared."
+                        },
+                        modifier = Modifier.testTag("extras-clear-sources")
+                    ) { Text("Clear sources") }
+                }
             Text(
                 if (webEmbedOnly) "Zoryva iframe · WebView playback only"
                 else "WebView playback · ${snapshot.streams.size} video candidate(s) · ${snapshot.captions.size} subtitle(s)",
@@ -1129,13 +1171,14 @@ private fun ExtrasMediaForgePlayerScreen(
                         nativeResumePositionMs = 0L
                         nativePlayRequested = true // An explicit launch is a new Play action.
                         nativeEngine = launchEngine // A previous LibVLC choice may not support this format.
+                        showPlaybackTools = false
                         nativeMedia = media
                     }
                 ) { Text("Play with " + launchEngine.label) }
             }
         }
-        }
     }
+
 
     if (showSubtitlePicker && approved != null) {
         ExtrasSubtitlePicker(
@@ -1215,6 +1258,41 @@ private fun ExtrasMediaForgePlayerScreen(
             }
         }
     }
+    }
+}
+
+/** Bounded, independently testable native theater controls. */
+@Composable
+internal fun ExtrasPlaybackToolsDialog(
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val style = LocalBousygramStyleSpec.current
+    Dialog(onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(16.dp),
+            contentAlignment = Alignment.Center) {
+            Surface(
+                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()
+                    .heightIn(max = maxHeight * 0.94f).testTag("extras-playback-tools-dialog"),
+                shape = RoundedCornerShape(style.panelCorner),
+                color = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Playback tools", style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.weight(1f))
+                        TextButton(onClick = onDismiss,
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("extras-playback-tools-close")) {
+                            Text("Close")
+                        }
+                    }
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+                }
+            }
+        }
     }
 }
 

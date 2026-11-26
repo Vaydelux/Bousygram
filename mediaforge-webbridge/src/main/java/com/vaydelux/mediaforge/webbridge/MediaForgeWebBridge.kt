@@ -9,6 +9,10 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
+import android.webkit.JsResult
+import android.webkit.JsPromptResult
+import android.os.Message
+import java.net.URI
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
@@ -74,6 +78,24 @@ object MediaForgeWebIssuePolicy {
  * should remain owned by the browser rather than intercepted here.
  */
 object MediaForgeWebRequestPolicy {
+    // Small, explicit privacy list; not a general content/ad bypass.
+    private val trackingDomains = setOf(
+        "doubleclick.net", "google-analytics.com", "googletagmanager.com",
+        "googlesyndication.com"
+    )
+
+    fun blockKnownTracker(url: String, selectedUrl: String, mainFrame: Boolean): Boolean {
+        if (mainFrame) return false
+        val host = runCatching { URI(url).host?.lowercase(Locale.ROOT)?.trimEnd('.') }.getOrNull()
+            ?: return false
+        val selectedHost = runCatching { URI(selectedUrl).host?.lowercase(Locale.ROOT)?.trimEnd('.') }.getOrNull()
+            ?: return false
+        return trackingDomains.any { domain ->
+            (host == domain || host.endsWith(".$domain")) &&
+                selectedHost != domain && !selectedHost.endsWith(".$domain")
+        }
+    }
+
     fun blockNetworkSubresource(url: String): Boolean {
         val scheme = url.substringBefore(':', missingDelimiterValue = "").lowercase(Locale.ROOT)
         return when (scheme) {
@@ -170,6 +192,28 @@ class MediaForgeWebBridge(
         // local-network, file or content restrictions to make a provider play.
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, compatibilityMode)
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean,
+                resultMsg: Message): Boolean {
+                reportIssue(MediaForgeWebIssue.NAVIGATION_BLOCKED)
+                return false
+            }
+
+            override fun onJsAlert(view: WebView, url: String, message: String, result: JsResult): Boolean {
+                result.cancel()
+                return true
+            }
+
+            override fun onJsConfirm(view: WebView, url: String, message: String, result: JsResult): Boolean {
+                result.cancel()
+                return true
+            }
+
+            override fun onJsPrompt(view: WebView, url: String, message: String, defaultValue: String?,
+                result: JsPromptResult): Boolean {
+                result.cancel()
+                return true
+            }
+
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 // Third-party scripts can print credentials/URLs in console output.
                 // Classify on-device; do not store or log the raw string.
@@ -238,12 +282,16 @@ class MediaForgeWebBridge(
                         "text/plain", "utf-8", ByteArrayInputStream(ByteArray(0))
                     ).apply { setStatusCodeAndReasonPhrase(403, "Blocked") }
                 }
+                if (MediaForgeWebRequestPolicy.blockKnownTracker(url, embedUrl, request.isForMainFrame)) {
+                    return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+                        .apply { setStatusCodeAndReasonPhrase(403, "Blocked") }
+                }
                 if (request.method.equals("GET", true)) publish(url)
                 return null // Allow permitted subresources to load normally.
             }
 
             override fun onLoadResource(view: WebView, url: String) {
-                publish(url)
+                if (!MediaForgeWebRequestPolicy.blockKnownTracker(url, embedUrl, false)) publish(url)
             }
 
             override fun onRenderProcessGone(
