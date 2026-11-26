@@ -4073,7 +4073,7 @@ private fun TrackPickerOverlay(
 }
 
 @Composable
-private fun TrackChoice(
+internal fun TrackChoice(
     label: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
