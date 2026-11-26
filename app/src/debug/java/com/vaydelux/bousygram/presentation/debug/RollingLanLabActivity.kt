@@ -95,6 +95,8 @@ class RollingLanLabActivity : ComponentActivity() {
     private var discoveryRoute: RollingHlsLanRoute? = null
     private var foundDevices by mutableStateOf<List<String>>(emptyList())
     private var browsing by mutableStateOf(false)
+    private var advertisedName by mutableStateOf<String?>(null)
+    private var permissionBrowse = false
     private var browseDeadline = 0L
     private var consent: CompletableFuture<Boolean>? = null
     private var visible = false
@@ -143,11 +145,14 @@ class RollingLanLabActivity : ComponentActivity() {
     }
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val role = permissionRole
+        val browse = permissionBrowse
         permissionRole = null
+        permissionBrowse = false
         externalPicker = false
         main.post {
             if (granted && visible && role != null) start(role)
-            else if (!granted && visible) message = "Local-network permission is required for this optional test."
+            else if (granted && visible && browse && Build.VERSION.SDK_INT >= 33) browseReceivers()
+            else if (!granted && visible) message = "Local-network permission is required for casting and discovery."
         }
     }
     private val video = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -195,6 +200,11 @@ class RollingLanLabActivity : ComponentActivity() {
                             if (expires > 0) Text("Time remaining: ${seconds}s")
                             qr?.let { Image(it.asImageBitmap(), "Private LAN invitation QR", Modifier.align(Alignment.CenterHorizontally).size(256.dp)) }
                             if (invitation.isNotEmpty()) {
+                                advertisedName?.let { name ->
+                                    Text("Nearby receiver: $name", style = MaterialTheme.typography.titleSmall)
+                                    Text("Match this name on the sender, then scan the QR invitation. Discovery alone does not authorize casting.",
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
                                 OutlinedButton(onClick = { showText = !showText }, modifier = Modifier.fillMaxWidth()) {
                                     Text(if (showText) "Hide manual invitation" else "Show manual invitation")
                                 }
@@ -253,7 +263,7 @@ class RollingLanLabActivity : ComponentActivity() {
                                 Button(onClick = { requestStart(true) }, enabled = mediaMode.canReceive(outgoing != null),
                                     modifier = Modifier.fillMaxWidth().testTag("cast-receive")) { Text("Receive on this device") }
                                 if (Build.VERSION.SDK_INT >= 33) {
-                                    OutlinedButton(onClick = { if (browsing) stopDiscovery() else browseReceivers() },
+                                    OutlinedButton(onClick = { if (browsing) stopDiscovery() else requestBrowse() },
                                         modifier = Modifier.fillMaxWidth()) { Text(if (browsing) "Stop finding receivers" else "Find nearby receivers") }
                                     if (browsing) {
                                         Text("Nearby receiver hints (unverified). Scan the TV invitation before connecting.")
@@ -319,6 +329,7 @@ class RollingLanLabActivity : ComponentActivity() {
         stopDiscovery()
         externalPicker = false
         permissionRole = null
+        permissionBrowse = false
         consent?.complete(false)
         consent = null
         session?.close()
@@ -341,9 +352,19 @@ class RollingLanLabActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) discovery?.close()
         discovery = null
         discoveryRoute = null
+        advertisedName = null
         browsing = false
         browseDeadline = 0L
         foundDevices = emptyList()
+    }
+
+    @androidx.annotation.RequiresApi(33)
+    private fun requestBrowse() {
+        if (!visible || busy) return
+        if (!RollingHlsLanRoute.hasPermission(this)) {
+            permissionBrowse = true
+            launchPicker { permission.launch(RollingHlsLanRoute.PERMISSION) }
+        } else browseReceivers()
     }
 
     @androidx.annotation.RequiresApi(33)
@@ -356,9 +377,14 @@ class RollingLanLabActivity : ComponentActivity() {
         }
         stopDiscovery()
         val result = runCatching {
-            RollingLanDiscovery(this, route) { names ->
+            RollingLanDiscovery(this, route, changed = { names ->
                 if (visible && browsing && discoveryRoute === route) foundDevices = names
-            }.also { owner ->
+            }, unavailable = {
+                if (visible && browsing && discoveryRoute === route) {
+                    stopDiscovery()
+                    message = "Nearby discovery unavailable. QR or manual pairing still works."
+                }
+            }).also { owner ->
                 discovery = owner
                 discoveryRoute = route
                 browsing = true
@@ -376,6 +402,7 @@ class RollingLanLabActivity : ComponentActivity() {
         try { action() } catch (_: Exception) {
             externalPicker = false
             permissionRole = null
+            permissionBrowse = false
             message = "Picker unavailable. Use another input method."
         }
     }
@@ -447,7 +474,11 @@ class RollingLanLabActivity : ComponentActivity() {
                                     if (Build.VERSION.SDK_INT >= 33) {
                                         runCatching {
                                             val port = checkNotNull(RollingHlsLanInvitation.decode(text)).use { it.endpoint.port }
-                                            RollingLanDiscovery(this@RollingLanLabActivity, route) {}.also { owner ->
+                                            RollingLanDiscovery(this@RollingLanLabActivity, route, changed = {},
+                                                advertised = { name ->
+                                                    if (visible && generation.get() == token && discoveryRoute === route)
+                                                        advertisedName = name
+                                                }).also { owner ->
                                                 discovery = owner
                                                 discoveryRoute = route
                                                 owner.advertise(port)
@@ -477,7 +508,15 @@ class RollingLanLabActivity : ComponentActivity() {
                             }
                             approved
                         },
-                        onApproved = { post(token) { expires = 0L; message = if (live) "Waiting for live stream…" else "Receiving authenticated synthetic bytes…" } },
+                        onApproved = { post(token) {
+                            expires = 0L
+                            message = when {
+                                telegram -> "Checking access to the Telegram video…"
+                                direct -> "Waiting for the selected video…"
+                                live -> "Waiting for diagnostic stream…"
+                                else -> "Receiving authenticated synthetic bytes…"
+                            }
+                        } },
                         live = if (telegram) ({ socket, peer, _ ->
                             referenceAccepted = RollingLanTelegramHandoff.receive(socket, peer, active::active) { request ->
                                 prepared = runBlocking { handoff.prepare(request, true) }
@@ -499,7 +538,14 @@ class RollingLanLabActivity : ComponentActivity() {
                     else checkNotNull(RollingHlsLanInvitation.decode(raw.trim())).use { decoded ->
                         active.send(decoded,
                             { post(token) { message = "Waiting for approval on the receiver." } },
-                            { post(token) { message = if (live) "Preparing verified live stream…" else "Sending authenticated synthetic bytes…" } },
+                            { post(token) {
+                                message = when {
+                                    telegram -> "Sending the authorized Telegram reference…"
+                                    direct -> "Preparing the selected video…"
+                                    live -> "Preparing diagnostic stream…"
+                                    else -> "Sending authenticated synthetic bytes…"
+                                }
+                            } },
                             live = if (telegram) ({ socket, peer, _ ->
                                 referenceAccepted = RollingLanTelegramHandoff.send(socket, peer, checkNotNull(reference), active::active)
                             }) else if (direct) ({ socket, peer, _ ->
@@ -562,7 +608,9 @@ class RollingLanLabActivity : ComponentActivity() {
                 }
                 reset(result.fold(
                     { if (it == RollingHlsLanSession.Result.VERIFIED)
-                        if (live) "Verified: encrypted live playback completed. Temporary credentials closed." else "Verified: 1 MiB transferred over mutual TLS. Temporary credentials closed."
+                        if (direct) "Video playback completed. Secure session closed."
+                        else if (live) "Verified: encrypted live playback completed. Temporary credentials closed."
+                        else "Verified: 1 MiB transferred over mutual TLS. Temporary credentials closed."
                       else "Sender rejected. Temporary credentials closed." },
                     { "LAN test failed or disconnected. Check the network and create a new invitation." }))
             }

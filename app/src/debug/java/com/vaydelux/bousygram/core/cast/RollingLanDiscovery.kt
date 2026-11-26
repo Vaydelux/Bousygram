@@ -13,7 +13,9 @@ import java.util.UUID
 internal class RollingLanDiscovery(
     context: Context,
     private val route: RollingHlsLanRoute,
-    private val changed: (List<String>) -> Unit
+    private val changed: (List<String>) -> Unit,
+    private val advertised: (String?) -> Unit = {},
+    private val unavailable: () -> Unit = {}
 ) : AutoCloseable {
     private val manager = checkNotNull(context.getSystemService(NsdManager::class.java))
     private val executor = context.mainExecutor
@@ -31,7 +33,7 @@ internal class RollingLanDiscovery(
         override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
             discovering = false
             started = false
-            if (!closed) changed(emptyList())
+            if (!closed) { changed(emptyList()); unavailable() }
         }
         override fun onDiscoveryStopped(serviceType: String) {
             discovering = false
@@ -59,10 +61,13 @@ internal class RollingLanDiscovery(
         override fun onServiceRegistered(info: NsdServiceInfo) {
             registered = true
             if (closed || !route.current()) stopAdvertising()
+            else if (RollingLanDiscoveryPolicy.validName(info.serviceName)) advertised(info.serviceName)
+            else { stopAdvertising(); unavailable() }
         }
         override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
             registering = false
             registered = false
+            if (!closed) { advertised(null); unavailable() }
         }
         override fun onServiceUnregistered(info: NsdServiceInfo) {
             registering = false
@@ -113,6 +118,7 @@ internal class RollingLanDiscovery(
         if (closed) return
         closed = true
         policy.clear()
+        advertised(null)
         stopDiscovery()
         stopAdvertising()
         // Pending registrations/discoveries are stopped in their success callbacks.
