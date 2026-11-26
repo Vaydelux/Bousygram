@@ -9,6 +9,7 @@ import androidx.media3.datasource.DataSpec
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
+import java.io.EOFException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
@@ -236,24 +237,59 @@ internal class RollingHlsLiveLanClient(
         private var input: DataInputStream? = null
         private var uri: Uri? = null
         private var remaining = 0L
+        private var delivered = 0L
+        private var original: DataSpec? = null
+        private var recovery: RollingLanReadRecovery? = null
         private var started = false
         override fun getUri(): Uri? = uri
+
+        /** Close just the broken connection; preserve Media3 transfer lifecycle. */
+        private fun disconnect() {
+            val old = socket
+            socket = null
+            input = null
+            old?.let(::release)
+        }
+
+        private fun connect(spec: DataSpec): Long {
+            val (connection, stream) = this@RollingHlsLiveLanClient.open(spec)
+            socket = connection
+            input = stream
+            val status = stream.readInt()
+            val length = stream.readLong()
+            if (status != 200 || length !in 1L..RollingHlsBudget.MAX_SEGMENT_BYTES ||
+                (spec.length != C.LENGTH_UNSET.toLong() && spec.length != length) || !active())
+                throw IOException("Receiver resource refused")
+            return length
+        }
+
+        private fun reconnect(error: IOException, spec: DataSpec): Boolean {
+            disconnect()
+            if (recovery?.retry(error, spec.uri.encodedPath.orEmpty(), delivered) != true) return false
+            // A reconnect never opens enrollment, changes peer, authority, or
+            // resource. It creates a fresh mutually authenticated TLS socket.
+            return active()
+        }
+
+        private fun connectWithRecovery(spec: DataSpec): Long {
+            while (true) {
+                try { return connect(spec) }
+                catch (error: IOException) {
+                    if (!reconnect(error, spec)) throw error
+                }
+            }
+        }
 
         override fun open(dataSpec: DataSpec): Long {
             check(socket == null && !started)
             if (dataSpec.httpMethod != DataSpec.HTTP_METHOD_GET || dataSpec.httpBody != null ||
                 dataSpec.position < 0L) throw IOException("Unsupported receiver request")
             transferInitializing(dataSpec)
+            original = dataSpec
+            delivered = 0L
+            recovery = RollingLanReadRecovery(::active)
             try {
-                val (connection, stream) = this@RollingHlsLiveLanClient.open(dataSpec)
-                socket = connection
-                input = stream
-                val status = stream.readInt()
-                val length = stream.readLong()
-                if (status != 200 || length !in 1L..RollingHlsBudget.MAX_SEGMENT_BYTES ||
-                    (dataSpec.length != C.LENGTH_UNSET.toLong() && dataSpec.length != length) || !active())
-                    throw IOException("Receiver resource refused")
-                remaining = length
+                remaining = connectWithRecovery(dataSpec)
                 uri = dataSpec.uri
                 started = true
                 transferStarted(dataSpec)
@@ -273,11 +309,26 @@ internal class RollingHlsLiveLanClient(
                 if (!started || !active()) throw IOException("Receiver revoked")
                 if (remaining == 0L) return C.RESULT_END_OF_INPUT
                 val count = minOf(remaining, length.toLong(), 32L * 1024).toInt()
-                val n = checkNotNull(input).read(buffer, offset, count)
-                if (n !in 1..count || !active()) throw IOException("Incomplete or revoked receiver transfer")
-                remaining -= n
-                bytesTransferred(n)
-                return n
+                while (true) {
+                    try {
+                        val n = checkNotNull(input).read(buffer, offset, count)
+                        if (n < 0) throw EOFException("Incomplete receiver transfer")
+                        if (n !in 1..count || !active()) throw IOException("Invalid or revoked receiver transfer")
+                        remaining -= n
+                        delivered += n
+                        bytesTransferred(n)
+                        return n
+                    } catch (error: IOException) {
+                        buffer.fill(0, offset, offset + count)
+                        val spec = checkNotNull(original)
+                        if (!reconnect(error, spec)) throw error
+                        // Never splice a newly generated playlist into an old one.
+                        // Even at zero delivered bytes its length may have changed.
+                        if (spec.uri.encodedPath == "/index.m3u8") throw error
+                        val tail = spec.subrange(delivered, remaining)
+                        if (connectWithRecovery(tail) != remaining) throw IOException("Receiver range changed")
+                    }
+                }
             } catch (error: Exception) {
                 buffer.fill(0, offset, offset + length)
                 record("client-body", error)
@@ -286,8 +337,8 @@ internal class RollingHlsLiveLanClient(
         }
 
         override fun close() {
-            try { socket?.let(::release) } finally {
-                socket = null; input = null; uri = null; remaining = 0
+            try { disconnect() } finally {
+                uri = null; remaining = 0; delivered = 0; original = null; recovery = null
                 if (started) { started = false; transferEnded() }
             }
         }
