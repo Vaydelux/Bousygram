@@ -30,6 +30,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -54,6 +55,39 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ExtrasVisualConsistencyInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun webRecoveryActionsRemainReachableInShortWindow() {
+        var retryCount = 0
+        var browserCount = 0
+        val compatibility = mutableStateOf(false)
+        val legacy = mutableStateOf(false)
+        compose.setContent {
+            BousygramTheme(preset = BousygramThemePreset.LIGHT, reduceTransparency = true) {
+                Box(Modifier.width(320.dp).height(200.dp)) {
+                    ExtrasWebRecoveryPanel(
+                        status = "Embedded browser stopped. Retry the page.",
+                        isAnime = true,
+                        compatibilityMode = compatibility.value,
+                        legacyMode = legacy.value,
+                        onChooseServer = {},
+                        onCompatibility = { compatibility.value = true },
+                        onLegacyMode = { legacy.value = true },
+                        onBrowser = { browserCount++ },
+                        onRetry = { retryCount++ }
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("extras-embed-retry-load").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, retryCount) }
+        compose.onNodeWithTag("extras-anime-error-compatibility").performScrollTo().performClick()
+        compose.onNodeWithTag("extras-anime-error-compatibility").assertDoesNotExist()
+        compose.onNodeWithTag("extras-embed-error-legacy").performScrollTo().performClick()
+        compose.onNodeWithTag("extras-embed-error-legacy").assertDoesNotExist()
+        compose.onNodeWithTag("extras-anime-error-browser").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, browserCount) }
+        compose.onNodeWithTag("extras-anime-recover-server").performScrollTo().assertIsDisplayed()
+    }
 
     @Test fun captureAlignedSearchFiltersAndResultsAcrossPhoneThemes() {
         val activeTheme = mutableStateOf(BousygramThemePreset.DARK)
