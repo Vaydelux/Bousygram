@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/dated-debug-apk.yml'
+      - '.github/workflows/v11-integrated-debug-on-merge.yml'
       - 'app/**'
       - 'mediaforge-core/**'
       - 'mediaforge-webbridge/**'

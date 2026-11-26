@@ -1,60 +1,93 @@
-name: Publish qualified v1.1 integrated debug once
+name: Publish qualified main debug once
+# Deliberate release request: editing this file starts all four companion
+# qualifications for the same main SHA. Manual dispatch is also supported.
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/v11-integrated-debug-on-merge.yml'
+  workflow_dispatch:
 permissions:
   contents: read
   actions: write
-  pull-requests: read
 concurrency:
-  group: bousygram-v11-integrated-debug-once
-  cancel-in-progress: false
+  group: bousygram-main-debug-request
+  cancel-in-progress: true
 jobs:
   request:
     if: github.repository == 'Vaydelux/Bousygram' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 100
     steps:
-      - name: Prove merged source matches successful PR qualification
+      - name: Wait for exact-main qualification and request debug publication
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
-          current="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
-          [[ "$current" == "$GITHUB_SHA" ]]
-          pr="$(gh api "repos/$repo/pulls/234")"
-          jq -e --arg sha "$GITHUB_SHA" '.merged == true and .merge_commit_sha == $sha and .base.ref == "main" and .head.ref == "feature/v1.1-cast-handoff" and .head.repo.full_name == .base.repo.full_name' <<<"$pr" >/dev/null
-          head="$(jq -er '.head.sha' <<<"$pr")"
-          commit="$(gh api "repos/$repo/git/commits/$GITHUB_SHA")"
-          base="$(jq -er '.parents[0].sha' <<<"$commit")"
-          jq -e --arg head "$head" '(.parents | length) == 2 and .parents[1].sha == $head' <<<"$commit" >/dev/null
-          main_tree="$(jq -er '.tree.sha' <<<"$commit")"
-          # The tested PR merge may have a different commit timestamp/message;
-          # require identical parents and identical source tree, not just head SHA.
-          tested=""
-          for workflow in android-enterprise.yml android-emulator-smoke.yml android-explorer-ui-smoke.yml cast-native-qualification.yml; do
-            run="$(gh api "repos/$repo/actions/workflows/$workflow/runs?event=pull_request&head_sha=$head&per_page=100" | jq -ce --arg head "$head" '[.workflow_runs[] | select(.head_sha == $head and .event == "pull_request")] | sort_by(.id) | last | select(.status == "completed" and .conclusion == "success")')"
-            id="$(jq -er '.id' <<<"$run")"
-            attempt="$(jq -er '.run_attempt' <<<"$run")"
-            jobs="$(gh api "repos/$repo/actions/runs/$id/attempts/$attempt/jobs?per_page=100")"
-            if [[ "$workflow" == android-enterprise.yml ]]; then
-              # Enterprise already verifies exact companion merge source, including native jobs.
-              jq -e '.jobs | any(.[]; .conclusion == "success" and any(.steps[]?; .name == "Wait for identical tested Cast Lab merge qualification" and .conclusion == "success"))' <<<"$jobs" >/dev/null
-              continue
+          assert_current() {
+            [[ "$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')" == "$GITHUB_SHA" ]] || {
+              echo "::error::main moved; refusing to publish a stale revision."
+              exit 1
+            }
+          }
+          workflows=(android-enterprise.yml android-emulator-smoke.yml android-explorer-ui-smoke.yml cast-native-qualification.yml)
+          latest_run() {
+            gh api "repos/$repo/actions/workflows/$1/runs?branch=main&head_sha=$GITHUB_SHA&per_page=100" |
+              jq -ce --arg sha "$GITHUB_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | sort_by(.run_number, .run_attempt) | last // {}'
+          }
+          assert_current
+          # On manual requests only, launch missing qualifications. On a push
+          # the companion path triggers already schedule these same checks.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            for workflow in "${workflows[@]}"; do
+              run="$(latest_run "$workflow")"
+              if [[ "$run" == '{}' ]]; then
+                assert_current
+                gh api --method POST "repos/$repo/actions/workflows/$workflow/dispatches" --raw-field ref=main
+              fi
+            done
+          fi
+          for ((poll=0; poll<180; poll++)); do
+            assert_current
+            ready=true
+            for workflow in "${workflows[@]}"; do
+              run="$(latest_run "$workflow")"
+              status="$(jq -r '.conclusion // .status // "missing"' <<<"$run")"
+              case "$status" in
+                success)
+                  id="$(jq -er '.id' <<<"$run")"
+                  attempt="$(jq -er '.run_attempt' <<<"$run")"
+                  jobs="$(gh api "repos/$repo/actions/runs/$id/attempts/$attempt/jobs?per_page=100")"
+                  if [[ "$workflow" == android-enterprise.yml ]]; then
+                    jq -e '.jobs | any(.[]; .name == "Build and verify" and .conclusion == "success" and any(.steps[]?; .name == "Run required Gradle verification" and .conclusion == "success"))' <<<"$jobs" >/dev/null
+                  else
+                    count=1
+                    if [[ "$workflow" == cast-native-qualification.yml ]]; then count=2; fi
+                    jq -e --arg proof "Prove tested merge $GITHUB_SHA" --argjson count "$count" '.total_count == $count and (.jobs | length == $count and all(.[]; .conclusion == "success" and any(.steps[]?; .name == $proof and .conclusion == "success")))' <<<"$jobs" >/dev/null
+                  fi
+                  ;;
+                missing|queued|in_progress|requested|waiting|pending) ready=false ;;
+                *) echo "::error::Qualification blocked: $workflow ($status). Run $run"; exit 1 ;;
+              esac
+            done
+            if [[ "$ready" == true ]]; then
+              assert_current
+              release="$(latest_run dated-debug-apk.yml)"
+              state="$(jq -r '.conclusion // .status // "missing"' <<<"$release")"
+              case "$state" in
+                success|queued|in_progress|requested|waiting|pending)
+                  echo "Publication already requested for $GITHUB_SHA ($state)." >> "$GITHUB_STEP_SUMMARY"
+                  exit 0 ;;
+                missing|failure|cancelled|timed_out|action_required|startup_failure|stale|skipped|neutral)
+                  gh api --method POST "repos/$repo/actions/workflows/dated-debug-apk.yml/dispatches" --raw-field ref=main
+                  echo "Requested three dated debug APKs for qualified main $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+                  exit 0 ;;
+                *) echo "::error::Unexpected publication state: $state"; exit 1 ;;
+              esac
             fi
-            proof="$(jq -er '[.jobs[] | .steps[]? | select(.conclusion == "success" and (.name | test("^Prove tested merge [0-9a-f]{40}$"))) | .name | sub("^Prove tested merge "; "")] | unique | select(length == 1) | .[0]' <<<"$jobs")"
-            count=1
-            if [[ "$workflow" == cast-native-qualification.yml ]]; then count=2; fi
-            jq -e --arg proof "Prove tested merge $proof" --argjson count "$count" '.total_count == $count and (.jobs | length == $count and all(.[]; .conclusion == "success" and any(.steps[]?; .name == $proof and .conclusion == "success")))' <<<"$jobs" >/dev/null
-            if [[ -z "$tested" ]]; then tested="$proof"; fi
-            [[ "$tested" == "$proof" ]]
+            sleep 30
           done
-          [[ -n "$tested" ]]
-          gh api "repos/$repo/git/commits/$tested" | jq -e --arg base "$base" --arg head "$head" --arg tree "$main_tree" '(.parents | map(.sha)) == [$base, $head] and .tree.sha == $tree' >/dev/null
-          [[ "$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')" == "$GITHUB_SHA" ]]
-          gh api --method POST "repos/$repo/actions/workflows/dated-debug-apk.yml/dispatches" --raw-field ref=main
-          echo "Requested three dated debug APKs for qualified merged source $GITHUB_SHA (tested tree $main_tree)." >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Companion qualification did not finish within the bounded release request."
+          exit 1
