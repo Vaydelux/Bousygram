@@ -209,7 +209,7 @@ fun BousygramModeSelection(
                 }
                 if (onOpenCastLab != null) {
                     BousygramButton(
-                        text = "Cast Lab (Debug)",
+                        text = "Cast devices (Preview)",
                         onClick = onOpenCastLab,
                         modifier = Modifier.widthIn(min = 232.dp).testTag("startup-cast-lab")
                     )

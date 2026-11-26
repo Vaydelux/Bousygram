@@ -219,11 +219,11 @@ private fun BousygramAppRoot(
                 // The debug-only receiver is private to this application. Never
                 // register a second launcher tile or accept external lab intents.
                 val lab = Intent().setClassName(context.packageName,
-                    "com.vaydelux.bousygram.presentation.debug.RollingReceiverLabActivity")
+                    "com.vaydelux.bousygram.presentation.debug.RollingLanLabActivity")
                 try {
                     context.startActivity(lab)
                 } catch (_: android.content.ActivityNotFoundException) {
-                    Toast.makeText(context, "Cast Lab is unavailable in this build.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Casting preview is unavailable in this build.", Toast.LENGTH_SHORT).show()
                 }
             }) else null,
             themePreset = themePreset,

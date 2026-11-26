@@ -225,3 +225,10 @@ and closes registered sockets on network loss, account invalidation or expiry.
 No silent re-enrollment or persistent trust. Seek controls are conditional on decoder seekability.
 The shorter qualification profile remains unchanged for HLS and reference handoff.
 Long-duration runtime and physical-device compatibility are not yet qualified.
+
+### Unified casting preview entry
+The main mode chooser opens the private Cast devices activity directly. Telegram and Extras
+remain the original routes. One media-mode enum replaces conflicting checkboxes, defaults
+to direct local video, and hides synthetic diagnostics behind Advanced diagnostics. The
+Telegram player pins the chosen reference and forces Telegram mode. Both peers still select
+the same mode and pair by QR/manual invitation; NSD is an untrusted availability hint.

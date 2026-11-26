@@ -16,7 +16,14 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import com.vaydelux.bousygram.core.cast.RollingLanMediaMode
 import androidx.compose.foundation.layout.Row
 import com.vaydelux.bousygram.core.cast.RollingHlsLanLiveBridge
 import com.vaydelux.bousygram.core.cast.RollingHlsLanPlayback
@@ -76,8 +83,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 
-/** Debug only, foreground-only two-device probe. No user media, storage
- * permission, discovery broadcast or exported intent inputs. */
+/** Internal debug casting preview; explicit selection and foreground consent.
+ * Synthetic diagnostics remain separate from the ordinary media routes. */
 @androidx.annotation.OptIn(UnstableApi::class)
 class RollingLanLabActivity : ComponentActivity() {
     private val generation = AtomicLong()
@@ -103,12 +110,23 @@ class RollingLanLabActivity : ComponentActivity() {
     private var seconds by mutableLongStateOf(0)
     private var permissionRole: Boolean? = null
     private var externalPicker = false
-    private var liveMode by mutableStateOf(false)
-    private var telegramMode by mutableStateOf(false)
+    private var mediaMode by mutableStateOf(RollingLanMediaMode.DIRECT_VIDEO)
+    private var diagnosticsOpen by mutableStateOf(false)
+    private val liveMode get() = mediaMode.live
+    private val telegramMode get() = mediaMode == RollingLanMediaMode.TELEGRAM
+    private val localClip get() = mediaMode == RollingLanMediaMode.FRAGMENTED_MP4
+    private val directMedia get() = mediaMode == RollingLanMediaMode.DIRECT_VIDEO
     private var outgoing: TelegramTvHandoff? = null
     private var outgoingOwner: AccountSnapshot? = null
-    private var localClip by mutableStateOf(false)
-    private var directMedia by mutableStateOf(false)
+
+    private fun selectMode(mode: RollingLanMediaMode) {
+        if (busy || outgoing != null || mediaMode == mode) return
+        stopDiscovery()
+        fixture = null
+        input = ""
+        mediaMode = mode
+        message = "Select the same media mode on both devices before pairing."
+    }
     private var fixture by mutableStateOf<Uri?>(null)
     private var player by mutableStateOf<ExoPlayer?>(null)
     private val tick = object : Runnable {
@@ -158,7 +176,7 @@ class RollingLanLabActivity : ComponentActivity() {
             if (request.isValid()) {
                 outgoing = request
                 outgoingOwner = owner
-                telegramMode = true
+                mediaMode = RollingLanMediaMode.TELEGRAM
             }
         }
         intent.replaceExtras(android.os.Bundle())
@@ -166,11 +184,13 @@ class RollingLanLabActivity : ComponentActivity() {
         setContent {
             BousygramTheme {
                 Surface(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+                    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
+                        .verticalScroll(rememberScrollState()).padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.widthIn(max = 600.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Two-device LAN test", style = MaterialTheme.typography.headlineMedium)
-                            Text("Debug only · secure Telegram reference handoff or LAN playback tests")
+                            Text("Cast devices", style = MaterialTheme.typography.headlineMedium)
+                            Text("Preview · both devices must be on the same private network.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(message, style = MaterialTheme.typography.bodyLarge)
                             if (expires > 0) Text("Time remaining: ${seconds}s")
                             qr?.let { Image(it.asImageBitmap(), "Private LAN invitation QR", Modifier.align(Alignment.CenterHorizontally).size(256.dp)) }
@@ -204,33 +224,34 @@ class RollingLanLabActivity : ComponentActivity() {
                                 OutlinedButton(onClick = { decide(false) }, modifier = Modifier.fillMaxWidth()) { Text("Reject sender") }
                             }
                             if (!busy) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = telegramMode, enabled = outgoing == null,
-                                        onCheckedChange = { telegramMode = it; liveMode = false; localClip = false; directMedia = false; fixture = null })
-                                    Text("Telegram player handoff")
+                                Text("Media source", style = MaterialTheme.typography.titleMedium)
+                                val availableModes = if (outgoing != null) listOf(RollingLanMediaMode.TELEGRAM)
+                                    else RollingLanMediaMode.entries.filter { !it.diagnostic || diagnosticsOpen || it == mediaMode }
+                                availableModes.forEach { mode ->
+                                    Row(Modifier.fillMaxWidth().testTag("cast-mode-" + mode.name)
+                                        .selectable(selected = mediaMode == mode, enabled = outgoing == null,
+                                            role = Role.RadioButton, onClick = { selectMode(mode) }).padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        RadioButton(selected = mediaMode == mode, onClick = null, enabled = outgoing == null)
+                                        Text(mode.label, modifier = Modifier.padding(start = 10.dp))
+                                    }
                                 }
                                 if (telegramMode) Text(if (outgoing != null) "Selected video from the player. Scan the TV invitation."
-                                    else "Receiver must already be signed in to Telegram and have access to the selected video.")
-                                if (!telegramMode) Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = liveMode, onCheckedChange = { liveMode = it; localClip = false; directMedia = false; fixture = null })
-                                    Text("Encrypted live playback")
-                                }
-                                if (!telegramMode && liveMode) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Checkbox(checked = localClip, enabled = !directMedia, onCheckedChange = { localClip = it; fixture = null })
-                                        Text("Use compatible local fragmented MP4")
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Checkbox(checked = directMedia, onCheckedChange = { directMedia = it; localClip = false; fixture = null })
-                                        Text("Direct local video (MP4, MKV, TS)")
-                                    }
+                                    else "Receive an existing Telegram video using your authorized Telegram account.")
+                                if (mediaMode.needsFile) {
                                     OutlinedButton(onClick = { launchPicker { video.launch(if (directMedia) "video/*" else "video/mp4") } }, modifier = Modifier.fillMaxWidth()) {
-                                        Text(if (fixture != null) "Clip selected" else if (directMedia) "Select local video (sender)" else if (localClip) "Select local fragmented MP4 (sender)" else "Select official synthetic test clip (sender)")
+                                        Text(if (fixture != null) "Video selected" else if (directMedia) "Select local video to send"
+                                            else if (localClip) "Select fragmented MP4" else "Select official test clip")
                                     }
-                                    Text(if (directMedia) "Both devices select direct mode. Seekable local files only; TV decoder compatibility required. Up to four hours per foreground session; no copied file." else if (localClip) "Both devices must enable local clip mode. H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments. Other formats are rejected." else "Both devices must choose the same test mode. Only the official clip is accepted.")
+                                    Text(if (directMedia) "Seekable local files only. Compatible TV decoder required. Up to four hours; no copied file."
+                                        else if (localClip) "H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments."
+                                        else "Only the official synthetic clip is accepted.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Button(onClick = { requestStart(true) }, enabled = outgoing == null,
-                                    modifier = Modifier.fillMaxWidth()) { Text("Receive on this device") }
+                                Text("Connect a device", style = MaterialTheme.typography.titleMedium)
+                                Button(onClick = { requestStart(true) }, enabled = mediaMode.canReceive(outgoing != null),
+                                    modifier = Modifier.fillMaxWidth().testTag("cast-receive")) { Text("Receive on this device") }
                                 if (Build.VERSION.SDK_INT >= 33) {
                                     OutlinedButton(onClick = { if (browsing) stopDiscovery() else browseReceivers() },
                                         modifier = Modifier.fillMaxWidth()) { Text(if (browsing) "Stop finding receivers" else "Find nearby receivers") }
@@ -247,10 +268,24 @@ class RollingLanLabActivity : ComponentActivity() {
                                     launchPicker { camera.launch(null) }
                                 }, modifier = Modifier.fillMaxWidth()) { Text("Capture QR photo") }
                                 OutlinedButton(onClick = { launchPicker { photo.launch("image/*") } }, modifier = Modifier.fillMaxWidth()) { Text("Import QR photo") }
-                                Button(onClick = { requestStart(false) }, enabled = input.isNotBlank() && (if (telegramMode) outgoing != null else !liveMode || fixture != null),
-                                    modifier = Modifier.fillMaxWidth()) { Text(if (telegramMode) "Send Telegram video reference" else if (liveMode) "Send live test clip" else "Send connectivity test") }
-                            } else OutlinedButton(onClick = { reset("Test cancelled.") }, modifier = Modifier.fillMaxWidth()) { Text("Cancel test") }
-                            OutlinedButton(onClick = { finish() }, modifier = Modifier.fillMaxWidth()) { Text("Close LAN test") }
+                                Button(onClick = { requestStart(false) }, enabled = mediaMode.canSend(input.isNotBlank(), fixture != null, outgoing != null),
+                                    modifier = Modifier.fillMaxWidth().testTag("cast-send")) {
+                                    Text(if (telegramMode) "Send Telegram video" else if (directMedia) "Cast selected video"
+                                        else if (liveMode) "Send diagnostic clip" else "Send connectivity test")
+                                }
+                                if (outgoing == null) {
+                                    OutlinedButton(onClick = {
+                                        diagnosticsOpen = !diagnosticsOpen
+                                        if (!diagnosticsOpen && mediaMode.diagnostic) selectMode(RollingLanMediaMode.DIRECT_VIDEO)
+                                    }, modifier = Modifier.fillMaxWidth()) {
+                                        Text(if (diagnosticsOpen) "Hide diagnostics" else "Advanced diagnostics")
+                                    }
+                                    if (diagnosticsOpen) OutlinedButton(onClick = {
+                                        startActivity(android.content.Intent(this@RollingLanLabActivity, RollingReceiverLabActivity::class.java))
+                                    }, modifier = Modifier.fillMaxWidth()) { Text("Open synthetic pairing lab") }
+                                }
+                            } else OutlinedButton(onClick = { reset("Test cancelled.") }, modifier = Modifier.fillMaxWidth()) { Text("Disconnect") }
+                            OutlinedButton(onClick = { finish() }, modifier = Modifier.fillMaxWidth()) { Text("Back to Bousygram") }
                         }
                     }
                 }
@@ -580,7 +615,7 @@ class RollingLanLabActivity : ComponentActivity() {
             post(token) {
                 busy = false
                 input = result.getOrDefault("")
-                message = if (result.isSuccess) "Invitation decoded. Send the connectivity test."
+                message = if (result.isSuccess) "Invitation decoded. Ready to send the selected media."
                     else "Invalid QR photo. Try a clearer image or paste the invitation."
             }
         }
