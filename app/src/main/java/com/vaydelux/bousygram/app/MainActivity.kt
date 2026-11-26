@@ -338,7 +338,12 @@ private fun BousygramAppRoot(
     LaunchedEffect(Unit) {
         CloudFavoritesNavigation.openRequests.collect {
             if (AccountSession.current() != null) {
-                appScreen = selectShellDestination(unwrapNonPlayerScreen(appScreen), ShellDestination.Favorites)
+                val returnTo = unwrapNonPlayerScreen(appScreen)
+                if (returnTo !is AppScreen.Favorites) {
+                    appScreen = AppScreen.Favorites(returnTo)
+                } else {
+                    appScreen = returnTo
+                }
             }
         }
     }
