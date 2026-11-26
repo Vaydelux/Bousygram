@@ -251,8 +251,8 @@ internal fun TelegramExplorerCompactHeader(
                     null -> if (hasSourceError || hasTopicError) DynamicIslandTone.WARNING else DynamicIslandTone.ACCENT
                 }
                 BousygramDynamicIsland(
-                    modifier = if (effectiveWidth < 460.dp) Modifier.widthIn(max = 122.dp) else Modifier,
-                    compact = effectiveWidth < 860.dp,
+                    modifier = Modifier.widthIn(max = if (effectiveWidth < 1100.dp) 150.dp else 236.dp),
+                    compact = effectiveWidth < 1100.dp,
                     statusTestTag = if (connection != null) "telegram-connection-status" else null,
                     state = DynamicIslandActivityState(
                         title = connectionLabel,
@@ -263,10 +263,7 @@ internal fun TelegramExplorerCompactHeader(
                         liveDetail = if (privacyMode) "Private · $collectionStatus" else collectionStatus,
                         statusTag = "Telegram · $connectionLabel",
                         actions = buildList {
-                            if (hasResume) {
-                                add(DynamicIslandAction("resume", "Continue", BousygramIcons.Continue, true, onResume))
-                            }
-                            add(DynamicIslandAction("search", "Search", BousygramIcons.Search, onClick = onSearch))
+                            // Search and Continue already have dedicated header buttons here.
                             add(DynamicIslandAction("favorites", "Favorites", BousygramIcons.Favorites, onClick = onFavorites))
                             add(DynamicIslandAction("settings", "Settings", BousygramIcons.Settings, onClick = onSettings))
                         }
