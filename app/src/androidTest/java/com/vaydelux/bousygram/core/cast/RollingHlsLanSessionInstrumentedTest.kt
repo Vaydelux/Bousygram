@@ -223,6 +223,10 @@ class RollingHlsLanSessionInstrumentedTest {
         try {
             run {
                 println("DIRECT_MEDIA_START format=$name")
+                val seekExpected = name != "unindexed.ts"
+                val seekRequested = java.util.concurrent.atomic.AtomicBoolean(false)
+                val seekObserved = java.util.concurrent.atomic.AtomicBoolean(false)
+                val attached = java.util.concurrent.atomic.AtomicReference<androidx.media3.exoplayer.ExoPlayer?>(null)
                 val fixture = File(context.getExternalFilesDir("decoder-fixtures"), name)
                 assertTrue(fixture.isFile && fixture.length() > 8192)
                 val invitation = CompletableFuture<String>()
@@ -251,7 +255,19 @@ class RollingHlsLanSessionInstrumentedTest {
                                         assertEquals(-1, source.read(actual, 0, 1))
                                     } finally { source.close() }
                                     RollingHlsLanPlayback.playDirect(context, uri, factory, connected, { engine ->
+                                        attached.set(engine)
                                         if (engine != null) {
+                                            engine.addListener(object : androidx.media3.common.Player.Listener {
+                                                override fun onPositionDiscontinuity(
+                                                    oldPosition: androidx.media3.common.Player.PositionInfo,
+                                                    newPosition: androidx.media3.common.Player.PositionInfo,
+                                                    reason: Int
+                                                ) {
+                                                    if (reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK &&
+                                                        newPosition.positionMs in 4_500L..5_500L)
+                                                        seekObserved.set(true)
+                                                }
+                                            })
                                             texture = SurfaceTexture(10)
                                             surface = Surface(checkNotNull(texture))
                                             engine.setVideoSurface(surface)
@@ -259,7 +275,17 @@ class RollingHlsLanSessionInstrumentedTest {
                                             surface?.release(); texture?.release()
                                             surface = null; texture = null
                                         }
-                                    }, { status -> println("DIRECT_MEDIA_STATE format=$name $status") })
+                                    }, { status ->
+                                        println("DIRECT_MEDIA_STATE format=$name $status")
+                                        if (seekExpected && status == "Playing selected video" &&
+                                            seekRequested.compareAndSet(false, true)) {
+                                            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                                                val engine = checkNotNull(attached.get())
+                                                check(engine.isCurrentMediaItemSeekable) { "Expected indexed media: $name" }
+                                                engine.seekTo(5_000L)
+                                            }
+                                        }
+                                    })
                                 }
                             })
                     }
@@ -290,12 +316,73 @@ class RollingHlsLanSessionInstrumentedTest {
                             }
                             assertEquals(name, RollingHlsLanSession.Result.VERIFIED, sent)
                             assertEquals(name, RollingHlsLanSession.Result.VERIFIED, result.get(30, TimeUnit.SECONDS))
+                            if (seekExpected) assertTrue("No 5-second seek observed for $name", seekObserved.get())
                             println("DIRECT_MEDIA_PASS format=$name")
                         }
                     }
                 }
             }
         } finally { worker.shutdownNow(); assertTrue(workersTerminated(worker)) }
+    }
+
+    @androidx.annotation.OptIn(UnstableApi::class)
+    @Test fun directControlLossRevokesMediaAccess() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val route = checkNotNull(RollingHlsLanRoute.capture(context))
+        val worker = Executors.newSingleThreadExecutor()
+        val invitation = CompletableFuture<String>()
+        val receiverRevoked = java.util.concurrent.atomic.AtomicBoolean(false)
+        val heartbeatObserved = java.util.concurrent.atomic.AtomicBoolean(false)
+        val bytes = ByteArray(8192).apply { "ftyp".toByteArray().copyInto(this, 4) }
+        try {
+            RollingHlsLanSession(route.address, route.prefix, route::current).use { receiver ->
+                val outcome = worker.submit<Boolean> {
+                    runCatching {
+                        receiver.receive({ text, _ -> invitation.complete(text) }, { _, _ -> true }, {},
+                            live = { socket, peer, _ ->
+                                RollingLanDirectMedia.receive(socket, peer, receiver::active) { uri, factory, connected ->
+                                    val deadline = android.os.SystemClock.elapsedRealtime() + 25_000L
+                                    while (connected() && android.os.SystemClock.elapsedRealtime() < deadline)
+                                        Thread.sleep(50)
+                                    receiverRevoked.set(!connected())
+                                    val data = factory.createDataSource()
+                                    try {
+                                        assertThrows(java.io.IOException::class.java) {
+                                            data.open(androidx.media3.datasource.DataSpec(uri))
+                                        }
+                                    } finally { data.close() }
+                                    false
+                                }
+                            })
+                    }.isFailure
+                }
+                checkNotNull(RollingHlsLanInvitation.decode(invitation.get(15, TimeUnit.SECONDS))).use { decoded ->
+                    RollingHlsLanSession(route.address, route.prefix, route::current).use { sender ->
+                        val sent = runCatching {
+                            sender.send(decoded, {}, {}, live = { socket, peer, _ ->
+                                RollingLanDirectMedia.send(socket, peer, object : RollingLanDirectMedia.Source {
+                                    override val size = bytes.size.toLong()
+                                    override fun readAt(offset: Long, buffer: ByteArray, count: Int) {
+                                        bytes.copyInto(buffer, 0, offset.toInt(), offset.toInt() + count)
+                                    }
+                                }, sender::active, onHeartbeat = {
+                                    heartbeatObserved.set(true)
+                                    socket.close()
+                                })
+                            })
+                        }
+                        assertTrue("A closed control session must not report success", sent.isFailure)
+                        assertTrue(heartbeatObserved.get())
+                        assertTrue(outcome.get(30, TimeUnit.SECONDS))
+                        assertTrue(receiverRevoked.get())
+                    }
+                }
+            }
+        } finally {
+            bytes.fill(0)
+            worker.shutdownNow()
+            assertTrue(workersTerminated(worker))
+        }
     }
 
     private fun workersTerminated(worker: java.util.concurrent.ExecutorService) = worker.awaitTermination(10, TimeUnit.SECONDS)

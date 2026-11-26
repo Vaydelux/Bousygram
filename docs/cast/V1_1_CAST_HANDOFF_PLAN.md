@@ -248,3 +248,6 @@ budget when playback is requested. User pause does not consume that budget; posi
 (including seeking) reset it. Completion still requires a rendered frame and actual ended state.
 Control heartbeat shutdown treats IO failures as fatal rather than attempting to send a receipt
 on an ambiguous stream. These changes require fresh Android qualification.
+
+### Qualification follow-up
+Indexed MP4 and MKV direct playback now exercise a five-second seek before successful playback completion; TS is not required to expose an index. A separate authenticated control-loss test forces a disconnect after heartbeat, requires the receiver's data source to reject opening, and disallows a success receipt. These are automated same-emulator tests, not a four-hour physical-device soak or proof of arbitrary codec support.
