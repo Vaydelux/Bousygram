@@ -88,6 +88,7 @@ fun SettingsScreen(
     onLogout: () -> Unit = {},
     onOpenAbout: () -> Unit = {}
 ) {
+    val appearanceController = LocalBousygramAppearanceController.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val adaptive = rememberAdaptiveMetrics()
@@ -125,7 +126,7 @@ fun SettingsScreen(
     // These sampled locations exclude databases, shared preferences and APKs.
     val cacheSize = storageStats.measuredCacheBytes
 
-    val diagnosticsText = remember(safeMode, subtitleLang, playerEngine, audioProfile, cacheSize) {
+    val diagnosticsText = remember(safeMode, subtitleLang, playerEngine, audioProfile, cacheSize, themePreset, designStyle, backdropPattern, appearanceController?.reduceTransparency) {
         EnterprisePreferences.diagnosticsText(cacheSize, BuildConfig.VERSION_NAME)
     }
 
@@ -219,7 +220,6 @@ fun SettingsScreen(
 
                     // 0. iOS 27 Liquid Glass Controls (Dark/Light/Contrast, Accent Tints, Reduce Transparency)
                     item {
-                        val appearanceController = LocalBousygramAppearanceController.current
                         val initialReduce = LocalBousygramReduceTransparency.current
                         var localReduce by remember(initialReduce) { mutableStateOf(initialReduce) }
                         val activeReduce = appearanceController?.reduceTransparency ?: localReduce
@@ -281,9 +281,11 @@ fun SettingsScreen(
                                         EnterprisePreferences.setVisualAppearance(
                                             look.preset.id, look.style.id, look.pattern.id
                                         )
-                                        onThemePresetChange(look.preset)
-                                        onDesignStyleChange(look.style)
-                                        onBackdropPatternChange(look.pattern)
+                                        if (appearanceController == null) {
+                                            onThemePresetChange(look.preset)
+                                            onDesignStyleChange(look.style)
+                                            onBackdropPatternChange(look.pattern)
+                                        }
                                     }
                                 )
                             }
@@ -311,7 +313,7 @@ fun SettingsScreen(
                                     selected = designStyle,
                                     onSelect = { style ->
                                         onDesignStyleChange(style)
-                                        EnterprisePreferences.setDesignStyleId(style.id)
+                                        if (appearanceController == null) EnterprisePreferences.setDesignStyleId(style.id)
                                     }
                                 )
                             }
@@ -339,7 +341,7 @@ fun SettingsScreen(
                                     selected = backdropPattern,
                                     onSelect = { pattern ->
                                         onBackdropPatternChange(pattern)
-                                        EnterprisePreferences.setBackdropPatternId(pattern.id)
+                                        if (appearanceController == null) EnterprisePreferences.setBackdropPatternId(pattern.id)
                                     }
                                 )
                             }
@@ -367,7 +369,7 @@ fun SettingsScreen(
                                     selected = themePreset,
                                     onSelect = { preset ->
                                         onThemePresetChange(preset)
-                                        EnterprisePreferences.setVisualThemeId(preset.id)
+                                        if (appearanceController == null) EnterprisePreferences.setVisualThemeId(preset.id)
                                     }
                                 )
                             }
