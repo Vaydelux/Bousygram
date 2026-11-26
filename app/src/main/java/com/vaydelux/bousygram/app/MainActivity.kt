@@ -338,7 +338,7 @@ private fun BousygramAppRoot(
     LaunchedEffect(Unit) {
         CloudFavoritesNavigation.openRequests.collect {
             if (AccountSession.current() != null) {
-                appScreen = AppScreen.Favorites(unwrapNonPlayerScreen(appScreen))
+                appScreen = selectShellDestination(unwrapNonPlayerScreen(appScreen), ShellDestination.Favorites)
             }
         }
     }
@@ -479,6 +479,15 @@ private fun BousygramAppRoot(
                 is AppScreen.Settings -> ShellDestination.Me
                 else -> ShellDestination.Home
             }
+            // Both phone and TV shell actions share one idempotent route policy.
+            val selectDestination: (ShellDestination) -> Unit = { target ->
+                if (target == ShellDestination.Continue) {
+                    resumeSignal += 1
+                    appScreen = AppScreen.Home
+                } else {
+                    appScreen = selectShellDestination(appScreen, target)
+                }
+            }
             val lastPlayed = EnterprisePreferences.lastPlayed()
             val navFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
             val adaptive = rememberAdaptiveMetrics()
@@ -524,20 +533,7 @@ private fun BousygramAppRoot(
                         }
                         GlassBottomBar(
                             selected = destination,
-                            onSelect = { target ->
-                                appScreen = when (target) {
-                                    ShellDestination.Home -> AppScreen.Home
-                                    ShellDestination.Continue -> {
-                                        resumeSignal += 1
-                                        AppScreen.Home
-                                    }
-                                    ShellDestination.Favorites -> AppScreen.Favorites(appScreen)
-                                    ShellDestination.Library, ShellDestination.Sources, ShellDestination.Offline -> AppScreen.Library
-                                    ShellDestination.Search -> AppScreen.Search(returnTo = appScreen)
-                                    ShellDestination.Me, ShellDestination.Settings -> AppScreen.Settings(appScreen)
-                                    ShellDestination.About -> AppScreen.About(appScreen)
-                                }
-                            },
+                            onSelect = selectDestination,
                             modifier = Modifier.navigationBarsPadding()
                         )
                     }
@@ -570,10 +566,10 @@ private fun BousygramAppRoot(
                     resumeSignal += 1
                 },
                 onOpenSearch = {
-                    appScreen = AppScreen.Search(returnTo = appScreen)
+                    selectDestination(ShellDestination.Search)
                 },
                 onOpenSettings = {
-                    appScreen = AppScreen.Settings(appScreen)
+                    selectDestination(ShellDestination.Settings)
                 },
                 onOpenCast = {
                     android.widget.Toast.makeText(
@@ -583,20 +579,7 @@ private fun BousygramAppRoot(
                     ).show()
                 },
                 navFocusRequester = navFocusRequester,
-                onSelect = { target ->
-                    appScreen = when (target) {
-                        ShellDestination.Home -> AppScreen.Home
-                        ShellDestination.Continue -> {
-                            resumeSignal += 1
-                            AppScreen.Home
-                        }
-                        ShellDestination.Favorites -> AppScreen.Favorites(appScreen)
-                        ShellDestination.Library, ShellDestination.Sources, ShellDestination.Offline -> AppScreen.Library
-                        ShellDestination.Search -> AppScreen.Search(returnTo = appScreen)
-                        ShellDestination.Me, ShellDestination.Settings -> AppScreen.Settings(appScreen)
-                        ShellDestination.About -> AppScreen.About(appScreen)
-                    }
-                }
+                onSelect = selectDestination
             ) {
                 AuthorizedContent(
                     favoritesState = favoritesState,
@@ -618,6 +601,21 @@ private fun BousygramAppRoot(
             }
             }
         }
+    }
+}
+
+// Keep the current route (and any scoped search query) when its destination
+// is reselected. Top-level destination switches must not recursively wrap
+// transient routes, otherwise repeatedly tapping the dock grows Back history.
+internal fun selectShellDestination(current: AppScreen, target: ShellDestination): AppScreen {
+    val returnTo = if (current == AppScreen.Library) AppScreen.Library else AppScreen.Home
+    return when (target) {
+        ShellDestination.Home, ShellDestination.Continue -> AppScreen.Home
+        ShellDestination.Library, ShellDestination.Sources, ShellDestination.Offline -> AppScreen.Library
+        ShellDestination.Favorites -> if (current is AppScreen.Favorites) current else AppScreen.Favorites(returnTo)
+        ShellDestination.Search -> if (current is AppScreen.Search) current else AppScreen.Search(returnTo = returnTo)
+        ShellDestination.Me, ShellDestination.Settings -> if (current is AppScreen.Settings) current else AppScreen.Settings(returnTo)
+        ShellDestination.About -> if (current is AppScreen.About) current else AppScreen.About(returnTo)
     }
 }
 
