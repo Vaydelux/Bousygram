@@ -67,6 +67,9 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -331,6 +334,7 @@ private fun ExtrasMediaForgePlayerScreen(
     val dpadToolbarFocus = remember(request.url) { FocusRequester() }
     val dpadImmersiveFocus = remember(request.url) { FocusRequester() }
     val dpadFullscreenFocus = remember(request.url) { FocusRequester() }
+    val dpadRecoveryFocus = remember(request.url) { FocusRequester() }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
     // A provider may need third-party cookies or scripted autoplay to render its
     // nested player. Neither is granted until the user explicitly opts in.
@@ -556,7 +560,7 @@ private fun ExtrasMediaForgePlayerScreen(
         return
     }
 
-    LaunchedEffect(isAndroidTv, cursorEnabled, webView, immersiveWeb, htmlFullscreenView) {
+    LaunchedEffect(isAndroidTv, cursorEnabled, webView, immersiveWeb, htmlFullscreenView, webLoadFailed) {
         if (!isAndroidTv) return@LaunchedEffect
         // Chromium can take remote focus after navigation even when pointer
         // mode is OFF, forcing Back before the user can reach native controls.
@@ -566,9 +570,11 @@ private fun ExtrasMediaForgePlayerScreen(
             isFocusable = false
             clearFocus()
         }
+        if (webLoadFailed && cursorEnabled) cursorEnabled = false
         if (!cursorEnabled) {
             fun focusNativeControls(): Boolean = when {
                 htmlFullscreenView != null -> dpadFullscreenFocus.requestFocus()
+                webLoadFailed -> dpadRecoveryFocus.requestFocus()
                 immersiveWeb -> dpadImmersiveFocus.requestFocus()
                 else -> dpadToolbarFocus.requestFocus()
             }
@@ -851,43 +857,51 @@ private fun ExtrasMediaForgePlayerScreen(
                 )
             }
             if (webLoadFailed) {
+                val recoveryShape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner)
                 Column(
                     modifier = Modifier.align(Alignment.Center)
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f))
-                        .padding(16.dp),
+                        .padding(8.dp)
+                        .widthIn(max = 440.dp)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface, recoveryShape)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp)
+                        .testTag("extras-web-recovery"),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(status, color = MaterialTheme.colorScheme.onSurface)
                     if (request.anilistId > 0) {
                         OutlinedButton(
                             onClick = onChooseAnimeServer,
-                            modifier = Modifier.testTag("extras-anime-recover-server")
+                            modifier = Modifier.fillMaxWidth().focusRequester(dpadRecoveryFocus).testTag("extras-anime-recover-server")
                         ) { Text("Choose another server") }
                     }
                     if (!webCompatibilityMode) {
                         OutlinedButton(
                             onClick = { tryCompatibilityMode() },
-                            modifier = Modifier.testTag("extras-anime-error-compatibility")
+                            modifier = Modifier.fillMaxWidth().testTag("extras-anime-error-compatibility")
                         ) { Text("Try compatibility (cookies + autoplay)", maxLines = 2) }
                     } else if (!legacyWindowRouting) {
                         OutlinedButton(
                             onClick = { tryLegacyWebMode() },
-                            modifier = Modifier.testTag("extras-embed-error-legacy")
+                            modifier = Modifier.fillMaxWidth().testTag("extras-embed-error-legacy")
                         ) { Text("Try legacy WebView navigation", maxLines = 2) }
                     }
                     OutlinedButton(
                         onClick = { openSelectedInBrowser() },
-                        modifier = Modifier.testTag("extras-anime-error-browser")
+                        modifier = Modifier.fillMaxWidth().testTag("extras-anime-error-browser")
                     ) { Text("Open in browser", maxLines = 2) }
                     OutlinedButton(onClick = {
                         webLoadFailed = false
                         status = "Reloading embedded player…"
                         // A dead Chromium renderer has no reusable WebView or bridge.
                         if (webView != null) webView?.reload() else webGeneration += 1
-                    }, modifier = Modifier.testTag("extras-embed-retry-load")) { Text("Retry page") }
+                    }, modifier = Modifier.fillMaxWidth()
+                        .then(if (request.anilistId <= 0) Modifier.focusRequester(dpadRecoveryFocus) else Modifier)
+                        .testTag("extras-embed-retry-load")) { Text("Retry page") }
                 }
             }
-            if (cursorEnabled && isAndroidTv) {
+            if (cursorEnabled && isAndroidTv && !webLoadFailed) {
                 ExtrasVirtualCursor(
                     target = webView,
                     widthPx = areaWidth,
@@ -909,7 +923,7 @@ private fun ExtrasMediaForgePlayerScreen(
                 // gives the remote an exit when fullscreen hides the main UI.
                 Surface(
                     modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (LocalBousygramReduceTransparency.current || LocalBousygramHaloColors.current.isHighContrast) 1f else 0.95f),
                     contentColor = MaterialTheme.colorScheme.onSurface,
                     shape = RoundedCornerShape(8.dp)
                 ) {
