@@ -682,11 +682,9 @@ fun ExtrasCatalogScreen(onExit: () -> Unit) {
                         }
                     }
                     }
-                    val showExtrasDynamicIsland = if (landscapeToolbar && detailItem == null && !showPersonalLibrary) {
-                        metrics.effectiveWidthDp >= 760.dp
-                    } else {
-                        metrics.effectiveWidthDp >= 360.dp
-                    }
+                    // The landscape toolbar already owns the tab row; retain its available width.
+                    val showExtrasDynamicIsland = styleSpec.isLiquidGlass &&
+                        !landscapeToolbar && metrics.effectiveWidthDp >= 720.dp
                     if (showExtrasDynamicIsland) {
                         val activeDetailItem = detailItem
                         BousygramDynamicIsland(
