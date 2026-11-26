@@ -16,6 +16,8 @@ import com.vaydelux.bousygram.presentation.components.BousygramIosAppearanceCont
 import com.vaydelux.bousygram.presentation.components.DynamicIslandAction
 import com.vaydelux.bousygram.presentation.components.DynamicIslandActivityState
 import org.junit.Assert.assertEquals
+import androidx.test.platform.app.InstrumentationRegistry
+import com.vaydelux.bousygram.data.store.EnterprisePreferences
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,6 +25,30 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppearanceInteractionInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun persistedAppearanceSnapshotTracksAtomicAndIndividualChanges() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val flow = EnterprisePreferences.visualAppearanceFlow
+            val previous = flow.value
+            val newTheme = if (previous.themeId == "cupertino") "midnight_glass" else "cupertino"
+            val newStyle = if (previous.designStyleId == "iphone_glass") "cinema_halo" else "iphone_glass"
+            val newPattern = if (previous.backdropPatternId == "ios_mesh") "ambient_halo" else "ios_mesh"
+            try {
+                EnterprisePreferences.setVisualAppearance(newTheme, newStyle, newPattern, !previous.reduceTransparency)
+                assertEquals(EnterprisePreferences.VisualAppearance(newTheme, newStyle, newPattern, !previous.reduceTransparency), flow.value)
+                EnterprisePreferences.setReduceTransparency(previous.reduceTransparency)
+                assertEquals(previous.reduceTransparency, flow.value.reduceTransparency)
+                EnterprisePreferences.setVisualThemeId(previous.themeId)
+                assertEquals(previous.themeId, flow.value.themeId)
+                assertEquals(newStyle, flow.value.designStyleId)
+                assertEquals(newPattern, flow.value.backdropPatternId)
+            } finally {
+                EnterprisePreferences.setVisualAppearance(previous.themeId, previous.designStyleId,
+                    previous.backdropPatternId, previous.reduceTransparency)
+            }
+        }
+    }
 
     @Test fun appearanceControlsExposeSelectionAndToggleState() {
         compose.setContent {
