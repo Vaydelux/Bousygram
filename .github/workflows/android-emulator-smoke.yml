@@ -6,6 +6,7 @@ on:
   push:
     branches: [main]
     paths:
+      - '.github/workflows/dated-debug-apk.yml'
       - 'app/**'
       - 'mediaforge-core/**'
       - 'mediaforge-webbridge/**'

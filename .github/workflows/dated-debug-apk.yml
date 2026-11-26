@@ -4,6 +4,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: bousygram-dated-debug
@@ -29,6 +30,29 @@ jobs:
           set -euo pipefail
           current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
           [[ "$current" == "$RELEASE_SHA" ]] || { echo "::error::main moved; refusing stale release."; exit 1; }
+
+      - name: Require exact-main companion qualification before building
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for workflow in android-enterprise.yml android-emulator-smoke.yml android-explorer-ui-smoke.yml cast-native-qualification.yml; do
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=main&head_sha=$RELEASE_SHA&per_page=100" | jq -ce --arg sha "$RELEASE_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | sort_by(.run_number, .run_attempt) | last | select(.status == "completed" and .conclusion == "success")')" || {
+              echo "::error::Missing successful exact-main qualification: $workflow ($RELEASE_SHA). Run the workflow on main and retry publication only after it passes."
+              exit 1
+            }
+            id="$(jq -er '.id' <<<"$run")"
+            attempt="$(jq -er '.run_attempt' <<<"$run")"
+            if [[ "$workflow" != android-enterprise.yml ]]; then
+              count=1
+              if [[ "$workflow" == cast-native-qualification.yml ]]; then count=2; fi
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/attempts/$attempt/jobs?per_page=100" | jq -e \
+                --arg proof "Prove tested merge $RELEASE_SHA" --argjson count "$count" \
+                '.total_count == $count and (.jobs | length == $count and all(.[]; .conclusion == "success" and any(.steps[]?; .name == $proof and .conclusion == "success")))' >/dev/null
+            fi
+            echo "Qualified $workflow: run $id attempt $attempt, source $RELEASE_SHA"
+          done
 
       - name: Check out verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

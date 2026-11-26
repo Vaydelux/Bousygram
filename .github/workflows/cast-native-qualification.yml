@@ -1,5 +1,15 @@
 name: Isolated Cast Native Build
 on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dated-debug-apk.yml'
+      - '.github/workflows/cast-native-qualification.yml'
+      - 'tools/cast-native/**'
+      - 'app/src/debug/java/com/vaydelux/bousygram/core/cast/**'
+      - 'app/src/main/java/com/vaydelux/bousygram/core/cast/**'
+      - 'tools/ci/qualify_rolling_hls*'
   pull_request:
     paths:
       - 'tools/cast-native/**'
