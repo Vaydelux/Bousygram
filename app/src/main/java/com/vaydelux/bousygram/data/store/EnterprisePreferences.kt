@@ -93,6 +93,36 @@ object EnterprisePreferences {
         BousygramApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    // All appearance entry points (including imported settings) converge on
+    // one persisted snapshot. Keep the listener strongly referenced for the
+    // process lifetime; SharedPreferences itself only retains weak references.
+    data class VisualAppearance(
+        val themeId: String,
+        val designStyleId: String,
+        val backdropPatternId: String,
+        val reduceTransparency: Boolean
+    )
+
+    private fun readVisualAppearance() = VisualAppearance(
+        visualThemeId(), designStyleId(), backdropPatternId(), reduceTransparency()
+    )
+
+    private val visualAppearanceState by lazy { MutableStateFlow(readVisualAppearance()) }
+    private val appearanceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key == KEY_VISUAL_THEME || key == KEY_VISUAL_DESIGN_STYLE ||
+            key == KEY_VISUAL_BACKDROP_PATTERN || key == KEY_VISUAL_REDUCE_TRANSPARENCY) {
+            visualAppearanceState.value = readVisualAppearance()
+        }
+    }
+
+    val visualAppearanceFlow: StateFlow<VisualAppearance> by lazy {
+        val state = visualAppearanceState
+        prefs.registerOnSharedPreferenceChangeListener(appearanceListener)
+        // Refresh after registration so a change during initialization is not lost.
+        state.value = readVisualAppearance()
+        state.asStateFlow()
+    }
+
     private fun accountPrefs(owner: AccountSnapshot): SharedPreferences =
         BousygramApp.instance.getSharedPreferences("account_${owner.accountId}_enterprise", Context.MODE_PRIVATE)
 
