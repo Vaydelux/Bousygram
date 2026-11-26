@@ -232,3 +232,12 @@ remain the original routes. One media-mode enum replaces conflicting checkboxes,
 to direct local video, and hides synthetic diagnostics behind Advanced diagnostics. The
 Telegram player pins the chosen reference and forces Telegram mode. Both peers still select
 the same mode and pair by QR/manual invitation; NSD is an untrusted availability hint.
+
+### Direct control lifetime follow-up
+The separate direct-media control connection now carries a heartbeat every five seconds,
+with a 30-second sender idle read deadline and a 15-second receiver control read deadline.
+Loss of control revokes data access and propagates to the playback loop. The foreground
+owner stops the heartbeat before sending the terminal playback result. The protocol is
+versioned; old direct-media peers are refused. Control loss requires a new invitation;
+only data socket interruption within a live approved control session can recover automatically.
+Instrumentation asserts heartbeat exchange alongside exact byte-range recovery and playback.

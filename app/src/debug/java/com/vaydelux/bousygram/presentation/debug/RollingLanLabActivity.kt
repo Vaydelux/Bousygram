@@ -484,8 +484,8 @@ class RollingLanLabActivity : ComponentActivity() {
                                 prepared?.owner == account && active.active()
                             }
                         }) else if (direct) ({ socket, peer, _ ->
-                            RollingLanDirectMedia.receive(socket, peer, active::active) { uri, factory ->
-                                RollingHlsLanPlayback.playDirect(this@RollingLanLabActivity, uri, factory, active::active,
+                            RollingLanDirectMedia.receive(socket, peer, active::active) { uri, factory, connected ->
+                                RollingHlsLanPlayback.playDirect(this@RollingLanLabActivity, uri, factory, connected,
                                     { engine -> if (token == generation.get()) player = engine },
                                     { text -> post(token) { message = text } })
                             }

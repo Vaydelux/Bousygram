@@ -26,10 +26,14 @@ import javax.net.ssl.SSLSocket
  * Both directions use the already enrolled TLS identity; no permanent listener. */
 @UnstableApi
 internal object RollingLanDirectMedia {
-    private const val MAGIC = 0x42474432
+    private const val MAGIC = 0x42474434
     private const val DATA_MAGIC = 0x42474433
     private const val READ = 1
     private const val FINISH = 2
+    private const val PING = 3
+    private const val PONG = 4
+    private const val HEARTBEAT_MS = 5_000L
+    private const val CONTROL_TIMEOUT_MS = 30_000
 
     interface Source {
         val size: Long
@@ -94,7 +98,8 @@ internal object RollingLanDirectMedia {
     }
 
     fun send(socket: SSLSocket, peer: RollingHlsPairedTls.Peer, source: Source,
-             permitted: () -> Boolean, interruptAfterWrite: ((Long) -> Boolean)? = null) {
+             permitted: () -> Boolean, interruptAfterWrite: ((Long) -> Boolean)? = null,
+             onHeartbeat: (() -> Unit)? = null) {
         handshake(socket, peer, true, permitted)
         val size = source.size
         if (!RollingLanDirectMediaPolicy.validSize(size)) throw IOException("Invalid selected media size")
@@ -110,7 +115,7 @@ internal object RollingLanDirectMedia {
         val done = AtomicBoolean(false)
         val accepted = AtomicReference<SSLSocket?>(null)
         val fatal = AtomicReference<Exception?>(null)
-        fun active() = !done.get() && permitted()
+        fun active() = !done.get() && !socket.isClosed && permitted()
         var worker: Thread? = null
         try {
             listener.enabledProtocols = arrayOf("TLSv1.3")
@@ -173,13 +178,28 @@ internal object RollingLanDirectMedia {
             output.writeLong(size)
             output.writeShort(listener.localPort)
             output.flush()
-            socket.soTimeout = RollingLanSessionLifetime.DIRECT_VIDEO.operationMs.toInt()
-            if (input.readUnsignedByte() != FINISH || input.readUnsignedByte() != 1)
-                throw IOException("Direct playback not confirmed")
-            access(permitted)
-            fatal.get()?.let { throw IOException("Direct source failed", it) }
-            output.writeByte(1)
-            output.flush()
+            socket.soTimeout = CONTROL_TIMEOUT_MS
+            while (true) {
+                access(::active)
+                when (input.readUnsignedByte()) {
+                    PING -> {
+                        access(::active)
+                        output.writeByte(PONG)
+                        output.flush()
+                        onHeartbeat?.invoke()
+                    }
+                    FINISH -> {
+                        if (input.readUnsignedByte() != 1)
+                            throw IOException("Direct playback not confirmed")
+                        access(::active)
+                        fatal.get()?.let { throw IOException("Direct source failed", it) }
+                        output.writeByte(1)
+                        output.flush()
+                        break
+                    }
+                    else -> throw IOException("Invalid direct control command")
+                }
+            }
         } finally {
             done.set(true)
             runCatching { listener.close() }
@@ -189,7 +209,7 @@ internal object RollingLanDirectMedia {
     }
 
     fun receive(socket: SSLSocket, peer: RollingHlsPairedTls.Peer, permitted: () -> Boolean,
-                playback: (Uri, DataSource.Factory) -> Boolean) {
+                playback: (Uri, DataSource.Factory, () -> Boolean) -> Boolean) {
         handshake(socket, peer, false, permitted)
         socket.soTimeout = 15_000
         val input = DataInputStream(socket.inputStream)
@@ -200,20 +220,69 @@ internal object RollingLanDirectMedia {
         val port = input.readUnsignedShort()
         if (port == 0) throw IOException("Invalid direct data port")
         val client = Client(size, socket, port, peer, input, output, permitted)
+        val heartbeat = DirectHeartbeat(socket, input, output, client::active, client::revoke)
         try {
-            if (!playback(client.uri, client.factory()) || !permitted()) throw IOException("Direct playback incomplete")
+            heartbeat.start()
+            val completed = try { playback(client.uri, client.factory(), client::active) }
+                finally { heartbeat.stop() }
+            if (!completed || !client.active()) throw IOException("Direct playback incomplete")
             client.finish()
         } catch (error: Exception) {
-            // Make receiver failure observable before the control channel is closed.
+            // The heartbeat is stopped before the foreground owner uses control IO.
             runCatching {
-                if (permitted()) {
+                if (client.active()) {
                     output.writeByte(FINISH)
                     output.writeByte(0)
                     output.flush()
                 }
             }
             throw error
-        } finally { client.revoke() }
+        } finally {
+            try { heartbeat.stop() } finally { client.revoke() }
+        }
+    }
+
+    /** Single control reader/writer while playback owns the data socket.
+     * An idle or vanished peer cannot retain the selected descriptor for hours.
+     * No control re-enrollment: expiration and control loss fail closed. */
+    private class DirectHeartbeat(private val socket: SSLSocket, private val input: DataInputStream,
+                                  private val output: DataOutputStream, private val permitted: () -> Boolean,
+                                  private val revoke: () -> Unit) {
+        private val running = AtomicBoolean(false)
+        private val worker = Thread({
+            try {
+                while (running.get() && permitted()) {
+                    output.writeByte(PING)
+                    output.flush()
+                    if (input.readUnsignedByte() != PONG) throw IOException("Invalid control heartbeat")
+                    Thread.sleep(HEARTBEAT_MS)
+                }
+                if (running.get()) throw IOException("Direct control revoked")
+            } catch (error: Exception) {
+                if (running.get()) {
+                    runCatching { socket.close() }
+                    revoke()
+                }
+            }
+        }, "direct-media-heartbeat")
+
+        fun start() {
+            check(running.compareAndSet(false, true))
+            worker.start()
+        }
+
+        fun stop() {
+            running.set(false)
+            worker.interrupt()
+            if (worker.state == Thread.State.NEW) return
+            worker.join(16_000)
+            if (worker.isAlive) {
+                runCatching { socket.close() }
+                revoke()
+                worker.join(1_000)
+                throw IOException("Direct control heartbeat did not stop cleanly")
+            }
+        }
     }
 
     private class Client(private val size: Long, private val control: SSLSocket,
@@ -223,7 +292,7 @@ internal object RollingLanDirectMedia {
         val uri: Uri = Uri.parse("bousygram-direct://${UUID.randomUUID()}/video")
         @Volatile private var closed = false
         @Volatile private var failed = false
-        private fun active() = !closed && !failed && permitted()
+        fun active() = !closed && !failed && !control.isClosed && permitted()
         private val dataSocket = AtomicReference<SSLSocket?>(null)
         private val window = RollingLanDirectReadWindow(size)
         private var dataInput: DataInputStream? = null

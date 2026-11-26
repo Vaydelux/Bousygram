@@ -232,7 +232,7 @@ class RollingHlsLanSessionInstrumentedTest {
                     val result = worker.submit<RollingHlsLanSession.Result> {
                         receiver.receive({ text, _ -> invitation.complete(text) }, { _, _ -> true }, {},
                             live = { socket, peer, _ ->
-                                RollingLanDirectMedia.receive(socket, peer, receiver::active) { uri, factory ->
+                                RollingLanDirectMedia.receive(socket, peer, receiver::active) { uri, factory, connected ->
                                     val source = factory.createDataSource()
                                     try {
                                         val spec = androidx.media3.datasource.DataSpec.Builder().setUri(uri)
@@ -250,7 +250,7 @@ class RollingHlsLanSessionInstrumentedTest {
                                         assertArrayEquals(expected, actual)
                                         assertEquals(-1, source.read(actual, 0, 1))
                                     } finally { source.close() }
-                                    RollingHlsLanPlayback.playDirect(context, uri, factory, receiver::active, { engine ->
+                                    RollingHlsLanPlayback.playDirect(context, uri, factory, connected, { engine ->
                                         if (engine != null) {
                                             texture = SurfaceTexture(10)
                                             surface = Surface(checkNotNull(texture))
@@ -275,11 +275,13 @@ class RollingHlsLanSessionInstrumentedTest {
                                         }
                                     }
                                     val interrupted = java.util.concurrent.atomic.AtomicBoolean(false)
+                                    val heartbeats = java.util.concurrent.atomic.AtomicInteger()
                                     RollingLanDirectMedia.send(socket, peer, source, sender::active,
                                         interruptAfterWrite = { offset ->
                                             offset == 0L && interrupted.compareAndSet(false, true)
-                                        })
+                                        }, onHeartbeat = { heartbeats.incrementAndGet() })
                                     assertTrue("Expected interrupted data response for $name", interrupted.get())
+                                    assertTrue("Expected control heartbeat for $name", heartbeats.get() >= 1)
                                 }
                             }) } catch (senderError: Exception) {
                                 try { result.get(10, TimeUnit.SECONDS) }
