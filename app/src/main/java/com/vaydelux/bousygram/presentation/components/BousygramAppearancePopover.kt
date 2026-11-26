@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -86,9 +87,9 @@ fun BousygramIosAppearanceControls(
     val labelColor = if (obsidianSurface) Color(0xFFB3C0D6) else colors.onSurfaceVariant
     val primaryText = if (obsidianSurface) Color(0xFFF5F8FF) else colors.onSurface
     val trayFill = if (obsidianSurface) {
-        Color(0xFF141B29).copy(alpha = if (reduceTransparency) 0.98f else 0.86f)
+        Color(0xFF141B29).copy(alpha = if (reduceTransparency) 1f else 0.86f)
     } else {
-        colors.surfaceContainerHigh.copy(alpha = if (reduceTransparency || halo.isHighContrast) 0.98f else 0.72f)
+        colors.surfaceContainerHigh.copy(alpha = if (reduceTransparency || halo.isHighContrast) 1f else 0.72f)
     }
     val trayBorder = if (obsidianSurface) {
         Color.White.copy(alpha = 0.12f)
@@ -200,7 +201,8 @@ fun BousygramIosAppearanceControls(
                 .background(trayFill)
                 .border(if (switchFocused) BousygramUiTokens.tvFocusOutline else 1.dp, rowBorder, rowShape)
                 .onFocusChanged { switchFocused = it.isFocused }
-                .clickable(role = Role.Switch) { onReduceTransparencyChange(!reduceTransparency) }
+                .heightIn(min = 48.dp)
+                .toggleable(value = reduceTransparency, role = Role.Switch, onValueChange = onReduceTransparencyChange)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
                 .testTag("ios-reduce-transparency-toggle"),
             verticalAlignment = Alignment.CenterVertically,
@@ -294,7 +296,7 @@ private fun IosModeSegment(
     }
     Row(
         modifier = modifier
-            .heightIn(min = if (isTv) 48.dp else 40.dp)
+            .heightIn(min = 48.dp)
             .clip(shape)
             .background(bg)
             .then(
@@ -355,8 +357,8 @@ private fun IosAccentSwatchButton(
             selected -> colors.primaryContainer
             focused && obsidianSurface -> Color.White.copy(alpha = 0.14f)
             focused -> colors.surfaceContainerHighest
-            obsidianSurface -> Color(0xFF141B29).copy(alpha = if (reduceTransparency) 0.96f else 0.76f)
-            else -> colors.surfaceContainerLow.copy(alpha = if (reduceTransparency || halo.isHighContrast) 0.98f else 0.80f)
+            obsidianSurface -> Color(0xFF141B29).copy(alpha = if (reduceTransparency) 1f else 0.76f)
+            else -> colors.surfaceContainerLow.copy(alpha = if (reduceTransparency || halo.isHighContrast) 1f else 0.80f)
         },
         animationSpec = tween(motion.duration(BousygramUiTokens.focusDurationMs)),
         label = "iosAccentBg"
@@ -376,7 +378,7 @@ private fun IosAccentSwatchButton(
 
     Row(
         modifier = modifier
-            .heightIn(min = if (isTv) 48.dp else 42.dp)
+            .heightIn(min = 48.dp)
             .clip(shape)
             .background(bg)
             .border(
