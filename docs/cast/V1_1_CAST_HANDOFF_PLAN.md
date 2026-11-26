@@ -181,3 +181,6 @@ Actual synthetic QR/consent UI, debug launcher entry, off-main identity operatio
 
 ## R3p — consolidated receiver enrollment qualification
 Integrate debug TV launcher, explicit consent, credential orphan cleanup and real QR-pinned TLS enrollment with certificate possession proof. Prior 141/141 Android tests passed. New host enrollment negative and approval gates passed locally against equivalent dependencies; actual Android integration pending. No LAN, real remote receiver or source reclamation.
+
+## Batch A1 — two-device foreground LAN qualification
+Fix all observed manifest/trust-manager lint issues; introduce QR endpoint/certificate, permission-aware private network selection, signed enrollment, remote consent, mutually authenticated synthetic transfer, cancellation and host/Android regression gates. LAN UI and physical devices still need qualification; actual live media transport not connected. Keep main unchanged.

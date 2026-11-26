@@ -39,7 +39,7 @@ fun main(args: Array<String>) {
                     catch (_: Exception) { null }
                 }
                 val accepted = try {
-                    (RollingHlsEnrollment.clientContext(expectedPin).socketFactory.createSocket(loopback, listener.localPort) as SSLSocket).use {
+                    (RollingHlsEnrollment.clientContext(tv.getCertificate("peer") as X509Certificate, expectedPin).socketFactory.createSocket(loopback, listener.localPort) as SSLSocket).use {
                         RollingHlsEnrollment.send(it, offer, cert, signingKey) { true }
                     }
                 } catch (_: Exception) { false }

@@ -19,3 +19,9 @@ kotlinc -classpath "$coroutines" "$debug/RollingHlsEnrollment.kt" \
     "$root/app/src/main/java/com/vaydelux/bousygram/core/account/AccountSession.kt" \
     "$root/tools/ci/fixtures/RollingHlsEnrollmentSmoke.kt" -include-runtime -d "$scratch/enrollment.jar"
 java -cp "$scratch/enrollment.jar:$coroutines" com.vaydelux.bousygram.core.cast.RollingHlsEnrollmentSmokeKt "$scratch"
+kotlinc -classpath "$coroutines" "$debug/RollingHlsEnrollment.kt" \
+    "$debug/RollingHlsPeerIdentity.kt" "$debug/RollingHlsPeerPairing.kt" "$debug/RollingHlsPairingQr.kt" \
+    "$debug/RollingHlsLanInvitation.kt" "$debug/RollingHlsLanProbe.kt" \
+    "$root/app/src/main/java/com/vaydelux/bousygram/core/account/AccountSession.kt" \
+    "$root/tools/ci/fixtures/RollingHlsLanSmoke.kt" -include-runtime -d "$scratch/lan.jar"
+java -cp "$scratch/lan.jar:$coroutines" com.vaydelux.bousygram.core.cast.RollingHlsLanSmokeKt "$scratch"

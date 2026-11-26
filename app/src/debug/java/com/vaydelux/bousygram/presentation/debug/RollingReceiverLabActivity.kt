@@ -1,6 +1,8 @@
 package com.vaydelux.bousygram.presentation.debug
 
 import android.graphics.Bitmap
+import android.content.Intent
+import androidx.compose.runtime.mutableLongStateOf
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -44,7 +46,7 @@ class RollingReceiverLabActivity : ComponentActivity() {
     private var message by mutableStateOf("Create a one-time invitation to begin.")
     private var fingerprint by mutableStateOf("")
     private var qr by mutableStateOf<Bitmap?>(null)
-    private var remaining by mutableStateOf(0L)
+    private var remaining by mutableLongStateOf(0L)
     private var expiresAt = 0L
     private val generation = AtomicLong()
     private val io = Executors.newSingleThreadExecutor()
@@ -95,6 +97,10 @@ class RollingReceiverLabActivity : ComponentActivity() {
                             }
                             if (stage == Stage.INVITATION || stage == Stage.PENDING || stage == Stage.WORKING)
                                 OutlinedButton(onClick = { reset("Invitation cancelled.") }, modifier = Modifier.fillMaxWidth()) { Text("Cancel invitation") }
+                            OutlinedButton(onClick = {
+                                reset("Create a new invitation to begin.")
+                                startActivity(Intent(this@RollingReceiverLabActivity, RollingLanLabActivity::class.java))
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Two-device LAN test") }
                             OutlinedButton(onClick = { finish() }, modifier = Modifier.fillMaxWidth()) { Text("Close lab") }
                         }
                     }

@@ -13,7 +13,8 @@ import java.security.cert.X509Certificate
 import java.security.interfaces.ECPublicKey
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
-import javax.net.ssl.X509TrustManager
+import javax.net.ssl.TrustManagerFactory
+import java.security.KeyStore
 
 /** Bootstrap only: QR-pinned TLS server plus sender proof of key possession.
  * A successful exchange creates a pending invitation, not an authorized peer.
@@ -23,7 +24,7 @@ internal object RollingHlsEnrollment {
     private val domain = "Bousygram/enrollment/v1".toByteArray(Charsets.US_ASCII)
     data class Request(val pending: RollingHlsPeerPairing.Pending, val certificate: X509Certificate)
 
-    private fun validate(cert: X509Certificate) {
+    internal fun validate(cert: X509Certificate) {
         cert.checkValidity()
         val key = cert.publicKey as? ECPublicKey ?: throw CertificateException("Expected EC identity")
         if (key.params.curve.field.fieldSize != 256 || key.params.order.bitLength() != 256 ||
@@ -32,24 +33,17 @@ internal object RollingHlsEnrollment {
         cert.verify(key)
     }
 
-    fun clientContext(pin: ByteArray): SSLContext {
-        require(pin.size == 32)
-        val expected = pin.copyOf()
-        val trust = object : X509TrustManager {
-            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                throw CertificateException("Client trust not supported")
-            }
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                val cert = chain?.singleOrNull() ?: throw CertificateException("Expected one enrolled leaf")
-                try {
-                    validate(cert)
-                    if (!MessageDigest.isEqual(expected, RollingHlsPeerIdentity.fingerprint(cert)))
-                        throw CertificateException("Incorrect receiver pin")
-                } catch (error: Exception) { throw CertificateException("Receiver identity refused", error) }
-            }
+    /** Standard platform validation with exactly one out-of-band anchor.
+     * The pin must match before trust material is installed and after TLS. */
+    fun clientContext(certificate: X509Certificate, pin: ByteArray): SSLContext {
+        validate(certificate)
+        require(pin.size == 32 && MessageDigest.isEqual(pin, RollingHlsPeerIdentity.fingerprint(certificate)))
+        val trust = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
+            load(null, null)
+            setCertificateEntry("enrolled-receiver", certificate)
         }
-        return SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }
+        val manager = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trust) }
+        return SSLContext.getInstance("TLS").apply { init(null, manager.trustManagers, null) }
     }
 
     private fun read(input: DataInputStream, size: Int): ByteArray = ByteArray(size).also { input.readFully(it) }

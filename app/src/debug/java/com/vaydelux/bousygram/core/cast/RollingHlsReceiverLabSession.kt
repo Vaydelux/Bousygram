@@ -97,7 +97,7 @@ internal class RollingHlsReceiverLabSession(
                     RollingHlsEnrollment.receive(socket, pairing, ::allowed)
                 }
             }
-            val ctx = RollingHlsEnrollment.clientContext(invitation.receiverPin)
+            val ctx = RollingHlsEnrollment.clientContext(receiver.certificate(), invitation.receiverPin)
             val ok = (ctx.socketFactory.createSocket() as SSLSocket).use { socket ->
                 client.set(socket)
                 check(allowed())
