@@ -836,6 +836,7 @@ private fun ExtrasMediaForgePlayerScreen(
                             ).also { webView = it }
                         } catch (_: RuntimeException) {
                             status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
+                            webLoadFailed = true
                             android.widget.TextView(ctx).apply {
                                 setText(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
                                 setTextColor(android.graphics.Color.WHITE)
@@ -857,49 +858,24 @@ private fun ExtrasMediaForgePlayerScreen(
                 )
             }
             if (webLoadFailed) {
-                val recoveryShape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner)
-                Column(
-                    modifier = Modifier.align(Alignment.Center)
-                        .padding(8.dp)
-                        .widthIn(max = 440.dp)
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface, recoveryShape)
-                        .verticalScroll(rememberScrollState())
-                        .padding(12.dp)
-                        .testTag("extras-web-recovery"),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(status, color = MaterialTheme.colorScheme.onSurface)
-                    if (request.anilistId > 0) {
-                        OutlinedButton(
-                            onClick = onChooseAnimeServer,
-                            modifier = Modifier.fillMaxWidth().focusRequester(dpadRecoveryFocus).testTag("extras-anime-recover-server")
-                        ) { Text("Choose another server") }
-                    }
-                    if (!webCompatibilityMode) {
-                        OutlinedButton(
-                            onClick = { tryCompatibilityMode() },
-                            modifier = Modifier.fillMaxWidth().testTag("extras-anime-error-compatibility")
-                        ) { Text("Try compatibility (cookies + autoplay)", maxLines = 2) }
-                    } else if (!legacyWindowRouting) {
-                        OutlinedButton(
-                            onClick = { tryLegacyWebMode() },
-                            modifier = Modifier.fillMaxWidth().testTag("extras-embed-error-legacy")
-                        ) { Text("Try legacy WebView navigation", maxLines = 2) }
-                    }
-                    OutlinedButton(
-                        onClick = { openSelectedInBrowser() },
-                        modifier = Modifier.fillMaxWidth().testTag("extras-anime-error-browser")
-                    ) { Text("Open in browser", maxLines = 2) }
-                    OutlinedButton(onClick = {
+                ExtrasWebRecoveryPanel(
+                    status = status,
+                    isAnime = request.anilistId > 0,
+                    compatibilityMode = webCompatibilityMode,
+                    legacyMode = legacyWindowRouting,
+                    onChooseServer = onChooseAnimeServer,
+                    onCompatibility = { tryCompatibilityMode() },
+                    onLegacyMode = { tryLegacyWebMode() },
+                    onBrowser = { openSelectedInBrowser() },
+                    onRetry = {
                         webLoadFailed = false
                         status = "Reloading embedded player…"
                         // A dead Chromium renderer has no reusable WebView or bridge.
                         if (webView != null) webView?.reload() else webGeneration += 1
-                    }, modifier = Modifier.fillMaxWidth()
-                        .then(if (request.anilistId <= 0) Modifier.focusRequester(dpadRecoveryFocus) else Modifier)
-                        .testTag("extras-embed-retry-load")) { Text("Retry page") }
-                }
+                    },
+                    initialFocus = dpadRecoveryFocus,
+                    modifier = Modifier.align(Alignment.Center)
+                )
             }
             if (cursorEnabled && isAndroidTv && !webLoadFailed) {
                 ExtrasVirtualCursor(
@@ -1239,6 +1215,60 @@ private fun ExtrasMediaForgePlayerScreen(
             }
         }
     }
+    }
+}
+
+/** Trusted native recovery UI, independent of a WebView or provider session. */
+@Composable
+internal fun ExtrasWebRecoveryPanel(
+    status: String,
+    isAnime: Boolean,
+    compatibilityMode: Boolean,
+    legacyMode: Boolean,
+    onChooseServer: () -> Unit,
+    onCompatibility: () -> Unit,
+    onLegacyMode: () -> Unit,
+    onBrowser: () -> Unit,
+    onRetry: () -> Unit,
+    initialFocus: FocusRequester? = null,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner)
+    Column(
+        modifier = modifier.padding(8.dp).widthIn(max = 440.dp).fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface, shape)
+            .verticalScroll(rememberScrollState()).padding(12.dp)
+            .testTag("extras-web-recovery"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(status, color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyMedium)
+        if (isAnime) {
+            OutlinedButton(onClick = onChooseServer,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .then(if (initialFocus != null) Modifier.focusRequester(initialFocus) else Modifier)
+                    .testTag("extras-anime-recover-server")) { Text("Choose another server") }
+        }
+        OutlinedButton(onClick = onRetry,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .then(if (!isAnime && initialFocus != null) Modifier.focusRequester(initialFocus) else Modifier)
+                .testTag("extras-embed-retry-load")) { Text("Retry page") }
+        if (!compatibilityMode) {
+            OutlinedButton(onClick = onCompatibility,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .testTag("extras-anime-error-compatibility")) {
+                Text("Try compatibility (cookies + autoplay)", maxLines = 2)
+            }
+        } else if (!legacyMode) {
+            OutlinedButton(onClick = onLegacyMode,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .testTag("extras-embed-error-legacy")) {
+                Text("Try legacy WebView navigation", maxLines = 2)
+            }
+        }
+        OutlinedButton(onClick = onBrowser,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .testTag("extras-anime-error-browser")) { Text("Open in browser", maxLines = 2) }
     }
 }
 
