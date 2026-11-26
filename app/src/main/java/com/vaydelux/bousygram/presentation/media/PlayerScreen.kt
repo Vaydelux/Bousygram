@@ -209,6 +209,9 @@ import com.vaydelux.bousygram.presentation.components.BousygramIconRef
 import com.vaydelux.bousygram.presentation.components.BousygramIcons
 import com.vaydelux.bousygram.presentation.theme.BousygramUiTokens
 import com.vaydelux.bousygram.presentation.theme.LocalBousygramHaloColors
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramReduceTransparency
+import com.vaydelux.bousygram.presentation.theme.LocalBousygramStyleSpec
+import androidx.compose.ui.semantics.selected
 import com.vaydelux.bousygram.presentation.theme.rememberBousygramMotionPolicy
 import com.vaydelux.bousygram.presentation.theme.tabular
 import kotlinx.coroutines.Dispatchers
@@ -2915,7 +2918,7 @@ fun PlayerScreen(
                             localNetworkPermissionRequest.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
                         },
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = if (LocalBousygramReduceTransparency.current || LocalBousygramHaloColors.current.isHighContrast) 1f else 0.9f)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text("Cast", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
@@ -2941,13 +2944,23 @@ fun PlayerScreen(
                     )
                 }
                 if (castState.connected && !castState.deviceName.isNullOrBlank()) {
-                    Text(
-                        if (castPreparing) "Preparing Cast…" else if (castState.loading) "Connecting to ${castState.deviceName}…" else
-                            if (castState.playbackStatus == CastPlaybackStatus.Idle) "TV connected" else
-                                "Casting to ${castState.deviceName}",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(LocalBousygramStyleSpec.current.tabCorner),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.widthIn(max = if (compactHud) 180.dp else 260.dp)
+                    ) {
+                        Text(
+                            if (castPreparing) "Preparing Cast…" else if (castState.loading) "Connecting to ${castState.deviceName}…" else
+                                if (castState.playbackStatus == CastPlaybackStatus.Idle) "TV connected" else
+                                    "Casting to ${castState.deviceName}",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
@@ -2969,7 +2982,7 @@ fun PlayerScreen(
             val ringProgressColor = halo.haloStart
             Surface(
                 shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = if (LocalBousygramReduceTransparency.current || halo.isHighContrast) 1f else 0.96f),
                 border = androidx.compose.foundation.BorderStroke(1.5.dp, halo.haloStart.copy(alpha = 0.85f)),
                 tonalElevation = 12.dp,
                 shadowElevation = if (motion.lowRam) 0.dp else 16.dp,
@@ -3835,7 +3848,7 @@ private fun TrackPickerOverlay(
             .widthIn(max = if (isTv) 880.dp else 440.dp)
             .fillMaxWidth(if (isTv) 0.84f else if (compact) 0.94f else 0.44f)
             .focusGroup(),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (LocalBousygramReduceTransparency.current || halo.isHighContrast) 1f else 0.96f),
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(BousygramUiTokens.panelCorner),
         border = androidx.compose.foundation.BorderStroke(1.dp, halo.glassBorder),
@@ -3945,7 +3958,7 @@ private fun TrackPickerOverlay(
                     if (selectedType == MediaTrackInfo.TrackType.AUDIO)
                         "No alternate audio tracks are available."
                     else
-                        "No subtitle tracks are available for this video.",
+                        "No alternate video streams are available.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -4087,7 +4100,8 @@ private fun TrackChoice(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = if (isTv) 58.dp else 46.dp)
+            .heightIn(min = if (isTv) 58.dp else 48.dp)
+            .semantics { this.selected = selected }
             .border(
                 width = if (focused) 2.5.dp else if (selected) 1.5.dp else 1.dp,
                 color = when {
