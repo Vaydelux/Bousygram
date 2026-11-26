@@ -28,7 +28,7 @@ run_setup "$TMP" >/dev/null
 printf 'ANDROID_PLATFORM_PACKAGE=platforms;android-37.0\nANDROID_PLATFORM_DIR=%s/platforms/android-37.0\nANDROID_BUILD_TOOLS_DIR=%s/build-tools/35.0.0\n' "$TMP" "$TMP" > "$TMP/expected-env"
 diff -u "$TMP/expected-env" "$fixture_env"
 grep -Fxq '## Android SDK' "$fixture_summary"
-grep -Fxq 'Build Tools: `35.0.0`' "$fixture_summary"
+grep -Fxq "Build Tools: \`35.0.0\`" "$fixture_summary"
 cp "$fixture_summary" "$TMP/expected-summary"
 mkdir -p "$TMP/missing"
 if run_setup "$TMP/missing" >/dev/null 2>&1; then
