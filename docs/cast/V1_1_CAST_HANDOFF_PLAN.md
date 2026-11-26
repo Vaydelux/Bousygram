@@ -215,3 +215,13 @@ matching modes on both devices; incompatible codecs, non-seekable providers and 
 direct sockets fail closed. This is not arbitrary codec conversion or long-duration casting.
 Keep the native LGPL packaging gate unchanged. Do not distribute a new APK until current and
 candidate qualification complete; test physical devices only after the intended feature scope.
+
+
+### Direct-video lifetime follow-up (candidate)
+Locally selected direct video has a four-hour maximum foreground playback duration with
+30 seconds of operation allowance; pairing remains 120 seconds and consent remains 30 seconds.
+Direct sender idle read timeout is five minutes. A watchdog polls revocation every 250 ms
+and closes registered sockets on network loss, account invalidation or expiry.
+No silent re-enrollment or persistent trust. Seek controls are conditional on decoder seekability.
+The shorter qualification profile remains unchanged for HLS and reference handoff.
+Long-duration runtime and physical-device compatibility are not yet qualified.

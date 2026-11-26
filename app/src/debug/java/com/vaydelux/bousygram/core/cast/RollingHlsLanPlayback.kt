@@ -74,7 +74,8 @@ internal object RollingHlsLanPlayback {
                     engine.play()
                 }
             }
-            val deadline = SystemClock.elapsedRealtime() + 120_000
+            val deadline = Math.addExact(SystemClock.elapsedRealtime(),
+                if (direct) RollingLanSessionLifetime.DIRECT_VIDEO.playbackMs else RollingLanSessionLifetime.QUALIFICATION.playbackMs)
             var playingMs = 0L
             var tick = SystemClock.elapsedRealtime()
             var previous = ""

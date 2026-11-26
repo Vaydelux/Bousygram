@@ -22,18 +22,34 @@ import javax.net.ssl.SSLSocket
 internal class RollingHlsLanSession(
     private val local: Inet4Address, private val prefix: Int,
     private val permitted: () -> Boolean,
-    private val nowMs: () -> Long = SystemClock::elapsedRealtime
+    private val nowMs: () -> Long = SystemClock::elapsedRealtime,
+    private val lifetime: RollingLanSessionLifetime = RollingLanSessionLifetime.QUALIFICATION
 ) : AutoCloseable {
     enum class Result { VERIFIED, DENIED }
     private val lock = Any()
     private val sockets = mutableSetOf<Closeable>()
     private val watchdog = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var stopped = false
+    @Volatile private var approvedAt = -1L
     private val owner = AccountSnapshot(1, 1)
     private val current: (AccountSnapshot) -> Boolean = { it == owner && active() }
 
-    init { require(RollingHlsLanInvitation.isPrivate(local) && prefix in 1..32) }
-    fun active(): Boolean = !stopped && permitted()
+    init {
+        require(RollingHlsLanInvitation.isPrivate(local) && prefix in 1..32)
+        // Revocation must interrupt blocked socket IO even if no application
+        // bytes are flowing (e.g. paused playback or a disconnected provider).
+        watchdog.scheduleWithFixedDelay({
+            if (!active()) close()
+        }, 250, 250, TimeUnit.MILLISECONDS)
+    }
+    fun active(): Boolean = !stopped && runCatching { permitted() }.getOrDefault(false) &&
+        (approvedAt < 0L || lifetime.isActive(nowMs(), approvedAt))
+    private fun startApprovedOperation() {
+        access()
+        check(approvedAt < 0L)
+        approvedAt = nowMs()
+        access()
+    }
     private fun access() { if (!active()) throw IOException("LAN session revoked") }
 
     private fun <T : Closeable, R> using(resource: T, action: (T) -> R): R {
@@ -128,10 +144,11 @@ internal class RollingHlsLanSession(
                                 // Bootstrap listener and connection no longer accept work.
                                 server.close()
                                 socket.close()
+                                startApprovedOperation()
                                 onApproved()
                                 using(accept(probeServer, nowMs() + 15_000L)) { probe ->
                                     if (!validPeer(probe, remote)) throw IOException("Unexpected probe endpoint")
-                                    bounded(probe, if (live == null) 15_000 else 180_000) {
+                                    bounded(probe, if (live == null) 15_000 else lifetime.operationMs) {
                                         if (live == null) RollingHlsLanProbe.receive(probe, tls.pin(), ::active)
                                         else live(probe, tls, remote)
                                     }
@@ -173,9 +190,10 @@ internal class RollingHlsLanSession(
             if (port == 0) return Result.DENIED
             val pins = RollingHlsPeerPairing.Pins(owner, identity.fingerprint(), invitation.offer.receiverPin)
             val tls = RollingHlsPairedTls.create(owner, pins, identity, invitation.certificate, false, current)
+            startApprovedOperation()
             onApproved()
             using(tls.context.socketFactory.createSocket() as SSLSocket) { socket ->
-                bounded(socket, if (live == null) 15_000 else 180_000) {
+                bounded(socket, if (live == null) 15_000 else lifetime.operationMs) {
                     connect(socket, RollingHlsLanInvitation.Endpoint(endpoint.address, port))
                     if (live == null) RollingHlsLanProbe.send(socket, tls.pin(), ::active)
                     else live(socket, tls, endpoint.address)

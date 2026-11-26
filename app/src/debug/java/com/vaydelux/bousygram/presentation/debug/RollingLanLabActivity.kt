@@ -185,6 +185,18 @@ class RollingLanLabActivity : ComponentActivity() {
                                     update = { it.player = engine }, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                                 Button(onClick = { engine.play() }, modifier = Modifier.fillMaxWidth()) { Text("Play") }
                                 OutlinedButton(onClick = { engine.pause() }, modifier = Modifier.fillMaxWidth()) { Text("Pause") }
+                                if (directMedia) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(onClick = {
+                                            if (engine.isCurrentMediaItemSeekable)
+                                                engine.seekTo((engine.currentPosition - 10_000L).coerceAtLeast(0L))
+                                        }, modifier = Modifier.weight(1f)) { Text("−10s") }
+                                        OutlinedButton(onClick = {
+                                            if (engine.isCurrentMediaItemSeekable && engine.duration > 0L)
+                                                engine.seekTo((engine.currentPosition + 10_000L).coerceAtMost(engine.duration))
+                                        }, modifier = Modifier.weight(1f)) { Text("+10s") }
+                                    }
+                                }
                             }
                             if (pending) {
                                 Text("Sender certificate SHA-256\n$fingerprint")
@@ -215,7 +227,7 @@ class RollingLanLabActivity : ComponentActivity() {
                                     OutlinedButton(onClick = { launchPicker { video.launch(if (directMedia) "video/*" else "video/mp4") } }, modifier = Modifier.fillMaxWidth()) {
                                         Text(if (fixture != null) "Clip selected" else if (directMedia) "Select local video (sender)" else if (localClip) "Select local fragmented MP4 (sender)" else "Select official synthetic test clip (sender)")
                                     }
-                                    Text(if (directMedia) "Both devices select direct mode. Seekable local files only; TV decoder compatibility required. Debug session up to 120 seconds; no copied file." else if (localClip) "Both devices must enable local clip mode. H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments. Other formats are rejected." else "Both devices must choose the same test mode. Only the official clip is accepted.")
+                                    Text(if (directMedia) "Both devices select direct mode. Seekable local files only; TV decoder compatibility required. Up to four hours per foreground session; no copied file." else if (localClip) "Both devices must enable local clip mode. H.264/AAC fragmented MP4 only; 16 MiB, up to 12 fragments. Other formats are rejected." else "Both devices must choose the same test mode. Only the official clip is accepted.")
                                 }
                                 Button(onClick = { requestStart(true) }, enabled = outgoing == null,
                                     modifier = Modifier.fillMaxWidth()) { Text("Receive on this device") }
@@ -268,6 +280,7 @@ class RollingLanLabActivity : ComponentActivity() {
 
     private fun reset(text: String) {
         generation.incrementAndGet()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         stopDiscovery()
         externalPicker = false
         permissionRole = null
@@ -373,8 +386,12 @@ class RollingLanLabActivity : ComponentActivity() {
         var referenceAccepted = false
         input = ""
         busy = true
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         message = "Preparing temporary identity…"
-        val active = RollingHlsLanSession(route.address, route.prefix, { token == generation.get() && route.current() && (account == null || AccountSession.isCurrent(account)) })
+        val active = RollingHlsLanSession(route.address, route.prefix,
+            { token == generation.get() && route.current() && (account == null || AccountSession.isCurrent(account)) },
+            lifetime = if (direct) com.vaydelux.bousygram.core.cast.RollingLanSessionLifetime.DIRECT_VIDEO
+                else com.vaydelux.bousygram.core.cast.RollingLanSessionLifetime.QUALIFICATION)
         session = active
         io.execute {
             val result = runCatching {

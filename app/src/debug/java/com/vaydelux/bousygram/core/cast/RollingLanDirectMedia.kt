@@ -102,7 +102,8 @@ internal object RollingLanDirectMedia {
         output.writeInt(MAGIC)
         output.writeLong(size)
         output.flush()
-        socket.soTimeout = 135_000
+        // No requests during a pause: bound idle ownership separately from total duration.
+        socket.soTimeout = 5 * 60 * 1000
         val buffer = ByteArray(RollingLanDirectMediaPolicy.MAX_READ_BYTES)
         try {
             while (true) {
