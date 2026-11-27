@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ExtrasCastControlPolicyTest {
+    @Test fun localSubtitleSwitchAndHudRespectCastOwnership() {
+        for (phase in ExtrasCastPhase.entries) {
+            val free = phase in setOf(ExtrasCastPhase.IDLE, ExtrasCastPhase.DISCONNECTED, ExtrasCastPhase.FAILED)
+            assertEquals(free, ExtrasCastControlPolicy.canRecreateLocalPlayer(phase))
+            assertEquals(phase != ExtrasCastPhase.IDLE, ExtrasCastControlPolicy.keepCastControlsVisible(phase))
+        }
+    }
+
     @Test fun seekBoundsAndOverflow() {
         assertEquals(0L, ExtrasCastControlPolicy.seekTarget(2_000L, 12_000L, -10_000L))
         assertEquals(12_000L, ExtrasCastControlPolicy.seekTarget(10_000L, 12_000L, 10_000L))

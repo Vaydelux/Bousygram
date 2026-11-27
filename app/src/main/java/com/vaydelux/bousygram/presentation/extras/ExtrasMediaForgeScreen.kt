@@ -115,6 +115,9 @@ import com.vaydelux.mediaforge.core.InspectedMedia
 import com.vaydelux.mediaforge.core.MediaForgeInspectionFailure
 import com.vaydelux.mediaforge.core.MediaForgeCastPolicy
 import com.vaydelux.bousygram.core.cast.ExtrasCastSender
+import com.vaydelux.bousygram.core.cast.ExtrasCastControlPolicy
+import com.vaydelux.bousygram.core.cast.ExtrasCastState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vaydelux.mediaforge.core.MediaForgeSdk
 import com.vaydelux.mediaforge.core.MediaForgeUrlPolicy
 import com.vaydelux.mediaforge.core.MediaForgeSessionInspection
@@ -2032,6 +2035,7 @@ private fun ExtrasMediaForgeNativePlayer(
     var nativeDuration by remember(player) { mutableLongStateOf(0L) }
     var nativeBuffered by remember(player) { mutableLongStateOf(0L) }
     var nativePlaying by remember(player) { mutableStateOf(false) }
+    var nativeActuallyPlaying by remember(player) { mutableStateOf(false) }
     var nativeScrubbing by remember(player) { mutableStateOf(false) }
     var nativeCaptionPicker by remember(player) { mutableStateOf(false) }
     val nativeStageFocus = remember(player) { FocusRequester() }
@@ -2043,15 +2047,9 @@ private fun ExtrasMediaForgeNativePlayer(
             nativeDuration = if (player.isCurrentMediaItemSeekable) player.duration.coerceAtLeast(0L) else 0L
             nativeBuffered = player.bufferedPosition.coerceAtLeast(0L)
             nativePlaying = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+            nativeActuallyPlaying = player.isPlaying
             kotlinx.coroutines.delay(300L)
         }
-    }
-    LaunchedEffect(nativeHudVisible, nativeActivity, nativePlaying, nativeScrubbing, nativeCaptionPicker) {
-        if (nativeHudVisible && nativePlaying && !nativeScrubbing && !nativeCaptionPicker) {
-            kotlinx.coroutines.delay(3000L)
-            nativeHudVisible = false
-        }
-        if (!nativePlaying) nativeHudVisible = true
     }
     val castPolicy = remember { MediaForgeCastPolicy(com.vaydelux.bousygram.BuildConfig.EXTRAS_CAST_QUALIFIED_HOSTS
         .split(',').filter { it.isNotBlank() }.toSet()) }
@@ -2063,6 +2061,20 @@ private fun ExtrasMediaForgeNativePlayer(
     ExtrasImmersiveWindow(!nativeCaptionPicker)
     // A changed caption/source creates a new player; stale errors must not bleed across it.
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
+    val castState = extrasCastSender?.state?.collectAsStateWithLifecycle()?.value ?: ExtrasCastState()
+    val canChangeLocalCaption = !castHoldsLocal &&
+        ExtrasCastControlPolicy.canRecreateLocalPlayer(castState.phase)
+    val showNativeControls = nativeHudVisible || !nativeActuallyPlaying ||
+        playbackError != null || nativeCaptionPicker || castHoldsLocal
+    LaunchedEffect(nativeHudVisible, nativeActivity, nativeActuallyPlaying, nativeScrubbing,
+        nativeCaptionPicker, playbackError, castHoldsLocal) {
+        if (!nativeActuallyPlaying || playbackError != null || nativeCaptionPicker || castHoldsLocal) {
+            nativeHudVisible = true
+        } else if (nativeHudVisible && !nativeScrubbing) {
+            kotlinx.coroutines.delay(3000L)
+            nativeHudVisible = false
+        }
+    }
     DisposableEffect(player, lifecycleOwner) {
         val initiallyForeground = lifecycleOwner.lifecycle.currentState
             .isAtLeast(Lifecycle.State.STARTED)
@@ -2119,26 +2131,29 @@ private fun ExtrasMediaForgeNativePlayer(
     Box(Modifier.fillMaxSize().background(Color.Black)
         .observeExtrasPlayerActivity { revealNativeHud() }
         .onPreviewKeyEvent { event ->
-            if (!nativeHudVisible && event.type == KeyEventType.KeyDown &&
+            if (!showNativeControls && event.type == KeyEventType.KeyDown &&
                 event.nativeKeyEvent.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER,
                     AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_DPAD_UP,
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
                     AndroidKeyEvent.KEYCODE_DPAD_RIGHT)) {
                 revealNativeHud(); true
-            } else false
+            } else {
+                if (event.type == KeyEventType.KeyDown) revealNativeHud()
+                false
+            }
         }
         .focusRequester(nativeStageFocus).focusable()) {
-        LaunchedEffect(nativeHudVisible, isAndroidTv) {
+        LaunchedEffect(showNativeControls, isAndroidTv, castHoldsLocal) {
             if (isAndroidTv) {
                 withFrameNanos { }
-                runCatching { if (nativeHudVisible && !castHoldsLocal) nativePlayFocus.requestFocus() else nativeStageFocus.requestFocus() }
+                runCatching { if (showNativeControls && !castHoldsLocal) nativePlayFocus.requestFocus() else nativeStageFocus.requestFocus() }
             }
         }
         BackHandler {
             if (nativeCaptionPicker) nativeCaptionPicker = false
-            else if (!nativeHudVisible) revealNativeHud() else onBack()
+            else if (!showNativeControls) revealNativeHud() else onBack()
         }
-        val canUseVlc = !castHoldsLocal && com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
+        val canUseVlc = canChangeLocalCaption && com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
             MediaForgeGuardedProgressiveSource.supported(media.stream)
         val switchVlc = {
             onUseLibVlc(extrasMedia3Handoff(
@@ -2176,7 +2191,7 @@ private fun ExtrasMediaForgeNativePlayer(
         // local HUD must never dispose the sender or stop remote playback.
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing)) {
-            if (nativeHudVisible || castHoldsLocal || playbackError != null || extrasCastSender != null) {
+            if (showNativeControls || ExtrasCastControlPolicy.keepCastControlsVisible(castState.phase)) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner),
@@ -2188,7 +2203,7 @@ private fun ExtrasMediaForgeNativePlayer(
                             contentDescription = "Back to WebView", onClick = onBack)
                         Text(title, modifier = Modifier.weight(1f), maxLines = 1,
                             overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                        if (media.captions.isNotEmpty() && !castHoldsLocal && extrasCastSender == null) {
+                        if (media.captions.isNotEmpty() && canChangeLocalCaption) {
                             BousygramIconButton(icon = BousygramIcons.Subtitles,
                                 contentDescription = "Subtitles", onClick = { nativeCaptionPicker = true; revealNativeHud() },
                                 modifier = Modifier.testTag("extras-native-subtitles"))
@@ -2203,6 +2218,7 @@ private fun ExtrasMediaForgeNativePlayer(
             ExtrasCastPanel(
                 sender = sender,
                 ready = castReady,
+                visible = showNativeControls,
                 buildPlan = {
                     val live = player.isCurrentMediaItemLive
                     castPolicy.plan(media, title.take(256),
@@ -2250,7 +2266,7 @@ private fun ExtrasMediaForgeNativePlayer(
             }
         }
         }
-        if (!castHoldsLocal && (nativeHudVisible || playbackError != null)) {
+        if (!castHoldsLocal && showNativeControls) {
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.safeDrawing).padding(8.dp),
@@ -2264,6 +2280,11 @@ private fun ExtrasMediaForgeNativePlayer(
                         onSeek = { controls.seekTo(it); revealNativeHud() },
                         onScrub = { nativeScrubbing = it; revealNativeHud() }, focus = null
                     )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(extrasVlcTimeLabel(nativePosition), style = MaterialTheme.typography.labelMedium)
+                        Text(if (nativeDuration > 0L) extrasVlcTimeLabel(nativeDuration) else "Time unavailable",
+                            style = MaterialTheme.typography.labelMedium)
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically) {
                         BousygramIconButton(icon = BousygramIcons.SeekBack, contentDescription = "Back 10 seconds",
@@ -2289,7 +2310,8 @@ private fun ExtrasMediaForgeNativePlayer(
                 captions = media.captions, selected = caption, isTv = isAndroidTv,
                 onSelected = { picked ->
                     nativeCaptionPicker = false
-                    if (picked?.url != caption?.url) {
+                    if (picked?.url != caption?.url && !castHoldsLocal &&
+                        ExtrasCastControlPolicy.canRecreateLocalPlayer(extrasCastSender?.state?.value?.phase ?: ExtrasCastState().phase)) {
                         onCaptionChanged(picked, extrasMedia3Handoff(
                             positionMs = player.currentPosition,
                             seekable = player.isCurrentMediaItemSeekable,

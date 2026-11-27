@@ -51,7 +51,8 @@ internal fun ExtrasCastPanel(
     ready: Boolean,
     buildPlan: () -> MediaForgeCastPlan?,
     onHoldLocal: () -> Unit,
-    onReturnLocal: (Long?) -> Unit
+    onReturnLocal: (Long?) -> Unit,
+    visible: Boolean = true
 ) {
     if (!BuildConfig.DEBUG || BuildConfig.EXTRAS_CAST_QUALIFIED_HOSTS.isBlank()) return
     val context = LocalContext.current
@@ -83,6 +84,9 @@ internal fun ExtrasCastPanel(
             onReturnLocal(state.positionMs.takeUnless { state.live })
         }
     }
+    // Lifecycle, ownership and return-to-local effects remain mounted when
+    // local HUD disappears; only the idle visual controls are suppressed.
+    if (!visible && !com.vaydelux.bousygram.core.cast.ExtrasCastControlPolicy.keepCastControlsVisible(state.phase)) return
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         val message = localMessage ?: state.message
