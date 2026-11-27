@@ -37,3 +37,6 @@ The featured block and bounded lazy rails now occupy full-span items within the 
 
 ## Phase 4–5 player refinement
 Explicit reload now invalidates session observations and approvals and recreates the WebView generation. Slow-page help stays non-blocking; blocked navigation does not overwrite playback state. Native immersive exit is available on touch as well as TV, with theme-aware server picker and selected-row contrast. No automatic server switching or relaxed security. Receiver approval test passed on unchanged Phase 2–3 retry; original intermittent cause remains unknown. Actual provider and physical-device qualification remain outstanding.
+
+## Release candidate checkpoint
+Phase 4 emulator suites passed: 78 responsive UI and 158 media/Cast test executions. Enterprise JVM verification found a stale wording assertion expecting legacy mode in the navigation-blocked advice. Update the assertion to require safe retry, server selection and explicit Playback tools; retain privacy and issue-priority checks. Request exact-main qualification and dated debug publication. Real provider playback, full visual screenshot review and physical ARM32 acceptance remain outstanding.

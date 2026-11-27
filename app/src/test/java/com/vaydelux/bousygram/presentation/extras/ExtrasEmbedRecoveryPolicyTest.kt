@@ -76,7 +76,11 @@ class ExtrasEmbedRecoveryPolicyTest {
     @Test fun blockedMainFrameNavigationExplainsWebPlayerWithoutLeakingUrls() {
         val issue = MediaForgeWebIssue.NAVIGATION_BLOCKED
         val advice = animeWebIssueRecoveryMessage(issue)
-        assertTrue(advice.contains("legacy mode"))
+        assertTrue(advice.contains("blocked"))
+        assertTrue(advice.contains("retry the selected page"))
+        assertTrue(advice.contains("choose another server"))
+        assertTrue(advice.contains("Playback tools"))
+        assertFalse("Do not present legacy routing as the default recovery", advice.contains("try the optional legacy mode"))
         assertFalse(advice.contains("https://"))
         assertEquals(issue, preferredAnimeWebIssue(MediaForgeWebIssue.SUBRESOURCE_NETWORK, issue))
         assertEquals(MediaForgeWebIssue.IFRAME_POLICY,
