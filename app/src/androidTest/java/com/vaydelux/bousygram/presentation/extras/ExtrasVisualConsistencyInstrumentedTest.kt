@@ -56,6 +56,24 @@ import org.junit.runner.RunWith
 class ExtrasVisualConsistencyInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun slowPlayerHintIsNonBlockingAndExplicit() {
+        val visible = mutableStateOf(false)
+        var opened = 0
+        compose.setContent {
+            BousygramTheme(preset = BousygramThemePreset.MIDNIGHT_GLASS) {
+                Column {
+                    Text("Stage remains mounted", modifier = Modifier.testTag("qa-stage"))
+                    ExtrasRecoveryHint(visible.value) { opened++ }
+                }
+            }
+        }
+        compose.onNodeWithTag("extras-slow-player-help").assertDoesNotExist()
+        compose.runOnIdle { visible.value = true }
+        compose.onNodeWithTag("qa-stage").assertExists()
+        compose.onNodeWithTag("extras-slow-player-help").performClick()
+        compose.runOnIdle { assertEquals(1, opened) }
+    }
+
     @Test fun discoveryRailUsesDistinctTagsAndOpensExactTitle() {
         val item = ExtrasItem(id = 42, type = ExtrasType.ANIME, title = "Fixture anime")
         var opened: ExtrasItem? = null

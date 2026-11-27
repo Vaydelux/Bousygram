@@ -38,7 +38,7 @@ internal fun animeWebIssueRecoveryMessage(issue: MediaForgeWebIssue?): String = 
     MediaForgeWebIssue.SUBRESOURCE_TLS ->
         "A provider resource failed TLS verification. For safety the connection was blocked; choose another server."
     MediaForgeWebIssue.NAVIGATION_BLOCKED ->
-        "The provider tried to leave the selected video page. The app blocked it to prevent unwanted ads and title changes. If the player stays blank, try the optional legacy mode."
+        "An unwanted window or off-page navigation was blocked. If the picture is blank, retry the selected page or choose another server. Compatibility options are available in Playback tools."
     null ->
         "This player may require a user tap or cross-site cookies. Try compatibility mode or another server."
 }

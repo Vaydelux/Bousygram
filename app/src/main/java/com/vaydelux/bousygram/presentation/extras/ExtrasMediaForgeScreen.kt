@@ -397,7 +397,9 @@ private fun ExtrasMediaForgePlayerScreen(
                 if (!webEmbedOnly && session.observe(url)) snapshot = session.snapshot()
             },
             onNavigationBlocked = {
-                status = "Blocked a navigation outside the selected embed."
+                // A blocked redirect is not proof of failed video playback.
+                // Keep current loading/playback status; diagnostics stay in Help.
+                webIssue = preferredAnimeWebIssue(webIssue, MediaForgeWebIssue.NAVIGATION_BLOCKED)
             },
             onPageLoadFailed = { message ->
                 status = message
@@ -476,6 +478,26 @@ private fun ExtrasMediaForgePlayerScreen(
         webLoadFailed = false
         // Every mode switch requires a NEW bridge and WebView: Android
         // cookie and popup policies must apply before provider scripts run.
+        webGeneration += 1
+    }
+
+    // Reload is one explicit generation boundary: old observations and
+    // approvals must never survive a retry, including after renderer loss.
+    fun reloadSelectedPage() {
+        inspectionGeneration += 1
+        inspectionJob?.cancel()
+        inspectionJob = null
+        busy = false
+        approved = null
+        selectedCaption = null
+        showSubtitlePicker = false
+        session.clear()
+        snapshot = session.snapshot()
+        cursorEnabled = false
+        bridge.dismissFullscreen()
+        webLoadFailed = false
+        slowEmbedHelp = false
+        status = "Reloading selected player…"
         webGeneration += 1
     }
 
@@ -802,12 +824,7 @@ private fun ExtrasMediaForgePlayerScreen(
                     onCompatibility = { tryCompatibilityMode() },
                     onLegacyMode = { tryLegacyWebMode() },
                     onBrowser = { openSelectedInBrowser() },
-                    onRetry = {
-                        webLoadFailed = false
-                        status = "Reloading embedded player…"
-                        // A dead Chromium renderer has no reusable WebView or bridge.
-                        if (webView != null) webView?.reload() else webGeneration += 1
-                    },
+                    onRetry = { reloadSelectedPage() },
                     initialFocus = dpadRecoveryFocus,
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -829,7 +846,7 @@ private fun ExtrasMediaForgePlayerScreen(
                     onMenu = { cursorEnabled = false }
                 )
             }
-            if (immersiveWeb && isAndroidTv && htmlFullscreenView == null) {
+            if (immersiveWeb && htmlFullscreenView == null && !webLoadFailed) {
                 // This trusted toolbar stays reachable in D-pad mode. It also
                 // gives the remote an exit when fullscreen hides the main UI.
                 Surface(
@@ -843,14 +860,16 @@ private fun ExtrasMediaForgePlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedButton(
-                            onClick = { immersiveWeb = false },
-                            modifier = Modifier.focusRequester(dpadImmersiveFocus)
+                            onClick = { immersiveWeb = false; cursorEnabled = false },
+                            modifier = Modifier.heightIn(min = 48.dp).focusRequester(dpadImmersiveFocus)
                                 .testTag("extras-embed-exit-immersive")
                         ) { Text("Exit fullscreen") }
-                        ExtrasTvCursorModeButton(
-                            cursorEnabled = cursorEnabled,
-                            onToggle = { cursorEnabled = !cursorEnabled }
-                        )
+                        if (isAndroidTv) {
+                            ExtrasTvCursorModeButton(
+                                cursorEnabled = cursorEnabled,
+                                onToggle = { cursorEnabled = !cursorEnabled }
+                            )
+                        }
                     }
                 }
             }
@@ -888,6 +907,11 @@ private fun ExtrasMediaForgePlayerScreen(
                         Text("Help")
                     }
                 }
+                ExtrasRecoveryHint(
+                    visible = shouldOfferExtrasBlankPageHelp(webLoadFailed, immersiveWeb,
+                        snapshot.streams.isNotEmpty(), slowEmbedHelp),
+                    onHelp = { cursorEnabled = false; showPlaybackTools = true }
+                )
             }
         }
     }
@@ -941,20 +965,8 @@ private fun ExtrasMediaForgePlayerScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
-                        onClick = {
-                            inspectionGeneration += 1
-                            inspectionJob?.cancel()
-                            inspectionJob = null
-                            busy = false
-                            approved = null
-                            selectedCaption = null
-                            session.clear()
-                            snapshot = session.snapshot()
-                            status = "Reloading embedded player…"
-                            webLoadFailed = false
-                            if (webView != null) webView?.reload() else webGeneration += 1
-                        },
-                        modifier = Modifier.testTag("extras-embed-reload")
+                        onClick = { showPlaybackTools = false; reloadSelectedPage() },
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("extras-embed-reload")
                     ) { Text("Reload player") }
                     OutlinedButton(
                         onClick = {
@@ -1261,6 +1273,17 @@ private fun ExtrasMediaForgePlayerScreen(
     }
 }
 
+/** Non-blocking: an opened page is not proof of successful video or failure. */
+@Composable
+internal fun ExtrasRecoveryHint(visible: Boolean, onHelp: () -> Unit) {
+    if (!visible) return
+    TextButton(onClick = onHelp,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .extrasFocusOutline().testTag("extras-slow-player-help")) {
+        Text("Picture still blank? Playback help", maxLines = 2)
+    }
+}
+
 /** Bounded, independently testable native theater controls. */
 @Composable
 internal fun ExtrasPlaybackToolsDialog(
@@ -1419,10 +1442,10 @@ private fun ExtrasServerPicker(
                             .fillMaxWidth()
                             .heightIn(max = maxPanelHeight)
                             .testTag("extras-server-dialog"),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurface,
-                        shadowElevation = 24.dp
+                        shadowElevation = if (LocalBousygramReduceTransparency.current) 0.dp else 8.dp
                     ) {
                         Column(
                             modifier = Modifier.padding(if (isTv) 18.dp else 14.dp),
@@ -1443,7 +1466,7 @@ private fun ExtrasServerPicker(
                                 )
                                 OutlinedButton(
                                     onClick = { expanded = false },
-                                    modifier = Modifier.extrasFocusOutline().testTag("extras-server-close")
+                                    modifier = Modifier.heightIn(min = 48.dp).extrasFocusOutline().testTag("extras-server-close")
                                 ) { Text("Close") }
                             }
                             Text(
@@ -1492,7 +1515,8 @@ private fun ExtrasServerPicker(
                                                         Text(
                                                             candidate.description,
                                                             style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                                                                else MaterialTheme.colorScheme.onSurfaceVariant,
                                                             maxLines = 1,
                                                             overflow = TextOverflow.Ellipsis
                                                         )

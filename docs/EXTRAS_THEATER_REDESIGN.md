@@ -34,3 +34,6 @@ Next design work: richer scrollable discovery rails using actual catalog data, c
 
 ## Phase 2–3 implementation
 The featured block and bounded lazy rails now occupy full-span items within the existing grid; poster restoration includes the exact prefix count. Saved/recent rails use only local metadata for the active category; highly rated uses existing results with numeric scores ≥8. No extra API traffic or fake watch history. Narrow/short windows and filtered searches remain grid-only. Episode artwork has bounded decoding and fallback visuals; primary actions use concise labels. Qualification still required.
+
+## Phase 4–5 player refinement
+Explicit reload now invalidates session observations and approvals and recreates the WebView generation. Slow-page help stays non-blocking; blocked navigation does not overwrite playback state. Native immersive exit is available on touch as well as TV, with theme-aware server picker and selected-row contrast. No automatic server switching or relaxed security. Receiver approval test passed on unchanged Phase 2–3 retry; original intermittent cause remains unknown. Actual provider and physical-device qualification remain outstanding.
