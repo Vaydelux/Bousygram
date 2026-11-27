@@ -5,6 +5,7 @@ import android.net.Uri
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.MotionEvent
 import android.widget.FrameLayout
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import com.vaydelux.bousygram.presentation.media.CinematicScrubber
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -80,6 +82,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -339,8 +344,11 @@ private fun ExtrasMediaForgePlayerScreen(
     val dpadToolbarFocus = remember(request.url) { FocusRequester() }
     val dpadImmersiveFocus = remember(request.url) { FocusRequester() }
     val dpadFullscreenFocus = remember(request.url) { FocusRequester() }
+    val dpadHiddenHudFocus = remember(request.url) { FocusRequester() }
     val dpadRecoveryFocus = remember(request.url) { FocusRequester() }
     var immersiveWeb by remember(request.url) { mutableStateOf(false) }
+    var fullscreenHudVisible by remember(request.url) { mutableStateOf(true) }
+    var fullscreenActivity by remember(request.url) { mutableLongStateOf(0L) }
     var showPlaybackTools by remember(request.url) { mutableStateOf(false) }
     // A provider may need third-party cookies or scripted autoplay to render its
     // nested player. Neither is granted until the user explicitly opts in.
@@ -384,6 +392,16 @@ private fun ExtrasMediaForgePlayerScreen(
             kotlinx.coroutines.delay(15_000L)
             slowEmbedHelp = true
         }
+    }
+    val fullscreenActive = immersiveWeb || htmlFullscreenView != null
+    val latestFullscreenActive by rememberUpdatedState(fullscreenActive)
+    fun revealFullscreenHud() { fullscreenHudVisible = true; fullscreenActivity += 1L }
+    LaunchedEffect(fullscreenActive, htmlFullscreenView, fullscreenActivity, webLoadFailed) {
+        if (fullscreenActive && !webLoadFailed) {
+            fullscreenHudVisible = true
+            kotlinx.coroutines.delay(3000L)
+            fullscreenHudVisible = false
+        } else fullscreenHudVisible = true
     }
     // Keep the session alive while native playback temporarily replaces WebView.
     DisposableEffect(session) {
@@ -528,7 +546,8 @@ private fun ExtrasMediaForgePlayerScreen(
         when {
             nativeMedia != null -> returnToWebView()
             showPlaybackTools -> showPlaybackTools = false
-            cursorEnabled -> cursorEnabled = false
+            fullscreenActive && !fullscreenHudVisible -> { cursorEnabled = false; revealFullscreenHud() }
+            cursorEnabled -> { cursorEnabled = false; revealFullscreenHud() }
             htmlFullscreenView != null -> bridge.dismissFullscreen()
             immersiveWeb -> immersiveWeb = false
             else -> onBack()
@@ -589,7 +608,7 @@ private fun ExtrasMediaForgePlayerScreen(
         return
     }
 
-    LaunchedEffect(isAndroidTv, cursorEnabled, webView, immersiveWeb, htmlFullscreenView, webLoadFailed) {
+    LaunchedEffect(isAndroidTv, cursorEnabled, webView, immersiveWeb, htmlFullscreenView, webLoadFailed, fullscreenHudVisible) {
         if (!isAndroidTv) return@LaunchedEffect
         // Chromium can take remote focus after navigation even when pointer
         // mode is OFF, forcing Back before the user can reach native controls.
@@ -602,6 +621,7 @@ private fun ExtrasMediaForgePlayerScreen(
         if (webLoadFailed && cursorEnabled) cursorEnabled = false
         if (!cursorEnabled) {
             fun focusNativeControls(): Boolean = when {
+                fullscreenActive && !fullscreenHudVisible && !webLoadFailed -> dpadHiddenHudFocus.requestFocus()
                 htmlFullscreenView != null -> dpadFullscreenFocus.requestFocus()
                 webLoadFailed -> dpadRecoveryFocus.requestFocus()
                 immersiveWeb -> dpadImmersiveFocus.requestFocus()
@@ -645,7 +665,18 @@ private fun ExtrasMediaForgePlayerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().observeExtrasPlayerActivity {
+        if (fullscreenActive) revealFullscreenHud()
+    }.onPreviewKeyEvent { event ->
+        if (fullscreenActive && !fullscreenHudVisible && !cursorEnabled &&
+            event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode in listOf(
+                AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_DPAD_DOWN,
+                AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
+                AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER,
+                AndroidKeyEvent.KEYCODE_MENU)) {
+            revealFullscreenHud(); true
+        } else false
+    }) {
     // A short landscape phone or 720p TV can otherwise allocate the entire
     // viewport to the browser toolbar/footer and measure WebView at 0px.
     val panelLimits = extrasEmbedPanelLimits(maxHeight, LocalDensity.current.fontScale)
@@ -790,7 +821,17 @@ private fun ExtrasMediaForgePlayerScreen(
                                 ctx, request.url,
                                 compatibilityMode = webCompatibilityMode,
                                 legacyWindowRouting = legacyWindowRouting
-                            ).also { webView = it }
+                            ).also { view ->
+                                webView = view
+                                view.setOnTouchListener { _, _ ->
+                                    if (latestFullscreenActive) revealFullscreenHud()
+                                    false
+                                }
+                                view.setOnHoverListener { _, event ->
+                                    if (latestFullscreenActive && event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) revealFullscreenHud()
+                                    false
+                                }
+                            }
                         } catch (_: RuntimeException) {
                             status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
                             webLoadFailed = true
@@ -843,10 +884,15 @@ private fun ExtrasMediaForgePlayerScreen(
                     onConfirm = { webView?.let { bridge.click(it, pointerX.toFloat(), pointerY.toFloat()) } },
                     isActive = htmlFullscreenView == null,
                     tag = "extras-virtual-cursor",
+                    pointerVisible = !immersiveWeb || fullscreenHudVisible,
+                    onActivity = { if (immersiveWeb) revealFullscreenHud() },
                     onMenu = { cursorEnabled = false }
                 )
             }
-            if (immersiveWeb && htmlFullscreenView == null && !webLoadFailed) {
+            if (immersiveWeb && htmlFullscreenView == null && !webLoadFailed && !fullscreenHudVisible && !cursorEnabled && isAndroidTv) {
+                Box(Modifier.size(1.dp).focusRequester(dpadHiddenHudFocus).focusable())
+            }
+            if (immersiveWeb && htmlFullscreenView == null && !webLoadFailed && fullscreenHudVisible) {
                 // This trusted toolbar stays reachable in D-pad mode. It also
                 // gives the remote an exit when fullscreen hides the main UI.
                 Surface(
@@ -1221,7 +1267,16 @@ private fun ExtrasMediaForgePlayerScreen(
         ) {
             AndroidView(
                 factory = { ctx ->
-                    FrameLayout(ctx).apply {
+                    object : FrameLayout(ctx) {
+                        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                            revealFullscreenHud()
+                            return super.dispatchTouchEvent(event)
+                        }
+                        override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) revealFullscreenHud()
+                            return super.dispatchGenericMotionEvent(event)
+                        }
+                    }.apply {
                         (videoView.parent as? ViewGroup)?.removeView(videoView)
                         addView(
                             videoView,
@@ -1251,11 +1306,16 @@ private fun ExtrasMediaForgePlayerScreen(
                     onConfirm = { bridge.click(videoView, pointerX.toFloat(), pointerY.toFloat()) },
                     isActive = true,
                     tag = "extras-fullscreen-virtual-cursor",
+                    pointerVisible = fullscreenHudVisible,
+                    onActivity = { revealFullscreenHud() },
                     onMenu = { cursorEnabled = false }
                 )
             }
-            // Always draw trusted recovery controls above the untrusted HTML surface.
-            Box(Modifier.align(Alignment.TopCenter)) {
+            // Back or pointer activity restores trusted controls without remounting video.
+            if (!fullscreenHudVisible && !cursorEnabled && isAndroidTv) {
+                Box(Modifier.size(1.dp).focusRequester(dpadHiddenHudFocus).focusable())
+            }
+            if (fullscreenHudVisible) Box(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 ExtrasFullscreenRecoveryControls(
                     isAnime = request.anilistId > 0,
                     onExitFullscreen = { bridge.dismissFullscreen() },
@@ -1607,6 +1667,20 @@ internal fun ExtrasAnimeEmbedServerDropdown(
         isTv, modifier, pickerTitle = "Choose anime server", compactOptions = true)
 }
 
+/** Observe input without consuming browser or player gestures. */
+@Composable
+internal fun Modifier.observeExtrasPlayerActivity(onActivity: () -> Unit): Modifier {
+    val latest by rememberUpdatedState(onActivity)
+    return pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.any { it.pressed || it.position != it.previousPosition }) latest()
+            }
+        }
+    }
+}
+
 /** Explicit remote-mode action. Off means native D-pad controls own focus. */
 @Composable
 internal fun ExtrasTvCursorModeButton(
@@ -1637,7 +1711,9 @@ internal fun ExtrasVirtualCursor(
     onConfirm: () -> Unit,
     isActive: Boolean,
     tag: String,
-    onMenu: (() -> Unit)? = null
+    onMenu: (() -> Unit)? = null,
+    pointerVisible: Boolean = true,
+    onActivity: () -> Unit = {}
 ) {
     val focus = remember { FocusRequester() }
     // Familiar high-contrast pointer (white fill, dark edge, theme-colored halo).
@@ -1674,6 +1750,7 @@ internal fun ExtrasVirtualCursor(
                     }
                 }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                onActivity()
                 val repeat = event.nativeKeyEvent.repeatCount
                 val step = ExtrasTvCursorPolicy.step(widthPx, heightPx, repeat)
                 when (event.nativeKeyEvent.keyCode) {
@@ -1708,7 +1785,7 @@ internal fun ExtrasVirtualCursor(
             .focusable()
             .testTag(tag)
     ) {
-        Canvas(
+        if (pointerVisible) Canvas(
             Modifier.offset {
                 IntOffset(
                     xPx.coerceIn(0, widthPx - 1),
@@ -1891,6 +1968,32 @@ private fun ExtrasMediaForgeNativePlayer(
     }
     val controls = remember(player) { MediaForgeMedia3Controls(player) }
     val foregroundIntent = remember(player) { ExtrasForegroundPlaybackIntent() }
+    var nativeHudVisible by remember(player) { mutableStateOf(true) }
+    var nativeActivity by remember(player) { mutableLongStateOf(0L) }
+    var nativePosition by remember(player) { mutableLongStateOf(0L) }
+    var nativeDuration by remember(player) { mutableLongStateOf(0L) }
+    var nativeBuffered by remember(player) { mutableLongStateOf(0L) }
+    var nativePlaying by remember(player) { mutableStateOf(false) }
+    var nativeScrubbing by remember(player) { mutableStateOf(false) }
+    val nativeStageFocus = remember(player) { FocusRequester() }
+    val nativePlayFocus = remember(player) { FocusRequester() }
+    fun revealNativeHud() { nativeHudVisible = true; nativeActivity += 1L }
+    LaunchedEffect(player) {
+        while (true) {
+            nativePosition = player.currentPosition.coerceAtLeast(0L)
+            nativeDuration = if (player.isCurrentMediaItemSeekable) player.duration.coerceAtLeast(0L) else 0L
+            nativeBuffered = player.bufferedPosition.coerceAtLeast(0L)
+            nativePlaying = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+            kotlinx.coroutines.delay(300L)
+        }
+    }
+    LaunchedEffect(nativeHudVisible, nativeActivity, nativePlaying, nativeScrubbing) {
+        if (nativeHudVisible && nativePlaying && !nativeScrubbing) {
+            kotlinx.coroutines.delay(3000L)
+            nativeHudVisible = false
+        }
+        if (!nativePlaying) nativeHudVisible = true
+    }
     val castPolicy = remember { MediaForgeCastPolicy(com.vaydelux.bousygram.BuildConfig.EXTRAS_CAST_QUALIFIED_HOSTS
         .split(',').filter { it.isNotBlank() }.toSet()) }
     val castPlanAvailable = remember(media, title) { castPolicy.plan(media, title.take(256)) != null }
@@ -1953,8 +2056,25 @@ private fun ExtrasMediaForgeNativePlayer(
             controls.release()
         }
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
-        .windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Box(Modifier.fillMaxSize().background(Color.Black)
+        .observeExtrasPlayerActivity { revealNativeHud() }
+        .onPreviewKeyEvent { event ->
+            if (!nativeHudVisible && event.type == KeyEventType.KeyDown &&
+                event.nativeKeyEvent.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                    AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_DPAD_UP,
+                    AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT)) {
+                revealNativeHud(); true
+            } else false
+        }
+        .focusRequester(nativeStageFocus).focusable()) {
+        LaunchedEffect(nativeHudVisible, isAndroidTv) {
+            if (isAndroidTv) {
+                withFrameNanos { }
+                runCatching { if (nativeHudVisible && !castHoldsLocal) nativePlayFocus.requestFocus() else nativeStageFocus.requestFocus() }
+            }
+        }
+        BackHandler { if (!nativeHudVisible) revealNativeHud() else onBack() }
         val canUseVlc = !castHoldsLocal && com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
             MediaForgeGuardedProgressiveSource.supported(media.stream)
         val switchVlc = {
@@ -1966,45 +2086,51 @@ private fun ExtrasMediaForgeNativePlayer(
                 ended = player.playbackState == Player.STATE_ENDED
             ))
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(8.dp)) {
-            if (maxWidth < 500.dp) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(title, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis)
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onBack,
-                            modifier = Modifier.weight(1f)
-                        ) { Text("Back to WebView", maxLines = 2) }
-                        if (canUseVlc) {
-                            OutlinedButton(
-                                onClick = switchVlc,
-                                modifier = Modifier.weight(1f)
-                                    .testTag("extras-media3-use-libvlc")
-                            ) { Text("Use LibVLC", maxLines = 2) }
+        if (castHoldsLocal) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Playing on TV", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            }
+        } else {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        this.player = player
+                        isFocusable = false
+                        setOnTouchListener { _, _ -> revealNativeHud(); false }
+                        setOnHoverListener { _, event ->
+                            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) revealNativeHud()
+                            false
                         }
                     }
-                }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                },
+                update = { it.player = player },
+                onRelease = { it.player = null },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        // Keep Cast panel mounted while its route owns a session. Hiding the
+        // local HUD must never dispose the sender or stop remote playback.
+        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.safeDrawing)) {
+            if (nativeHudVisible || castHoldsLocal || playbackError != null || extrasCastSender != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner),
+                    modifier = Modifier.fillMaxWidth().padding(8.dp)
                 ) {
-                    OutlinedButton(onClick = onBack) { Text("Back to WebView") }
-                    Text(title, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    if (canUseVlc) {
-                        OutlinedButton(
-                            onClick = switchVlc,
-                            modifier = Modifier.testTag("extras-media3-use-libvlc")
-                        ) { Text("Use LibVLC") }
+                    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BousygramIconButton(icon = BousygramIcons.Back,
+                            contentDescription = "Back to WebView", onClick = onBack)
+                        Text(title, modifier = Modifier.weight(1f), maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                        if (canUseVlc) BousygramIconButton(icon = BousygramIcons.Decoder,
+                            contentDescription = "Use LibVLC", onClick = switchVlc,
+                            modifier = Modifier.testTag("extras-media3-use-libvlc"))
                     }
                 }
             }
-        }
         extrasCastSender?.let { sender ->
             ExtrasCastPanel(
                 sender = sender,
@@ -2055,22 +2181,40 @@ private fun ExtrasMediaForgeNativePlayer(
                 ) { Text("Retry playback") }
             }
         }
-        if (castHoldsLocal) {
-            Box(Modifier.fillMaxWidth().weight(1f).background(Color.Black), contentAlignment = Alignment.Center) {
-                Text("Playing on TV", color = Color.White, style = MaterialTheme.typography.titleMedium)
-            }
-        } else {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = true
-                        this.player = player
+        }
+        if (!castHoldsLocal && (nativeHudVisible || playbackError != null)) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.safeDrawing).padding(8.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(LocalBousygramStyleSpec.current.panelCorner)
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CinematicScrubber(
+                        mediaKey = "extras-native", position = nativePosition,
+                        buffered = nativeBuffered, duration = nativeDuration,
+                        onSeek = { controls.seekTo(it); revealNativeHud() },
+                        onScrub = { nativeScrubbing = it; revealNativeHud() }, focus = null
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        BousygramIconButton(icon = BousygramIcons.SeekBack, contentDescription = "Back 10 seconds",
+                            enabled = nativeDuration > 0L,
+                            onClick = { controls.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L)); revealNativeHud() })
+                        BousygramIconButton(icon = if (nativePlaying) BousygramIcons.Pause else BousygramIcons.Play,
+                            contentDescription = if (nativePlaying) "Pause" else "Play",
+                            modifier = Modifier.focusRequester(nativePlayFocus),
+                            onClick = {
+                                if (player.playWhenReady && player.playbackState != Player.STATE_ENDED) controls.pause()
+                                else { if (player.playbackState == Player.STATE_ENDED) controls.seekTo(0L); controls.play() }
+                                revealNativeHud()
+                            })
+                        BousygramIconButton(icon = BousygramIcons.SeekForward, contentDescription = "Forward 10 seconds",
+                            enabled = nativeDuration > 0L,
+                            onClick = { controls.seekTo((player.currentPosition + 10_000L).coerceAtMost(nativeDuration)); revealNativeHud() })
                     }
-                },
-                update = { it.player = player },
-                onRelease = { it.player = null },
-                modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black)
-            )
+                }
+            }
         }
     }
 }

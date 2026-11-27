@@ -40,3 +40,6 @@ Explicit reload now invalidates session observations and approvals and recreates
 
 ## Release candidate checkpoint
 Phase 4 emulator suites passed: 78 responsive UI and 158 media/Cast test executions. Enterprise JVM verification found a stale wording assertion expecting legacy mode in the navigation-blocked advice. Update the assertion to require safe retry, server selection and explicit Playback tools; retain privacy and issue-priority checks. Request exact-main qualification and dated debug publication. Real provider playback, full visual screenshot review and physical ARM32 acceptance remain outstanding.
+
+## Fullscreen and native playback follow-up
+Both WebView fullscreen modes now auto-hide trusted HUD and TV cursor after 3 seconds of inactivity; touch, hover, D-pad activity or Back restores controls. Cursor focus remains mounted independently of its painted pointer. Media3 uses the shared cinematic scrubber and Bousygram action icons instead of the stock controller, preserving guarded transport and explicit recovery. Existing qualified debug Cast sender remains unchanged; public receiver-compatible source and subtitle origins must be qualified before enabling Cast. Direct VTT/TTML supported by existing policy; SRT conversion alone is not receiver delivery. Actual device and emulator verification remains required.
