@@ -48,6 +48,28 @@ class MediaForgeWebBridgeInstrumentedTest {
             "https://cdn.example.invalid/video.m3u8", offlineEmbed, false))
     }
 
+    @Test fun passiveActivityObserverReceivesTouchWithoutInstallingClickListener() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            var observed = 0
+            val bridge = MediaForgeWebBridge(onMediaResource = {})
+            val view = bridge.create(instrumentation.targetContext, offlineEmbed,
+                onUserActivity = { observed++ })
+            try {
+                val now = android.os.SystemClock.uptimeMillis()
+                val event = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 10f, 10f, 0)
+                try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+                assertEquals(1, observed)
+                assertFalse("Do not install a synthetic click listener", view.hasOnClickListeners())
+            } finally {
+                bridge.close()
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            }
+        }
+    }
+
     @Test fun webBridgeAppliesSandboxedSettingsAndDisablesThirdPartyCookies() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {

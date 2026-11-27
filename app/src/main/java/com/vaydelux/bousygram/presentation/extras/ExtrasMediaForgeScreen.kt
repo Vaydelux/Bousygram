@@ -839,18 +839,9 @@ private fun ExtrasMediaForgePlayerScreen(
                             bridge.create(
                                 ctx, request.url,
                                 compatibilityMode = webCompatibilityMode,
-                                legacyWindowRouting = legacyWindowRouting
-                            ).also { view ->
-                                webView = view
-                                view.setOnTouchListener { _, _ ->
-                                    if (latestFullscreenActive) revealFullscreenHud()
-                                    false
-                                }
-                                view.setOnHoverListener { _, event ->
-                                    if (latestFullscreenActive && event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) revealFullscreenHud()
-                                    false
-                                }
-                            }
+                                legacyWindowRouting = legacyWindowRouting,
+                                onUserActivity = { if (latestFullscreenActive) revealFullscreenHud() }
+                            ).also { webView = it }
                         } catch (_: RuntimeException) {
                             status = ctx.getString(com.vaydelux.bousygram.R.string.extras_webview_unavailable)
                             webLoadFailed = true
@@ -2171,15 +2162,19 @@ private fun ExtrasMediaForgeNativePlayer(
         } else {
             AndroidView(
                 factory = { ctx ->
-                    PlayerView(ctx).apply {
+                    object : PlayerView(ctx) {
+                        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                            revealNativeHud()
+                            return super.dispatchTouchEvent(event)
+                        }
+                        override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) revealNativeHud()
+                            return super.dispatchGenericMotionEvent(event)
+                        }
+                    }.apply {
                         useController = false
                         this.player = player
                         isFocusable = false
-                        setOnTouchListener { _, _ -> revealNativeHud(); false }
-                        setOnHoverListener { _, event ->
-                            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) revealNativeHud()
-                            false
-                        }
                     }
                 },
                 update = { it.player = player },

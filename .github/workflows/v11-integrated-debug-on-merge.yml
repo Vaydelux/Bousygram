@@ -1,5 +1,5 @@
 name: Publish qualified main debug once
-# Release request: qualify the Extras theater overhaul and publish all three debug ABIs.
+# Release request: qualify fullscreen, native subtitle controls and accessibility-safe input; publish three ABIs.
 # Deliberate release request: editing this file starts all four companion
 # qualifications for the same main SHA. Manual dispatch is also supported.
 on:

@@ -157,7 +157,8 @@ class MediaForgeWebBridge(
         context: Context,
         embedUrl: String,
         compatibilityMode: Boolean = false,
-        legacyWindowRouting: Boolean = false
+        legacyWindowRouting: Boolean = false,
+        onUserActivity: (() -> Unit)? = null
     ): WebView {
         require(!legacyWindowRouting || compatibilityMode) {
             "Legacy window routing requires explicit WebView compatibility mode"
@@ -165,7 +166,20 @@ class MediaForgeWebBridge(
         check(open.get()) { "A closed MediaForge WebBridge cannot create a new WebView" }
         val approved = MediaForgeUrlPolicy.safeHttpsUrl(embedUrl)
             ?: throw IllegalArgumentException("Invalid external embed URL")
-        val webView = WebView(context)
+        val webView = object : WebView(context) {
+            // Observe activity without replacing Chromium's own touch handling,
+            // consuming gestures or synthesizing accessibility clicks.
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                if (open.get()) onUserActivity?.invoke()
+                return super.dispatchTouchEvent(event)
+            }
+            override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                if (open.get() && event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
+                    onUserActivity?.invoke()
+                }
+                return super.dispatchGenericMotionEvent(event)
+            }
+        }
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
