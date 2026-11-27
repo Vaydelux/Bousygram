@@ -1,6 +1,12 @@
 package com.vaydelux.bousygram.presentation.extras
 
 import android.content.Intent
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.net.Uri
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.View
@@ -394,6 +400,7 @@ private fun ExtrasMediaForgePlayerScreen(
         }
     }
     val fullscreenActive = immersiveWeb || htmlFullscreenView != null
+    ExtrasImmersiveWindow(fullscreenActive && nativeMedia == null)
     val latestFullscreenActive by rememberUpdatedState(fullscreenActive)
     fun revealFullscreenHud() { fullscreenHudVisible = true; fullscreenActivity += 1L }
     LaunchedEffect(fullscreenActive, htmlFullscreenView, fullscreenActivity, webLoadFailed) {
@@ -434,10 +441,14 @@ private fun ExtrasMediaForgePlayerScreen(
             },
             onFullscreenRequested = { view ->
                 htmlFullscreenView = view
+                revealFullscreenHud()
                 // HTML5 fullscreen must not silently activate pointer mode.
                 if (isAndroidTv) cursorEnabled = false
             },
-            onFullscreenEnded = { htmlFullscreenView = null },
+            onFullscreenEnded = {
+                htmlFullscreenView = null
+                webView?.post { webView?.requestLayout() }
+            },
             onRendererGone = {
                 // Android can kill Chromium on low-memory TV devices. Do not
                 // reuse the dead WebView or auto-loop a crashing embed.
@@ -564,6 +575,11 @@ private fun ExtrasMediaForgePlayerScreen(
                 initialPositionMs = nativeResumePositionMs,
                 initiallyPlayRequested = nativePlayRequested,
                 onBack = { returnToWebView() },
+                onCaptionChanged = { picked, handoff ->
+                    nativeResumePositionMs = handoff.positionMs
+                    nativePlayRequested = handoff.playRequested
+                    selectedCaption = picked
+                },
                 onUseLibVlc = { handoff ->
                     nativeResumePositionMs = handoff.positionMs
                     nativePlayRequested = handoff.playRequested
@@ -1268,6 +1284,14 @@ private fun ExtrasMediaForgePlayerScreen(
             AndroidView(
                 factory = { ctx ->
                     object : FrameLayout(ctx) {
+                        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                            super.onSizeChanged(w, h, oldw, oldh)
+                            if (w > 0 && h > 0 && (w != oldw || h != oldh)) {
+                                // Re-measure Chromium's custom view after the actual host
+                                // viewport changes, not just when the fullscreen event fires.
+                                post { if (videoView.parent === this) videoView.requestLayout() }
+                            }
+                        }
                         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                             revealFullscreenHud()
                             return super.dispatchTouchEvent(event)
@@ -1285,6 +1309,7 @@ private fun ExtrasMediaForgePlayerScreen(
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
                         )
+                        videoView.requestLayout()
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
@@ -1330,6 +1355,38 @@ private fun ExtrasMediaForgePlayerScreen(
             }
         }
     }
+    }
+}
+
+/** Scoped window ownership: restore previous bar visibility when leaving Extras fullscreen. */
+@Composable
+private fun ExtrasImmersiveWindow(active: Boolean) {
+    val context = LocalContext.current
+    val activity = remember(context) {
+        var current: Context? = context
+        while (current is ContextWrapper && current !is Activity) {
+            val next = current.baseContext
+            if (next === current) break
+            current = next
+        }
+        current as? Activity
+    }
+    DisposableEffect(activity, active) {
+        val window = activity?.window?.takeIf { active }
+        val decor = window?.decorView
+        val controller = if (window != null && decor != null) WindowCompat.getInsetsController(window, decor) else null
+        val previous = decor?.let { androidx.core.view.ViewCompat.getRootWindowInsets(it) }
+        val oldBehavior = controller?.systemBarsBehavior
+        controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose {
+            if (controller != null) {
+                if (oldBehavior != null) controller.systemBarsBehavior = oldBehavior
+                listOf(WindowInsetsCompat.Type.statusBars(), WindowInsetsCompat.Type.navigationBars()).forEach { type ->
+                    if (previous?.isVisible(type) != false) controller.show(type) else controller.hide(type)
+                }
+            }
+        }
     }
 }
 
@@ -1957,6 +2014,7 @@ private fun ExtrasMediaForgeNativePlayer(
     initialPositionMs: Long,
     initiallyPlayRequested: Boolean,
     onBack: () -> Unit,
+    onCaptionChanged: (CaptionCandidate?, ExtrasPlaybackHandoff) -> Unit,
     onUseLibVlc: (ExtrasPlaybackHandoff) -> Unit
 ) {
     val context = LocalContext.current
@@ -1975,6 +2033,7 @@ private fun ExtrasMediaForgeNativePlayer(
     var nativeBuffered by remember(player) { mutableLongStateOf(0L) }
     var nativePlaying by remember(player) { mutableStateOf(false) }
     var nativeScrubbing by remember(player) { mutableStateOf(false) }
+    var nativeCaptionPicker by remember(player) { mutableStateOf(false) }
     val nativeStageFocus = remember(player) { FocusRequester() }
     val nativePlayFocus = remember(player) { FocusRequester() }
     fun revealNativeHud() { nativeHudVisible = true; nativeActivity += 1L }
@@ -1987,8 +2046,8 @@ private fun ExtrasMediaForgeNativePlayer(
             kotlinx.coroutines.delay(300L)
         }
     }
-    LaunchedEffect(nativeHudVisible, nativeActivity, nativePlaying, nativeScrubbing) {
-        if (nativeHudVisible && nativePlaying && !nativeScrubbing) {
+    LaunchedEffect(nativeHudVisible, nativeActivity, nativePlaying, nativeScrubbing, nativeCaptionPicker) {
+        if (nativeHudVisible && nativePlaying && !nativeScrubbing && !nativeCaptionPicker) {
             kotlinx.coroutines.delay(3000L)
             nativeHudVisible = false
         }
@@ -2001,6 +2060,7 @@ private fun ExtrasMediaForgeNativePlayer(
     val extrasCastSender = remember(player, castEligible) { if (castEligible) ExtrasCastSender() else null }
     var castHoldsLocal by remember(player) { mutableStateOf(false) }
     var castReady by remember(player) { mutableStateOf(false) }
+    ExtrasImmersiveWindow(!nativeCaptionPicker)
     // A changed caption/source creates a new player; stale errors must not bleed across it.
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
     DisposableEffect(player, lifecycleOwner) {
@@ -2074,7 +2134,10 @@ private fun ExtrasMediaForgeNativePlayer(
                 runCatching { if (nativeHudVisible && !castHoldsLocal) nativePlayFocus.requestFocus() else nativeStageFocus.requestFocus() }
             }
         }
-        BackHandler { if (!nativeHudVisible) revealNativeHud() else onBack() }
+        BackHandler {
+            if (nativeCaptionPicker) nativeCaptionPicker = false
+            else if (!nativeHudVisible) revealNativeHud() else onBack()
+        }
         val canUseVlc = !castHoldsLocal && com.vaydelux.bousygram.BuildConfig.MEDIAFORGE_EXTRAS_LIBVLC_ENABLED &&
             MediaForgeGuardedProgressiveSource.supported(media.stream)
         val switchVlc = {
@@ -2125,6 +2188,11 @@ private fun ExtrasMediaForgeNativePlayer(
                             contentDescription = "Back to WebView", onClick = onBack)
                         Text(title, modifier = Modifier.weight(1f), maxLines = 1,
                             overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                        if (media.captions.isNotEmpty() && !castHoldsLocal && extrasCastSender == null) {
+                            BousygramIconButton(icon = BousygramIcons.Subtitles,
+                                contentDescription = "Subtitles", onClick = { nativeCaptionPicker = true; revealNativeHud() },
+                                modifier = Modifier.testTag("extras-native-subtitles"))
+                        }
                         if (canUseVlc) BousygramIconButton(icon = BousygramIcons.Decoder,
                             contentDescription = "Use LibVLC", onClick = switchVlc,
                             modifier = Modifier.testTag("extras-media3-use-libvlc"))
@@ -2215,6 +2283,25 @@ private fun ExtrasMediaForgeNativePlayer(
                     }
                 }
             }
+        }
+        if (nativeCaptionPicker) {
+            ExtrasSubtitlePicker(
+                captions = media.captions, selected = caption, isTv = isAndroidTv,
+                onSelected = { picked ->
+                    nativeCaptionPicker = false
+                    if (picked?.url != caption?.url) {
+                        onCaptionChanged(picked, extrasMedia3Handoff(
+                            positionMs = player.currentPosition,
+                            seekable = player.isCurrentMediaItemSeekable,
+                            playWhenReady = player.playWhenReady,
+                            failed = playbackError != null,
+                            ended = player.playbackState == Player.STATE_ENDED
+                        ))
+                    }
+                    revealNativeHud()
+                },
+                onDismiss = { nativeCaptionPicker = false; revealNativeHud() }
+            )
         }
     }
 }
